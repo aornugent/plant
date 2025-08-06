@@ -18,7 +18,7 @@ for (x in names(strategy_types)) {
   p <- Parameters(x, e)(strategies=list(s),
                         patch_type = 'meta-population')
   
-  env <- make_environment(x)
+  env <- Environment(x)
   
   ctrl <- Control()
   patch <- Patch(x, e)(p, env, ctrl)
@@ -49,9 +49,10 @@ for (x in names(strategy_types)) {
       expect_equal(patch$ode_rates, numeric(0))
     }
     if(x %in% c("TF24")) {
-      expect_equal(patch$ode_state, 0.25)
+      expect_equal(patch$ode_state, 0.0)
       expect_equal(patch$ode_rates, 0.0)
     }
+    
     expect_identical(patch$ode_state, env_state)
     expect_identical(patch$ode_rates, env_rates)
     
@@ -177,7 +178,7 @@ for (x in names(strategy_types)) {
   
     ctrl <- Control()
     e <- environment_types[[x]]
-    env <- make_environment(x)
+    env <- Environment(x)
     p2 <- Parameters(x, e)(strategies=list(strategy_types[[x]]()),
                           patch_area= 2, max_patch_lifetime = 30)
     patch2 <- Patch(x, e)(p2, env, ctrl)
@@ -251,7 +252,7 @@ for (x in names(strategy_types)) {
   
   test_that("No Disturbance for fixed-time patches", {
     p$patch_type <- "fixed"
-    env <- make_environment(x)
+    env <- Environment(x)
     ctrl <- scm_base_control()
 
     patch <- Patch(x, e)(p, env, ctrl)

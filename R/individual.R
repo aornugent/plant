@@ -32,12 +32,13 @@ grow_individual_to_size <- function(individual, sizes, size_name, env,
   
   state <- t(sapply(res, "[[", "state"))
   colnames(state) <- colnames(obj$state)
-  
+
   ret <- list(time=vnapply(res, "[[", "time"),
               state=state,
               individual=lapply(res, "[[", "individual"),
               trajectory=cbind(time=obj$time, state=obj$state),
               env=env)
+  
   if (filter) {
     i <- !vlapply(ret$individual, is.null)
     if (!all(i)) {
@@ -47,6 +48,14 @@ grow_individual_to_size <- function(individual, sizes, size_name, env,
     }
   }
   ret
+}
+
+vlapply <- function(X, FUN, ...) {
+  vapply(X, FUN, logical(1), ...)
+}
+
+vnapply <- function(X, FUN, ...) {
+  vapply(X, FUN, numeric(1), ...)
 }
 
 ##' @export
@@ -179,6 +188,7 @@ grow_individual_bracket <- function(individual, sizes, size_name, env,
     }
   }
 
+
   t <- vnapply(state, "[[", "time")
   m <- t(sapply(state, "[[", "state"))
 
@@ -220,7 +230,6 @@ grow_individual_bisect <- function(runner, size, size_name, t0, t1, y0) {
   }
 }
 
-#!
 #' Compute the whole plant light compensation point for a single
 #' plant.
 #' @title Whole plant light compensation point
@@ -261,7 +270,7 @@ optimise_individual_rate_at_size_by_trait <- function(
     size = 1, size_name = "height",
     rate = size_name,
     params = scm_base_parameters(type),
-    env = make_environment(type),
+    env = Environment(type),
     hyperpars = hyperpar(type),
     set_state_directly = FALSE) {
   

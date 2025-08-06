@@ -14,7 +14,7 @@ test_that("Run SCM", {
     p <- Parameters(x, e)(strategies=list(s),
                           patch_area=1)
     
-    env <- make_environment(x)
+    env <- Environment(x)
     ctrl <- Control()
     scm <- SCM(x, e)(p, env, ctrl)
     expect_is(scm, sprintf("SCM<%s,%s>", x, e))
@@ -163,7 +163,7 @@ test_that("schedule setting", {
     p <- Parameters(x, e)(
       strategies=list(strategy_types[[x]]()),
       max_patch_lifetime=5.0)
-    env <- make_environment(x)
+    env <- Environment(x)
     ctrl <- scm_base_control()
     scm <- SCM(x, e)(p, env, ctrl)
 
@@ -237,7 +237,7 @@ test_that("Offspring production & error calculations correct", {
     p0 <- scm_base_parameters(x)
     p1 <- expand_parameters(trait_matrix(0.08, "lma"), p0, birth_rate_list=1.0)
     
-    env <- make_environment(x)
+    env <- Environment(x)
     ctrl <- scm_base_control()
 
     scm <- run_scm(p1, env, ctrl)
@@ -245,7 +245,8 @@ test_that("Offspring production & error calculations correct", {
 
     net_reproduction_ratio_R <- function(scm, error=FALSE) {
       a <- scm$node_schedule$times(1)
-      net_reproduction_ratio_by_node_weighted <- scm$patch$density(a) *
+      density <- purrr::map_dbl(a, ~ scm$patch$density(.x))
+      net_reproduction_ratio_by_node_weighted <- density *
         scm$patch$species[[1]]$net_reproduction_ratio_by_node *
         scm$parameters$strategies[[1]]$S_D
       total <- trapezium(a, net_reproduction_ratio_by_node_weighted)
@@ -262,17 +263,6 @@ test_that("Offspring production & error calculations correct", {
       scm$patch$species[[1]]$competition_effects_error(scm$patch$compute_competition(0))
     expect_identical(scm$competition_effect_error(1), lae_cmp)
 
-    int <- make_scm_integrate(scm)
-    S_D <- scm$parameters$strategies[[1]]$S_D
-    expect_equal(int("offspring_produced_survival_weighted") * S_D, scm$net_reproduction_ratio_for_species(1))
-
-    res <- run_scm_collect(p1, env, ctrl)
-    int2 <- make_scm_integrate(res)
-
-    expect_equal(int2("offspring_produced_survival_weighted"), int("offspring_produced_survival_weighted"))
-    expect_equal(int2("height"), int("height"))
-    expect_equal(int2("mortality"), int("mortality"))
-    expect_equal(int2("fecundity"), int("fecundity"))
   }
 })
 
@@ -281,7 +271,7 @@ test_that("Can create empty SCM", {
   for (x in names(strategy_types)) {
     e <- environment_types[[x]]
     p <- Parameters(x, e)()
-    env <- make_environment(x)
+    env <- Environment(x)
     ctrl <- scm_base_control()
     scm <- SCM(x, e)(p, env, ctrl)
 

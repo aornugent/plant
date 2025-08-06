@@ -61,8 +61,7 @@ for (x in names(strategy_types)) {
     # expect_true(all(c(variable_names, rate_names) %in% names(vars_pl)))
     
     ## Compute the vital rates and compare them
-    env <- test_environment(x, h0)
-    light_env <- attr(env, "light_env") # underlying function
+    env <- Environment(x)
     
     pl$compute_rates(env)
     
@@ -119,7 +118,8 @@ for (x in names(strategy_types)) {
     ## R implementation:
     resource_compensation_point_R <- function(x, plant, ...) {
       target <- function(light_availability) {
-        env <- fixed_environment(x, light_availability)
+        env <- Environment(x)
+        env$set_fixed_environment(light_availability, height_max = 150)
         plant$compute_rates(env)
         plant$aux("net_mass_production_dt")
       }

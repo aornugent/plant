@@ -65,6 +65,10 @@ public:
   // Retrieve auxillary variables and save into the ode solver
   ode::iterator ode_aux(ode::iterator it) const;
 
+  // Returns state in structure format as opposed to single 
+  // vector as given by ode_state
+  Rcpp::List r_get_state() const;
+
   // Set state of patch, based on estimate of future state estimated by the solver
   // There are two implementations.
   //   - first function is for resident runs.
@@ -76,7 +80,7 @@ public:
 
   // * R interface
   // Data accessors:
-  std::vector<double> r_density(std::vector<double> time) const {return survival_weighting->r_density(time);}
+  double r_density(double time) const {return survival_weighting->r_density(time);}
   double r_pr_survival(double time) const {return survival_weighting->pr_survival(time);}
   double r_disturbance_mean_interval() const {return survival_weighting->r_mean_interval();}
   double r_survival_weighting_cdf(double time) const {return survival_weighting->cdf(time);}
@@ -439,6 +443,23 @@ ode::iterator Patch<T,E>::ode_state(ode::iterator it) const {
   it = ode::ode_state(species.begin(), species.end(), it);
   it = environment.ode_state(it);
   return it;
+}
+
+template <typename T, typename E>
+Rcpp::List Patch<T, E>::r_get_state() const
+{
+
+  // Aseemble commkunity state, icnluding auxiallry variables
+  Rcpp::List community_state;
+  for (size_t i = 0; i < species.size(); ++i)
+  {
+    community_state.push_back(species[i].r_get_state());
+  }
+
+  return Rcpp::List::create(_["time"] = time(),
+                            _["patch_density"] = r_density(time()),
+                            _["species"] = community_state,
+                            _["env"] = environment.r_get_state());
 }
 
 template <typename T, typename E>

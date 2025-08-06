@@ -32,68 +32,7 @@ FF16_Parameters <- function(...) {
   Parameters("FF16","FF16_Env")(...)
 }
 
-##' @title: Helper functions to create an FF16_Environment object. Useful for running individuals
-##' @param light_availability_spline_tol Error tolerance of adpative spline method. Deafult is 1e-4.
-##' @param light_availability_spline_nbase Parameter used in adaptive spline method. Default is 17.
-##' @param light_availability_spline_max_depth Parameter used in adaptive spline method. Default is 16.
-##' @inheritParams FF16_Environment
-##' @export
-##' @rdname FF16_make_environment
-FF16_make_environment <- function(light_availability_spline_tol = 1e-4, 
-                                  light_availability_spline_nbase = 17,
-                                  light_availability_spline_max_depth = 16, 
-                                  light_availability_spline_rescale_usually = TRUE) {
-  
-  e <- FF16_Environment()
-  
-  # Shading defaults have lower tolerance which are overwritten for speed
-  e$light_availability <- ResourceSpline(light_availability_spline_tol, 
-                     light_availability_spline_nbase, 
-                     light_availability_spline_max_depth, 
-                     light_availability_spline_rescale_usually)
-  
-  return(e)
-}
-
-##' Construct a fixed environment for a model
-##'
-##' @param e Value of environment (deafult  = 1.0)
-##' @param height_max maximum possible height in environment
-##' @param ... Additional parameters to be passed to \code{FF16_make_environment}
-##' @rdname FF16_fixed_environment
-##'
-##' @export
-FF16_fixed_environment <- function(e=1.0, height_max = 150.0, ...) {
-  env <- FF16_make_environment(...)
-  env$set_fixed_environment(e, height_max)
-  env
-}
-
-
-##' @title Create a test environment for FF16 startegy. Only used in testing
-##' @param height top height of environment object
-##' @param n number of points
-##' @param light_env function for light environment in test object
-##' @param n_strategies number of strategies for test environment
-##' @rdname FF16_test_environment
-FF16_test_environment <- function(height, n=101, light_env=NULL,
-                                  n_strategies=1) {
-  
-  hh <- seq(0, height, length.out=n)
-  if (is.null(light_env)) {
-    light_env <- function(x) {
-      exp(x/(height*2)) - 1 + (1 - (exp(.5) - 1))/2
-    }
-  }
-  ee <- light_env(hh)
-  interpolator <- Interpolator()
-  interpolator$init(hh, ee)
-
-  ret <- FF16_make_environment()
-  ret$light_availability$spline <- interpolator
-  attr(ret, "light_env") <- light_env
-  ret
-}
+# Todo -- generalise report generation
 
 ##' Generates a report on stand grown with FF16 strategy
 ##'
@@ -279,7 +218,7 @@ make_FF16_hyperpar <- function(
       }
       if(all(diff(AA) < 1E-8)) {
         # line fitting will fail if all have are zero, or potentially same value
-        ret <- c(last(AA), 0)
+        ret <- c(dplyr::last(AA), 0)
         names(ret) <- c("p1","p2")
       } else {
         fit <- nls(AA ~ p1 * E/(p2 + E), data.frame(E = E, AA = AA), start = list(p1 = 100, p2 = 0.2))
@@ -362,14 +301,13 @@ make_FF16_hyperpar <- function(
 FF16_hyperpar <- make_FF16_hyperpar()
 
 #' @export
-#' @inheritParams expand_state
 #' @importFrom rlang .data
 #' @rdname expand_state
-FF16_expand_state <- function(tidy_patch_results) {
-  data <- split(tidy_patch_results$species, tidy_patch_results$species$species)
+FF16_expand_state <- function(results) {
+  data <- split(results$species, results$species$species)
 
-  for (i in seq_len(tidy_patch_results$n_spp)) {
-    s <- tidy_patch_results$p$strategies[[i]]
+  for (i in seq_len(results$n_spp)) {
+    s <- results$p$strategies[[i]]
     s$eta_c <- 1 - 2 / (1 + s$eta) + 1 / (1 + 2 * s$eta)
 
     data[[i]] <-
@@ -394,7 +332,7 @@ FF16_expand_state <- function(tidy_patch_results) {
       )
   }
 
-  tidy_patch_results$species <- data %>% dplyr::bind_rows()
+  results$species <- data %>% dplyr::bind_rows()
 
-  tidy_patch_results
+  results
 }

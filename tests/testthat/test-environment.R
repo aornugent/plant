@@ -9,7 +9,7 @@ for (x in names(strategy_types)) {
 
   test_that("Empty environment", {
     p <- Parameters(x, e)()
-    env <- make_environment(x)
+    env <- Environment(x)
 
     ## At this point, we should have full canopy openness, partly because
     ## the spline is just not constructed.
@@ -22,7 +22,7 @@ for (x in names(strategy_types)) {
   })
 
   test_that("Manually set environment", {
-    env <- make_environment(x)
+    env <- Environment(x)
     ## Now, set the light environment.
     hh <- seq(0, 10, length.out=101)
     light_env <- function(x) {
@@ -41,62 +41,3 @@ for (x in names(strategy_types)) {
     expect_identical(sapply(hmid, env$light_availability$spline$eval), sapply(hmid, interplator$eval))
   })
 }
-
-test_that("TF24 rainfall spline", {
-  
-  context("Rainfall-TF24")
-  
-  env <- make_environment("TF24")
-  # get list of extrinsic drivers for the environment
-
-  expect_contains(env$extrinsic_drivers$get_names(), c("PPFD", "rainfall", "leaf_temp","atm_o2_kpa", "atm_kpa", "ca", "atm_vpd"))
-  
-  # test default values - check at two values of second argument (should give same result)
-  expect_equal(env$extrinsic_drivers$evaluate("PPFD", 0), 1800)
-  expect_equal(env$extrinsic_drivers$evaluate("PPFD", 10), 1800)
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", 0), 1)
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", 10), 1)
-  expect_equal(env$extrinsic_drivers$evaluate("atm_vpd", 0), 1)
-  expect_equal(env$extrinsic_drivers$evaluate("atm_vpd", 10), 1)
-  expect_equal(env$extrinsic_drivers$evaluate("ca", 0), 40)
-  expect_equal(env$extrinsic_drivers$evaluate("ca", 10), 40)
-  expect_equal(env$extrinsic_drivers$evaluate("PPFD", 0), 1800)
-  expect_equal(env$extrinsic_drivers$evaluate("PPFD", 10), 1800)
-  expect_equal(env$extrinsic_drivers$evaluate("atm_kpa", 0), 100.5)
-  expect_equal(env$extrinsic_drivers$evaluate("atm_kpa", 10), 100.5)
-
-  # test extrapolation on default spline of y = 1
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", 100), 1)
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", 10000000), 1)
-  
-  # test extrapolation on spline of y = 5.613432
-  env <- make_environment("TF24", rainfall=5.613432)
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", 100), 5.613432)
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", 10000000), 5.613432)
-
-
-  ## simple quadratic
-  x <- seq(-10, 10, 0.41)
-  quadratic_rain <- list( x = x, y = x^2)
-  
-  a_psi = 10
-  env <- make_environment("TF24", rainfall=quadratic_rain, 
-                          a_psi = a_psi) # overwrites previously created spline
-  
-  # interpolated points
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", 2), 4)
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", -2), 4)
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", 3), 9, tolerance=1e-7)
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", -3), 9, tolerance=1e-7)
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", 5.5), 30.25, tolerance=1e-7)
-  expect_equal(env$extrinsic_drivers$evaluate("rainfall", -5.5), 30.25, tolerance=1e-7)
-  
-  ## interpolated range of points
-  expect_equal(env$extrinsic_drivers$evaluate_range("rainfall", c(-7, 1, 7.8345)), c(49, 1, 61.37939025), tolerance=1e-6)
-  
-  theta_sat = 0.453
-  env$set_soil_water_state(theta_sat)
-  expect_equal(env$psi_from_soil_moist(env$get_soil_water_state()), a_psi)
-  
-  
-})

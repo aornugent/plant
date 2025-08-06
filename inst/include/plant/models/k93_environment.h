@@ -14,6 +14,7 @@ public:
   K93_Environment() {
     time = 0.0;
     light_availability = ResourceSpline();
+    light_availability.spline_rescale_usually = true;
   };
 
   // Light interface
@@ -37,6 +38,11 @@ public:
     light_availability.r_init_interpolators(state);
   }
 
+  virtual Rcpp::List r_get_state() const
+  {
+    return Rcpp::List::create(_["light_availability"] = time); //      light_availability);
+  }
+
   // Core functions
   template <typename Function>
   void compute_environment(Function f_compute_competition, double height_max, bool rescale) {
@@ -58,13 +64,6 @@ public:
   }
 
 };
-
-
-inline Rcpp::List get_state(const K93_Environment environment, double time) {
-  auto ret = get_state(environment.extrinsic_drivers, time);
-  ret["light_availability"] = get_state(environment.light_availability);
-  return ret;
-}
 
 }
 

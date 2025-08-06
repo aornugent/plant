@@ -118,8 +118,6 @@ reference:
 - title: Manipulating outputs
   contents:
   - tidy_patch
-  - tidy_env
-  - tidy_species
   - tidy_individual
   - integrate_over_size_distribution
   - interpolate_to_heights
@@ -169,9 +167,7 @@ reference:
 
 - title: Review if still needed
   contents:
-  - make_scm_integrate
   - node_schedule_times_default
-  - make_patch
 
 - title: Internal functions (for developers/advanced users only)
   contents:

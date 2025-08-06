@@ -16,7 +16,8 @@ public:
   // constructor for R interface - default settings can be modified
   // except for soil_number_of_depths
   // which are only updated on construction
-  TF24_Environment(
+  
+  TF24_Environment(bool light_availability_spline_rescale_usually = true,
                    int soil_number_of_depths = 1, 
                    double delta_z = 9999, // not using this
                    double soil_moist_sat = 0.453, // saturated soil moisture content (m3 water m^-3 soil) 
@@ -30,7 +31,7 @@ public:
       n_psi(n_psi),
       K_sat(K_sat),
       b_infil(b_infil)
-      {
+  {
     time = 0.0;
     //todo: add soil depth as parameter
     depth = 2;
@@ -43,19 +44,24 @@ public:
                    true //light_availability_spline_rescale_usually)
                   );
 
-    // set_extrinsic_drivers_defaults
     ExtrinsicDrivers extrinsic_drivers;
-    set_extrinsic_drivers(
-        1800, // PPFD
-        1,    // rainfall
-        1,    // atm_vpd
-        40,   // ca
-        25,   // leaf_temp
-        21,   // atm_o2_kpa
-        100.5 // atm_kpa
-    );
 
-    // Setup soil water distribtuion
+    extrinsic_drivers_set_constant("PPFD",1800);
+    extrinsic_drivers_set_constant("rainfall",1);
+    extrinsic_drivers_set_constant("atm_vpd",1);
+    extrinsic_drivers_set_constant("ca",40);
+    extrinsic_drivers_set_constant("leaf_temp",25);
+    extrinsic_drivers_set_constant("atm_o2_kpa",21);
+    extrinsic_drivers_set_constant("atm_kpa",100.5);
+
+    set_soil_number_of_depths(soil_number_of_depths);
+    set_soil_water_state(std::vector<double>(soil_number_of_depths, 0.0));
+  };
+
+  // Setup soil water distribtuion
+  void set_soil_number_of_depths(int n) {
+    soil_number_of_depths = n;
+    
     vars = Internals(soil_number_of_depths);
     z.resize(soil_number_of_depths);
     dz.resize(soil_number_of_depths);
@@ -65,19 +71,20 @@ public:
 
     delta_z = depth / soil_number_of_depths;
 
-    for (int i = 0; i < soil_number_of_depths; i++) {
-      z[i] = (i+0.5) * delta_z;
+    for (int i = 0; i < soil_number_of_depths; i++)
+    {
+      z[i] = (i + 0.5) * delta_z;
     }
 
-    for (int i = 0; i < soil_number_of_depths - 1; i++) {
-      dz[i] = z[i+1] - z[i];
+    for (int i = 0; i < soil_number_of_depths - 1; i++)
+    {
+      dz[i] = z[i + 1] - z[i];
     }
     dz[soil_number_of_depths - 1] = dz[soil_number_of_depths - 2];
+  }
+  int get_soil_number_of_depths() const {return soil_number_of_depths;}
 
-    set_soil_water_state(std::vector<double>(soil_number_of_depths, 0.0));
-  };
-
-  //TODO: should we use auxilliary in internals
+  // TODO: should we use auxilliary in internals
   std::vector<double> q;
   std::vector<double> z;
   std::vector<double> K;
@@ -90,6 +97,7 @@ public:
   // Light interface
   bool canopy_rescale_usually;
   //distance between layers
+  int soil_number_of_depths;
   double delta_z;
 
   double depth;
@@ -119,20 +127,6 @@ public:
   virtual void r_init_interpolators(const std::vector<double> &state)
   {
     light_availability.r_init_interpolators(state);
-  }
-  
-  void set_extrinsic_drivers(double PPFD, double rainfall, double atm_vpd, double ca, double leaf_temp, double atm_o2_kpa, double atm_kpa) {
-    
-    extrinsic_drivers.clear();
-
-    extrinsic_drivers.set_constant("PPFD", PPFD);
-    extrinsic_drivers.set_constant("rainfall", rainfall);
-    extrinsic_drivers.set_constant("atm_vpd", atm_vpd);
-    extrinsic_drivers.set_constant("ca", ca);
-    extrinsic_drivers.set_constant("leaf_temp", leaf_temp);
-    extrinsic_drivers.set_constant("atm_o2_kpa", atm_o2_kpa);
-    extrinsic_drivers.set_constant("atm_kpa", atm_kpa);
- 
   }
   
   virtual void compute_rates_simple(std::vector<double> const &resource_depletion)
@@ -247,7 +241,8 @@ public:
     return pow((psi_soil_/a_psi), (-1/n_psi))*soil_moist_sat;
   }
 
-  //todo - turn into generic getters and setters?
+  // Easy wrappers. Cn also use `extrinsic_drivers_evaluate("PPFD", time)
+
   double get_PPFD()      const { return extrinsic_drivers.evaluate("PPFD", time); }
   double get_atm_vpd()   const { return extrinsic_drivers.evaluate("atm_vpd", time); }
   double get_ca()        const { return extrinsic_drivers.evaluate("ca", time); }
@@ -263,6 +258,10 @@ public:
 
   // R interface
   void set_soil_water_state(std::vector<double> state) {
+    if(state.size() != vars.state_size) {
+      throw std::invalid_argument("Input vector size does not match soil state size.");
+    }
+    
     for (size_t i = 0; i < vars.state_size; i++) {
       vars.set_state(i, state[i]);
     }
@@ -286,24 +285,26 @@ public:
   virtual void clear_environment() {
     light_availability.clear();
   }
-};
 
+  virtual Rcpp::List r_get_state() const
+  {
+    
+    // Surely an easier way?
+    auto const &soil_depth_list = get_soil_depths();
+    auto rcpp_soil_depth_vec = Rcpp::NumericVector(soil_depth_list.begin(), soil_depth_list.end());
 
-inline Rcpp::List get_state(const TF24_Environment environment, double time) {
-  auto ret = get_state(environment.extrinsic_drivers, time);
-  
-  ret["light_availability"] = get_state(environment.light_availability);
-  
-  auto const& soil_moist_list = environment.get_soil_water_state();
-  auto rcpp_soil_moist_vec = Rcpp::NumericVector(soil_moist_list.begin(), soil_moist_list.end());
-  ret["soil_moist"] = rcpp_soil_moist_vec;
+    auto const &soil_moist_list = get_soil_water_state();
+    auto rcpp_soil_moist_vec = Rcpp::NumericVector(soil_moist_list.begin(), soil_moist_list.end());
 
-  // Surely an easier way?
-  auto const &soil_depth_list = environment.get_soil_depths();
-  auto rcpp_soil_depth_vec = Rcpp::NumericVector(soil_depth_list.begin(), soil_depth_list.end());
-  ret["soil_depth"] = rcpp_soil_depth_vec;
-  return ret;
-}
+    return Rcpp::List::create(
+        //    auto ret = get_state(environment.extrinsic_drivers, time);
+
+        _["light_availability"] = light_availability.r_get_state(),
+        _["soil_moist"] = rcpp_soil_moist_vec,
+        _["soil_depth"] = rcpp_soil_depth_vec
+    );
+  }
+  };
 }
 
 #endif
