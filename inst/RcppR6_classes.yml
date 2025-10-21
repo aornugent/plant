@@ -18,7 +18,6 @@ Leaf:
       @param ci_abs_tol absolute tolerance value for root-solving ci
       @param ci_niter maximum number of iterations for root-solving ci
       @param g1_TF24 cost parameter for TF24 profit model umol m^-2 s^-1
-   {
 
       @export
     args:
