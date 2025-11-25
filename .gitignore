@@ -10,3 +10,5 @@ src/*.so
 tmp*
 .vscode
 scrap.R
+smoke_test
+deps/xad/build
