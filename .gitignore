@@ -2,7 +2,8 @@ vignettes/*
 inst/website
 *Rproj*
 *.Rhistory*
-^plant.Rcheck$
+plant.Rcheck/
+*.tar.gz
 .Rproj.user
 src/*.o.tmp
 src/*.o

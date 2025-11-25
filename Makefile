@@ -3,12 +3,13 @@ RSCRIPT = Rscript --no-init-file
 
 all: compile
 
-compile: RcppR6
+compile:
 	Rscript -e 'pkgbuild::compile_dll()' \ 
 	make roxygen
 
 test:
-	Rscript -e 'library(methods); devtools::test()'
+	R CMD build --no-build-vignettes .
+	_R_CHECK_FORCE_SUGGESTS_=false R CMD check --no-build-vignettes --no-manual `ls -1tr ${PACKAGE}*gz | tail -n1`
 
 RcppR6:
 	Rscript -e "library(methods); RcppR6::RcppR6()"
@@ -18,7 +19,7 @@ attributes:
 
 roxygen:
 	@mkdir -p man
-	Rscript -e "library(methods); devtools::document()"
+	Rscript -e "library(methods); roxygen2::roxygenize()"
 
 benchmark:
 	Rscript scripts/benchmark.R

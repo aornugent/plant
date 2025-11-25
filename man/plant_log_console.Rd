@@ -2,31 +2,31 @@
 % Please edit documentation in R/logging.R
 \name{plant_log_console}
 \alias{plant_log_console}
-\title{Activate logging with loggr}
+\title{Activate logging with logr}
 \usage{
 plant_log_console(..., .message = FALSE, .warning = FALSE, .error = FALSE)
 }
 \arguments{
-\item{...}{Additional parameters passed to \code{loggr::log_file},
+\item{...}{Additional parameters passed to \code{logr::log_open},
 but \emph{not} \code{file_name} which is hard coded here to
 \code{"console"}.}
 
 \item{.message, .warning, .error}{Include messages, warnings or
-errors?  By default (and in contrast to \code{loggr::log_file}
+errors?  By default (and in contrast to \code{logr::log_open}
 these are disabled here.}
 }
 \description{
-Activate logging with loggr
+Activate logging with logr
 }
 \details{
 By default plant prints little information about its progress.
 This can be modified by enabling logging.  A formatter that is
-different to the default \code{loggr::log_file} formatter is
+different to the default \code{logr::log_open} formatter is
 selected here; it will print additional information that plant's
 internal logging functions record.
 
 "Schedule" events (splitting) are sent to the DEBUG stream,
 everything else is sent to INFO.  All events have a "routine"
 field added to them, which is useful if sent to a Redis server
-(using \code{loggr.redis}).
+(using \code{logr.redis}).
 }
