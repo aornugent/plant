@@ -80,11 +80,11 @@ public:
     {
       dz[i] = z[i + 1] - z[i];
     }
-    dz[soil_number_of_depths - 1] = dz[soil_number_of_depths - 2];
   }
   int get_soil_number_of_depths() const {return soil_number_of_depths;}
 
   // TODO: should we use auxilliary in internals
+  std::vector<double> ds_dt;
   std::vector<double> q;
   std::vector<double> z;
   std::vector<double> K;
@@ -108,6 +108,12 @@ public:
   double a_psi;
   double n_psi;
   double b_infil;
+
+  // Calculate draingage rate in AWRA model
+  double drainage_AWRA(double theta) {
+    K_sat*pow(theta/soil_moist_sat,2);
+  }
+
 
   // Ability to prescribe a fixed value
   // TODO: add setting to set other variables like water
@@ -160,69 +166,109 @@ public:
     }
   }
 
-  void compute_rates(std::vector<double> const& resource_depletion) {
+void compute_rates(std::vector<double> const& resource_depletion) {
+      std::cout << "i" << std::endl;
 
     //TODO: add variable depths
     //TODO: track inflow and outflow for mass convservation
     //TODO: check equation for resource consumption
 
-    //Zeng and Decker (2009; https://doi.org/10.1175/2008JHM1011.1), Ireson et al. 2023 (https://doi.org/10.5194/gmd-16-659-2023), can also see Wang et al. 2011 for further agreement
-    //Zeng and Decker (2009) suggest the idea of a modified Richards equation (implemented in CABLE in Decker (2015);doi/10.1002/2015MS000507)
-    //to account for inadqueate boundary condition in water table but we opt here for simpler version as in Wang et al. (2011; doi/full/10.1029/2010JG001385)
-    //as per Ireson et al. (2023) we track soil moisture at a series of nodes and fluxes at the midpoints evenly spaced between the nodes (Figure 1)
-    // unlike Ireson et al. (2023) we track theta instead of psi (soil water potential) for conceptual simplicity and to facilitate averaging of layers for transpiration
-
+    //Based loosely off AWRA model (# Frost, A. J., and Shokri, A., (2021) The Australian Landscape Water Balance model (AWRA-L v7). 
+    //Technical Description of the Australian Water Resources Assessment Landscape model version 7. Bureau of Meteorology Technical Report)
     //number of nodes in soil water column
     int n = vars.state_size;
     //distance between nodes
     // double delta_z = 0.1;
     //helpers
-    double dq_dz;
     double dtheta_dt;
-    double dpsi_dz;
 
-    //flux across top boundary layer
-    q[0] = // rainfall at time
-        extrinsic_drivers.evaluate("rainfall", time) * 
-        // fraction of precipitation infiltrating
-        std::max(0.0, 1 - std::pow(vars.state(0)/soil_moist_sat, b_infil));
-    
-    //Eq. 13 free drainage boundary used at lower boundary
-    q[n] = soil_K_from_soil_theta(vars.state(n-1));
-  
-    double dtheta_dt_sum = 0;
-    double resource_depletion_sum = 0;
+    for (size_t i = 1; i = n; i++) {
 
-    //for each node below top node including last node 
-    
-    //start of step
-    // std::cout << " \n start step soil moist: " << vars.state(0) <<  "\t q0:\t" << q[0] << "\t outflow: \t"<< q[n] << std::endl;
+      if(i == 1){
+        double precipitation = extrinsic_drivers.evaluate("rainfall", time);
+        double frac_infil = std::max(0.0, 1 - std::pow(vars.state(0)/soil_moist_sat, b_infil));
+        double infiltration = precipitation*frac_infil;
+        ds_dt[i] = infiltration - drainage_AWRA(vars.state(i));
+      }
 
-    for (size_t i = 0; i < n; i++) {
       //calculate flux across boundary below node (hence i + 1, rather than i)
-      if(i < (n-1)){
+      if(i > 1){
         //Eq. 3 + 11, Ireson et al. (2023)
-        dpsi_dz = (psi_from_soil_moist(vars.state(i + 1)) - psi_from_soil_moist(vars.state(i)))/delta_z;
-        q[i + 1] =  0.5 * (soil_K_from_soil_theta(vars.state(i)) + soil_K_from_soil_theta(vars.state(i+1))) * (dpsi_dz - 1);
-
+        ds_dt[i] = ds_dt[i - 1] + drainage_AWRA(vars.state(i));
       } 
-      // Eq. 10, derivative of flux at node w.r.t to depth
-      dq_dz = (q[i+1] - q[i])/delta_z;
 
       // Eq. 2, but we have subtracted resource depletion rates
-      dtheta_dt = 0;//-dq_dz; -  resource_depletion[i];
-
-      dtheta_dt_sum += dtheta_dt;
-      resource_depletion_sum += resource_depletion[i];
+      dtheta_dt = ds_dt[i]/z[i];
 
       vars.set_rate(i, dtheta_dt);
-    // std::cout << " \n start step soil moist: " << vars.state(0) <<  "\t q0:\t" << q[0] << "\t outflow: \t"<< q[n] << " dq_dz: " <<  dq_dz << " dtheta_dt: " <<  dtheta_dt << " delta_z: "  << delta_z << "resource_depletion" << resource_depletion[i] << std::endl;
-
-      // std::cout << " \n i: " << i<< " var_state_i: " << vars.state(i) <<  " var_state_i+1: " << vars.state(i + 1) << " dq_dz: " <<  dq_dz << " dtheta_dt: " <<  dtheta_dt << " delta_z: "  << delta_z  << " dtheta_dt_sum: "  << dtheta_dt_sum  << " resource: "   << resource_depletion_sum <<  std::endl;
-
       }
 
   }
+
+
+  // void compute_rates(std::vector<double> const& resource_depletion) {
+
+  //   //TODO: add variable depths
+  //   //TODO: track inflow and outflow for mass convservation
+  //   //TODO: check equation for resource consumption
+
+  //   //Zeng and Decker (2009; https://doi.org/10.1175/2008JHM1011.1), Ireson et al. 2023 (https://doi.org/10.5194/gmd-16-659-2023), can also see Wang et al. 2011 for further agreement
+  //   //Zeng and Decker (2009) suggest the idea of a modified Richards equation (implemented in CABLE in Decker (2015);doi/10.1002/2015MS000507)
+  //   //to account for inadqueate boundary condition in water table but we opt here for simpler version as in Wang et al. (2011; doi/full/10.1029/2010JG001385)
+  //   //as per Ireson et al. (2023) we track soil moisture at a series of nodes and fluxes at the midpoints evenly spaced between the nodes (Figure 1)
+  //   // unlike Ireson et al. (2023) we track theta instead of psi (soil water potential) for conceptual simplicity and to facilitate averaging of layers for transpiration
+
+  //   //number of nodes in soil water column
+  //   int n = vars.state_size;
+  //   //distance between nodes
+  //   // double delta_z = 0.1;
+  //   //helpers
+  //   double dq_dz;
+  //   double dtheta_dt;
+  //   double dpsi_dz;
+
+  //   //flux across top boundary layer
+  //   q[0] = // rainfall at time
+  //       extrinsic_drivers.evaluate("rainfall", time) * 
+  //       // fraction of precipitation infiltrating
+  //       std::max(0.0, 1 - std::pow(vars.state(0)/soil_moist_sat, b_infil));
+    
+  //   //Eq. 13 free drainage boundary used at lower boundary
+  //   q[n] = soil_K_from_soil_theta(vars.state(n-1));
+  
+  //   double dtheta_dt_sum = 0;
+  //   double resource_depletion_sum = 0;
+
+  //   //for each node below top node including last node 
+    
+  //   //start of step
+  //   // std::cout << " \n start step soil moist: " << vars.state(0) <<  "\t q0:\t" << q[0] << "\t outflow: \t"<< q[n] << std::endl;
+
+  //   for (size_t i = 0; i < n; i++) {
+  //     //calculate flux across boundary below node (hence i + 1, rather than i)
+  //     if(i < (n-1)){
+  //       //Eq. 3 + 11, Ireson et al. (2023)
+  //       dpsi_dz = (psi_from_soil_moist(vars.state(i + 1)) - psi_from_soil_moist(vars.state(i)))/delta_z;
+  //       q[i + 1] =  0.5 * (soil_K_from_soil_theta(vars.state(i)) + soil_K_from_soil_theta(vars.state(i+1))) * (dpsi_dz - 1);
+
+  //     } 
+  //     // Eq. 10, derivative of flux at node w.r.t to depth
+  //     dq_dz = (q[i+1] - q[i])/delta_z;
+
+  //     // Eq. 2, but we have subtracted resource depletion rates
+  //     dtheta_dt = 0;//-dq_dz; -  resource_depletion[i];
+
+  //     dtheta_dt_sum += dtheta_dt;
+  //     resource_depletion_sum += resource_depletion[i];
+
+  //     vars.set_rate(i, dtheta_dt);
+  //   // std::cout << " \n start step soil moist: " << vars.state(0) <<  "\t q0:\t" << q[0] << "\t outflow: \t"<< q[n] << " dq_dz: " <<  dq_dz << " dtheta_dt: " <<  dtheta_dt << " delta_z: "  << delta_z << "resource_depletion" << resource_depletion[i] << std::endl;
+
+  //     // std::cout << " \n i: " << i<< " var_state_i: " << vars.state(i) <<  " var_state_i+1: " << vars.state(i + 1) << " dq_dz: " <<  dq_dz << " dtheta_dt: " <<  dtheta_dt << " delta_z: "  << delta_z  << " dtheta_dt_sum: "  << dtheta_dt_sum  << " resource: "   << resource_depletion_sum <<  std::endl;
+
+  //     }
+
+  // }
 
   // calculate K from K_sat based on theta
   double soil_K_from_soil_theta(double theta) {
