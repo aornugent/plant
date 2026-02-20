@@ -157,20 +157,20 @@ test_that("Environment-TF24 running soil moisture profile", {
   
   depth <- out$env$soil_depth$soil_depth[1]
   out$env$soil_moist_cumulative_flux %>%
-    mutate(sum_runoff = sum_rainfall - sum_infiltration) -> cumulative_fluxes
+    dplyr::mutate(sum_runoff = sum_rainfall - sum_infiltration) -> cumulative_fluxes
   
   out$env$soil_moist %>%
-    mutate(soil_moist_mm = soil_moist*depth) -> water_storage
+    dplyr::mutate(soil_moist_mm = soil_moist*depth) -> water_storage
   
   cumulative_fluxes %>%
-    left_join(water_storage) %>%
-    slice(c(1,nrow(.))) %>%
-    mutate(init_soil_moist_mm = soil_moist_mm[1]) %>%
-    tail(1) %>%
+    dplyr::left_join(water_storage) %>%
+    dplyr::slice(c(1,nrow(.))) %>%
+    dplyr::mutate(init_soil_moist_mm = soil_moist_mm[1]) %>%
+    dplyr::slice_tail(n = 1) %>%
     # water from total rainfdall over period and initial storage
-    mutate(total_moisture_start = sum_rainfall + init_soil_moist_mm) %>%
+    dplyr::mutate(total_moisture_start = sum_rainfall + init_soil_moist_mm) %>%
     # water in storage at end plus water lost to bottom drainage and runoff
-    mutate(total_moisture_end = soil_moist_mm + sum_drainage + sum_runoff) -> water_conservation
+    dplyr::mutate(total_moisture_end = soil_moist_mm + sum_drainage + sum_runoff) -> water_conservation
   
   expect_equal(water_conservation$total_moisture_start, water_conservation$total_moisture_end)
   
