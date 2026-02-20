@@ -51,7 +51,7 @@ Leaf(
 
 \item{ci_niter}{maximum number of iterations for root-solving ci}
 
-\item{g1_TF24}{cost parameter for TF24 cost model}
+\item{g1_TF24}{cost parameter for TF24 profit model umol m^-2 s^-1}
 }
 \description{
 Leaf model
