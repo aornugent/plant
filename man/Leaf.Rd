@@ -19,7 +19,8 @@ Leaf(
   vulnerability_curve_ncontrol,
   ci_abs_tol,
   ci_niter,
-  g1_TF24
+  g0,
+  g1
 )
 }
 \arguments{
@@ -51,7 +52,9 @@ Leaf(
 
 \item{ci_niter}{maximum number of iterations for root-solving ci}
 
-\item{g1_TF24}{cost parameter for TF24 profit model umol m^-2 s^-1}
+\item{g0}{g0 parameter in the medlyn model umol m^-2 s^-1}
+
+\item{g1}{parameter in the medlyn model umol kPa^0.5}
 }
 \description{
 Leaf model
