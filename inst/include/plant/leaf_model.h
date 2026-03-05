@@ -93,9 +93,9 @@ public:
        double ci_niter,
        double g0,
        double g1,
-      double g1_TF24); 
-        
-  quadrature::QAG integrator;
+      double g1_TF24);
+
+      quadrature::QAG integrator;
   interpolator::Interpolator transpiration_from_psi;
   interpolator::Interpolator psi_from_transpiration;
 
