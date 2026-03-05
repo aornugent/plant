@@ -592,7 +592,7 @@ void TF24_Strategy::prepare_strategy() {
            control.ci_niter,
           g0,
           g1,
-           control.ci_niter,g1_TF24);
+          g1_TF24);
 }
 
 TF24_Strategy::ptr make_strategy_ptr(TF24_Strategy s) {
