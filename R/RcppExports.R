@@ -2041,10 +2041,6 @@ SCM___FF16__FF16_Env__refine_schedule <- function(obj_) {
     invisible(.Call('_plant_SCM___FF16__FF16_Env__refine_schedule', PACKAGE = 'plant', obj_))
 }
 
-SCM___FF16__FF16_Env__run_next <- function(obj_) {
-    .Call('_plant_SCM___FF16__FF16_Env__run_next', PACKAGE = 'plant', obj_)
-}
-
 SCM___FF16__FF16_Env__reset <- function(obj_) {
     invisible(.Call('_plant_SCM___FF16__FF16_Env__reset', PACKAGE = 'plant', obj_))
 }
@@ -2059,10 +2055,6 @@ SCM___FF16__FF16_Env__compute_competition_effect_error_by_node_for_species_i <- 
 
 SCM___FF16__FF16_Env__set_node_schedule_times <- function(obj_, times) {
     invisible(.Call('_plant_SCM___FF16__FF16_Env__set_node_schedule_times', PACKAGE = 'plant', obj_, times))
-}
-
-SCM___FF16__FF16_Env__complete__get <- function(obj_) {
-    .Call('_plant_SCM___FF16__FF16_Env__complete__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___FF16__FF16_Env__time__get <- function(obj_) {
@@ -2089,6 +2081,14 @@ SCM___FF16__FF16_Env__history__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__history__get', PACKAGE = 'plant', obj_)
 }
 
+SCM___FF16__FF16_Env__net_reproduction_ratio_errors__get <- function(obj_) {
+    .Call('_plant_SCM___FF16__FF16_Env__net_reproduction_ratio_errors__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___FF16__FF16_Env__refinement_error_by_node__get <- function(obj_) {
+    .Call('_plant_SCM___FF16__FF16_Env__refinement_error_by_node__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___FF16__FF16_Env__node_schedule__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__node_schedule__get', PACKAGE = 'plant', obj_)
 }
@@ -2101,14 +2101,6 @@ SCM___FF16__FF16_Env__ode_times__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__ode_times__get', PACKAGE = 'plant', obj_)
 }
 
-SCM___FF16__FF16_Env__use_ode_times__get <- function(obj_) {
-    .Call('_plant_SCM___FF16__FF16_Env__use_ode_times__get', PACKAGE = 'plant', obj_)
-}
-
-SCM___FF16__FF16_Env__use_ode_times__set <- function(obj_, value) {
-    invisible(.Call('_plant_SCM___FF16__FF16_Env__use_ode_times__set', PACKAGE = 'plant', obj_, value))
-}
-
 SCM___FF16__FF16_Env__collect__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__collect__get', PACKAGE = 'plant', obj_)
 }
@@ -2117,20 +2109,12 @@ SCM___FF16__FF16_Env__collect__set <- function(obj_, value) {
     invisible(.Call('_plant_SCM___FF16__FF16_Env__collect__set', PACKAGE = 'plant', obj_, value))
 }
 
-SCM___FF16__FF16_Env__collect_errors__get <- function(obj_) {
-    .Call('_plant_SCM___FF16__FF16_Env__collect_errors__get', PACKAGE = 'plant', obj_)
+SCM___FF16__FF16_Env__collect_refinement_errors__get <- function(obj_) {
+    .Call('_plant_SCM___FF16__FF16_Env__collect_refinement_errors__get', PACKAGE = 'plant', obj_)
 }
 
-SCM___FF16__FF16_Env__collect_errors__set <- function(obj_, value) {
-    invisible(.Call('_plant_SCM___FF16__FF16_Env__collect_errors__set', PACKAGE = 'plant', obj_, value))
-}
-
-SCM___FF16__FF16_Env__net_reproduction_ratio_errors__get <- function(obj_) {
-    .Call('_plant_SCM___FF16__FF16_Env__net_reproduction_ratio_errors__get', PACKAGE = 'plant', obj_)
-}
-
-SCM___FF16__FF16_Env__combined_node_errors__get <- function(obj_) {
-    .Call('_plant_SCM___FF16__FF16_Env__combined_node_errors__get', PACKAGE = 'plant', obj_)
+SCM___FF16__FF16_Env__collect_refinement_errors__set <- function(obj_, value) {
+    invisible(.Call('_plant_SCM___FF16__FF16_Env__collect_refinement_errors__set', PACKAGE = 'plant', obj_, value))
 }
 
 SCM___TF24__TF24_Env__ctor <- function(parameters, environment, control) {
@@ -2149,10 +2133,6 @@ SCM___TF24__TF24_Env__refine_schedule <- function(obj_) {
     invisible(.Call('_plant_SCM___TF24__TF24_Env__refine_schedule', PACKAGE = 'plant', obj_))
 }
 
-SCM___TF24__TF24_Env__run_next <- function(obj_) {
-    .Call('_plant_SCM___TF24__TF24_Env__run_next', PACKAGE = 'plant', obj_)
-}
-
 SCM___TF24__TF24_Env__reset <- function(obj_) {
     invisible(.Call('_plant_SCM___TF24__TF24_Env__reset', PACKAGE = 'plant', obj_))
 }
@@ -2167,10 +2147,6 @@ SCM___TF24__TF24_Env__compute_competition_effect_error_by_node_for_species_i <- 
 
 SCM___TF24__TF24_Env__set_node_schedule_times <- function(obj_, times) {
     invisible(.Call('_plant_SCM___TF24__TF24_Env__set_node_schedule_times', PACKAGE = 'plant', obj_, times))
-}
-
-SCM___TF24__TF24_Env__complete__get <- function(obj_) {
-    .Call('_plant_SCM___TF24__TF24_Env__complete__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___TF24__TF24_Env__time__get <- function(obj_) {
@@ -2197,6 +2173,14 @@ SCM___TF24__TF24_Env__history__get <- function(obj_) {
     .Call('_plant_SCM___TF24__TF24_Env__history__get', PACKAGE = 'plant', obj_)
 }
 
+SCM___TF24__TF24_Env__net_reproduction_ratio_errors__get <- function(obj_) {
+    .Call('_plant_SCM___TF24__TF24_Env__net_reproduction_ratio_errors__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___TF24__TF24_Env__refinement_error_by_node__get <- function(obj_) {
+    .Call('_plant_SCM___TF24__TF24_Env__refinement_error_by_node__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___TF24__TF24_Env__node_schedule__get <- function(obj_) {
     .Call('_plant_SCM___TF24__TF24_Env__node_schedule__get', PACKAGE = 'plant', obj_)
 }
@@ -2209,14 +2193,6 @@ SCM___TF24__TF24_Env__ode_times__get <- function(obj_) {
     .Call('_plant_SCM___TF24__TF24_Env__ode_times__get', PACKAGE = 'plant', obj_)
 }
 
-SCM___TF24__TF24_Env__use_ode_times__get <- function(obj_) {
-    .Call('_plant_SCM___TF24__TF24_Env__use_ode_times__get', PACKAGE = 'plant', obj_)
-}
-
-SCM___TF24__TF24_Env__use_ode_times__set <- function(obj_, value) {
-    invisible(.Call('_plant_SCM___TF24__TF24_Env__use_ode_times__set', PACKAGE = 'plant', obj_, value))
-}
-
 SCM___TF24__TF24_Env__collect__get <- function(obj_) {
     .Call('_plant_SCM___TF24__TF24_Env__collect__get', PACKAGE = 'plant', obj_)
 }
@@ -2225,20 +2201,12 @@ SCM___TF24__TF24_Env__collect__set <- function(obj_, value) {
     invisible(.Call('_plant_SCM___TF24__TF24_Env__collect__set', PACKAGE = 'plant', obj_, value))
 }
 
-SCM___TF24__TF24_Env__collect_errors__get <- function(obj_) {
-    .Call('_plant_SCM___TF24__TF24_Env__collect_errors__get', PACKAGE = 'plant', obj_)
+SCM___TF24__TF24_Env__collect_refinement_errors__get <- function(obj_) {
+    .Call('_plant_SCM___TF24__TF24_Env__collect_refinement_errors__get', PACKAGE = 'plant', obj_)
 }
 
-SCM___TF24__TF24_Env__collect_errors__set <- function(obj_, value) {
-    invisible(.Call('_plant_SCM___TF24__TF24_Env__collect_errors__set', PACKAGE = 'plant', obj_, value))
-}
-
-SCM___TF24__TF24_Env__net_reproduction_ratio_errors__get <- function(obj_) {
-    .Call('_plant_SCM___TF24__TF24_Env__net_reproduction_ratio_errors__get', PACKAGE = 'plant', obj_)
-}
-
-SCM___TF24__TF24_Env__combined_node_errors__get <- function(obj_) {
-    .Call('_plant_SCM___TF24__TF24_Env__combined_node_errors__get', PACKAGE = 'plant', obj_)
+SCM___TF24__TF24_Env__collect_refinement_errors__set <- function(obj_, value) {
+    invisible(.Call('_plant_SCM___TF24__TF24_Env__collect_refinement_errors__set', PACKAGE = 'plant', obj_, value))
 }
 
 SCM___K93__K93_Env__ctor <- function(parameters, environment, control) {
@@ -2257,10 +2225,6 @@ SCM___K93__K93_Env__refine_schedule <- function(obj_) {
     invisible(.Call('_plant_SCM___K93__K93_Env__refine_schedule', PACKAGE = 'plant', obj_))
 }
 
-SCM___K93__K93_Env__run_next <- function(obj_) {
-    .Call('_plant_SCM___K93__K93_Env__run_next', PACKAGE = 'plant', obj_)
-}
-
 SCM___K93__K93_Env__reset <- function(obj_) {
     invisible(.Call('_plant_SCM___K93__K93_Env__reset', PACKAGE = 'plant', obj_))
 }
@@ -2275,10 +2239,6 @@ SCM___K93__K93_Env__compute_competition_effect_error_by_node_for_species_i <- fu
 
 SCM___K93__K93_Env__set_node_schedule_times <- function(obj_, times) {
     invisible(.Call('_plant_SCM___K93__K93_Env__set_node_schedule_times', PACKAGE = 'plant', obj_, times))
-}
-
-SCM___K93__K93_Env__complete__get <- function(obj_) {
-    .Call('_plant_SCM___K93__K93_Env__complete__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___K93__K93_Env__time__get <- function(obj_) {
@@ -2305,6 +2265,14 @@ SCM___K93__K93_Env__history__get <- function(obj_) {
     .Call('_plant_SCM___K93__K93_Env__history__get', PACKAGE = 'plant', obj_)
 }
 
+SCM___K93__K93_Env__net_reproduction_ratio_errors__get <- function(obj_) {
+    .Call('_plant_SCM___K93__K93_Env__net_reproduction_ratio_errors__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___K93__K93_Env__refinement_error_by_node__get <- function(obj_) {
+    .Call('_plant_SCM___K93__K93_Env__refinement_error_by_node__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___K93__K93_Env__node_schedule__get <- function(obj_) {
     .Call('_plant_SCM___K93__K93_Env__node_schedule__get', PACKAGE = 'plant', obj_)
 }
@@ -2317,14 +2285,6 @@ SCM___K93__K93_Env__ode_times__get <- function(obj_) {
     .Call('_plant_SCM___K93__K93_Env__ode_times__get', PACKAGE = 'plant', obj_)
 }
 
-SCM___K93__K93_Env__use_ode_times__get <- function(obj_) {
-    .Call('_plant_SCM___K93__K93_Env__use_ode_times__get', PACKAGE = 'plant', obj_)
-}
-
-SCM___K93__K93_Env__use_ode_times__set <- function(obj_, value) {
-    invisible(.Call('_plant_SCM___K93__K93_Env__use_ode_times__set', PACKAGE = 'plant', obj_, value))
-}
-
 SCM___K93__K93_Env__collect__get <- function(obj_) {
     .Call('_plant_SCM___K93__K93_Env__collect__get', PACKAGE = 'plant', obj_)
 }
@@ -2333,20 +2293,12 @@ SCM___K93__K93_Env__collect__set <- function(obj_, value) {
     invisible(.Call('_plant_SCM___K93__K93_Env__collect__set', PACKAGE = 'plant', obj_, value))
 }
 
-SCM___K93__K93_Env__collect_errors__get <- function(obj_) {
-    .Call('_plant_SCM___K93__K93_Env__collect_errors__get', PACKAGE = 'plant', obj_)
+SCM___K93__K93_Env__collect_refinement_errors__get <- function(obj_) {
+    .Call('_plant_SCM___K93__K93_Env__collect_refinement_errors__get', PACKAGE = 'plant', obj_)
 }
 
-SCM___K93__K93_Env__collect_errors__set <- function(obj_, value) {
-    invisible(.Call('_plant_SCM___K93__K93_Env__collect_errors__set', PACKAGE = 'plant', obj_, value))
-}
-
-SCM___K93__K93_Env__net_reproduction_ratio_errors__get <- function(obj_) {
-    .Call('_plant_SCM___K93__K93_Env__net_reproduction_ratio_errors__get', PACKAGE = 'plant', obj_)
-}
-
-SCM___K93__K93_Env__combined_node_errors__get <- function(obj_) {
-    .Call('_plant_SCM___K93__K93_Env__combined_node_errors__get', PACKAGE = 'plant', obj_)
+SCM___K93__K93_Env__collect_refinement_errors__set <- function(obj_, value) {
+    invisible(.Call('_plant_SCM___K93__K93_Env__collect_refinement_errors__set', PACKAGE = 'plant', obj_, value))
 }
 
 StochasticSpecies___FF16__FF16_Env__ctor <- function(strategy) {
