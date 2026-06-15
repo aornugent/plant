@@ -51,11 +51,10 @@ out <- run_scm(stand_results, collect = TRUE)
 ```
 
 
-We convert this output into a more manageable format to manipulate, and calculate totals and mean values for the properties of the stand.
+`run_scm(..., collect = TRUE)` already returns the output in a tidy format (a list whose `species` element is a tibble with all state variables as separate columns), so we can use it directly to calculate totals and mean values for the properties of the stand.
 
 ```{r}
-tidy_stand <- tidy_patch(out)
-# function converts "out" object into a more manageable format, a tibble with all state variables as separate columns
+tidy_stand <- out
 
 stand_expand <- FF16_expand_state(tidy_stand)
 # adds in more state variables from our stand output (leaf, bark, sapwood, stem properties to name a few)
