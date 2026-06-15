@@ -1,5 +1,7 @@
 ^.git$
 ^.github$
+^\.claude$
+^agents\.md$
 ^.vscode$
 ^.*\.code-workspace$
 (^|/)\\.DS_Store$

@@ -2,7 +2,7 @@ inst/website
 gh-pages
 *Rproj*
 *.Rhistory*
-^plant.Rcheck$
+*plant.Rcheck
 check/*
 src/symbols.rds
 .Rproj.user
