@@ -20,6 +20,9 @@ doc
 Meta
 *.knit.md
 *.wiki
+*.pdf
+*.png
+*.RDS
 
 # Claude Code personal settings
 .claude/settings.local.json

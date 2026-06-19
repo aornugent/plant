@@ -412,7 +412,6 @@ void Patch<T,E>::compute_rates() {
   double time_ = environment_ptr->time;
 
   double pr_patch_survival = survival_weighting->pr_survival(time_);
-
   for (size_t i = 0; i < size(); ++i) {
     double birth_rate = species[i].extrinsic_drivers().evaluate("birth_rate", time_);
 
@@ -426,13 +425,15 @@ void Patch<T,E>::compute_rates() {
       return r + s.consumption_rate(i); // accumulates r from zero
     });
 
-    resource_depletion.push_back(resource_consumed);
+    resource_depletion.push_back(resource_consumed/area);
   }
+  
 
   environment_ptr->compute_rates(resource_depletion);
 
   //todo do we need to clear this every step?
   resource_depletion.clear();
+
 }
 
 // TODO(#478): We should only be recomputing the light environment for the

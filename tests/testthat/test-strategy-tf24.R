@@ -73,23 +73,39 @@ test_that("TF24 collect_all_auxiliary option", {
 
   s <- TF24_Strategy()
   p <- TF24_Individual(s)
-  expect_equal(p$aux_size, 3)
-  expect_equal(length(p$internals$auxs), 3)
-  expect_equal(p$aux_names, c(
+  expect_equal(p$aux_size, 11)
+  expect_equal(length(p$internals$auxs), 11)
+expect_equal(p$aux_names, c(
     "competition_effect",
     "height_inverse",
-    "net_mass_production_dt"
+    "net_mass_production_dt",
+    "root_mass",
+    "opt_psi_stem",
+    "opt_root_psi",
+    "transpiration",
+    "E_up_",
+    "profit",
+    "stom_cond_CO2",
+    "assimilation"
   ))
 
   s <- TF24_Strategy(collect_all_auxiliary=TRUE)
   expect_true(s$collect_all_auxiliary)
   p <- TF24_Individual(s)
-  expect_equal(p$aux_size, 4)
-  expect_equal(length(p$internals$auxs), 4)
+  expect_equal(p$aux_size, 12)
+  expect_equal(length(p$internals$auxs), 12)
   expect_equal(p$aux_names, c(
     "competition_effect",
     "height_inverse",
     "net_mass_production_dt",
+    "root_mass",
+    "opt_psi_stem",
+    "opt_root_psi",
+    "transpiration",
+    "E_up_",
+    "profit",
+    "stom_cond_CO2",
+    "assimilation",
     "area_sapwood"
   ))
 })
@@ -224,13 +240,15 @@ test_that("offspring arrival", {
   p0 <- scm_base_parameters("TF24")
   env <- Environment("TF24")
   ctrl <- Control()
-  
+  max_patch_lifetime <-10
+  p0$max_patch_lifetime <- max_patch_lifetime
+
   # one species
   p1 <- expand_parameters(trait_matrix(0.0825, "lma"), p0, TF24_hyperpar, 
                            birth_rate_list = list(20))
 
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 16.88946, tolerance=1e-5)
+  expect_equal(out$offspring_production, 4.71e-06, tolerance=1e-5)
   #expect_equal(out$ode_times[c(10, 100)], c(0.000070, 4.216055), tolerance=1e-5)
 
   # two species
@@ -238,8 +256,44 @@ test_that("offspring arrival", {
                            birth_rate_list = list(11.99177, 16.51006))
   
   out <- run_scm(p2, env, ctrl)
-  expect_equal(out$offspring_production, c(11.99527, 16.47490), tolerance=1e-4)
+  expect_equal(out$offspring_production, c(5.64e-06, 3.49e-17), tolerance=1e-5)
   #expect_equal(length(out$ode_times), 297)
+})
+
+# Check that the water absorbed from soil equals water transpired from leaves
+
+test_that("E conservation", {
+
+max_patch_lifetime <-2
+p0 <- scm_base_parameters("TF24", "TF24_Env")
+p0$max_patch_lifetime <- max_patch_lifetime
+traits <- trait_matrix(c(0.07), c("lma"))
+p1 <- expand_parameters(traits, p0)
+
+env <- Environment("TF24")
+env$set_soil_number_of_depths(15)
+env$set_soil_water_state(rep(c(0.2), times = 15))
+x = seq(0,max_patch_lifetime,length.out = 100)
+y = 0.25*sin(2*pi*x) + 1
+env$extrinsic_drivers_set_variable("rainfall", x=x, y=y)
+ctrl <- Control()
+
+
+results <- run_scm(p1, env = env, ctrl = ctrl, collect = TRUE)
+
+results %>%
+  expand_state() %>%
+  purrr::pluck("species") %>%
+  dplyr::mutate(E_indiv = E_up_ * area_leaf * 60 * 60 * 12 * 365 / 1000) %>%
+  integrate_over_size_distribution() %>%
+  dplyr::pull(E_indiv) -> stem_side
+
+results$env$soil_moist_cumulative_flux %>%
+  dplyr::mutate(
+    root_side = (sum_resource_depletion - dplyr::lag(sum_resource_depletion)) /
+                (time - dplyr::lag(time))) -> root_side
+
+expect_true(1 - (stem_side/root_side$root_side[-1])[length(stem_side)] < 5e-2)
 })
 
 test_that("Report generation", {
@@ -252,7 +306,7 @@ test_that("Report generation", {
                            birth_rate_list = list(11.99177, 16.51006))
 
   # test report generation
-  # out <- run_scm(p2, env, ctrl, collect = TRUE)
+  # out <- run_scm_collect(p2, env, ctrl)
 
   # unlink("tmp", recursive = TRUE)
   # expect_message(TF24_generate_stand_report(out, "tmp/tmp.html", overwrite = TRUE), "Report for TF24 stand saved at tmp/tmp.html")
