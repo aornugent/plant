@@ -17,6 +17,9 @@ test_that("Defaults", {
     fixed_time_step = 0.0,
 
     function_integration_rule = 21, # size_t so not int
+    shading_model = "", # empty = each strategy's own default
+    ppa_layer_optical_depth = 0.5,
+    ppa_layer_smoothing = 0.3,
 
     offspring_production_iterations = 1000, # size_t
     offspring_production_tol = 1e-8, # 1e-6, Had to change this...
