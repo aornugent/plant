@@ -116,6 +116,19 @@ Rscript -e "devtools::load_all(quiet=TRUE); run_plant_benchmarks()"
 Running benchmarks without a fresh `make` can compare stale binaries and give
 misleading timing differences.
 
+## Benchmarking
+
+For fair performance comparisons across branches, rebuild compiled code before
+running benchmarks:
+
+```sh
+make
+Rscript -e "devtools::load_all(quiet=TRUE); run_plant_benchmarks()"
+```
+
+Running benchmarks without a fresh `make` can compare stale binaries and give
+misleading timing differences.
+
 ## Getting help
 
 Questions, bug reports and feature requests are welcome via the [GitHub issue tracker](https://github.com/traitecoevo/plant/issues).
