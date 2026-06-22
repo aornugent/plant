@@ -109,7 +109,9 @@ grow_individual_to_time <- function(individual, times, env) {
     y1 <- runner$state
     while (t_next < t1 && i <= n) {
       runner_detail$set_state(y0, t0)
-      runner_detail$step_to(t_next)
+      ## odelia's Solver advances adaptively over a vector of times whose first
+      ## element must be the current time; this steps from t0 to t_next.
+      runner_detail$advance_adaptive(c(t0, t_next))
       state[i, ] <- runner_detail$state
       individual[[i]] <- runner_detail$object$individual
       i <- i + 1L
@@ -216,7 +218,9 @@ grow_individual_bisect <- function(runner, size, size_name, t0, t1, y0) {
   internals <- get_individual_internals_fun(runner$object$individual)
   f <- function(t1) {
     runner$set_state(y0, t0)
-    runner$step_to(t1)
+    ## odelia's Solver steps adaptively over a vector of times whose first
+    ## element must be the current time (t0 after set_state); advance to t1.
+    runner$advance_adaptive(c(t0, t1))
     internals(runner)$state(size_index) - size
   }
 

@@ -2,74 +2,11 @@ context("ODE fixed-step (forward Euler)")
 
 ## Forward Euler is the alternative to the adaptive Cash-Karp RKCK solver: a
 ## single derivative evaluation per step on a uniform grid (the way many
-## industry-standard DGVMs integrate). These tests cover (1) the bare solver via
-## the OdeRunner, (2) the SCM fixed_time_step path converging on the adaptive
-## result, and (3) the guards against combining it with the mutant-replay path.
-
-derivs_lorenz <- function(y, pars) {
-  c(pars[[1]] * (y[[2]] - y[[1]]),
-    pars[[2]] * y[[1]] - y[[2]] - y[[1]] * y[[3]],
-    -pars[[3]] * y[[3]] + y[[1]] * y[[2]])
-}
-
-test_that("advance_euler matches a hand-rolled forward Euler", {
-  pars <- c(sigma = 10.0, R = 28.0, b = 8.0 / 3.0)
-  y0 <- c(21, 21, 21)
-  times <- seq(0, 1, by = 0.001)
-
-  lo <- Lorenz(pars[[1]], pars[[2]], pars[[3]])
-  lo$ode_state <- y0
-  sys <- OdeRunner("Lorenz")(lo)
-  sys$advance_euler(times)
-
-  ## Reference: explicit forward Euler in R over the same grid.
-  y <- y0
-  for (i in 2:length(times)) {
-    h <- times[[i]] - times[[i - 1]]
-    y <- y + h * derivs_lorenz(y, pars)
-  }
-
-  expect_equal(sys$state, y, tolerance = 1e-12)
-  expect_equal(sys$times, times)
-})
-
-test_that("advance_euler does plain Euler, not the RKCK step", {
-  ## advance_fixed drives the full 6-stage RKCK step; advance_euler does one
-  ## derivative evaluation. Over a coarse grid the two must therefore differ,
-  ## and advance_euler must equal a single explicit Euler update.
-  pars <- c(sigma = 10.0, R = 28.0, b = 8.0 / 3.0)
-  y0 <- c(21, 21, 21)
-  times <- c(0, 0.5, 1.0)
-
-  lo <- Lorenz(pars[[1]], pars[[2]], pars[[3]])
-  lo$ode_state <- y0
-  euler <- OdeRunner("Lorenz")(lo)
-  euler$advance_euler(times)
-
-  lo2 <- Lorenz(pars[[1]], pars[[2]], pars[[3]])
-  lo2$ode_state <- y0
-  rkck <- OdeRunner("Lorenz")(lo2)
-  rkck$advance_fixed(times)
-
-  ## Single explicit Euler update by hand.
-  y <- y0
-  for (i in 2:length(times)) {
-    h <- times[[i]] - times[[i - 1]]
-    y <- y + h * derivs_lorenz(y, pars)
-  }
-
-  expect_equal(euler$state, y, tolerance = 1e-12)
-  expect_false(isTRUE(all.equal(euler$state, rkck$state)))
-})
-
-test_that("advance_euler validates its time grid", {
-  lo <- Lorenz(10.0, 28.0, 8.0 / 3.0)
-  sys <- OdeRunner("Lorenz")(lo)
-  expect_error(sys$advance_euler(numeric(0)),
-               "must be vector of at least length 1")
-  expect_error(sys$advance_euler(c(1.0, 2.0)),
-               "First element in 'times' must be same as current time")
-})
+## industry-standard DGVMs integrate). The bare-solver behaviour (advance_euler
+## on the Lorenz fixture) now lives with the solver itself in the odelia
+## package; here we cover plant's use of it: (1) the SCM fixed_time_step path
+## converging on the adaptive result, and (2) the guards against combining it
+## with the mutant-replay path.
 
 test_that("SCM fixed-step Euler converges on the adaptive result", {
   x <- "FF16"

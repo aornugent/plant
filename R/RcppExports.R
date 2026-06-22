@@ -545,134 +545,6 @@ Leaf__theta___set <- function(obj_, value) {
     invisible(.Call('_plant_Leaf__theta___set', PACKAGE = 'plant', obj_, value))
 }
 
-Lorenz__ctor <- function(sigma, R, b) {
-    .Call('_plant_Lorenz__ctor', PACKAGE = 'plant', sigma, R, b)
-}
-
-Lorenz__ode_size__get <- function(obj_) {
-    .Call('_plant_Lorenz__ode_size__get', PACKAGE = 'plant', obj_)
-}
-
-Lorenz__ode_state__get <- function(obj_) {
-    .Call('_plant_Lorenz__ode_state__get', PACKAGE = 'plant', obj_)
-}
-
-Lorenz__ode_state__set <- function(obj_, value) {
-    invisible(.Call('_plant_Lorenz__ode_state__set', PACKAGE = 'plant', obj_, value))
-}
-
-Lorenz__ode_rates__get <- function(obj_) {
-    .Call('_plant_Lorenz__ode_rates__get', PACKAGE = 'plant', obj_)
-}
-
-Lorenz__pars__get <- function(obj_) {
-    .Call('_plant_Lorenz__pars__get', PACKAGE = 'plant', obj_)
-}
-
-OdeR__ctor <- function(derivs, state, time) {
-    .Call('_plant_OdeR__ctor', PACKAGE = 'plant', derivs, state, time)
-}
-
-OdeR__update_state <- function(obj_) {
-    invisible(.Call('_plant_OdeR__update_state', PACKAGE = 'plant', obj_))
-}
-
-OdeRunner___Lorenz__ctor <- function(obj, control) {
-    .Call('_plant_OdeRunner___Lorenz__ctor', PACKAGE = 'plant', obj, control)
-}
-
-OdeRunner___Lorenz__advance_adaptive <- function(obj_, time) {
-    invisible(.Call('_plant_OdeRunner___Lorenz__advance_adaptive', PACKAGE = 'plant', obj_, time))
-}
-
-OdeRunner___Lorenz__advance_fixed <- function(obj_, time) {
-    invisible(.Call('_plant_OdeRunner___Lorenz__advance_fixed', PACKAGE = 'plant', obj_, time))
-}
-
-OdeRunner___Lorenz__advance_euler <- function(obj_, time) {
-    invisible(.Call('_plant_OdeRunner___Lorenz__advance_euler', PACKAGE = 'plant', obj_, time))
-}
-
-OdeRunner___Lorenz__step <- function(obj_) {
-    invisible(.Call('_plant_OdeRunner___Lorenz__step', PACKAGE = 'plant', obj_))
-}
-
-OdeRunner___Lorenz__step_to <- function(obj_, time) {
-    invisible(.Call('_plant_OdeRunner___Lorenz__step_to', PACKAGE = 'plant', obj_, time))
-}
-
-OdeRunner___Lorenz__set_state <- function(obj_, y, time) {
-    invisible(.Call('_plant_OdeRunner___Lorenz__set_state', PACKAGE = 'plant', obj_, y, time))
-}
-
-OdeRunner___Lorenz__set_state_from_system <- function(obj_) {
-    invisible(.Call('_plant_OdeRunner___Lorenz__set_state_from_system', PACKAGE = 'plant', obj_))
-}
-
-OdeRunner___Lorenz__time__get <- function(obj_) {
-    .Call('_plant_OdeRunner___Lorenz__time__get', PACKAGE = 'plant', obj_)
-}
-
-OdeRunner___Lorenz__state__get <- function(obj_) {
-    .Call('_plant_OdeRunner___Lorenz__state__get', PACKAGE = 'plant', obj_)
-}
-
-OdeRunner___Lorenz__times__get <- function(obj_) {
-    .Call('_plant_OdeRunner___Lorenz__times__get', PACKAGE = 'plant', obj_)
-}
-
-OdeRunner___Lorenz__object__get <- function(obj_) {
-    .Call('_plant_OdeRunner___Lorenz__object__get', PACKAGE = 'plant', obj_)
-}
-
-OdeRunner___OdeR__ctor <- function(obj, control) {
-    .Call('_plant_OdeRunner___OdeR__ctor', PACKAGE = 'plant', obj, control)
-}
-
-OdeRunner___OdeR__advance_adaptive <- function(obj_, time) {
-    invisible(.Call('_plant_OdeRunner___OdeR__advance_adaptive', PACKAGE = 'plant', obj_, time))
-}
-
-OdeRunner___OdeR__advance_fixed <- function(obj_, time) {
-    invisible(.Call('_plant_OdeRunner___OdeR__advance_fixed', PACKAGE = 'plant', obj_, time))
-}
-
-OdeRunner___OdeR__advance_euler <- function(obj_, time) {
-    invisible(.Call('_plant_OdeRunner___OdeR__advance_euler', PACKAGE = 'plant', obj_, time))
-}
-
-OdeRunner___OdeR__step <- function(obj_) {
-    invisible(.Call('_plant_OdeRunner___OdeR__step', PACKAGE = 'plant', obj_))
-}
-
-OdeRunner___OdeR__step_to <- function(obj_, time) {
-    invisible(.Call('_plant_OdeRunner___OdeR__step_to', PACKAGE = 'plant', obj_, time))
-}
-
-OdeRunner___OdeR__set_state <- function(obj_, y, time) {
-    invisible(.Call('_plant_OdeRunner___OdeR__set_state', PACKAGE = 'plant', obj_, y, time))
-}
-
-OdeRunner___OdeR__set_state_from_system <- function(obj_) {
-    invisible(.Call('_plant_OdeRunner___OdeR__set_state_from_system', PACKAGE = 'plant', obj_))
-}
-
-OdeRunner___OdeR__time__get <- function(obj_) {
-    .Call('_plant_OdeRunner___OdeR__time__get', PACKAGE = 'plant', obj_)
-}
-
-OdeRunner___OdeR__state__get <- function(obj_) {
-    .Call('_plant_OdeRunner___OdeR__state__get', PACKAGE = 'plant', obj_)
-}
-
-OdeRunner___OdeR__times__get <- function(obj_) {
-    .Call('_plant_OdeRunner___OdeR__times__get', PACKAGE = 'plant', obj_)
-}
-
-OdeRunner___OdeR__object__get <- function(obj_) {
-    .Call('_plant_OdeRunner___OdeR__object__get', PACKAGE = 'plant', obj_)
-}
-
 OdeRunner___FF16__ctor <- function(obj, control) {
     .Call('_plant_OdeRunner___FF16__ctor', PACKAGE = 'plant', obj, control)
 }
@@ -691,10 +563,6 @@ OdeRunner___FF16__advance_euler <- function(obj_, time) {
 
 OdeRunner___FF16__step <- function(obj_) {
     invisible(.Call('_plant_OdeRunner___FF16__step', PACKAGE = 'plant', obj_))
-}
-
-OdeRunner___FF16__step_to <- function(obj_, time) {
-    invisible(.Call('_plant_OdeRunner___FF16__step_to', PACKAGE = 'plant', obj_, time))
 }
 
 OdeRunner___FF16__set_state <- function(obj_, y, time) {
@@ -741,10 +609,6 @@ OdeRunner___TF24__step <- function(obj_) {
     invisible(.Call('_plant_OdeRunner___TF24__step', PACKAGE = 'plant', obj_))
 }
 
-OdeRunner___TF24__step_to <- function(obj_, time) {
-    invisible(.Call('_plant_OdeRunner___TF24__step_to', PACKAGE = 'plant', obj_, time))
-}
-
 OdeRunner___TF24__set_state <- function(obj_, y, time) {
     invisible(.Call('_plant_OdeRunner___TF24__set_state', PACKAGE = 'plant', obj_, y, time))
 }
@@ -787,10 +651,6 @@ OdeRunner___K93__advance_euler <- function(obj_, time) {
 
 OdeRunner___K93__step <- function(obj_) {
     invisible(.Call('_plant_OdeRunner___K93__step', PACKAGE = 'plant', obj_))
-}
-
-OdeRunner___K93__step_to <- function(obj_, time) {
-    invisible(.Call('_plant_OdeRunner___K93__step_to', PACKAGE = 'plant', obj_, time))
 }
 
 OdeRunner___K93__set_state <- function(obj_, y, time) {
@@ -1003,46 +863,6 @@ QAG__last_intervals__get <- function(obj_) {
 
 QAG__is_adaptive__get <- function(obj_) {
     .Call('_plant_QAG__is_adaptive__get', PACKAGE = 'plant', obj_)
-}
-
-Interpolator__ctor <- function() {
-    .Call('_plant_Interpolator__ctor', PACKAGE = 'plant')
-}
-
-Interpolator__init <- function(obj_, x, y) {
-    invisible(.Call('_plant_Interpolator__init', PACKAGE = 'plant', obj_, x, y))
-}
-
-Interpolator__eval <- function(obj_, x) {
-    .Call('_plant_Interpolator__eval', PACKAGE = 'plant', obj_, x)
-}
-
-Interpolator__set_extrapolate <- function(obj_, e) {
-    invisible(.Call('_plant_Interpolator__set_extrapolate', PACKAGE = 'plant', obj_, e))
-}
-
-Interpolator__x__get <- function(obj_) {
-    .Call('_plant_Interpolator__x__get', PACKAGE = 'plant', obj_)
-}
-
-Interpolator__y__get <- function(obj_) {
-    .Call('_plant_Interpolator__y__get', PACKAGE = 'plant', obj_)
-}
-
-Interpolator__xy__get <- function(obj_) {
-    .Call('_plant_Interpolator__xy__get', PACKAGE = 'plant', obj_)
-}
-
-Interpolator__size__get <- function(obj_) {
-    .Call('_plant_Interpolator__size__get', PACKAGE = 'plant', obj_)
-}
-
-Interpolator__min__get <- function(obj_) {
-    .Call('_plant_Interpolator__min__get', PACKAGE = 'plant', obj_)
-}
-
-Interpolator__max__get <- function(obj_) {
-    .Call('_plant_Interpolator__max__get', PACKAGE = 'plant', obj_)
 }
 
 Individual___FF16__FF16_Env__ctor <- function(s) {
@@ -3153,6 +2973,42 @@ ResourceSpline__spline__set <- function(obj_, value) {
     invisible(.Call('_plant_ResourceSpline__spline__set', PACKAGE = 'plant', obj_, value))
 }
 
+Interpolator__ctor <- function() {
+    .Call('_plant_Interpolator__ctor', PACKAGE = 'plant')
+}
+
+Interpolator__init <- function(obj_, x, y) {
+    invisible(.Call('_plant_Interpolator__init', PACKAGE = 'plant', obj_, x, y))
+}
+
+Interpolator__eval <- function(obj_, x) {
+    .Call('_plant_Interpolator__eval', PACKAGE = 'plant', obj_, x)
+}
+
+Interpolator__set_extrapolate <- function(obj_, e) {
+    invisible(.Call('_plant_Interpolator__set_extrapolate', PACKAGE = 'plant', obj_, e))
+}
+
+Interpolator__x__get <- function(obj_) {
+    .Call('_plant_Interpolator__x__get', PACKAGE = 'plant', obj_)
+}
+
+Interpolator__y__get <- function(obj_) {
+    .Call('_plant_Interpolator__y__get', PACKAGE = 'plant', obj_)
+}
+
+Interpolator__size__get <- function(obj_) {
+    .Call('_plant_Interpolator__size__get', PACKAGE = 'plant', obj_)
+}
+
+Interpolator__min__get <- function(obj_) {
+    .Call('_plant_Interpolator__min__get', PACKAGE = 'plant', obj_)
+}
+
+Interpolator__max__get <- function(obj_) {
+    .Call('_plant_Interpolator__max__get', PACKAGE = 'plant', obj_)
+}
+
 Disturbance_Regime__ctor <- function() {
     .Call('_plant_Disturbance_Regime__ctor', PACKAGE = 'plant')
 }
@@ -3491,10 +3347,6 @@ TF24_Environment__light_availability__set <- function(obj_, value) {
 
 TF24_Environment__soil__get <- function(obj_) {
     .Call('_plant_TF24_Environment__soil__get', PACKAGE = 'plant', obj_)
-}
-
-test_adaptive_interpolator <- function(f, a, b) {
-    .Call('_plant_test_adaptive_interpolator', PACKAGE = 'plant', f, a, b)
 }
 
 node_schedule_default__Parameters___FF16__FF16_Env <- function(p) {

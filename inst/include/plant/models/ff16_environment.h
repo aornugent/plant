@@ -4,7 +4,7 @@
 
 #include <plant/environment.h>
 #include <plant/resource_spline.h>
-#include <plant/interpolator.h>
+#include <odelia/interpolator.hpp>
 #include <plant/canopy_shape.h> // ShadingModel, shading_model_from_string
 #include <cmath>                // std::log, std::exp, std::floor (PPA stepping)
 

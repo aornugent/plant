@@ -55,7 +55,7 @@ private:
   parameters_type parameters;
   patch_type patch;
   NodeSchedule schedule;
-  ode::Solver<patch_type> solver;
+  odelia::ode::Solver<patch_type> solver;
 };
 
 template <typename T, typename E>
@@ -66,6 +66,7 @@ StochasticPatchRunner<T, E>::StochasticPatchRunner(parameters_type p,
       schedule(make_empty_stochastic_schedule(parameters)),
       solver(patch, make_ode_control(c)) {
   parameters.validate();
+  solver.set_collect(false);
 }
 
 template <typename T, typename E> void StochasticPatchRunner<T, E>::run() {
@@ -78,6 +79,7 @@ template <typename T, typename E> void StochasticPatchRunner<T, E>::run() {
 template <typename T, typename E>
 size_t StochasticPatchRunner<T, E>::run_next() {
   const double t0 = time();
+  auto& patch_solver = solver.get_system_ref();
 
   // NOTE: Unlike SCM::run_next(), this assumes that there is only a
   // single event at a given time.  That's not all bad -- multiple
@@ -90,23 +92,22 @@ size_t StochasticPatchRunner<T, E>::run_next() {
   const size_t idx = e.species_index;
   schedule.pop();
 
-  if (patch.introduce_new_node(idx)) {
-    solver.set_state_from_system(patch);
+  if (patch_solver.introduce_new_node(idx)) {
+    solver.set_state_from_system();
   }
   advance(e.time_end());
+  patch = solver.get_system_ref();
 
   return idx;
 }
 
 template <typename T, typename E>
 void StochasticPatchRunner<T, E>::advance(double time_) {
-  // Clones some of Solver<T,E>::advance()
-  solver.set_time_max(time_);
-  while (solver.get_time() < time_) {
-    solver.step(patch);
-    if (deaths()) {
-      solver.set_state_from_system(patch);
-    }
+  solver.advance_adaptive({solver.time(), time_});
+  patch = solver.get_system_ref();
+  if (deaths()) {
+    solver.get_system_ref() = patch;
+    solver.set_state_from_system();
   }
 }
 
@@ -118,15 +119,17 @@ template <typename T, typename E> bool StochasticPatchRunner<T, E>::deaths() {
 // NOTE: solver.reset() will set time within the solver to zero.
 // However, there is no other current way of setting the time within
 // the solver.  It might be better to add a set_time method within
-// ode::Solver, and then here do explicitly ode_solver.set_time(0)?
+// odelia::ode::Solver, and then here do explicitly ode_solver.set_time(0)?
 template <typename T, typename E> void StochasticPatchRunner<T, E>::reset() {
   patch.reset();
   schedule.reset();
-  solver.reset(patch);
+  solver.get_system_ref() = patch;
+  solver.reset();
   if (schedule.size() > 0) {
     const double t = schedule.next_event().time_introduction();
     if (t >= 0.0) {
-      solver.step_to(patch, t);
+      solver.advance_fixed({solver.time(), t});
+      patch = solver.get_system();
     }
   }
 }

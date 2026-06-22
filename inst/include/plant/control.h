@@ -3,7 +3,7 @@
 #define PLANT_PLANT_CONTROL_H_
 
 #include <plant/qag.h>
-#include <plant/ode_solver/ode_control.h>
+#include <odelia/ode_control.hpp>
 #include <string>
 
 // The `Control` object holds all the non-biological control
@@ -90,8 +90,8 @@ struct Control {
   double ci_niter;
 };
 
-inline ode::OdeControl make_ode_control(const Control& control) {
-  return ode::OdeControl(control.ode_tol_abs,
+inline odelia::ode::OdeControl make_ode_control(const Control& control) {
+  return odelia::ode::OdeControl(control.ode_tol_abs,
                          control.ode_tol_rel,
                          control.ode_a_y,
                          control.ode_a_dydt,

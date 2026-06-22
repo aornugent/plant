@@ -5,7 +5,7 @@
 #include <plant/parameters.h>
 #include <plant/species.h>
 #include <plant/util.h>
-#include <plant/ode_solver/ode_interface.h>
+#include <odelia/ode_interface.hpp>
 
 #include <plant/disturbance_regime.h>
 
@@ -19,6 +19,8 @@ namespace plant {
 template <typename T, typename E>
 class Patch {
 public:
+  using value_type = double;
+
   typedef T                 strategy_type;
   typedef E                 environment_type;
   typedef Individual<T,E>   individual_type;
@@ -88,11 +90,11 @@ public:
   double ode_time() const;
 
   // Retrieve ode state from patch and save into the ode solver
-  ode::iterator ode_state(ode::iterator it) const;
+  odelia::ode::iterator ode_state(odelia::ode::iterator it) const;
   // Retrieve ode rates from patch and save into the ode solver
-  ode::iterator ode_rates(ode::iterator it) const;
+  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const;
   // Retrieve auxillary variables and save into the ode solver
-  ode::iterator ode_aux(ode::iterator it) const;
+  odelia::ode::iterator ode_aux(odelia::ode::iterator it) const;
 
   // Returns state in structure format as opposed to single 
   // vector as given by ode_state
@@ -104,8 +106,8 @@ public:
   //   - second is for mutant runs.
   // The second does not calculate environment when states are updated, as mutants only experience the environment
   // The decision which to use is determined by `use_cached_environment` below
-  ode::const_iterator set_ode_state(ode::const_iterator it, double time);
-  ode::const_iterator set_ode_state(ode::const_iterator it, int index);
+  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it, double time);
+  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it, int index);
 
   // * R interface
   // Data accessors:
@@ -159,7 +161,7 @@ public:
   void overwrite_strategies(std::vector<strategy_type> strategies);
 
 private:
-  int idx; // used to access environment cache for mutant runs
+  int idx = 0; // used to access environment cache for mutant runs
   void compute_environment(bool rescale);
   void compute_rates();
 
@@ -188,7 +190,7 @@ Patch<T,E>::Patch(parameters_type p, environment_type e, Control c)
     area(p.patch_area),
     environment(e),
     control(c),
-    environment_cache(6) {  // length of ode::Step
+    environment_cache(6) {  // length of odelia::ode::Step
   
   parameters.validate();
 
@@ -232,6 +234,7 @@ void Patch<T,E>::set_mutant() {
     is_mutant_run = true;
     save_RK45_cache = false;
     use_cached_environment = true;
+  idx = 0;
 }
 
 template <typename T, typename E>
@@ -497,14 +500,14 @@ void Patch<T,E>::r_set_state(double time,
 // ODE interface
 template <typename T, typename E>
 size_t Patch<T,E>::ode_size() const {
-  return ode::ode_size(species.begin(), species.end()) + environment.ode_size();
+  return odelia::ode::ode_size(species.begin(), species.end()) + environment.ode_size();
 }
 
 template <typename T, typename E>
 size_t Patch<T,E>::aux_size() const {
   // TODO(#478): Is this useful for environment vectors?
   // no use for auxiliary environment variables (yet)
-  return ode::aux_size(species.begin(), species.end());// + environment.ode_size();
+  return odelia::ode::aux_size(species.begin(), species.end());// + environment.ode_size();
 }
 
 template <typename T, typename E>
@@ -514,11 +517,11 @@ double Patch<T,E>::ode_time() const {
 
 // First set_ode_state function is for resident runs. Second is for mutant runs
 template <typename T, typename E>
-ode::const_iterator Patch<T,E>::set_ode_state(ode::const_iterator it,
+odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterator it,
                                               double time) {
   
   // Set ode states
-  it = ode::set_ode_state(species.begin(), species.end(), it);
+  it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
   it = environment.set_ode_state(it);
 
   // update time
@@ -537,10 +540,10 @@ ode::const_iterator Patch<T,E>::set_ode_state(ode::const_iterator it,
 // -- differs from above in that an index is passed in as argument
 // -- environments are loaded from ODE history, instead of being calculated 
 template <typename T, typename E>
-ode::const_iterator Patch<T,E>::set_ode_state(ode::const_iterator it,
+odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterator it,
                                               int index) {
 
-  it = ode::set_ode_state(species.begin(), species.end(), it);
+  it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
 
   // using a pointer here to avoid copying environment object
   // just point the pointer, used inside compute rates to get env, to relevant env object
@@ -581,23 +584,34 @@ template <typename T, typename E>
 void Patch<T,E>::load_ode_step() {
   if (use_cached_environment)
   {
-    std::vector<double>::iterator step;
+    // Minor optimization to check the current and next index before doing a search, as the most common case is that the ODE solver is stepping through the cached environments in order. If the call sequence was not strictly sequential, we fallback to a search through the step history to find the correct environment.
 
-    // find where we are in the ODE history
-    step = std::find(step_history.begin(), step_history.end(), time());
+    const double t = time();
+    const size_t n = step_history.size();
 
-    if(*step != time()) {
-      util::stop("ODE time not found in step history");
+    // Fast path: step_to() advances through ode_times in order, so this is
+    // usually either the current cached step index or the next one.
+    if (static_cast<size_t>(idx) < n && util::identical(step_history[idx], t)) {
+      return;
+    }
+    if (static_cast<size_t>(idx + 1) < n &&
+        util::identical(step_history[idx + 1], t)) {
+      ++idx;
+      return;
     }
 
-    // index to a cached set of environments(6) for the current ODE step
-    idx = std::distance(step_history.begin(), step);
+    // Fallback to search if the call sequence was not strictly sequential.
+    auto step = std::find(step_history.begin(), step_history.end(), t);
+    if (step == step_history.end()) {
+      util::stop("ODE time not found in step history");
+    }
+    idx = static_cast<int>(std::distance(step_history.begin(), step));
   }
 }
 
 template <typename T, typename E>
-ode::iterator Patch<T,E>::ode_state(ode::iterator it) const {
-  it = ode::ode_state(species.begin(), species.end(), it);
+odelia::ode::iterator Patch<T,E>::ode_state(odelia::ode::iterator it) const {
+  it = odelia::ode::ode_state(species.begin(), species.end(), it);
   it = environment.ode_state(it);
   return it;
 }
@@ -620,15 +634,15 @@ Rcpp::List Patch<T, E>::r_get_state() const
 }
 
 template <typename T, typename E>
-ode::iterator Patch<T,E>::ode_rates(ode::iterator it) const {
-  it = ode::ode_rates(species.begin(), species.end(), it);
+odelia::ode::iterator Patch<T,E>::ode_rates(odelia::ode::iterator it) const {
+  it = odelia::ode::ode_rates(species.begin(), species.end(), it);
   it = environment.ode_rates(it);
   return it;
 }
 
 template <typename T, typename E>
-ode::iterator Patch<T,E>::ode_aux(ode::iterator it) const {
-  it = ode::ode_aux(species.begin(), species.end(), it);
+odelia::ode::iterator Patch<T,E>::ode_aux(odelia::ode::iterator it) const {
+  it = odelia::ode::ode_aux(species.begin(), species.end(), it);
   return it;
 }
 

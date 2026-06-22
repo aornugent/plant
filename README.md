@@ -103,6 +103,19 @@ results <- run_scm_collect(p)
 
 If you want to develop or extend `plant` (e.g. add a new strategy/model), see [agents.md](agents.md) and the `new-strategy` skill (`.claude/skills/new-strategy/`).
 
+## Benchmarking
+
+For fair performance comparisons across branches, rebuild compiled code before
+running benchmarks:
+
+```sh
+make
+Rscript -e "devtools::load_all(quiet=TRUE); run_plant_benchmarks()"
+```
+
+Running benchmarks without a fresh `make` can compare stale binaries and give
+misleading timing differences.
+
 ## Getting help
 
 Questions, bug reports and feature requests are welcome via the [GitHub issue tracker](https://github.com/traitecoevo/plant/issues).

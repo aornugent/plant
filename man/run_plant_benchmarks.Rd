@@ -5,7 +5,7 @@
 \title{Check performance on current system using package bench}
 \usage{
 run_plant_benchmarks(
-  strategy_types = list(FF16 = FF16_Strategy, TF24 = TF24_Strategy, K93 = K93_Strategy),
+  strategy_types = list(FF16 = FF16_Strategy),
   iterations = 1
 )
 }
@@ -19,4 +19,9 @@ A dataframe of results
 }
 \description{
 Check performance on current system using package bench
+}
+\details{
+For branch-to-branch performance comparisons, run `make` before
+`devtools::load_all(quiet = TRUE)` so compiled code is rebuilt with the
+package's intended optimization flags.
 }

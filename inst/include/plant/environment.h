@@ -3,9 +3,9 @@
 #define PLANT_PLANT_ENVIRONMENT_H_
 
 #include <plant/control.h>
-#include <plant/interpolator.h>
+#include <odelia/interpolator.hpp>
 #include <plant/adaptive_interpolator.h>
-#include <plant/ode_solver/ode_interface.h>
+#include <odelia/ode_interface.hpp>
 #include <plant/internals.h>
 #include <plant/util.h>
 #include <unordered_map>
@@ -35,21 +35,21 @@ public:
   size_t ode_size() const { return vars.state_size; }
   virtual void compute_rates(std::vector<double> const& resource_depletion){};
 
-  ode::const_iterator set_ode_state(ode::const_iterator it) {
+  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it) {
     for (size_t i = 0; i < vars.state_size; i++) {
       vars.states[i] = *it++;
     }
     return it;
   }
 
-  ode::iterator ode_state(ode::iterator it) const {
+  odelia::ode::iterator ode_state(odelia::ode::iterator it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.states[i];
     }
     return it;
   }
 
-  ode::iterator ode_rates(ode::iterator it) const {
+  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.rates[i];
     }

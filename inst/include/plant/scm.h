@@ -3,7 +3,7 @@
 #define PLANT_PLANT_SCM_H_
 
 #include <plant/node_schedule.h>
-#include <plant/ode_solver/ode_solver.h>
+#include <odelia/ode_solver.hpp>
 #include <plant/patch.h>
 #include <plant/scm_utils.h>
 
@@ -120,11 +120,17 @@ private:
   // Uniform grid for fixed-step forward-Euler integration (control.fixed_time_step).
   static std::vector<double> uniform_euler_times(double t0, double t1, double dt);
 
+  // Shared implementation of run_next(). The solver owns the patch system
+  // (odelia::ode::Solver), so the live state lives in solver.get_system_ref();
+  // sync_patch controls whether the `patch` member snapshot is refreshed from
+  // it on return (skipped inside the run() loop to avoid per-step copies).
+  std::vector<size_t> run_next_impl(bool sync_patch);
+
   parameters_type parameters;
   Control control;
   patch_type patch;
   NodeSchedule node_schedule;
-  ode::Solver<patch_type> solver;
+  odelia::ode::Solver<patch_type> solver;
 };
 
 // ---- Construction --------------------------------------------------------
@@ -139,6 +145,7 @@ SCM<T, E>::SCM(parameters_type p, environment_type e, Control c)
 
   collect = false;
   collect_refinement_errors = false;
+  solver.set_collect(false);
 
   if (!util::identical(parameters.patch_area, 1.0)) {
     util::warning("We recommened keeping patch_area = 1 for the SCM, as need to check units for all other sizes");
@@ -179,24 +186,36 @@ std::vector<double> SCM<T, E>::uniform_euler_times(double t0, double t1,
 
 template <typename T, typename E> void SCM<T, E>::run() {
   reset();
+  // The solver owns the live patch system; operate on it directly during the
+  // run and avoid per-step copies into the `patch` member.
   if (collect) {
-    history.push_back(patch);
+    history.push_back(solver.get_system_ref());
   }
 
   while (!complete()) {
-    std::vector<size_t> added = run_next();
+    std::vector<size_t> added = run_next_impl(false);
     if (collect_refinement_errors) {
-      patch.collect_competition_errors(added);
+      solver.get_system_ref().collect_competition_errors(added);
     }
     if (collect) {
-      history.push_back(patch);
+      history.push_back(solver.get_system_ref());
     }
   }
+
+  // Expose the final state through the `patch` accessor after the loop.
+  patch = solver.get_system_ref();
 }
 
 template <typename T, typename E> std::vector<size_t> SCM<T, E>::run_next() {
+  return run_next_impl(true);
+}
+
+template <typename T, typename E>
+std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
   std::vector<size_t> ret;
   const double t0 = time();
+  // The live patch system is owned by the solver; mutate it in place.
+  auto &sys = solver.get_system_ref();
 
   // Consume every event scheduled at the current time t0: each contributes a
   // species to introduce. Stop once the next event ends later than t0 (i.e. it
@@ -215,8 +234,8 @@ template <typename T, typename E> std::vector<size_t> SCM<T, E>::run_next() {
     }
   }
 
-  patch.introduce_new_nodes(ret);
-  solver.set_state_from_system(patch);
+  sys.introduce_new_nodes(ret);
+  solver.set_state_from_system();
 
   // Three integration modes:
   //  - pinned ode times (resident replay for a mutant): step exactly to the
@@ -231,12 +250,16 @@ template <typename T, typename E> std::vector<size_t> SCM<T, E>::run_next() {
       util::stop("fixed_time_step (forward Euler) is not supported for "
                  "ode-time replay / mutant runs");
     }
-    solver.advance_fixed(patch, e.times);
+    solver.advance_fixed(e.times);
   } else if (control.fixed_time_step > 0.0) {
     solver.advance_euler(
-        patch, uniform_euler_times(t0, e.time_end(), control.fixed_time_step));
+        uniform_euler_times(t0, e.time_end(), control.fixed_time_step));
   } else {
-    solver.advance_adaptive(patch, e.time_end());
+    solver.advance_adaptive({solver.time(), e.time_end()});
+  }
+
+  if (sync_patch) {
+    patch = sys;
   }
 
   return ret;
@@ -325,11 +348,15 @@ void SCM<T, E>::refine_schedule() {
 
 // NOTE: solver.reset() sets the solver's internal time to zero. There is
 // currently no other way to set that time; it might be cleaner to add an
-// ode::Solver::set_time and call set_time(0) explicitly here.
+// odelia::ode::Solver::set_time and call set_time(0) explicitly here.
 template <typename T, typename E> void SCM<T, E>::reset() {
   patch.reset();
   node_schedule.reset();
-  solver.reset(patch);
+  // Seed the solver's owned system from the freshly reset patch, then reset
+  // the solver's time/step state and sync the snapshot back.
+  solver.get_system_ref() = patch;
+  solver.reset();
+  patch = solver.get_system_ref();
   history.clear();
 }
 
@@ -338,7 +365,7 @@ template <typename T, typename E> bool SCM<T, E>::complete() const {
 }
 
 template <typename T, typename E> double SCM<T, E>::time() const {
-  return patch.time();
+  return solver.time();
 }
 
 // ---- R interface ---------------------------------------------------------
@@ -415,7 +442,7 @@ void SCM<T, E>::r_set_node_schedule_times(
 
 template <typename T, typename E>
 std::vector<double> SCM<T, E>::r_ode_times() const {
-  return solver.get_times();
+  return solver.times();
 }
 
 } // namespace plant
