@@ -818,6 +818,9 @@ StochasticPatch:
     ode_time: {type: double, access: function, name_cpp: "odelia::ode::r_ode_time"}
     ode_state: {type: "std::vector<double>", access: function, name_cpp: "odelia::ode::r_ode_state"}
     ode_rates: {type: "std::vector<double>", access: function, name_cpp: "odelia::ode::r_ode_rates"}
+    # Structured per-species state (mirrors Patch::state); read by
+    # run_stochastic_collect each step. See issue #498.
+    state: {type: "Rcpp::List", access: member, name_cpp: r_get_state}
   methods:
     compute_competition: {return_type: double, args: [height: double]}
     introduce_new_node:
@@ -878,10 +881,11 @@ StochasticPatchRunner:
       name_cpp: r_run_next
     reset:
       return_type: void
-    set_schedule_times:
+    # Named to mirror SCM (set_node_schedule_times); same NodeSchedule concept.
+    set_node_schedule_times:
       args: [times: "std::vector<std::vector<double> >"]
       return_type: void
-      name_cpp: r_set_schedule_times
+      name_cpp: r_set_node_schedule_times
   active:
     complete: {type: bool, access: member}
     time: {type: double, access: member}
@@ -890,11 +894,12 @@ StochasticPatchRunner:
       type: "plant::StochasticPatch<T,E>"
       access: member
       name_cpp: r_patch
-    schedule:
+    # Mirrors SCM's `node_schedule` (was `schedule`); both wrap a NodeSchedule.
+    node_schedule:
       type: "plant::NodeSchedule"
       access: member
-      name_cpp: r_schedule
-      name_cpp_set: r_set_schedule
+      name_cpp: r_node_schedule
+      name_cpp_set: r_set_node_schedule
 
 ResourceSpline:
   name_cpp: "plant::ResourceSpline"
