@@ -48,6 +48,7 @@ When opening an issue (including whenever the user asks you to create one), alwa
   | `[speed]` | Performance — making the model run faster |
   | `[patch variations]` | Multiple patch setups (multi-patch, stochastic metapopulation, continuous patch) |
   | `[AutoDiff]` | Enabling automatic differentiation in plant (e.g. for gradient-based calibration) |
+  | `[forecasting]` | Enabling forecasting with the plant model |
   | `[documentation]` | Documenting model capabilities (any of the three repos) |
   | `[other]` | Anything not covered above |
 
