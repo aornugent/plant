@@ -201,7 +201,7 @@ test_that("Offspring production & error calculations correct", {
     context(sprintf("SCM-%s", x))
     e <- environment_types[[x]]
     p0 <- scm_base_parameters(x)
-    p1 <- expand_parameters(trait_matrix(0.08, "lma"), p0, birth_rate_list=1.0)
+    p1 <- add_strategies(p0, trait_matrix(0.08, "lma"), birth_rate = 1.0)
     
     env <- Environment(x)
     ctrl <- Control()
@@ -214,7 +214,7 @@ test_that("Offspring production & error calculations correct", {
       density <- purrr::map_dbl(a, ~ scm$patch$density(.x))
       net_reproduction_ratio_by_node_weighted <- density *
         scm$patch$species[[1]]$net_reproduction_ratio_by_node *
-        scm$parameters$strategies[[1]]$S_D
+        scm$parameters$strategies[[1]]$pars$S_D
       total <- trapezium(a, net_reproduction_ratio_by_node_weighted)
       if (error)
         local_error_integration(a, net_reproduction_ratio_by_node_weighted, total)
@@ -237,7 +237,7 @@ test_that("refinement_error_by_node collected in C++ matches per-step assembly",
     context(sprintf("SCM-%s", x))
     e <- environment_types[[x]]
     p0 <- scm_base_parameters(x)
-    p1 <- expand_parameters(trait_matrix(0.08, "lma"), p0, birth_rate_list = 1.0)
+    p1 <- add_strategies(p0, trait_matrix(0.08, "lma"), birth_rate = 1.0)
     env <- Environment(x)
     ctrl <- Control()
     n_spp <- length(p1$strategies)

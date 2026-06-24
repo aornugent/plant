@@ -3105,6 +3105,10 @@ Weibull_Disturbance_Regime__icdf <- function(obj_, prob) {
     .Call('_plant_Weibull_Disturbance_Regime__icdf', PACKAGE = 'plant', obj_, prob)
 }
 
+FF16_Pars__ctor <- function() {
+    .Call('_plant_FF16_Pars__ctor', PACKAGE = 'plant')
+}
+
 FF16_Strategy__ctor <- function() {
     .Call('_plant_FF16_Strategy__ctor', PACKAGE = 'plant')
 }
@@ -3151,6 +3155,10 @@ FF16_Environment__light_availability__get <- function(obj_) {
 
 FF16_Environment__light_availability__set <- function(obj_, value) {
     invisible(.Call('_plant_FF16_Environment__light_availability__set', PACKAGE = 'plant', obj_, value))
+}
+
+K93_Pars__ctor <- function() {
+    .Call('_plant_K93_Pars__ctor', PACKAGE = 'plant')
 }
 
 K93_Strategy__ctor <- function() {
@@ -3219,6 +3227,10 @@ ExtrinsicDrivers__set_variable <- function(obj_, driver_name, x, y) {
 
 ExtrinsicDrivers__set_extrapolate <- function(obj_, driver_name, extrapolate) {
     invisible(.Call('_plant_ExtrinsicDrivers__set_extrapolate', PACKAGE = 'plant', obj_, driver_name, extrapolate))
+}
+
+TF24_Pars__ctor <- function() {
+    .Call('_plant_TF24_Pars__ctor', PACKAGE = 'plant')
 }
 
 TF24_Strategy__ctor <- function() {
@@ -3458,6 +3470,14 @@ make_node_schedule__Parameters___K93__K93_Env <- function(p) {
 #' S. Falster.
 node_schedule_times_default <- function(max_time) {
     .Call('_plant_node_schedule_times_default', PACKAGE = 'plant', max_time)
+}
+
+FF16_strategy_expand_allometry <- function(s, height, area_heartwood, mass_heartwood) {
+    .Call('_plant_FF16_strategy_expand_allometry', PACKAGE = 'plant', s, height, area_heartwood, mass_heartwood)
+}
+
+TF24_strategy_expand_allometry <- function(s, height, area_heartwood, mass_heartwood) {
+    .Call('_plant_TF24_strategy_expand_allometry', PACKAGE = 'plant', s, height, area_heartwood, mass_heartwood)
 }
 
 node_schedule_default__Parameters___TF24__TF24_Env <- function(p) {

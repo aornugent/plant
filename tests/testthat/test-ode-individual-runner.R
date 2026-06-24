@@ -81,7 +81,7 @@ test_that("grow_individual_to_size", {
     pp <- Individual(x, e)(s)
 
     if(grepl("K93", x))
-      heights <- subset(heights, heights >  pp$strategy$height_0)
+      heights <- subset(heights, heights >  pp$strategy$pars$height_0)
 
     res <- grow_individual_bracket(pp, heights, "height", env)
 
@@ -157,7 +157,7 @@ test_that("grow_individual_to_size", {
     strategy <- strategy_types[[x]]()
     e <- environment_types[[x]]
     pl <- Individual(x, e)(strategy)
-    sizes <- c(1, 5, 10, 12, strategy$hmat)
+    sizes <- c(1, 5, 10, 12, strategy$pars$hmat)
     
     if(grepl("K93", x)) 
       sizes <- c(2.5, 5, 10, 12)
@@ -248,7 +248,7 @@ test_that("Sensible behaviour on integration failure", {
     c("eta","lma","rho","theta","a_l1","a_l2","a_r1","a_b1","r_r","k_b","k_r","omega","B_kl1","B_kl2","B_ks1","narea","B_lf1","B_lf5","B_lf4","B_rs1","B_rb1","hmat","c_r1")
   )
 
-  s <- strategy_list(traits, scm_base_parameters("FF16"), hyperpar, 1.0)[[1]]
+  s <- generate_strategy(scm_base_parameters("FF16"), traits, hyperpar = hyperpar, birth_rate = 1.0)[[1]]
   pl <- FF16_Individual(s)
 
   env <-Environment("FF16")
