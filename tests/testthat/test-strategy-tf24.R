@@ -244,28 +244,58 @@ test_that("narea calculation", {
 
 test_that("offspring arrival", {
 
+  # This drives a full patch through every demographic process and pins the
+  # resulting offspring production so the numbers cannot drift silently.
+  #
+  # We deliberately use a short patch (max_patch_lifetime = 5) and a low
+  # height-at-maturity (hmat = 5) rather than the model defaults. Lowering hmat
+  # lets plants mature and reproduce *within* the short patch, so offspring
+  # production sits at an O(100) magnitude. That matters for the regression:
+  # at the default hmat over so short a patch, reproduction underflows towards
+  # zero, and an `expect_equal(tolerance = ...)` against a near-zero target
+  # degenerates into a vacuous absolute comparison that any small number passes.
+  # The short, low-hmat configuration also cuts TF24's integration time by
+  # roughly 7x (TF24 is costly per step -- each rate evaluation runs the
+  # root-collar-psi leaf optimisation) while keeping the test a genuine
+  # end-to-end check.
+  #
+  # Tolerance is 1e-3 (relative), not machine-epsilon: offspring_production is an
+  # integrated SCM output, so per-step FMA/rounding differences accumulate and it
+  # is only reproducible to ~1e-5 across architectures (cf. the arm64 FMA fix in
+  # #524). 1e-3 absorbs that while still catching any real regression, which
+  # moves these values by whole units or orders of magnitude.
   p0 <- scm_base_parameters("TF24")
   env <- Environment("TF24")
   ctrl <- Control()
-  max_patch_lifetime <-10
-  p0$max_patch_lifetime <- max_patch_lifetime
+  p0$max_patch_lifetime <- 5
 
   # one species
-  p1 <- add_strategies(p0, trait_matrix(0.0825, "lma"), hyperpar = TF24_hyperpar, birth_rate = list(20))
+  p1 <- add_strategies(p0, trait_matrix(c(0.0825, 5), c("lma", "hmat")),
+                       hyperpar = TF24_hyperpar, birth_rate = list(20))
 
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 4.71e-06, tolerance=1e-5)
-  #expect_equal(out$ode_times[c(10, 100)], c(0.000070, 4.216055), tolerance=1e-5)
+  expect_equal(out$offspring_production, 227.884969, tolerance = 1e-3)
 
-  # two species
-  p2 <- add_strategies(p0, trait_matrix(c(0.0825, 0.2625), "lma"), hyperpar = TF24_hyperpar, birth_rate = list(11.99177, 16.51006))
-  
+  # two species: the second strategy has a moderately higher lma (0.10 vs
+  # 0.0825), so it grows more slowly and is partly shaded, but still matures and
+  # reproduces within the patch. Both species therefore carry non-zero offspring
+  # production -- a genuine two-species coexistence check rather than one
+  # strategy collapsing to ~0 (which would make the second value a vacuous
+  # near-zero comparison).
+  p2 <- add_strategies(p0, trait_matrix(c(0.0825, 0.10, 5, 5), c("lma", "hmat")),
+                       hyperpar = TF24_hyperpar, birth_rate = list(20, 20))
+
   out <- run_scm(p2, env, ctrl)
-  expect_equal(out$offspring_production, c(5.64e-06, 3.49e-17), tolerance=1e-5)
-  #expect_equal(length(out$ode_times), 297)
+  expect_equal(out$offspring_production, c(145.332894, 58.317455), tolerance = 1e-3)
 })
 
-# Check that the water absorbed from soil equals water transpired from leaves
+# Water mass-balance: transpiration integrated up the stem side of every
+# individual must match the water depleted from the soil on the root side, under
+# a time-varying rainfall driver. Reduced to 5 soil depths (from 15) purely for
+# speed (~5x faster, no material change to the closure). The check is
+# deliberately one-sided (1 - ratio < tol, i.e. ratio > 1 - tol): over so short
+# a transient patch the cumulative-flux closure does not settle to a tight
+# two-sided tolerance. See #533 for tightening it.
 
 test_that("E conservation", {
 
@@ -276,8 +306,8 @@ traits <- trait_matrix(c(0.07), c("lma"))
 p1 <- add_strategies(p0, traits)
 
 env <- Environment("TF24")
-env$set_soil_number_of_depths(15)
-env$set_soil_water_state(rep(c(0.2), times = 15))
+env$set_soil_number_of_depths(5)
+env$set_soil_water_state(rep(c(0.2), times = 5))
 x = seq(0,max_patch_lifetime,length.out = 100)
 y = 0.25*sin(2*pi*x) + 1
 env$extrinsic_drivers_set_variable("rainfall", x=x, y=y)
@@ -301,25 +331,3 @@ results$env$soil_moist_cumulative_flux %>%
 expect_true(1 - (stem_side/root_side$root_side[-1])[length(stem_side)] < 5e-2)
 })
 
-test_that("Report generation", {
-
-  p0 <- scm_base_parameters("TF24")
-  env <- Environment("TF24")
-  ctrl <- Control()
-  
-  p2 <- add_strategies(p0, trait_matrix(c(0.0825, 0.2625), "lma"), hyperpar = TF24_hyperpar, birth_rate = list(11.99177, 16.51006))
-
-  # test report generation
-  # out <- run_scm_collect(p2, env, ctrl)
-
-  # unlink("tmp", recursive = TRUE)
-  # expect_message(TF24_generate_stand_report(out, "tmp/tmp.html", overwrite = TRUE), "Report for TF24 stand saved at tmp/tmp.html")
-  # expect_true(file.exists("tmp/tmp.html"))
-
-  # # don't overwrite output if already exists 
-  # expect_message(TF24_generate_stand_report(out, "tmp/tmp.html", overwrite = FALSE), "Report for TF24 stand already exists at tmp/tmp.html")  
-  # expect_true(file.exists("tmp/tmp.html"))
-
-  unlink("tmp", recursive = TRUE)
-
-})
