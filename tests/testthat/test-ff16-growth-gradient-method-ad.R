@@ -32,7 +32,6 @@ compile_ff16_growth_method <- function() {
 
   res <- tryCatch({
     Rcpp::sourceCpp(code = '
-      // [[Rcpp::depends(BH)]]
       #include <Rcpp.h>
       #include <plant/models/ff16_strategy.h>
       static plant::FF16_Strategy mk() {

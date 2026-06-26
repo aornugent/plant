@@ -36,7 +36,6 @@ compile_ff16_live_ad <- function() {
 
   res <- tryCatch({
     Rcpp::sourceCpp(code = '
-      // [[Rcpp::depends(BH)]]
       #include <Rcpp.h>
       #include <XAD/XAD.hpp>
       #include <plant/models/ff16_strategy.h>
