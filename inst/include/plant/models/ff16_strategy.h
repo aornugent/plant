@@ -395,6 +395,23 @@ public:
   // Set constants within FF16_Strategy
   void prepare_strategy();
 
+  // The net-production kernel's parameter set, gathered from this (prepared)
+  // strategy's pars + derived eta_c (#472 scope B, Milestone C). Bridges a live,
+  // prepared FF16_Strategy to the scalar-templated AD kernel: lift the result to
+  // FF16ProdPars<ad_type> (registering the trait of interest as a tape input) to
+  // get reverse-mode trait gradients of net production from the real model
+  // configuration rather than hand-supplied numbers.
+  FF16ProdPars<double> prod_pars() const {
+    FF16ProdPars<double> p;
+    p.lma = pars.lma; p.rho = pars.rho; p.theta = pars.theta;
+    p.a_b1 = pars.a_b1; p.a_r1 = pars.a_r1; p.eta_c = eta_c;
+    p.a_p1 = pars.a_p1; p.a_p2 = pars.a_p2;
+    p.r_l = pars.r_l; p.r_s = pars.r_s; p.r_b = pars.r_b; p.r_r = pars.r_r;
+    p.k_l = pars.k_l; p.k_b = pars.k_b; p.k_s = pars.k_s; p.k_r = pars.k_r;
+    p.a_bio = pars.a_bio; p.a_y = pars.a_y;
+    return p;
+  }
+
   // Birth height of a (germinated) seed. Strategy-agnostic accessor used by
   // the templated Individual; here height_0 is derived in prepare_strategy().
   double initial_height() const { return height_0; }
