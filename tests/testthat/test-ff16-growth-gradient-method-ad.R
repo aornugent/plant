@@ -23,6 +23,8 @@ compile_ff16_growth_method <- function() {
   odelia_so <- system.file("libs", "odelia.so", package = "odelia")
   testthat::skip_if(!nzchar(plant_so) || !file.exists(plant_so),
                     "plant shared library not found.")
+  testthat::skip_if(!nzchar(system.file("include", package = "BH")),
+                    "BH include dir not resolvable (e.g. R CMD check sandbox).")
   withr::local_envvar(
     PKG_CPPFLAGS = paste(paste0("-I", shQuote(plant_inc)),
                          paste0("-I", shQuote(odelia_inc)),

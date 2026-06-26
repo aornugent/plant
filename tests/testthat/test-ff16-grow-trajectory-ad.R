@@ -26,6 +26,8 @@ compile_ff16_traj_ad <- function() {
                     "plant shared library not found.")
   testthat::skip_if(!nzchar(odelia_so) || !file.exists(odelia_so),
                     "odelia shared library not found for tape linking.")
+  testthat::skip_if(!nzchar(system.file("include", package = "BH")),
+                    "BH include dir not resolvable (e.g. R CMD check sandbox).")
   withr::local_envvar(
     PKG_CPPFLAGS = paste(paste0("-I", shQuote(plant_inc)),
                          paste0("-I", shQuote(odelia_inc)),

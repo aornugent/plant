@@ -24,6 +24,8 @@ compile_ff16_growth_ad <- function() {
                     "odelia shared library not found for tape linking.")
   testthat::skip_if(!nzchar(plant_so) || !file.exists(plant_so),
                     "plant shared library not found (live FF16_Strategy needs it).")
+  testthat::skip_if(!nzchar(system.file("include", package = "BH")),
+                    "BH include dir not resolvable (e.g. R CMD check sandbox).")
   withr::local_envvar(
     PKG_CPPFLAGS = paste(paste0("-I", shQuote(plant_inc)),
                          paste0("-I", shQuote(odelia_inc)),

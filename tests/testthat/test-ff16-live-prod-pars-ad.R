@@ -27,6 +27,8 @@ compile_ff16_live_ad <- function() {
   # FF16_Strategy pulls in the full plant/odelia/BH/Rcpp include surface, and
   # constructing one needs its compiled methods/vtable from plant.so (plus the
   # XAD tape from odelia.so).
+  testthat::skip_if(!nzchar(system.file("include", package = "BH")),
+                    "BH include dir not resolvable (e.g. R CMD check sandbox).")
   withr::local_envvar(
     PKG_CPPFLAGS = paste(paste0("-I", shQuote(plant_inc)),
                          paste0("-I", shQuote(odelia_inc)),
