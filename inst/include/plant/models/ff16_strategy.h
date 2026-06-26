@@ -409,6 +409,8 @@ public:
     p.r_l = pars.r_l; p.r_s = pars.r_s; p.r_b = pars.r_b; p.r_r = pars.r_r;
     p.k_l = pars.k_l; p.k_b = pars.k_b; p.k_s = pars.k_s; p.k_r = pars.k_r;
     p.a_bio = pars.a_bio; p.a_y = pars.a_y;
+    p.a_l1 = pars.a_l1; p.a_l2 = pars.a_l2;
+    p.a_f1 = pars.a_f1; p.a_f2 = pars.a_f2; p.hmat = pars.hmat;
     return p;
   }
 

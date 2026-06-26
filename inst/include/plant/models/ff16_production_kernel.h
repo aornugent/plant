@@ -62,6 +62,9 @@ struct FF16ProdPars {
   S r_l, r_s, r_b, r_r;
   S k_l, k_b, k_s, k_r;
   S a_bio, a_y;
+  // Allometry + allocation parameters for the height-growth rate (Milestone C).
+  S a_l1, a_l2;       // height <-> leaf-area allometry [eqn 2/3]
+  S a_f1, a_f2, hmat; // reproduction-allocation logistic [eqn 16]
 };
 
 // Whole single-plant net production under the CROWN-TOP assimilation variant (a
@@ -118,6 +121,57 @@ S ff16_assimilation_deep_crown_replay(S a_p1, S a_p2, S area_leaf,
     A += wq[j] * ff16_assimilation_leaf(a_p1, a_p2, S(light(z[j])));
   }
   return area_leaf * A;
+}
+
+// ---------------------------------------------------------------------------
+// Height-growth rate pieces (#472 scope B, Milestone C). Mirror
+// FF16_Strategy::{fraction_allocation_growth, dheight_darea_leaf,
+// dmass_*_darea_leaf, darea_leaf_dmass_live} and the dheight/dt assembly in
+// compute_rates. Elementary, so dheight/dt is differentiable w.r.t. height
+// (A1 -- the exact growth-rate gradient now done by finite difference in
+// Node::growth_rate_gradient) and w.r.t. traits.
+// ---------------------------------------------------------------------------
+
+// [eqn 16] Fraction of production allocated to growth = 1 - reproduction.
+template <typename S>
+S ff16_fraction_allocation_growth(S a_f1, S a_f2, S hmat, S height) {
+  using std::exp;
+  return 1.0 - a_f1 / (1.0 + exp(a_f2 * (1.0 - height / hmat)));
+}
+
+// d(height)/d(area_leaf): derivative of the [eqn 2] allometry.
+template <typename S>
+S ff16_dheight_darea_leaf(S a_l1, S a_l2, S area_leaf) {
+  using std::pow;
+  return a_l1 * a_l2 * pow(area_leaf, a_l2 - 1.0);
+}
+
+// d(area_leaf)/d(mass_live): reciprocal of the summed per-component mass
+// derivatives (leaf + sapwood + bark + root) w.r.t. area_leaf.
+template <typename S>
+S ff16_darea_leaf_dmass_live(const FF16ProdPars<S>& p, S area_leaf) {
+  using std::pow;
+  const S dmass_leaf    = p.lma;                                   // d(area_leaf*lma)
+  const S dmass_sapwood = p.rho * p.eta_c * p.a_l1 * p.theta *
+                          (p.a_l2 + 1.0) * pow(area_leaf, p.a_l2);
+  const S dmass_bark    = p.a_b1 * dmass_sapwood;
+  const S dmass_root    = p.a_r1;
+  return 1.0 / (dmass_leaf + dmass_sapwood + dmass_bark + dmass_root);
+}
+
+// dheight/dt for a plant of the given height under the CROWN-TOP assimilation
+// variant, in light light_E. Returns 0 when net production is non-positive
+// (the compute_rates growth clamp). area_leaf is derived from height so the
+// gradient w.r.t. height flows through the whole chain.
+template <typename S>
+S ff16_height_dt_crown_top(const FF16ProdPars<S>& p, S height, S light_E) {
+  const S area_leaf = ff16_area_leaf(p.a_l1, p.a_l2, height);
+  const S net = ff16_net_mass_production_crown_top(p, height, area_leaf, light_E);
+  if (net <= 0.0) return S(0.0);
+  const S frac_growth = ff16_fraction_allocation_growth(p.a_f1, p.a_f2, p.hmat, height);
+  const S darea_dmass = ff16_darea_leaf_dmass_live(p, area_leaf);
+  const S area_leaf_dt = net * frac_growth * darea_dmass;
+  return ff16_dheight_darea_leaf(p.a_l1, p.a_l2, area_leaf) * area_leaf_dt;
 }
 
 }  // namespace plant
