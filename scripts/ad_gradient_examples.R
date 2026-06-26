@@ -7,7 +7,11 @@
 # of FF16 outputs w.r.t. traits. Each example below also computes a central finite
 # difference of the SAME double computation and checks the two agree.
 #
-# Four examples, increasing in scope:
+# A precedent first, then four FF16 examples increasing in scope:
+#   0. Leaf gradient    -- the groundwork's first piece (TF24's leaf hydraulics):
+#                          d(profit)/d(root-collar psi) by forward-mode AD + the
+#                          implicit function theorem at the psi_stem->ci root-find.
+#                          Pure R via the exposed Leaf class -- no compilation.
 #   1. Rate fill        -- d(fecundity_dt)/d(a_p1) of the full demographic rate
 #                          vector, and a bit-exact faithfulness check of the
 #                          kernel against the live FF16_Strategy::compute_rates.
@@ -234,7 +238,37 @@ chk <- function(name, ad, fd, tol = 1e-6) {
   stopifnot(r < tol)
 }
 
-cat("== Example 1: FF16 demographic rate fill (height=3.7 m, light=0.92) ==\n")
+cat("== Example 0 (precedent): leaf-level gradient -- forward-mode AD + IFT ==\n")
+# TF24's leaf hydraulics, the first exact AD gradient in plant (#531/#539). All
+# methods used here are exposed on the Leaf R class, so this needs no compilation.
+local({
+  root_c <- 2.65; root_b <- 1.29; theta <- 0.000157; h <- 5
+  l <- Leaf(vcmax_25 = 100, jmax_25 = 100 * 167, c = 2.04, b = 3, psi_crit = 5,
+            root_c = root_c, root_b = root_b,
+            root_psi_crit = root_b * (log(1 / 0.05))^(1 / root_c), beta2 = 1,
+            hk_s = 75, a = 0.3, curv_fact_elec_trans = 0.7, curv_fact_colim = 0.99,
+            GSS_tol_abs = 1e-8, vulnerability_curve_ncontrol = 100,
+            ci_abs_tol = 1e-6, ci_niter = 1000, g1_TF24 = 46.32995,
+            beta_R_H = 3.4e3, beta_R_V = 9.4e4)
+  l$set_physiology(area_leaf = 0.05, mass_root_prop = 1, rho = 608, a_bio = 0.0245,
+                   PPFD = 900, psi_soil = 2, soil_depth = 1,
+                   leaf_specific_conductance_max = theta / h, atm_vpd = 2, ca = 40,
+                   sapwood_volume_per_leaf_area = theta * h, leaf_temp = 25,
+                   atm_o2_kpa = 21, atm_kpa = 101.3)
+  l$find_root_collar_psi()
+  opt <- -l$root_collar_psi_   # operating root-collar potential (positive magnitude)
+  # profit(psi) via evaluate_root_collar_psi; the exact gradient via AD + IFT.
+  fd <- function(psi, e = 1e-5)
+    (l$evaluate_root_collar_psi(psi + e) - l$evaluate_root_collar_psi(psi - e)) / (2 * e)
+  for (psi in c(opt + 0.1, opt + 0.2)) {        # strictly-interior, feasible points
+    l$evaluate_root_collar_psi(psi)
+    if (abs(-l$root_collar_psi_ - psi) > 1e-8) next   # skip if clamped to the boundary
+    chk(sprintf("d(profit)/d(psi) @ %.2f", psi),
+        l$dprofit_droot_collar_psi(psi), fd(psi), tol = 1e-4)
+  }
+})
+
+cat("\n== Example 1: FF16 demographic rate fill (height=3.7 m, light=0.92) ==\n")
 e1 <- ex1_rates(3.7, 0.92)
 rn <- c("height_dt","fecundity_dt","area_heartwood_dt","mass_heartwood_dt","mortality_dt")
 cat("  faithfulness of ff16_compute_rates_crown_top vs live FF16_Strategy::compute_rates:\n")

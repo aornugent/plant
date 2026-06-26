@@ -168,8 +168,11 @@ differences to ~1e-11.
 
 All of the kernels live in
 `inst/include/plant/models/ff16_production_kernel.h`. The script
-`scripts/ad_gradient_examples.R` runs three of the gradients above and checks each
-against a central finite difference:
+`scripts/ad_gradient_examples.R` runs the leaf-level precedent (forward-mode AD +
+IFT, in pure R via the exposed `Leaf` class) and four FF16 gradients — the rate
+fill, the emergent stand, the self-shading coupling, and the whole 19-trait
+gradient from a single reverse sweep — checking each against a central finite
+difference:
 
 ```bash
 # after installing plant from this branch:
