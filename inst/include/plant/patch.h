@@ -16,16 +16,25 @@ using namespace Rcpp;
 
 namespace plant {
 
-template <typename T, typename E>
+// Templated on the scalar type S (#472 scope B / #537, Milestone C) to mirror
+// Species<T,E,S> / Node<T,E,S>: S defaults to double so every existing
+// Patch<T,E> is Patch<T,E,double> and bit-identical. The species storage is
+// Species<T,E,S>, so a Patch<...,ad> holds ad-typed individual state. NOTE the
+// environment member stays type E (double): a Patch<...,ad> is MIXED -- ad
+// species over a frozen-double resident environment, matching the two-pass
+// replay design (freeze the resident light schedule, replay the node ODE with
+// the active scalar). An ad-valued resident light spline (self-shading through
+// traits) is a later piece -- the odelia AD interpolator (odelia PR #32).
+template <typename T, typename E, typename S = double>
 class Patch {
 public:
   using value_type = double;
 
   typedef T                 strategy_type;
   typedef E                 environment_type;
-  typedef Individual<T,E>   individual_type;
-  typedef Node<T,E>         node_type;
-  typedef Species<T,E>      species_type;
+  typedef Individual<T,E,S> individual_type;
+  typedef Node<T,E,S>       node_type;
+  typedef Species<T,E,S>    species_type;
   typedef Parameters<T,E>   parameters_type;
 
   Patch(parameters_type p, environment_type e, plant::Control c);
@@ -191,8 +200,8 @@ private:
   std::vector<std::vector<double>> competition_error_by_node;
 };
 
-template <typename T, typename E>
-Patch<T,E>::Patch(parameters_type p, environment_type e, Control c)
+template <typename T, typename E, typename S>
+Patch<T,E,S>::Patch(parameters_type p, environment_type e, Control c)
   : parameters(p),
     area(p.patch_area),
     environment(e),
@@ -216,24 +225,24 @@ Patch<T,E>::Patch(parameters_type p, environment_type e, Control c)
   reset();
 }
 
-template <typename T, typename E>
-void Patch<T,E>::overwrite_strategies(std::vector<strategy_type> strategies) {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::overwrite_strategies(std::vector<strategy_type> strategies) {
   species.clear();
   add_strategies(strategies);
 }
 
-template <typename T, typename E>
-void Patch<T,E>::add_strategies(std::vector<strategy_type> strategies) {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::add_strategies(std::vector<strategy_type> strategies) {
   for (auto i = 0; i < strategies.size(); ++i) {
 		auto s = strategies[i];
     s.control = control; // Overwrite to take the patch control object 
-    auto spec = Species<T,E>(s);
+    auto spec = Species<T,E,S>(s);
     species.push_back(spec);
   }
 }
 
-template <typename T, typename E>
-void Patch<T,E>::set_mutant() {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::set_mutant() {
     if (environment_history.empty()) {
        util::stop("Run a resident first to generate a competitve landscape");
     }
@@ -244,8 +253,8 @@ void Patch<T,E>::set_mutant() {
   idx = 0;
 }
 
-template <typename T, typename E>
-void Patch<T,E>::reset() {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::reset() {
    for (auto& s : species) {
     s.clear();
     // allocate variables for tracking resource consumption
@@ -284,8 +293,8 @@ void Patch<T,E>::reset() {
 // double-arg set_ode_state) so the first environment build is a full
 // compute_environment(false): a rescale of the not-yet-built light spline would
 // read uninitialised grid state.
-template <typename T, typename E>
-void Patch<T,E>::set_initial_state() {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::set_initial_state() {
   const size_t n_species = species.size();
   util::check_length(parameters.n_initial_cohorts.size(), n_species);
 
@@ -332,8 +341,8 @@ void Patch<T,E>::set_initial_state() {
   compute_rates();
 }
 
-template <typename T, typename E>
-void Patch<T,E>::check_initial_density_rates() const {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::check_initial_density_rates() const {
   for (const auto& s : species) {
     std::vector<double> rates = s.r_log_density_rates();
     if (std::any_of(rates.begin(), rates.end(),
@@ -345,8 +354,8 @@ void Patch<T,E>::check_initial_density_rates() const {
   }
 }
 
-template <typename T, typename E>
-double Patch<T,E>::height_max() const {
+template <typename T, typename E, typename S>
+double Patch<T,E,S>::height_max() const {
   double ret = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
     if (!is_mutant_run) {
@@ -356,8 +365,8 @@ double Patch<T,E>::height_max() const {
   return ret;
 }
 
-template <typename T, typename E>
-double Patch<T,E>::compute_competition(double height) const {
+template <typename T, typename E, typename S>
+double Patch<T,E,S>::compute_competition(double height) const {
   double tot = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
     if (!is_mutant_run) {
@@ -367,15 +376,15 @@ double Patch<T,E>::compute_competition(double height) const {
   return tot;
 }
 
-template <typename T, typename E>
-std::vector<double> Patch<T,E>::r_compute_competition_effect_error_by_node_for_species_i(size_t species_index) const {
+template <typename T, typename E, typename S>
+std::vector<double> Patch<T,E,S>::r_compute_competition_effect_error_by_node_for_species_i(size_t species_index) const {
   const double tot_competition_effect = compute_competition(0.0);
   return species[species_index].r_compute_competition_effect_by_nodes_error(tot_competition_effect);
 }
 
 // Integrate over lifetime fitness of individual nodes, scaled per node.
-template <typename T, typename E>
-double Patch<T,E>::net_reproduction_ratio_for_species(
+template <typename T, typename E, typename S>
+double Patch<T,E,S>::net_reproduction_ratio_for_species(
     size_t species_index, std::vector<double> const& scalars) const {
   auto net_prod = species[species_index].net_reproduction_ratio_by_node_weighted();
   auto const times = species[species_index].node_times();
@@ -387,8 +396,8 @@ double Patch<T,E>::net_reproduction_ratio_for_species(
 }
 
 // Offspring production, equal to overall fitness scaled by the birth rate.
-template <typename T, typename E>
-std::vector<double> Patch<T,E>::offspring_production() const {
+template <typename T, typename E, typename S>
+std::vector<double> Patch<T,E,S>::offspring_production() const {
   auto ret = std::vector<double>(species.size());
   for (size_t i = 0; i < species.size(); ++i) {
     // scale by birth rate function over time
@@ -403,8 +412,8 @@ std::vector<double> Patch<T,E>::offspring_production() const {
 }
 
 // Overall fitness (no scaling, ie scalars set to 1.0).
-template <typename T, typename E>
-std::vector<double> Patch<T,E>::net_reproduction_ratios() const {
+template <typename T, typename E, typename S>
+std::vector<double> Patch<T,E,S>::net_reproduction_ratios() const {
   auto ret = std::vector<double>(species.size());
   for (size_t i = 0; i < species.size(); ++i) {
     auto scalars = std::vector<double>(species[i].size(), 1.0);
@@ -414,8 +423,8 @@ std::vector<double> Patch<T,E>::net_reproduction_ratios() const {
 }
 
 // Sum up all offspring produced.
-template <typename T, typename E>
-double Patch<T,E>::total_offspring_production() const {
+template <typename T, typename E, typename S>
+double Patch<T,E,S>::total_offspring_production() const {
   double total = 0.0;
   std::vector<double> offspring = offspring_production();
   for (size_t i = 0; i < species.size(); ++i) {
@@ -425,8 +434,8 @@ double Patch<T,E>::total_offspring_production() const {
 }
 
 // Check integration errors for each species' reproduction integral.
-template <typename T, typename E>
-std::vector<std::vector<double>> Patch<T,E>::net_reproduction_ratio_errors() const {
+template <typename T, typename E, typename S>
+std::vector<std::vector<double>> Patch<T,E,S>::net_reproduction_ratio_errors() const {
   std::vector<std::vector<double>> ret;
   double total_offspring = total_offspring_production();
   for (size_t i = 0; i < species.size(); ++i) {
@@ -440,8 +449,8 @@ std::vector<std::vector<double>> Patch<T,E>::net_reproduction_ratio_errors() con
 
 // Sample the competition error for each species introduced this step and fold
 // it into the running per-node max (ignoring NA, matching na.rm=TRUE in R).
-template <typename T, typename E>
-void Patch<T,E>::collect_competition_errors(const std::vector<size_t>& added) {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::collect_competition_errors(const std::vector<size_t>& added) {
   for (size_t idx : added) {
     std::vector<double> v =
         r_compute_competition_effect_error_by_node_for_species_i(idx);
@@ -460,8 +469,8 @@ void Patch<T,E>::collect_competition_errors(const std::vector<size_t>& added) {
 // Combine the competition error (sampled during the run) with the reproduction
 // error (computed now) into a single per-node error vector per species. An
 // all-NA node yields -Inf, matching apply(rbind(...), 2, max, na.rm=TRUE) in R.
-template <typename T, typename E>
-std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
+template <typename T, typename E, typename S>
+std::vector<std::vector<double>> Patch<T,E,S>::refinement_error_by_node() const {
   std::vector<std::vector<double>> repro = net_reproduction_ratio_errors();
   std::vector<std::vector<double>> ret(species.size());
   for (size_t i = 0; i < species.size(); ++i) {
@@ -484,8 +493,8 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 
 // Pre-compute environment, as shaped by residents
 // Creates splines of resource availability
-template <typename T, typename E>
-void Patch<T,E>::compute_environment(bool rescale) {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::compute_environment(bool rescale) {
   
   // Define an anonymous function to use in creation of environment
   auto f = [&](double x) -> double { return compute_competition(x); };
@@ -496,8 +505,8 @@ void Patch<T,E>::compute_environment(bool rescale) {
 }
 
 
-template <typename T, typename E>
-void Patch<T,E>::compute_rates() {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::compute_rates() {
 
   // Computes rates of change for the patch, including all the component species
   // While the patch has an `environment`, the rates here are calculated from
@@ -534,16 +543,16 @@ void Patch<T,E>::compute_rates() {
 // TODO(#478): We should only be recomputing the light environment for the
 // points that are below the height of the seedling -- not the entire
 // light environment; probably worth just doing a rescale there?
-template <typename T, typename E>
-void Patch<T,E>::introduce_new_node(size_t species_index) {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::introduce_new_node(size_t species_index) {
   
   species[species_index].introduce_new_node();
 
   compute_environment(false);
 }
 
-template <typename T, typename E>
-void Patch<T,E>::introduce_new_nodes(const std::vector<size_t>& species_index) {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::introduce_new_nodes(const std::vector<size_t>& species_index) {
   // Record introduction time and patch-age density on each node as it is
   // introduced, so lifetime-fitness calcs need not look these up later.
   const double t = time();
@@ -555,8 +564,8 @@ void Patch<T,E>::introduce_new_nodes(const std::vector<size_t>& species_index) {
   compute_environment(false);
 }
 
-template <typename T, typename E>
-void Patch<T,E>::r_set_time(double time) {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::r_set_time(double time) {
   environment.time = time;
 }
 
@@ -564,8 +573,8 @@ void Patch<T,E>::r_set_time(double time) {
 //   time: time
 //   state: vector of ode state; we'll pass an iterator with that in
 //   n: number of *individuals* of each species
-template <typename T, typename E>
-void Patch<T,E>::r_set_state(double time,
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::r_set_state(double time,
                            const std::vector<double>& state,
                            const std::vector<size_t>& n,
                            const std::vector<double>& light_availability) {
@@ -583,26 +592,26 @@ void Patch<T,E>::r_set_state(double time,
 }
 
 // ODE interface
-template <typename T, typename E>
-size_t Patch<T,E>::ode_size() const {
+template <typename T, typename E, typename S>
+size_t Patch<T,E,S>::ode_size() const {
   return odelia::ode::ode_size(species.begin(), species.end()) + environment.ode_size();
 }
 
-template <typename T, typename E>
-size_t Patch<T,E>::aux_size() const {
+template <typename T, typename E, typename S>
+size_t Patch<T,E,S>::aux_size() const {
   // TODO(#478): Is this useful for environment vectors?
   // no use for auxiliary environment variables (yet)
   return odelia::ode::aux_size(species.begin(), species.end());// + environment.ode_size();
 }
 
-template <typename T, typename E>
-double Patch<T,E>::ode_time() const {
+template <typename T, typename E, typename S>
+double Patch<T,E,S>::ode_time() const {
   return time();
 }
 
 // First set_ode_state function is for resident runs. Second is for mutant runs
-template <typename T, typename E>
-odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterator it,
+template <typename T, typename E, typename S>
+odelia::ode::const_iterator Patch<T,E,S>::set_ode_state(odelia::ode::const_iterator it,
                                               double time) {
   
   // Set ode states
@@ -624,8 +633,8 @@ odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterato
 // used for mutant runs
 // -- differs from above in that an index is passed in as argument
 // -- environments are loaded from ODE history, instead of being calculated 
-template <typename T, typename E>
-odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterator it,
+template <typename T, typename E, typename S>
+odelia::ode::const_iterator Patch<T,E,S>::set_ode_state(odelia::ode::const_iterator it,
                                               int index) {
 
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
@@ -644,8 +653,8 @@ odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterato
 
 // called from ode_solver->cache
 // saves cached set of environments(6) from each ODE step to the step history
-template <typename T, typename E>
-void Patch<T,E>::cache_ode_step() {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::cache_ode_step() {
   if(save_RK45_cache) { 
     step_history.push_back(time());
     environment_history.push_back(environment_cache);
@@ -654,8 +663,8 @@ void Patch<T,E>::cache_ode_step() {
 
 // called from ode_step->cache
 // saves environment at each RK45 step to the environment cache
-template <typename T, typename E>
-void Patch<T,E>::cache_RK45_step(int step) {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::cache_RK45_step(int step) {
   if(save_RK45_cache) {  
     if(step == 0) {
       environment_cache.clear();
@@ -665,8 +674,8 @@ void Patch<T,E>::cache_RK45_step(int step) {
 }
 
 // called from ode_solver->load, only gets called for mutant runs
-template <typename T, typename E>
-void Patch<T,E>::load_ode_step() {
+template <typename T, typename E, typename S>
+void Patch<T,E,S>::load_ode_step() {
   if (use_cached_environment)
   {
     // Minor optimization to check the current and next index before doing a search, as the most common case is that the ODE solver is stepping through the cached environments in order. If the call sequence was not strictly sequential, we fallback to a search through the step history to find the correct environment.
@@ -694,15 +703,15 @@ void Patch<T,E>::load_ode_step() {
   }
 }
 
-template <typename T, typename E>
-odelia::ode::iterator Patch<T,E>::ode_state(odelia::ode::iterator it) const {
+template <typename T, typename E, typename S>
+odelia::ode::iterator Patch<T,E,S>::ode_state(odelia::ode::iterator it) const {
   it = odelia::ode::ode_state(species.begin(), species.end(), it);
   it = environment.ode_state(it);
   return it;
 }
 
-template <typename T, typename E>
-Rcpp::List Patch<T, E>::r_get_state() const
+template <typename T, typename E, typename S>
+Rcpp::List Patch<T,E,S>::r_get_state() const
 {
 
   // Aseemble commkunity state, icnluding auxiallry variables
@@ -718,15 +727,15 @@ Rcpp::List Patch<T, E>::r_get_state() const
                             _["env"] = environment.r_get_state());
 }
 
-template <typename T, typename E>
-odelia::ode::iterator Patch<T,E>::ode_rates(odelia::ode::iterator it) const {
+template <typename T, typename E, typename S>
+odelia::ode::iterator Patch<T,E,S>::ode_rates(odelia::ode::iterator it) const {
   it = odelia::ode::ode_rates(species.begin(), species.end(), it);
   it = environment.ode_rates(it);
   return it;
 }
 
-template <typename T, typename E>
-odelia::ode::iterator Patch<T,E>::ode_aux(odelia::ode::iterator it) const {
+template <typename T, typename E, typename S>
+odelia::ode::iterator Patch<T,E,S>::ode_aux(odelia::ode::iterator it) const {
   it = odelia::ode::ode_aux(species.begin(), species.end(), it);
   return it;
 }
