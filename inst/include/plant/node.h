@@ -187,6 +187,14 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
 
 template <typename T, typename E>
 double Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
+  // Exact AD growth-rate gradient when enabled and the strategy provides one
+  // (#537 A1). Returns NA otherwise, falling through to the finite difference.
+  if (individual.control().node_gradient_exact_ad) {
+    const double g = individual.growth_rate_gradient_exact(environment);
+    if (util::is_finite(g)) {
+      return g;
+    }
+  }
   // Finite-differencing the growth rate needs a mutable Individual to perturb
   // height on, but it must not disturb this node's already-computed state and
   // rates. Rather than copy-construct a fresh Individual (and its four

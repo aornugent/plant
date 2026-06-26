@@ -141,6 +141,14 @@ public:
   
   void reset_mortality() { set_state("mortality", 0.0); }
 
+  // Exact d(growth rate)/d(height) at the current height, delegated to the
+  // strategy's AD gradient (#537 A1); returns NA if the strategy provides none,
+  // so Node::growth_rate_gradient can fall back to finite differences.
+  double growth_rate_gradient_exact(const environment_type& environment) const {
+    return strategy->growth_rate_gradient_height_ad(vars.state(HEIGHT_INDEX),
+                                                    environment);
+  }
+
   double growth_rate_given_height(double height, const environment_type& environment) {
     // Called repeatedly from the finite-difference gradient (Node::
     // growth_rate_gradient), so address height by integer slot rather than the
