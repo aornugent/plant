@@ -284,6 +284,53 @@ S ff16_grow_height(const FF16ProdPars<S>& p, S h0, S light_E,
   return h;
 }
 
+// The five FF16 ODE states, as a value the trajectory integrator carries.
+template <typename S>
+struct FF16State {
+  S height, mortality, fecundity, area_heartwood, mass_heartwood;
+};
+
+// Single-plant FULL-STATE demographic TRAJECTORY (#472 scope B, Milestone C):
+// integrate all five FF16 states from y0 over n_steps fixed RK4 steps to age
+// t_end, in a fixed crown-top light light_E, using ff16_compute_rates_crown_top.
+// Generalises ff16_grow_height (height only) to the demographic vector, so
+// reverse AD gives d(any emergent state at age t_end)/d(trait) -- e.g. lifetime
+// fecundity (cumulative offspring) sensitivity, a calibration target through the
+// whole demographic ODE. mortality_finite is the frozen pass-1 branch (see the
+// rate kernel). Each RK4 stage is materialised as S so XAD expression templates
+// don't break scalar deduction (same caveat as ff16_grow_height).
+template <typename S>
+FF16State<S> ff16_grow_demography(const FF16ProdPars<S>& p, FF16State<S> y,
+                                  S light_E, double t_end, int n_steps,
+                                  bool mortality_finite) {
+  const double dt = t_end / n_steps;
+  auto deriv = [&](const FF16State<S>& s) -> FF16State<S> {
+    const FF16Rates<S> r =
+        ff16_compute_rates_crown_top(p, s.height, light_E, mortality_finite);
+    return FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+                        r.area_heartwood_dt, r.mass_heartwood_dt};
+  };
+  auto axpy = [](const FF16State<S>& a, S c, const FF16State<S>& k) -> FF16State<S> {
+    return FF16State<S>{a.height + c * k.height, a.mortality + c * k.mortality,
+                        a.fecundity + c * k.fecundity,
+                        a.area_heartwood + c * k.area_heartwood,
+                        a.mass_heartwood + c * k.mass_heartwood};
+  };
+  for (int i = 0; i < n_steps; ++i) {
+    const FF16State<S> k1 = deriv(y);
+    const FF16State<S> k2 = deriv(axpy(y, S(0.5 * dt), k1));
+    const FF16State<S> k3 = deriv(axpy(y, S(0.5 * dt), k2));
+    const FF16State<S> k4 = deriv(axpy(y, S(dt), k3));
+    const S c = S(dt / 6.0);
+    y.height = y.height + c * (k1.height + S(2.0) * k2.height + S(2.0) * k3.height + k4.height);
+    y.mortality = y.mortality + c * (k1.mortality + S(2.0) * k2.mortality + S(2.0) * k3.mortality + k4.mortality);
+    y.fecundity = y.fecundity + c * (k1.fecundity + S(2.0) * k2.fecundity + S(2.0) * k3.fecundity + k4.fecundity);
+    y.area_heartwood = y.area_heartwood + c * (k1.area_heartwood + S(2.0) * k2.area_heartwood + S(2.0) * k3.area_heartwood + k4.area_heartwood);
+    y.mass_heartwood = y.mass_heartwood + c * (k1.mass_heartwood + S(2.0) * k2.mass_heartwood + S(2.0) * k3.mass_heartwood + k4.mass_heartwood);
+  }
+  return y;
+}
+
 }  // namespace plant
 
 #endif
