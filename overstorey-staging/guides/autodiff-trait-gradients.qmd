@@ -1,0 +1,159 @@
+---
+title: "Automatic differentiation: trait gradients of FF16 outputs"
+---
+
+<!--
+STAGING COPY. Written for the Overstorey site
+(https://github.com/traitecoevo/overstorey) but kept in the plant repo for now
+because it documents the `spike-ff16-hierarchy` branch (#472 scope B / #537,
+Milestone C), which is not yet merged. When that branch lands, move this file to
+`overstorey/guides/autodiff-trait-gradients.qmd`, add it to the Guides sidebar in
+`_quarto.yml`, and delete the `overstorey-staging/` directory here. This guide is
+deliberately narrative + one runnable pointer (`scripts/ad_gradient_examples.R`);
+it builds no figures, so nothing static needs to move with it.
+-->
+
+::: {.eyebrow}
+guide
+:::
+
+This guide documents *how* `plant` was made to compute exact derivatives of its
+outputs with respect to traits — and the path the implementation took to get
+there. It is a record of the milestone as much as a how-to, because the route
+mattered: the work landed as a long series of additive, individually-verified
+steps rather than one big change.
+
+## Why gradients
+
+Calibrating `plant` — or doing gradient-based evolutionary analysis — means
+asking *how does an output change when I change a trait?* Finite differences
+answer this by re-running the model with a perturbed trait, once per trait, and
+they lose precision to step-size and cancellation. **Reverse-mode automatic
+differentiation** instead threads the chain rule backwards through the exact
+computation: one backward sweep returns the derivative of one scalar output
+w.r.t. *all* inputs at once, to machine precision. That "many inputs → one
+scalar" shape is exactly a calibration objective (e.g. whole-plant growth, or an
+emergent community output), which is why reverse mode is the right tool.
+
+`plant` gets this through [XAD](https://github.com/auto-differentiation/xad)
+(the reverse-mode tape lives in the `odelia` package) without disturbing the
+ordinary `double` model: every differentiable piece is templated on a scalar
+type `S` that defaults to `double`.
+
+## The core idea: a third template axis
+
+`plant`'s C++ core is already templated on the strategy and environment types
+(`<T, E>`). The AD work adds a **third axis**, the scalar type `S`:
+
+```cpp
+template <typename T, typename E, typename S = double> class Node;     // was <T,E>
+template <typename T, typename E, typename S = double> class Species;  //  "
+template <typename T, typename E, typename S = double> class Patch;    //  "
+```
+
+Because `S` *defaults* to `double`, every existing use — and every line of the
+RcppR6 / R interface — still names `Node<T,E>`, which is now `Node<T,E,double>`
+and bit-for-bit the same code. AD only ever happens in C++, by instantiating a
+class or kernel with `S = xad::adj<double>::active_type`. The R-facing package
+never sees an active type.
+
+This is the discipline that made the milestone tractable: **additive and
+bit-identical at every step**. The full test suite (2363 tests) passed unchanged
+after each increment, so a regression would surface immediately, and the change
+could land incrementally instead of as one reviewer-hostile rewrite.
+
+## The route, step by step
+
+The hard part was never the arithmetic — net production, mortality, fecundity are
+elementary functions. It was the *plumbing*: the ODE state boundary, the light
+environment, and the demographic bookkeeping all assume `double`. The work
+proceeded from the smallest blast radius outwards.
+
+**1. Template the container hierarchy.** `Node`, `Species`, `Patch` each gained
+the defaulted `S`. The element/storage types thread through
+(`Species` holds `Node<T,E,S>`, etc.). These commits do nothing observable on
+their own — they just make it *possible* to hold an active scalar.
+
+**2. Make a live plant constructible in AD.** A plant's height is set through
+`update_dependent_aux`, which derives the leaf area from height. Templating that
+(and `area_leaf`) on `S` is what first let a real `Node<FF16,FF16_Env,ad>` be
+*constructed* and carry a derivative: seed an active height, read back the leaf
+area, and one reverse sweep gives `d(area_leaf)/d(height)` — matching the
+analytic value to ~1e-10.
+
+**3. The demographic rates.** The five FF16 ODE rates (`height_dt`,
+`mortality_dt`, `fecundity_dt`, and the two heartwood rates) were lifted into a
+scalar-templated kernel, `ff16_compute_rates_crown_top<S>`, mirroring
+`FF16_Strategy::compute_rates` exactly. The double instantiation matches the live
+strategy **bit-for-bit**; the active instantiation differentiates the whole rate
+vector w.r.t. a trait. Control-flow decisions (the net-production growth clamp,
+the mortality finiteness guard) are passed in as frozen booleans so the taped
+computation is straight-line arithmetic.
+
+**4. Integrate through time.** `ff16_grow_demography<S>` integrates that rate
+kernel over fixed steps, so a single plant's *time-integrated* outputs — e.g.
+lifetime fecundity at a given age — differentiate w.r.t. traits.
+
+**5. From one plant to a stand (the emergent output).** `ff16_replay_cohort<S>`
+replays a cohort over a **frozen schedule** discovered by a first (double) pass.
+A weighted sum over staggered cohorts gives an emergent stand quantity — e.g.
+leaf-area index — and one reverse sweep gives its trait gradient. This is the
+two-pass idea: a first pass (double, adaptive) *discovers* the schedule and the
+resident light; a second pass *replays* it with the trait active, so the taped
+computation never has to differentiate the adaptive step controller.
+
+**6. The light feedback.** A taller plant reads higher in the canopy and gets
+more light. `ff16_replay_cohort_active_light<S>` lets each cohort read its crown
+light from the resident profile *actively*, so `d(light)/d(height)` flows
+(seeded from the profile's value and slope) — capturing that feedback.
+
+**7. Self-shading: the resident light responds to the trait.** The deepest
+coupling: a trait reshapes *every* plant's leaf area, hence the whole light
+profile. `ff16_resident_light_at<S>` computes the resident light at a height as
+`exp(−Σ competition)` with each cohort's leaf area active in the trait. Filling
+an `odelia` interpolator at frozen knot *positions* with these active *values*
+makes the light spline itself differentiable, and a focal plant's net production
+then differentiates **through the self-shaded light field** — matching finite
+differences to ~1e-11.
+
+## Trying it
+
+All of the kernels live in
+`inst/include/plant/models/ff16_production_kernel.h`. The script
+`scripts/ad_gradient_examples.R` runs three of the gradients above and checks each
+against a central finite difference:
+
+```bash
+# after installing plant from this branch:
+R CMD INSTALL .
+Rscript scripts/ad_gradient_examples.R
+```
+
+It prints, for each example, the AD derivative, the finite difference, and the
+relative error — for instance:
+
+```
+== Example 3: full self-shading gradient (resident light responds to trait) ==
+  focal net production = -0.95379859
+  d(focal net)/d(a_l1)         AD =  1.6583209   FD =  1.6583209   rel.err = 1.7e-11 OK
+```
+
+The AD path is C++-only: the script compiles the kernels with `Rcpp::sourceCpp`,
+linking the live FF16 symbols from `plant.so` and the reverse-mode tape from
+`odelia.so`. (It needs `plant` installed from this branch so the installed
+headers match the compiled library, plus `odelia` and `BH`.)
+
+## What is — and isn't — done
+
+Every *component* needed to differentiate an emergent SCM output w.r.t. a trait
+is now built and validated against finite differences: the templated hierarchy,
+a constructible AD plant, the full demographic rate fill, time integration, the
+multi-cohort replay, the crown-light feedback, and the self-shading coupling.
+
+What remains is **production integration**, not a question of feasibility:
+driving the first (discovery) pass from a live `run_scm()` means harvesting the
+real node-introduction schedule and the per-sub-step light environment from the
+solver's internal cache, then calling these kernels under AD. The publicly
+collected SCM output is sampled at schedule events rather than integration
+sub-steps, so that step is a small C++ entry point rather than R-level plumbing —
+a natural next piece of work.
