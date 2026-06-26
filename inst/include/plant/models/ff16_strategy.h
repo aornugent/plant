@@ -414,6 +414,15 @@ public:
     return p;
   }
 
+  // Exact d(dheight/dt)/d(height) at the given height in environment `env`, via
+  // forward-mode AD over the scalar-templated growth kernel (#537 A1; the
+  // gradient Node::growth_rate_gradient currently obtains by finite difference).
+  // Crown-top assimilation: the light the crown reads is taken at the operating
+  // height, so in a fixed environment it is exact. Defined in the .cpp (XAD
+  // include), mirroring Leaf::dprofit_droot_collar_psi.
+  double growth_rate_gradient_height_ad(double height,
+                                        const FF16_Environment& env);
+
   // Birth height of a (germinated) seed. Strategy-agnostic accessor used by
   // the templated Individual; here height_0 is derived in prepare_strategy().
   double initial_height() const { return height_0; }

@@ -1,7 +1,32 @@
 #include <plant/models/ff16_strategy.h>
 #include <plant/models/ff16_production_kernel.h>
+#include <XAD/XAD.hpp>
 
 namespace plant {
+
+// Exact d(dheight/dt)/d(height) via forward-mode AD over the growth kernel
+// (#537 A1). Single input -> forward mode (header-only XAD, no tape), as in
+// Leaf::dprofit_droot_collar_psi. Lifts the strategy's (double) parameters to
+// the AD type as constants and seeds only height, so the derivative flows
+// through area_leaf -> mass cascade -> assimilation -> allocation -> dheight/dt.
+double FF16_Strategy::growth_rate_gradient_height_ad(double height,
+                                                     const FF16_Environment& env) {
+  using AD = xad::fwd<double>::active_type;
+  // Crown-top light at the crown (constant in a fixed environment).
+  const double light_E = env.get_environment_at_height(height * eta_c);
+  const FF16ProdPars<double> p0 = prod_pars();
+  FF16ProdPars<AD> p;
+  p.lma=p0.lma; p.rho=p0.rho; p.theta=p0.theta; p.a_b1=p0.a_b1; p.a_r1=p0.a_r1;
+  p.eta_c=p0.eta_c; p.a_p1=p0.a_p1; p.a_p2=p0.a_p2;
+  p.r_l=p0.r_l; p.r_s=p0.r_s; p.r_b=p0.r_b; p.r_r=p0.r_r;
+  p.k_l=p0.k_l; p.k_b=p0.k_b; p.k_s=p0.k_s; p.k_r=p0.k_r;
+  p.a_bio=p0.a_bio; p.a_y=p0.a_y; p.a_l1=p0.a_l1; p.a_l2=p0.a_l2;
+  p.a_f1=p0.a_f1; p.a_f2=p0.a_f2; p.hmat=p0.hmat;
+  AD h = height;
+  xad::derivative(h) = 1.0;
+  AD dt = ff16_height_dt_crown_top<AD>(p, h, AD(light_E));
+  return xad::derivative(dt);
+}
 
 FF16_Strategy::FF16_Strategy() {
   collect_all_auxiliary = false;
