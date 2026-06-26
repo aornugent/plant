@@ -1058,6 +1058,10 @@ double Individual___FF16__FF16_Env__net_mass_production_dt(plant::RcppR6::RcppR6
   return obj_->net_mass_production_dt(environment);
 }
 // [[Rcpp::export]]
+double Individual___FF16__FF16_Env__growth_rate_gradient_exact(plant::RcppR6::RcppR6<plant::Individual<plant::FF16_Strategy,plant::FF16_Environment> > obj_, plant::FF16_Environment environment) {
+  return obj_->growth_rate_gradient_exact(environment);
+}
+// [[Rcpp::export]]
 void Individual___FF16__FF16_Env__reset_mortality(plant::RcppR6::RcppR6<plant::Individual<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   obj_->reset_mortality();
 }
@@ -1155,6 +1159,10 @@ double Individual___TF24__TF24_Env__establishment_probability(plant::RcppR6::Rcp
 // [[Rcpp::export]]
 double Individual___TF24__TF24_Env__net_mass_production_dt(plant::RcppR6::RcppR6<plant::Individual<plant::TF24_Strategy,plant::TF24_Environment> > obj_, plant::TF24_Environment environment) {
   return obj_->net_mass_production_dt(environment);
+}
+// [[Rcpp::export]]
+double Individual___TF24__TF24_Env__growth_rate_gradient_exact(plant::RcppR6::RcppR6<plant::Individual<plant::TF24_Strategy,plant::TF24_Environment> > obj_, plant::TF24_Environment environment) {
+  return obj_->growth_rate_gradient_exact(environment);
 }
 // [[Rcpp::export]]
 void Individual___TF24__TF24_Env__reset_mortality(plant::RcppR6::RcppR6<plant::Individual<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
@@ -1256,6 +1264,10 @@ double Individual___TF24f__TF24_Env__net_mass_production_dt(plant::RcppR6::RcppR
   return obj_->net_mass_production_dt(environment);
 }
 // [[Rcpp::export]]
+double Individual___TF24f__TF24_Env__growth_rate_gradient_exact(plant::RcppR6::RcppR6<plant::Individual<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, plant::TF24_Environment environment) {
+  return obj_->growth_rate_gradient_exact(environment);
+}
+// [[Rcpp::export]]
 void Individual___TF24f__TF24_Env__reset_mortality(plant::RcppR6::RcppR6<plant::Individual<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
   obj_->reset_mortality();
 }
@@ -1353,6 +1365,10 @@ double Individual___K93__K93_Env__establishment_probability(plant::RcppR6::RcppR
 // [[Rcpp::export]]
 double Individual___K93__K93_Env__net_mass_production_dt(plant::RcppR6::RcppR6<plant::Individual<plant::K93_Strategy,plant::K93_Environment> > obj_, plant::K93_Environment environment) {
   return obj_->net_mass_production_dt(environment);
+}
+// [[Rcpp::export]]
+double Individual___K93__K93_Env__growth_rate_gradient_exact(plant::RcppR6::RcppR6<plant::Individual<plant::K93_Strategy,plant::K93_Environment> > obj_, plant::K93_Environment environment) {
+  return obj_->growth_rate_gradient_exact(environment);
 }
 // [[Rcpp::export]]
 void Individual___K93__K93_Env__reset_mortality(plant::RcppR6::RcppR6<plant::Individual<plant::K93_Strategy,plant::K93_Environment> > obj_) {

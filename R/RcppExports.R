@@ -953,6 +953,10 @@ Individual___FF16__FF16_Env__net_mass_production_dt <- function(obj_, environmen
     .Call('_plant_Individual___FF16__FF16_Env__net_mass_production_dt', PACKAGE = 'plant', obj_, environment)
 }
 
+Individual___FF16__FF16_Env__growth_rate_gradient_exact <- function(obj_, environment) {
+    .Call('_plant_Individual___FF16__FF16_Env__growth_rate_gradient_exact', PACKAGE = 'plant', obj_, environment)
+}
+
 Individual___FF16__FF16_Env__reset_mortality <- function(obj_) {
     invisible(.Call('_plant_Individual___FF16__FF16_Env__reset_mortality', PACKAGE = 'plant', obj_))
 }
@@ -1039,6 +1043,10 @@ Individual___TF24__TF24_Env__establishment_probability <- function(obj_, environ
 
 Individual___TF24__TF24_Env__net_mass_production_dt <- function(obj_, environment) {
     .Call('_plant_Individual___TF24__TF24_Env__net_mass_production_dt', PACKAGE = 'plant', obj_, environment)
+}
+
+Individual___TF24__TF24_Env__growth_rate_gradient_exact <- function(obj_, environment) {
+    .Call('_plant_Individual___TF24__TF24_Env__growth_rate_gradient_exact', PACKAGE = 'plant', obj_, environment)
 }
 
 Individual___TF24__TF24_Env__reset_mortality <- function(obj_) {
@@ -1129,6 +1137,10 @@ Individual___TF24f__TF24_Env__net_mass_production_dt <- function(obj_, environme
     .Call('_plant_Individual___TF24f__TF24_Env__net_mass_production_dt', PACKAGE = 'plant', obj_, environment)
 }
 
+Individual___TF24f__TF24_Env__growth_rate_gradient_exact <- function(obj_, environment) {
+    .Call('_plant_Individual___TF24f__TF24_Env__growth_rate_gradient_exact', PACKAGE = 'plant', obj_, environment)
+}
+
 Individual___TF24f__TF24_Env__reset_mortality <- function(obj_) {
     invisible(.Call('_plant_Individual___TF24f__TF24_Env__reset_mortality', PACKAGE = 'plant', obj_))
 }
@@ -1215,6 +1227,10 @@ Individual___K93__K93_Env__establishment_probability <- function(obj_, environme
 
 Individual___K93__K93_Env__net_mass_production_dt <- function(obj_, environment) {
     .Call('_plant_Individual___K93__K93_Env__net_mass_production_dt', PACKAGE = 'plant', obj_, environment)
+}
+
+Individual___K93__K93_Env__growth_rate_gradient_exact <- function(obj_, environment) {
+    .Call('_plant_Individual___K93__K93_Env__growth_rate_gradient_exact', PACKAGE = 'plant', obj_, environment)
 }
 
 Individual___K93__K93_Env__reset_mortality <- function(obj_) {
