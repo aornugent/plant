@@ -360,6 +360,34 @@ FF16State<S> ff16_replay_cohort(const FF16ProdPars<S>& p, FF16State<S> y,
   return y;
 }
 
+// As ff16_replay_cohort, but the cohort reads its crown light ACTIVELY from a
+// frozen resident profile at each step (#472 scope B, Milestone C). `crown_light`
+// is a caller-supplied callable S -> S returning the light at the cohort's crown
+// for its current (active) height; in the AD context the caller seeds it from the
+// resident profile's value + slope (FF16_Environment::get_environment_at_height /
+// get_environment_deriv_at_height) so d(light)/d(height) flows -- the within-cohort
+// self-shading feedback (a taller cohort reads higher in the canopy -> more light
+// -> faster growth) that the frozen per-step light of the plain overload omits.
+// The profile KNOTS stay frozen double (resident held fixed); making them active
+// is the full self-shading gradient (odelia #32 active-knot spline). LightFn is a
+// template so XAD never enters this header (mirrors ff16_assimilation_deep_crown_replay).
+template <typename S, typename LightFn>
+FF16State<S> ff16_replay_cohort_active_light(const FF16ProdPars<S>& p, FF16State<S> y,
+                                             double dt, LightFn&& crown_light,
+                                             int n_steps, bool mortality_finite) {
+  for (int k = 0; k < n_steps; ++k) {
+    const S light_E = crown_light(y.height);
+    const FF16Rates<S> r =
+        ff16_compute_rates_crown_top(p, y.height, light_E, mortality_finite);
+    y.height         = y.height + S(dt) * r.height_dt;
+    y.mortality      = y.mortality + S(dt) * r.mortality_dt;
+    y.fecundity      = y.fecundity + S(dt) * r.fecundity_dt;
+    y.area_heartwood = y.area_heartwood + S(dt) * r.area_heartwood_dt;
+    y.mass_heartwood = y.mass_heartwood + S(dt) * r.mass_heartwood_dt;
+  }
+  return y;
+}
+
 }  // namespace plant
 
 #endif
