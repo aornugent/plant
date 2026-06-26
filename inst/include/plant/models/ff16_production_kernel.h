@@ -388,6 +388,35 @@ FF16State<S> ff16_replay_cohort_active_light(const FF16ProdPars<S>& p, FF16State
   return y;
 }
 
+// Resident light availability E(z) = exp( - sum_i density_i * k_I * area_leaf_i *
+// Q(z/h_i) ) at height z from a FROZEN stand (heights/densities are pass-1
+// doubles), ACTIVE in the traits through each cohort's area_leaf [eqn 2]
+// (#472 scope B, Milestone C -- the resident self-shading coupling). Q is the
+// deep/Yokozawa leaf-area-above (1 - u^eta)^2 with eta a fixed double (other
+// shading variants swap Q); contributions vanish above each plant's top. Beer's
+// law E = exp(-projected leaf area), matching FF16_Environment::compute_environment.
+// Evaluated at FROZEN knot positions z_k to fill an active-VALUE light spline
+// (odelia basic_interpolator<S>), this is what makes a resident emergent output
+// differentiable w.r.t. a trait THROUGH the self-shaded light profile -- the
+// full self-shading gradient (vs the frozen-knot active-query of
+// ff16_replay_cohort_active_light). Heights frozen here (a fixed stand census);
+// coupling growth back in is the live two-pass replay.
+template <typename S>
+S ff16_resident_light_at(double z, S a_l1, S a_l2, double k_I, double eta,
+                         const std::vector<double>& height,
+                         const std::vector<double>& density) {
+  using std::pow; using std::exp;
+  S L = S(0.0);
+  for (std::size_t i = 0; i < height.size(); ++i) {
+    if (z >= height[i]) continue;            // no leaf area above the plant's crown
+    const double u = z / height[i];
+    const double one_minus = 1.0 - pow(u, eta);
+    const double Q = one_minus * one_minus;  // Yokozawa leaf-area-above
+    L += S(density[i] * k_I) * ff16_area_leaf(a_l1, a_l2, S(height[i])) * S(Q);
+  }
+  return exp(-L);
+}
+
 }  // namespace plant
 
 #endif
