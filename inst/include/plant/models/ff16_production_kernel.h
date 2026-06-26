@@ -192,6 +192,34 @@ S ff16_canopy_q(double eta, S u, S z) {
   return 2.0 * eta * (1.0 - u_eta) * u_eta / z;
 }
 
+// Single-plant height TRAJECTORY: integrate dheight/dt from h0 over n fixed RK4
+// steps to age t_end, in a fixed crown-top light light_E (#472 scope B). This is
+// the bridge from instantaneous-rate gradients to time-integrated emergent
+// outputs: the whole trajectory is scalar-templated, so reverse/forward AD gives
+// d(height at age t_end)/d(trait) -- a calibration gradient through the growth
+// ODE. A fixed step schedule is exactly the frozen-schedule formulation
+// end-to-end AD needs (the adaptive stepper is a pass-1 discovery, replayed).
+template <typename S>
+S ff16_grow_height(const FF16ProdPars<S>& p, S h0, S light_E,
+                   double t_end, int n_steps) {
+  S h = h0;
+  const double dt = t_end / n_steps;
+  for (int i = 0; i < n_steps; ++i) {
+    // Materialise each stage as S: with XAD expression templates `h + c*k`
+    // is an expression type, not S, which would break template deduction of
+    // ff16_height_dt_crown_top's scalar.
+    const S k1 = ff16_height_dt_crown_top(p, h, light_E);
+    const S h2 = h + S(0.5 * dt) * k1;
+    const S k2 = ff16_height_dt_crown_top(p, h2, light_E);
+    const S h3 = h + S(0.5 * dt) * k2;
+    const S k3 = ff16_height_dt_crown_top(p, h3, light_E);
+    const S h4 = h + S(dt) * k3;
+    const S k4 = ff16_height_dt_crown_top(p, h4, light_E);
+    h = h + S(dt / 6.0) * (k1 + S(2.0) * k2 + S(2.0) * k3 + k4);
+  }
+  return h;
+}
+
 }  // namespace plant
 
 #endif
