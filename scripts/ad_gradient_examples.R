@@ -7,7 +7,7 @@
 # of FF16 outputs w.r.t. traits. Each example below also computes a central finite
 # difference of the SAME double computation and checks the two agree.
 #
-# Three examples, increasing in scope:
+# Four examples, increasing in scope:
 #   1. Rate fill        -- d(fecundity_dt)/d(a_p1) of the full demographic rate
 #                          vector, and a bit-exact faithfulness check of the
 #                          kernel against the live FF16_Strategy::compute_rates.
@@ -17,10 +17,15 @@
 #                          light profile: the trait reshapes every cohort's leaf
 #                          area -> competition -> Beer's law -> an active-value
 #                          light spline (odelia basic_interpolator) -> focal light.
+#   4. Whole gradient   -- d(net production)/d(ALL 19 production traits) from a
+#                          SINGLE reverse sweep -- the headline reverse-mode
+#                          advantage made concrete.
 #
 # Reverse-mode AD is the right tool here: many trait inputs -> one scalar output
 # (a calibration objective) is differentiated in a single backward sweep,
-# independent of the number of traits.
+# independent of the number of traits. Example 4 shows this directly -- 19
+# derivatives from one backward pass, the same cost as one finite difference
+# (which would instead need 19+ extra model evaluations).
 #
 # Requirements: the `plant` package must be INSTALLED from this branch (so its
 # installed headers match its compiled .so -- a layout mismatch segfaults), plus
@@ -178,6 +183,47 @@ Rcpp::NumericVector ex3_selfshade() {
   auto kf=[&](double v){auto q=pd;q.a_l1=v;return focal_net<double>(q,k_I,eta,h,dens,zk,focal);};
   double hh=1e-6*pd.a_l1;
   return Rcpp::NumericVector::create(Jd, dJ, (kf(pd.a_l1+hh)-kf(pd.a_l1-hh))/(2*hh));
+}
+
+// ---- Example 4: the whole trait-gradient vector in ONE reverse sweep -------
+// FF16 net production (crown-top) as the scalar objective; differentiate it
+// w.r.t. all 19 production-relevant traits at once. a_l1/a_l2 also flow through
+// area_leaf, so the gradient covers allometry as well as physiology.
+template <typename S>
+S ff16_netprod(const plant::FF16ProdPars<S>& p, double height, double light_E) {
+  S al = plant::ff16_area_leaf(p.a_l1, p.a_l2, S(height));
+  return plant::ff16_net_mass_production_crown_top(p, S(height), al, S(light_E));
+}
+// [[Rcpp::export]]
+Rcpp::List ex4_all_traits(double height, double light_E) {
+  plant::FF16_Strategy s; s.control.shading_model = "crown-centre"; s.prepare_strategy();
+  auto pd = s.prod_pars();
+
+  // ONE tape, one forward eval, one backward sweep -> every trait derivative.
+  ad::tape_type tape;
+  auto p = lift(pd);
+  std::vector<ad_t*> in = {&p.lma,&p.rho,&p.theta,&p.a_b1,&p.a_r1,&p.a_p1,&p.a_p2,
+    &p.r_l,&p.r_s,&p.r_b,&p.r_r,&p.k_l,&p.k_b,&p.k_s,&p.k_r,&p.a_bio,&p.a_y,&p.a_l1,&p.a_l2};
+  for (auto* x : in) tape.registerInput(*x);
+  tape.newRecording();
+  ad_t J = ff16_netprod<ad_t>(p, height, light_E);
+  tape.registerOutput(J); xad::derivative(J) = 1.0; tape.computeAdjoints();
+  Rcpp::NumericVector grad(in.size());
+  for (size_t i = 0; i < in.size(); ++i) grad[i] = xad::derivative(*in[i]);
+
+  // Per-trait central FD for comparison (one extra pair of evals per trait --
+  // the cost reverse mode avoids).
+  auto dd = pd;
+  std::vector<double*> dp = {&dd.lma,&dd.rho,&dd.theta,&dd.a_b1,&dd.a_r1,&dd.a_p1,&dd.a_p2,
+    &dd.r_l,&dd.r_s,&dd.r_b,&dd.r_r,&dd.k_l,&dd.k_b,&dd.k_s,&dd.k_r,&dd.a_bio,&dd.a_y,&dd.a_l1,&dd.a_l2};
+  Rcpp::NumericVector fd(dp.size());
+  for (size_t i = 0; i < dp.size(); ++i) {
+    double b = *dp[i], hh = 1e-6 * std::max(1.0, std::abs(b));
+    *dp[i] = b + hh; double jp = ff16_netprod<double>(dd, height, light_E);
+    *dp[i] = b - hh; double jm = ff16_netprod<double>(dd, height, light_E);
+    *dp[i] = b; fd[i] = (jp - jm) / (2 * hh);
+  }
+  return Rcpp::List::create(Rcpp::_["J"]=xad::value(J), Rcpp::_["grad"]=grad, Rcpp::_["fd"]=fd);
 }')
 
 rel <- function(a, b) abs(a - b) / pmax(abs(b), 1e-30)
@@ -209,5 +255,15 @@ e3 <- ex3_selfshade()
 cat(sprintf("  focal net production = %.8g\n", e3[1]))
 chk("d(focal net)/d(a_l1)", e3[2], e3[3])
 
+cat("\n== Example 4: whole trait-gradient vector in ONE reverse sweep ==\n")
+e4 <- ex4_all_traits(3.7, 0.92)
+traits <- c("lma","rho","theta","a_b1","a_r1","a_p1","a_p2","r_l","r_s","r_b",
+            "r_r","k_l","k_b","k_s","k_r","a_bio","a_y","a_l1","a_l2")
+cat(sprintf("  net production = %.8g  (%d trait derivatives from one backward sweep)\n",
+            e4$J, length(e4$grad)))
+for (i in seq_along(traits)) chk(sprintf("d(net)/d(%s)", traits[i]), e4$grad[i], e4$fd[i])
+
 cat("\nAll reverse-mode AD gradients match finite differences. ",
     "Kernels: inst/include/plant/models/ff16_production_kernel.h\n", sep = "")
+
+

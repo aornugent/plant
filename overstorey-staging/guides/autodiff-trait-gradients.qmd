@@ -62,6 +62,54 @@ bit-identical at every step**. The full test suite (2363 tests) passed unchanged
 after each increment, so a regression would surface immediately, and the change
 could land incrementally instead of as one reviewer-hostile rewrite.
 
+## Groundwork: three pieces that landed first
+
+The hierarchy templating below was the *last* part of the journey. Three earlier,
+already-merged pieces built the techniques and primitives it leans on.
+
+**The leaf-level precedent — forward mode and the implicit function theorem
+([#531](https://github.com/traitecoevo/plant/pull/531) /
+[#539](https://github.com/traitecoevo/plant/pull/539)).** TF24's leaf hydraulics
+were differentiated first. `Leaf::dprofit_droot_collar_psi` computes the exact
+derivative of carbon profit w.r.t. root-collar water potential using **forward-mode**
+AD over the photosynthesis/cost algebra, the **implicit function theorem** at the
+stomatal `psi_stem -> ci` root-find — so the solver's iterations are never taped,
+only the converged point — and a spline's analytic derivative for the transport.
+That set the toolkit reused everywhere after: forward mode when there is one input
+and few outputs (here, the leaf's tracked potential); IFT to get a derivative
+*through* a root-find without differentiating the loop; and a spline's own
+`.deriv()` for built transforms. Making that gradient *fully* analytic (#539,
+removing its last finite difference over the soil-to-collar transport) also taught
+a sharp lesson the FF16 work then obeyed: **the derivative of a spline-built
+quantity must come from the same spline as the value** — a sibling spline (an
+integrand vs its integral) extrapolates differently and was ~0.2% wrong in the dry
+tail.
+
+**A differentiable spline
+([odelia #32](https://github.com/traitecoevo/odelia/pull/32)).** Both net
+production and the light field are built from cubic splines (odelia's
+`Interpolator`). A spline is differentiable w.r.t. its knot *values* but not its
+adaptively-chosen knot *positions*; #32 made exactly that split — scalar-templating
+the values, coefficients, and the band-matrix solve, while the positions stay
+`double` — again behind a `double` alias so every caller is unchanged. This is the
+primitive the self-shading step (7) stands on: a light spline filled at frozen knot
+positions with trait-active values.
+
+**The FF16 production kernel
+([#540](https://github.com/traitecoevo/plant/pull/540)).** Before any container
+templating, the per-plant physiology itself had to differentiate. #540 lifted
+FF16's net-production chain — allometry, assimilation, respiration, turnover — into
+a scalar-templated kernel (`inst/include/plant/models/ff16_production_kernel.h`);
+`FF16_Strategy`'s `double` methods *delegate* to it, so the ordinary model is
+bit-for-bit unchanged while the active instantiation differentiates. It also
+covers FF16's default deep-crown assimilation, whose Gauss–Kronrod crown integral
+is differentiated **through its moving nodes** (`QK::integrate_ad`): the bounds
+scale with height, so the abscissae carry a derivative too — a frozen-*rule* replay
+in which only the quadrature weights are constants.
+
+With those in hand — the leaf precedent's techniques, a differentiable spline, and
+a differentiable per-plant kernel — what remained was the plumbing.
+
 ## The route, step by step
 
 The hard part was never the arithmetic — net production, mortality, fecundity are
