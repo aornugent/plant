@@ -57,6 +57,32 @@ compile_ff16_growth_method <- function() {
         return s.dheight_darea_leaf(area_leaf) *
                (net * s.fraction_allocation_growth(height) *
                 s.darea_leaf_dmass_live(area_leaf));
+      }
+
+      // A VARYING light profile (rising with height) -- the real patch case,
+      // where d(light)/d(height) at the moving crown point is non-zero.
+      static plant::FF16_Environment varying_env() {
+        plant::FF16_Environment env;
+        std::vector<double> st = {0,5,10,15,22, 0.30,0.50,0.68,0.85,1.0};
+        env.r_init_interpolators(st);
+        return env;
+      }
+      // [[Rcpp::export]]
+      double ad_growth_grad_varying(double height) {
+        plant::FF16_Strategy s = mk();
+        plant::FF16_Environment env = varying_env();
+        return s.growth_rate_gradient_height_ad(height, env);
+      }
+      // [[Rcpp::export]]
+      double live_growth_rate_varying(double height) {
+        plant::FF16_Strategy s = mk();
+        plant::FF16_Environment env = varying_env();
+        double area_leaf = s.area_leaf(height);
+        double net = s.net_mass_production_dt(env, height, area_leaf);
+        if (net <= 0.0) return 0.0;
+        return s.dheight_darea_leaf(area_leaf) *
+               (net * s.fraction_allocation_growth(height) *
+                s.darea_leaf_dmass_live(area_leaf));
       }', verbose = FALSE)
     NULL
   }, error = function(e) e)
@@ -78,6 +104,23 @@ testthat::test_that("FF16_Strategy::growth_rate_gradient_height_ad matches a fin
     h <- 1e-6
     fd <- (live_growth_rate(height + h, light_E) -
            live_growth_rate(height - h, light_E)) / (2 * h)
+    expect_equal(g, fd, tolerance = 1e-6)
+  }
+})
+
+testthat::test_that("growth-rate gradient is exact in a VARYING light profile (A1, patch case)", {
+  testthat::skip_if(is_pkgload_dll_plant(),
+    "Skipping FF16 growth-gradient method in pkgload load_all sessions.")
+  compile_ff16_growth_method()
+
+  # Here the crown sampling point moves through a non-flat light profile as
+  # height changes, so the d(light)/d(height) term is load-bearing (a fixed-light
+  # gradient would be wrong). The exact AD gradient still matches the live FD.
+  for (height in c(4, 8, 12)) {
+    g <- ad_growth_grad_varying(height)
+    h <- 1e-6
+    fd <- (live_growth_rate_varying(height + h) -
+           live_growth_rate_varying(height - h)) / (2 * h)
     expect_equal(g, fd, tolerance = 1e-6)
   }
 })

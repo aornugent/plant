@@ -12,8 +12,14 @@ namespace plant {
 double FF16_Strategy::growth_rate_gradient_height_ad(double height,
                                                      const FF16_Environment& env) {
   using AD = xad::fwd<double>::active_type;
-  // Crown-top light at the crown (constant in a fixed environment).
-  const double light_E = env.get_environment_at_height(height * eta_c);
+  // Crown-top light at the crown. As height changes the crown sampling point
+  // height*eta_c moves through the (fixed-during-this-gradient) light profile,
+  // so seed light_E's derivative with d(light)/d(height) = light'(z)*eta_c;
+  // forward mode then composes the light-movement term with the rest. In a
+  // fixed environment this derivative is 0 (exact either way).
+  const double z_crown = height * eta_c;
+  const double light_E0 = env.get_environment_at_height(z_crown);
+  const double dlight_dheight = env.get_environment_deriv_at_height(z_crown) * eta_c;
   const FF16ProdPars<double> p0 = prod_pars();
   FF16ProdPars<AD> p;
   p.lma=p0.lma; p.rho=p0.rho; p.theta=p0.theta; p.a_b1=p0.a_b1; p.a_r1=p0.a_r1;
@@ -24,7 +30,10 @@ double FF16_Strategy::growth_rate_gradient_height_ad(double height,
   p.a_f1=p0.a_f1; p.a_f2=p0.a_f2; p.hmat=p0.hmat;
   AD h = height;
   xad::derivative(h) = 1.0;
-  AD dt = ff16_height_dt_crown_top<AD>(p, h, AD(light_E));
+  AD light_E = light_E0;
+  // PPA (stepped) profile reports a NaN derivative -> treat as locally flat.
+  xad::derivative(light_E) = std::isfinite(dlight_dheight) ? dlight_dheight : 0.0;
+  AD dt = ff16_height_dt_crown_top<AD>(p, h, light_E);
   return xad::derivative(dt);
 }
 
