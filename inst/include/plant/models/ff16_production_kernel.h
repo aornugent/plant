@@ -331,6 +331,35 @@ FF16State<S> ff16_grow_demography(const FF16ProdPars<S>& p, FF16State<S> y,
   return y;
 }
 
+// Frozen-schedule forward-Euler replay of ONE cohort's full demographic state
+// over a per-step crown-light schedule (#472 scope B, Milestone C -- the two-pass
+// SCM replay primitive). `light[k]` is the (frozen, pass-1 double) light the
+// cohort's crown reads at global replay step k; the cohort is born at step0 and
+// integrated to the end of the schedule with forward Euler at fixed dt. Euler
+// (not RK4) is deliberate: it reproduces the SCM's control.fixed_time_step
+// integration EXACTLY, so replaying a fixed_time_step resident run is faithful.
+// Templated on S, so reverse AD over a weighted sum of cohort outcomes
+//   J(theta) = sum_i w_i * f(replay_i)   (w_i, light frozen from pass 1)
+// gives d(emergent stand output)/d(trait), holding the resident light schedule
+// fixed -- the legitimate "resident-light-frozen" gradient. The full resident
+// self-shading gradient additionally makes light active (odelia #32 active-query
+// spline / ff16_assimilation_deep_crown_replay), deferred.
+template <typename S>
+FF16State<S> ff16_replay_cohort(const FF16ProdPars<S>& p, FF16State<S> y,
+                                double dt, const std::vector<double>& light,
+                                std::size_t step0, bool mortality_finite) {
+  for (std::size_t k = step0; k < light.size(); ++k) {
+    const FF16Rates<S> r =
+        ff16_compute_rates_crown_top(p, y.height, S(light[k]), mortality_finite);
+    y.height         = y.height + S(dt) * r.height_dt;
+    y.mortality      = y.mortality + S(dt) * r.mortality_dt;
+    y.fecundity      = y.fecundity + S(dt) * r.fecundity_dt;
+    y.area_heartwood = y.area_heartwood + S(dt) * r.area_heartwood_dt;
+    y.mass_heartwood = y.mass_heartwood + S(dt) * r.mass_heartwood_dt;
+  }
+  return y;
+}
+
 }  // namespace plant
 
 #endif
