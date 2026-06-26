@@ -65,6 +65,10 @@ struct FF16ProdPars {
   // Allometry + allocation parameters for the height-growth rate (Milestone C).
   S a_l1, a_l2;       // height <-> leaf-area allometry [eqn 2/3]
   S a_f1, a_f2, hmat; // reproduction-allocation logistic [eqn 16]
+  // Demographic rate parameters for the full compute_rates fill (Milestone C):
+  // fecundity [eqn 17] and mortality [eqn 21].
+  S omega, a_f3;       // seed mass + accessory reproduction cost (fecundity_dt)
+  S d_I, a_dG1, a_dG2; // mortality: growth-independent + growth-dependent
 };
 
 // Whole single-plant net production under the CROWN-TOP assimilation variant (a
@@ -132,11 +136,17 @@ S ff16_assimilation_deep_crown_replay(S a_p1, S a_p2, S area_leaf,
 // Node::growth_rate_gradient) and w.r.t. traits.
 // ---------------------------------------------------------------------------
 
+// [eqn 16] Fraction of production allocated to reproduction (logistic in height).
+template <typename S>
+S ff16_fraction_allocation_reproduction(S a_f1, S a_f2, S hmat, S height) {
+  using std::exp;
+  return a_f1 / (1.0 + exp(a_f2 * (1.0 - height / hmat)));
+}
+
 // [eqn 16] Fraction of production allocated to growth = 1 - reproduction.
 template <typename S>
 S ff16_fraction_allocation_growth(S a_f1, S a_f2, S hmat, S height) {
-  using std::exp;
-  return 1.0 - a_f1 / (1.0 + exp(a_f2 * (1.0 - height / hmat)));
+  return 1.0 - ff16_fraction_allocation_reproduction(a_f1, a_f2, hmat, height);
 }
 
 // d(height)/d(area_leaf): derivative of the [eqn 2] allometry.
@@ -179,6 +189,60 @@ S ff16_height_dt_crown_top(const FF16ProdPars<S>& p, S height, S light_E) {
   const S area_leaf = ff16_area_leaf(p.a_l1, p.a_l2, height);
   const S net = ff16_net_mass_production_crown_top(p, height, area_leaf, light_E);
   return ff16_height_dt_from_net(p, height, area_leaf, net);
+}
+
+// The five ODE state rates FF16_Strategy::compute_rates writes, plus the net
+// production aux. Scalar-templated (#472 scope B, Milestone C) so the whole
+// demographic rate fill differentiates w.r.t. a trait by reverse-mode AD.
+template <typename S>
+struct FF16Rates {
+  S net_mass_production_dt;
+  S height_dt;
+  S fecundity_dt;
+  S area_heartwood_dt;
+  S mass_heartwood_dt;
+  S mortality_dt;
+};
+
+// Full FF16 compute_rates fill for the CROWN-TOP assimilation variant (single
+// light evaluation light_E). Mirrors FF16_Strategy::compute_rates EXACTLY: the
+// net>0 growth clamp gates the growth/fecundity/heartwood rates, and mortality
+// is the [eqn 21] growth-independent + growth-dependent sum (productivity =
+// net/area_leaf). `mortality_finite` is the frozen util::is_finite(cumulative
+// mortality) branch -- a pass-1 (double) control-flow decision, passed in so the
+// taped replay is branch-free (it never differentiates the is_finite test).
+// Deep-crown differs only in how `net` is formed (the frozen-replay crown
+// integral, ff16_assimilation_deep_crown_replay -> ff16_net_from_components),
+// so a deep-crown fill reuses everything below by substituting that `net`.
+template <typename S>
+FF16Rates<S> ff16_compute_rates_crown_top(const FF16ProdPars<S>& p, S height,
+                                          S light_E, bool mortality_finite) {
+  const S area_leaf = ff16_area_leaf(p.a_l1, p.a_l2, height);
+  const S net = ff16_net_mass_production_crown_top(p, height, area_leaf, light_E);
+  FF16Rates<S> r;
+  r.net_mass_production_dt = net;
+  if (net > 0.0) {
+    const S frac_repro = ff16_fraction_allocation_reproduction(p.a_f1, p.a_f2,
+                                                               p.hmat, height);
+    r.height_dt          = ff16_height_dt_from_net(p, height, area_leaf, net);
+    r.fecundity_dt       = net * frac_repro / (p.omega + p.a_f3);
+    const S area_sapwood = area_leaf * p.theta;            // [eqn 4]
+    r.area_heartwood_dt  = p.k_s * area_sapwood;           // turnover of sapwood area
+    const S mass_sapwood = area_sapwood * height * p.eta_c * p.rho;
+    r.mass_heartwood_dt  = p.k_s * mass_sapwood;           // turnover_sapwood(mass)
+  } else {
+    r.height_dt = S(0.0); r.fecundity_dt = S(0.0);
+    r.area_heartwood_dt = S(0.0); r.mass_heartwood_dt = S(0.0);
+  }
+  // [eqn 21] instantaneous mortality rate; productivity_area = net / area_leaf.
+  using std::exp;
+  if (mortality_finite) {
+    const S productivity_area = net / area_leaf;
+    r.mortality_dt = p.d_I + p.a_dG1 * exp(-p.a_dG2 * productivity_area);
+  } else {
+    r.mortality_dt = S(0.0);
+  }
+  return r;
 }
 
 // [eqn] Yokozawa leaf-area density q(z,H) = 2 eta (1 - u^eta) u^eta / z,

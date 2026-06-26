@@ -427,6 +427,9 @@ public:
     p.a_bio = pars.a_bio; p.a_y = pars.a_y;
     p.a_l1 = pars.a_l1; p.a_l2 = pars.a_l2;
     p.a_f1 = pars.a_f1; p.a_f2 = pars.a_f2; p.hmat = pars.hmat;
+    // Demographic rate params for the full ff16_compute_rates_* fill (Milestone C).
+    p.omega = pars.omega; p.a_f3 = pars.a_f3;
+    p.d_I = pars.d_I; p.a_dG1 = pars.a_dG1; p.a_dG2 = pars.a_dG2;
     return p;
   }
 
