@@ -159,19 +159,37 @@ S ff16_darea_leaf_dmass_live(const FF16ProdPars<S>& p, S area_leaf) {
   return 1.0 / (dmass_leaf + dmass_sapwood + dmass_bark + dmass_root);
 }
 
-// dheight/dt for a plant of the given height under the CROWN-TOP assimilation
-// variant, in light light_E. Returns 0 when net production is non-positive
-// (the compute_rates growth clamp). area_leaf is derived from height so the
-// gradient w.r.t. height flows through the whole chain.
+// dheight/dt given net production (the compute_rates growth assembly): returns
+// 0 when net is non-positive (the growth clamp), else dheight_darea_leaf *
+// area_leaf_dt. Shared by every assimilation variant.
 template <typename S>
-S ff16_height_dt_crown_top(const FF16ProdPars<S>& p, S height, S light_E) {
-  const S area_leaf = ff16_area_leaf(p.a_l1, p.a_l2, height);
-  const S net = ff16_net_mass_production_crown_top(p, height, area_leaf, light_E);
+S ff16_height_dt_from_net(const FF16ProdPars<S>& p, S height, S area_leaf, S net) {
   if (net <= 0.0) return S(0.0);
   const S frac_growth = ff16_fraction_allocation_growth(p.a_f1, p.a_f2, p.hmat, height);
   const S darea_dmass = ff16_darea_leaf_dmass_live(p, area_leaf);
   const S area_leaf_dt = net * frac_growth * darea_dmass;
   return ff16_dheight_darea_leaf(p.a_l1, p.a_l2, area_leaf) * area_leaf_dt;
+}
+
+// dheight/dt for a plant of the given height under the CROWN-TOP assimilation
+// variant, in light light_E. area_leaf is derived from height so the gradient
+// w.r.t. height flows through the whole chain.
+template <typename S>
+S ff16_height_dt_crown_top(const FF16ProdPars<S>& p, S height, S light_E) {
+  const S area_leaf = ff16_area_leaf(p.a_l1, p.a_l2, height);
+  const S net = ff16_net_mass_production_crown_top(p, height, area_leaf, light_E);
+  return ff16_height_dt_from_net(p, height, area_leaf, net);
+}
+
+// [eqn] Yokozawa leaf-area density q(z,H) = 2 eta (1 - u^eta) u^eta / z,
+// u = z/H. Mirrors CanopyShape::q exactly (eta is a fixed double; the gradient
+// flows through the active u and z). The deep-crown crown integral weights the
+// per-depth assimilation by this.
+template <typename S>
+S ff16_canopy_q(double eta, S u, S z) {
+  using std::pow;
+  const S u_eta = pow(u, eta);
+  return 2.0 * eta * (1.0 - u_eta) * u_eta / z;
 }
 
 }  // namespace plant

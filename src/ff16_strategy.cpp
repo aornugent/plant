@@ -30,6 +30,32 @@ double FF16_Strategy::growth_rate_gradient_height_ad(double height,
   p.a_f1=p0.a_f1; p.a_f2=p0.a_f2; p.hmat=p0.hmat;
   AD h = height;
   xad::derivative(h) = 1.0;
+
+  if (assimilation_fn == &FF16_Strategy::assimilation_deep_crown) {
+    // DEFAULT model: differentiate the Gauss-Kronrod crown integral through its
+    // MOVING nodes (bounds [0,h] scale with height) and the leaf-area density q.
+    // The light at each (moving) node z carries its own d(light)/dz via the
+    // environment's analytic spline derivative (value + slope injection); the
+    // GK rule constants are reused via QK::integrate_ad.
+    const double eta = pars.eta;
+    const double canopy_top = env.max_environment_height();
+    auto integrand = [&](AD z) -> AD {
+      const double zv = xad::value(z);
+      const double lv = env.get_environment_at_height(zv, canopy_top);
+      const double ld = env.get_environment_deriv_at_height(zv);
+      AD light = lv + (std::isfinite(ld) ? ld : 0.0) * (z - zv);
+      AD u = z / h;
+      return ff16_assimilation_leaf<AD>(p.a_p1, p.a_p2, light) *
+             ff16_canopy_q<AD>(eta, u, z);
+    };
+    AD area_leaf = ff16_area_leaf<AD>(p.a_l1, p.a_l2, h);
+    AD assim = area_leaf * function_integrator.integrate_ad<AD>(integrand, AD(0.0), h);
+    AD net = ff16_net_from_components<AD>(p, h, area_leaf, assim);
+    AD dt = ff16_height_dt_from_net<AD>(p, h, area_leaf, net);
+    return xad::derivative(dt);
+  }
+
+  // CROWN-TOP / crown-centre: single light evaluation that moves with height.
   AD light_E = light_E0;
   // PPA (stepped) profile reports a NaN derivative -> treat as locally flat.
   xad::derivative(light_E) = std::isfinite(dlight_dheight) ? dlight_dheight : 0.0;

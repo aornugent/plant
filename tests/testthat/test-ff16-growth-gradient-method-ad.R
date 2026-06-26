@@ -82,6 +82,28 @@ compile_ff16_growth_method <- function() {
         return s.dheight_darea_leaf(area_leaf) *
                (net * s.fraction_allocation_growth(height) *
                 s.darea_leaf_dmass_live(area_leaf));
+      }
+
+      // The DEFAULT model: deep-crown assimilation (the GK crown integral).
+      static plant::FF16_Strategy mk_deep() {
+        plant::FF16_Strategy s; s.prepare_strategy(); return s;  // default shading
+      }
+      // [[Rcpp::export]]
+      double ad_growth_grad_deep(double height) {
+        plant::FF16_Strategy s = mk_deep();
+        plant::FF16_Environment env = varying_env();
+        return s.growth_rate_gradient_height_ad(height, env);
+      }
+      // [[Rcpp::export]]
+      double live_growth_rate_deep(double height) {
+        plant::FF16_Strategy s = mk_deep();
+        plant::FF16_Environment env = varying_env();
+        double area_leaf = s.area_leaf(height);
+        double net = s.net_mass_production_dt(env, height, area_leaf);
+        if (net <= 0.0) return 0.0;
+        return s.dheight_darea_leaf(area_leaf) *
+               (net * s.fraction_allocation_growth(height) *
+                s.darea_leaf_dmass_live(area_leaf));
       }', verbose = FALSE)
     NULL
   }, error = function(e) e)
@@ -120,6 +142,23 @@ testthat::test_that("growth-rate gradient is exact in a VARYING light profile (A
     h <- 1e-6
     fd <- (live_growth_rate_varying(height + h) -
            live_growth_rate_varying(height - h)) / (2 * h)
+    expect_equal(g, fd, tolerance = 1e-6)
+  }
+})
+
+testthat::test_that("growth-rate gradient is exact for DEEP-CROWN (the default model)", {
+  testthat::skip_if(is_pkgload_dll_plant(),
+    "Skipping FF16 growth-gradient method in pkgload load_all sessions.")
+  compile_ff16_growth_method()
+
+  # FF16's default assimilation: the Gauss-Kronrod crown integral. The AD
+  # gradient differentiates through the moving GK nodes (bounds scale with
+  # height), the canopy density q(z/h, z), and the light's d/dz at each node.
+  for (height in c(4, 8, 12)) {
+    g <- ad_growth_grad_deep(height)
+    h <- 1e-6
+    fd <- (live_growth_rate_deep(height + h) -
+           live_growth_rate_deep(height - h)) / (2 * h)
     expect_equal(g, fd, tolerance = 1e-6)
   }
 })
