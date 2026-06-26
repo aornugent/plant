@@ -174,6 +174,15 @@ public:
     // reference-comparison test.
     return ff16_area_leaf(pars.a_l1, pars.a_l2, height);
   }
+  // Scalar-templated overload (#472 scope B / #537, Milestone C): area_leaf with
+  // an AD-active height (the live ODE state), keeping the allometry pars double
+  // (S(pars.*) lifts them). The non-template double overload above still wins for
+  // a double argument, so the existing hot path is unchanged; only ad heights
+  // (e.g. update_dependent_aux on Individual<...,ad>) select this.
+  template <typename S>
+  S area_leaf(S height) const {
+    return ff16_area_leaf(S(pars.a_l1), S(pars.a_l2), height);
+  }
 
   // [eqn 1] mass_leaf (inverse of [eqn 2])
   double mass_leaf(double area_leaf) const;
@@ -211,11 +220,18 @@ public:
   // Inline (header): called per state-set / ODE-state update from templated
   // Individual<FF16> code, so inlining avoids a cross-TU call (no LTO build)
   // and lets the now-inline area_leaf fold in.
-  void update_dependent_aux(const int index, Internals& vars) {
+  // Scalar-templated on the Internals' value type S (#472 scope B / #537,
+  // Milestone C) so a Individual<...,ad> can be constructed and have its height
+  // state set: the dependent aux (competition_effect = area_leaf, height_inverse)
+  // then carry the active scalar. The non-template path is gone, but S is
+  // deduced as double for every existing caller (Individual<...,double>), so the
+  // double codegen and the FF16 reference test are unchanged.
+  template <typename S>
+  void update_dependent_aux(const int index, basic_internals<S>& vars) {
     if (index == HEIGHT_INDEX) {
-      double height = vars.state(HEIGHT_INDEX);
+      S height = vars.state(HEIGHT_INDEX);
       vars.set_aux(COMPETITION_EFFECT_AUX_INDEX, area_leaf(height));
-      vars.set_aux(HEIGHT_INVERSE_AUX_INDEX, 1.0 / height);
+      vars.set_aux(HEIGHT_INVERSE_AUX_INDEX, S(1.0) / height);
     }
   }
 
