@@ -214,11 +214,17 @@ struct FF16Rates {
 // Deep-crown differs only in how `net` is formed (the frozen-replay crown
 // integral, ff16_assimilation_deep_crown_replay -> ff16_net_from_components),
 // so a deep-crown fill reuses everything below by substituting that `net`.
+// The rate fill SHARED by every assimilation variant: given the net production
+// (however it was formed -- single-light crown-top, or the deep-crown crown
+// integral) and the area_leaf, write the five ODE rates. This is the part of
+// FF16_Strategy::compute_rates downstream of `net`; the net>0 growth clamp gates
+// growth/fecundity/heartwood, mortality is the [eqn 21] sum (productivity =
+// net/area_leaf). `mortality_finite` is the frozen is_finite branch (a pass-1
+// control-flow decision, so the taped replay never differentiates the test).
 template <typename S>
-FF16Rates<S> ff16_compute_rates_crown_top(const FF16ProdPars<S>& p, S height,
-                                          S light_E, bool mortality_finite) {
-  const S area_leaf = ff16_area_leaf(p.a_l1, p.a_l2, height);
-  const S net = ff16_net_mass_production_crown_top(p, height, area_leaf, light_E);
+FF16Rates<S> ff16_compute_rates_from_net(const FF16ProdPars<S>& p, S height,
+                                         S area_leaf, S net,
+                                         bool mortality_finite) {
   FF16Rates<S> r;
   r.net_mass_production_dt = net;
   if (net > 0.0) {
@@ -243,6 +249,14 @@ FF16Rates<S> ff16_compute_rates_crown_top(const FF16ProdPars<S>& p, S height,
     r.mortality_dt = S(0.0);
   }
   return r;
+}
+
+template <typename S>
+FF16Rates<S> ff16_compute_rates_crown_top(const FF16ProdPars<S>& p, S height,
+                                          S light_E, bool mortality_finite) {
+  const S area_leaf = ff16_area_leaf(p.a_l1, p.a_l2, height);
+  const S net = ff16_net_mass_production_crown_top(p, height, area_leaf, light_E);
+  return ff16_compute_rates_from_net(p, height, area_leaf, net, mortality_finite);
 }
 
 // [eqn] Yokozawa leaf-area density q(z,H) = 2 eta (1 - u^eta) u^eta / z,
