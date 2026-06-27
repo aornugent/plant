@@ -4177,6 +4177,14 @@ make_node_schedule__Parameters___FF16__FF16_Env <- function(p) {
     .Call('_plant_make_node_schedule__Parameters___FF16__FF16_Env', PACKAGE = 'plant', p)
 }
 
+ff16_fecundity_dt_grad_ap1 <- function(height, light_E) {
+    .Call('_plant_ff16_fecundity_dt_grad_ap1', PACKAGE = 'plant', height, light_E)
+}
+
+ff16_crown_top_fecundity_dt <- function(height, light_E, a_p1) {
+    .Call('_plant_ff16_crown_top_fecundity_dt', PACKAGE = 'plant', height, light_E, a_p1)
+}
+
 test_gradient_fd1 <- function(f, x, dx, direction, fx = NA_real_) {
     .Call('_plant_test_gradient_fd1', PACKAGE = 'plant', f, x, dx, direction, fx)
 }

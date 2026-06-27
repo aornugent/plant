@@ -644,3 +644,60 @@ FF16_Strategy::ptr make_strategy_ptr(FF16_Strategy s) {
   return std::make_shared<FF16_Strategy>(s);
 }
 }
+
+// ---------------------------------------------------------------------------
+// CI-runnable AD validation entry points for the scalar-templated FF16
+// demographic rate kernel (#472 scope B / #537, Milestone C). These are
+// [[Rcpp::export]] free functions compiled into plant.so, so the AD path is
+// exercised on CI WITHOUT on-the-fly Rcpp::sourceCpp. Forward mode (a single
+// trait input -> header-only XAD, no reverse-mode tape, no extra link/DLL-order
+// dependency), exactly as FF16_Strategy::growth_rate_gradient_height_ad. They
+// use the crown-top assimilation variant so they match a crown-centre strategy.
+// The broader reverse-mode / multi-output demonstrations are in
+// scripts/ad_gradient_examples.R.
+
+// Lift a (double) prod-pars set to the forward-AD type as constants.
+static plant::FF16ProdPars<xad::fwd<double>::active_type>
+ff16_prod_pars_to_fwd(const plant::FF16ProdPars<double>& d) {
+  plant::FF16ProdPars<xad::fwd<double>::active_type> p;
+  p.lma=d.lma; p.rho=d.rho; p.theta=d.theta; p.a_b1=d.a_b1; p.a_r1=d.a_r1;
+  p.eta_c=d.eta_c; p.a_p1=d.a_p1; p.a_p2=d.a_p2;
+  p.r_l=d.r_l; p.r_s=d.r_s; p.r_b=d.r_b; p.r_r=d.r_r;
+  p.k_l=d.k_l; p.k_b=d.k_b; p.k_s=d.k_s; p.k_r=d.k_r;
+  p.a_bio=d.a_bio; p.a_y=d.a_y; p.a_l1=d.a_l1; p.a_l2=d.a_l2;
+  p.a_f1=d.a_f1; p.a_f2=d.a_f2; p.hmat=d.hmat;
+  p.omega=d.omega; p.a_f3=d.a_f3; p.d_I=d.d_I; p.a_dG1=d.a_dG1; p.a_dG2=d.a_dG2;
+  return p;
+}
+
+// Exact d(fecundity_dt)/d(a_p1) of the demographic rate fill at a crown-top
+// operating point (height, crown light light_E), via forward-mode AD over
+// ff16_compute_rates_crown_top. a_p1 (the light-response slope) flows through
+// assimilation -> net production -> reproductive allocation.
+// [[Rcpp::export]]
+double ff16_fecundity_dt_grad_ap1(double height, double light_E) {
+  using AD = xad::fwd<double>::active_type;
+  plant::FF16_Strategy s;
+  s.control.shading_model = "crown-centre";
+  s.prepare_strategy();
+  plant::FF16ProdPars<AD> p = ff16_prod_pars_to_fwd(s.prod_pars());
+  AD a_p1 = xad::value(p.a_p1);
+  xad::derivative(a_p1) = 1.0;
+  p.a_p1 = a_p1;
+  AD fec = plant::ff16_compute_rates_crown_top<AD>(p, AD(height), AD(light_E),
+                                                   true).fecundity_dt;
+  return xad::derivative(fec);
+}
+
+// fecundity_dt from the same kernel with a_p1 overridden (double) -- the
+// finite-difference reference the test differentiates in R.
+// [[Rcpp::export]]
+double ff16_crown_top_fecundity_dt(double height, double light_E, double a_p1) {
+  plant::FF16_Strategy s;
+  s.control.shading_model = "crown-centre";
+  s.prepare_strategy();
+  plant::FF16ProdPars<double> p = s.prod_pars();
+  p.a_p1 = a_p1;
+  return plant::ff16_compute_rates_crown_top<double>(p, height, light_E, true)
+      .fecundity_dt;
+}

@@ -11745,6 +11745,31 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ff16_fecundity_dt_grad_ap1
+double ff16_fecundity_dt_grad_ap1(double height, double light_E);
+RcppExport SEXP _plant_ff16_fecundity_dt_grad_ap1(SEXP heightSEXP, SEXP light_ESEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< double >::type height(heightSEXP);
+    Rcpp::traits::input_parameter< double >::type light_E(light_ESEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_fecundity_dt_grad_ap1(height, light_E));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ff16_crown_top_fecundity_dt
+double ff16_crown_top_fecundity_dt(double height, double light_E, double a_p1);
+RcppExport SEXP _plant_ff16_crown_top_fecundity_dt(SEXP heightSEXP, SEXP light_ESEXP, SEXP a_p1SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< double >::type height(heightSEXP);
+    Rcpp::traits::input_parameter< double >::type light_E(light_ESEXP);
+    Rcpp::traits::input_parameter< double >::type a_p1(a_p1SEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_crown_top_fecundity_dt(height, light_E, a_p1));
+    return rcpp_result_gen;
+END_RCPP
+}
 // test_gradient_fd1
 double test_gradient_fd1(Rcpp::Function f, double x, double dx, int direction, double fx);
 RcppExport SEXP _plant_test_gradient_fd1(SEXP fSEXP, SEXP xSEXP, SEXP dxSEXP, SEXP directionSEXP, SEXP fxSEXP) {
@@ -13044,6 +13069,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_TF24f_Strategy__ctor", (DL_FUNC) &_plant_TF24f_Strategy__ctor, 0},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
     {"_plant_make_node_schedule__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___FF16__FF16_Env, 1},
+    {"_plant_ff16_fecundity_dt_grad_ap1", (DL_FUNC) &_plant_ff16_fecundity_dt_grad_ap1, 2},
+    {"_plant_ff16_crown_top_fecundity_dt", (DL_FUNC) &_plant_ff16_crown_top_fecundity_dt, 3},
     {"_plant_test_gradient_fd1", (DL_FUNC) &_plant_test_gradient_fd1, 5},
     {"_plant_test_gradient_richardson", (DL_FUNC) &_plant_test_gradient_richardson, 4},
     {"_plant_FF16_oderunner_individual_internals", (DL_FUNC) &_plant_FF16_oderunner_individual_internals, 1},
