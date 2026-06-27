@@ -127,6 +127,24 @@ S ff16_assimilation_deep_crown_replay(S a_p1, S a_p2, S area_leaf,
   return area_leaf * A;
 }
 
+// Establishment probability (the recruitment filter), scalar-templated as a
+// function of the SEEDLING net production (#472 scope B). Mirrors
+// FF16_Strategy::establishment_probability:
+//   pr_estab = decay_over_time / ((a_d0 * area_leaf_0 / net0)^2 + 1)   (net0 > 0),
+// where net0 is the seedling's net production in the birth environment and
+// decay_over_time = exp(-recruitment_decay * birth_time). recruitment_decay, the
+// birth time and a_d0 are not physiology traits, so they fold to doubles; the trait
+// dependence enters through net0 (and area_leaf_0). A node's initial mortality state
+// is -log(pr_estab), so seeding the taped replay with -log(ff16_establishment_
+// probability(...)) -- rather than a frozen constant -- makes the recruitment filter
+// part of the emergent gradient. net0 > 0 is a frozen pass-1 sign.
+template <typename S>
+S ff16_establishment_probability(S area_leaf_0, S net0, double a_d0,
+                                 double decay_over_time) {
+  const S tmp = a_d0 * area_leaf_0 / net0;
+  return decay_over_time / (tmp * tmp + 1.0);
+}
+
 // ---------------------------------------------------------------------------
 // Height-growth rate pieces (#472 scope B, Milestone C). Mirror
 // FF16_Strategy::{fraction_allocation_growth, dheight_darea_leaf,
