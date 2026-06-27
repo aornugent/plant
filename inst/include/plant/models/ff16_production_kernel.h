@@ -414,23 +414,61 @@ FF16State<S> ff16_replay_cohort_active_light(const FF16ProdPars<S>& p, FF16State
 // The 6th cached env (environment_history[n][5], the solver's dydt_out stage) is
 // re-used as the next step's stage-0 env, exactly as first_same_as_last does. The
 // y-update uses k1,k3,k4,k6 (c2==c5==0), matching ode_step.hpp::step line-for-line.
+// Generic Cash-Karp RKCK driver over the FROZEN resident schedule, shared by the
+// demographic replay (ff16_replay_cohort_rkck) and the lifetime-offspring replay
+// (ff16_replay_cohort_offspring_rkck). The integrator logic -- the GSL Cash-Karp
+// tableau, the FSAL stage-0 reuse, the c2==c5==0 final sum -- lives here ONCE.
+// Callers supply the state type and its two operations:
+//   deriv(state, n, stage) -> State : the state-derivative at RK `stage` (0..5) of
+//        global step n. stage 0 is the FSAL k1 (evaluated at the step START);
+//        stages 1..5 are the k2..k6 derivs. Callers map (n, stage) to the frozen
+//        per-RK-stage resident environment (see ff16_replay_cohort_rkck).
+//   axpy(a, c, k) -> State : a + c*k with c a double RK coefficient; each component
+//        MUST be materialised into the scalar type in the returned State (brace-
+//        init), so XAD expression templates never escape with dangling references.
+// The y-update is the 5th-order sum y += h*(c1 k1 + c3 k3 + c4 k4 + c6 k6) written
+// as an axpy chain (c2==c5==0), matching odelia ode_step.hpp::step.
+template <typename State, typename DerivFn, typename AxpyFn>
+State ff16_cashkarp_replay(State y, const std::vector<double>& step_h,
+                           std::size_t step0, DerivFn&& deriv, AxpyFn&& axpy) {
+  // Cash-Karp coefficients, identical to odelia::ode::Step (from GSL).
+  const double b21   = 1.0 / 5.0;
+  const double b3[2] = {3.0 / 40.0, 9.0 / 40.0};
+  const double b4[3] = {0.3, -0.9, 1.2};
+  const double b5[4] = {-11.0 / 54.0, 2.5, -70.0 / 27.0, 35.0 / 27.0};
+  const double b6[5] = {1631.0 / 55296.0, 175.0 / 512.0, 575.0 / 13824.0,
+                        44275.0 / 110592.0, 253.0 / 4096.0};
+  const double c1 = 37.0 / 378.0, c3 = 250.0 / 621.0,
+               c4 = 125.0 / 594.0, c6 = 512.0 / 1771.0;
+
+  for (std::size_t n = step0; n < step_h.size(); ++n) {
+    const double h = step_h[n];
+    const State k1 = deriv(y, n, 0);
+    const State k2 = deriv(axpy(y, b21 * h, k1), n, 1);
+    State y3 = axpy(y, h * b3[0], k1); y3 = axpy(y3, h * b3[1], k2);
+    const State k3 = deriv(y3, n, 2);
+    State y4 = axpy(y, h * b4[0], k1);
+    y4 = axpy(y4, h * b4[1], k2); y4 = axpy(y4, h * b4[2], k3);
+    const State k4 = deriv(y4, n, 3);
+    State y5 = axpy(y, h * b5[0], k1);
+    y5 = axpy(y5, h * b5[1], k2); y5 = axpy(y5, h * b5[2], k3); y5 = axpy(y5, h * b5[3], k4);
+    const State k5 = deriv(y5, n, 4);
+    State y6 = axpy(y, h * b6[0], k1);
+    y6 = axpy(y6, h * b6[1], k2); y6 = axpy(y6, h * b6[2], k3);
+    y6 = axpy(y6, h * b6[3], k4); y6 = axpy(y6, h * b6[4], k5);
+    const State k6 = deriv(y6, n, 5);
+    y = axpy(axpy(axpy(axpy(y, h * c1, k1), h * c3, k3), h * c4, k4), h * c6, k6);
+  }
+  return y;
+}
+
 template <typename S, typename StageLightFn>
 FF16State<S> ff16_replay_cohort_rkck(const FF16ProdPars<S>& p, FF16State<S> y,
                                      const std::vector<double>& step_h,
                                      std::size_t step0,
                                      StageLightFn&& crown_light,
                                      bool mortality_finite) {
-  // Cash-Karp coefficients, identical to odelia::ode::Step (from GSL).
-  const double b21    = 1.0 / 5.0;
-  const double b3[2]  = {3.0 / 40.0, 9.0 / 40.0};
-  const double b4[3]  = {0.3, -0.9, 1.2};
-  const double b5[4]  = {-11.0 / 54.0, 2.5, -70.0 / 27.0, 35.0 / 27.0};
-  const double b6[5]  = {1631.0 / 55296.0, 175.0 / 512.0, 575.0 / 13824.0,
-                         44275.0 / 110592.0, 253.0 / 4096.0};
-  const double c1 = 37.0 / 378.0, c3 = 250.0 / 621.0,
-               c4 = 125.0 / 594.0, c6 = 512.0 / 1771.0;
-
-  // The 5-state FF16 derivative at a trial state, reading the frozen stage env.
+  // 5-state FF16 derivative at a trial state, reading the frozen stage env.
   auto deriv = [&](const FF16State<S>& s, std::size_t n, int stage) -> FF16State<S> {
     const S light_E = crown_light(n, stage, s.height);
     const FF16Rates<S> r =
@@ -438,41 +476,61 @@ FF16State<S> ff16_replay_cohort_rkck(const FF16ProdPars<S>& p, FF16State<S> y,
     return FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
                         r.area_heartwood_dt, r.mass_heartwood_dt};
   };
-  // y <- y + c*k (each component materialised as S so XAD expression templates
-  // don't break scalar deduction, as in ff16_grow_demography).
-  auto axpy = [](const FF16State<S>& a, S c, const FF16State<S>& k) -> FF16State<S> {
+  // a + c*k, each component materialised as S in the brace-init.
+  auto axpy = [](const FF16State<S>& a, double c, const FF16State<S>& k) -> FF16State<S> {
     return FF16State<S>{a.height + c * k.height, a.mortality + c * k.mortality,
                         a.fecundity + c * k.fecundity,
                         a.area_heartwood + c * k.area_heartwood,
                         a.mass_heartwood + c * k.mass_heartwood};
   };
+  return ff16_cashkarp_replay(y, step_h, step0, deriv, axpy);
+}
 
-  for (std::size_t n = step0; n < step_h.size(); ++n) {
-    const double h = step_h[n];
-    const FF16State<S> k1 = deriv(y, n, 0);
-    const FF16State<S> y2 = axpy(y, S(b21 * h), k1);
-    const FF16State<S> k2 = deriv(y2, n, 1);
-    FF16State<S> y3 = axpy(y, S(h * b3[0]), k1); y3 = axpy(y3, S(h * b3[1]), k2);
-    const FF16State<S> k3 = deriv(y3, n, 2);
-    FF16State<S> y4 = axpy(y, S(h * b4[0]), k1);
-    y4 = axpy(y4, S(h * b4[1]), k2); y4 = axpy(y4, S(h * b4[2]), k3);
-    const FF16State<S> k4 = deriv(y4, n, 3);
-    FF16State<S> y5 = axpy(y, S(h * b5[0]), k1);
-    y5 = axpy(y5, S(h * b5[1]), k2); y5 = axpy(y5, S(h * b5[2]), k3);
-    y5 = axpy(y5, S(h * b5[3]), k4);
-    const FF16State<S> k5 = deriv(y5, n, 4);
-    FF16State<S> y6 = axpy(y, S(h * b6[0]), k1);
-    y6 = axpy(y6, S(h * b6[1]), k2); y6 = axpy(y6, S(h * b6[2]), k3);
-    y6 = axpy(y6, S(h * b6[3]), k4); y6 = axpy(y6, S(h * b6[4]), k5);
-    const FF16State<S> k6 = deriv(y6, n, 5);
-    // Final 5th-order sum (c2 == c5 == 0), matching ode_step.hpp::step.
-    y.height         = y.height + S(h) * (S(c1) * k1.height + S(c3) * k3.height + S(c4) * k4.height + S(c6) * k6.height);
-    y.mortality      = y.mortality + S(h) * (S(c1) * k1.mortality + S(c3) * k3.mortality + S(c4) * k4.mortality + S(c6) * k6.mortality);
-    y.fecundity      = y.fecundity + S(h) * (S(c1) * k1.fecundity + S(c3) * k3.fecundity + S(c4) * k4.fecundity + S(c6) * k6.fecundity);
-    y.area_heartwood = y.area_heartwood + S(h) * (S(c1) * k1.area_heartwood + S(c3) * k3.area_heartwood + S(c4) * k4.area_heartwood + S(c6) * k6.area_heartwood);
-    y.mass_heartwood = y.mass_heartwood + S(h) * (S(c1) * k1.mass_heartwood + S(c3) * k3.mass_heartwood + S(c4) * k4.mass_heartwood + S(c6) * k6.mass_heartwood);
-  }
-  return y;
+// State for the lifetime-offspring replay: the 5 FF16 states + the cumulative
+// survival-weighted offspring (the SCM's offspring_produced_survival_weighted).
+template <typename S>
+struct FF16LifeState {
+  FF16State<S> demog;
+  S offspring;
+};
+
+// Lifetime survival-weighted offspring replay (#472 scope B): augments the
+// demographic replay with a 6th accumulator mirroring Node::compute_rates,
+//   d(offspring)/dt = fecundity_dt * exp(-mortality) * surv_weight(n, stage),
+// integrated with the SAME Cash-Karp driver. `surv_weight(n, stage) -> double`
+// supplies the FROZEN pr_patch_survival(t_stage)/pr_patch_survival_at_birth at the
+// step's RK stage time; set y.demog.mortality = -log(establishment_probability) at
+// birth (the node's initial condition) before calling. The stand's emergent
+// offspring_production is then the node-spacing trapezium of
+//   offspring * patch_density_at_birth * S_D * birth_rate
+// over the cohorts (a frozen, linear post-weighting), so one reverse sweep of that
+// sum gives d(offspring_production)/d(trait). crown_light/surv_weight are callables
+// so XAD/odelia stay out of this header.
+template <typename S, typename StageLightFn, typename SurvFn>
+FF16LifeState<S> ff16_replay_cohort_offspring_rkck(
+    const FF16ProdPars<S>& p, FF16LifeState<S> y, const std::vector<double>& step_h,
+    std::size_t step0, StageLightFn&& crown_light, SurvFn&& surv_weight,
+    bool mortality_finite) {
+  using std::exp;  // XAD provides exp for active types via ADL
+  auto deriv = [&](const FF16LifeState<S>& s, std::size_t n, int stage) -> FF16LifeState<S> {
+    const S light_E = crown_light(n, stage, s.demog.height);
+    const FF16Rates<S> r =
+        ff16_compute_rates_crown_top(p, s.demog.height, light_E, mortality_finite);
+    const S off_dt = r.fecundity_dt * exp(-s.demog.mortality) * S(surv_weight(n, stage));
+    return FF16LifeState<S>{FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+                                         r.area_heartwood_dt, r.mass_heartwood_dt},
+                            off_dt};
+  };
+  auto axpy = [](const FF16LifeState<S>& a, double c, const FF16LifeState<S>& k) -> FF16LifeState<S> {
+    return FF16LifeState<S>{
+        FF16State<S>{a.demog.height + c * k.demog.height,
+                     a.demog.mortality + c * k.demog.mortality,
+                     a.demog.fecundity + c * k.demog.fecundity,
+                     a.demog.area_heartwood + c * k.demog.area_heartwood,
+                     a.demog.mass_heartwood + c * k.demog.mass_heartwood},
+        a.offspring + c * k.offspring};
+  };
+  return ff16_cashkarp_replay(y, step_h, step0, deriv, axpy);
 }
 
 // Resident light availability E(z) = exp( - sum_i density_i * k_I * area_leaf_i *
