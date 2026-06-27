@@ -388,6 +388,93 @@ FF16State<S> ff16_replay_cohort_active_light(const FF16ProdPars<S>& p, FF16State
   return y;
 }
 
+// PRODUCTION two-pass replay primitive: a single cohort's full demographic state
+// integrated with the SAME adaptive Cash-Karp RKCK scheme the live SCM used
+// (#472 scope B, Milestone C -- the FAITHFUL replacement for the Euler
+// ff16_replay_cohort). Forward Euler mirrors only the non-default
+// control.fixed_time_step path; the real SCM integrates with odelia's embedded
+// 4/5 RKCK (ode_step.hpp), and the mutant-fitness replay (run_mutant ->
+// advance_fixed -> step_to) re-uses that SAME stepper over the resident's pinned
+// step times, swapping in a FROZEN per-RK-stage environment (environment_history
+// [step][stage], 6 stages/step). This kernel is that path lifted to the scalar S.
+//
+// step_h[n] = the resident's actual adaptive step size for global step n (=
+// step_history[n+1]-step_history[n]); the cohort is integrated from global step
+// `step0` (its birth step) to the end of the schedule. The per-stage crown light
+// is supplied by `crown_light(n, stage, height) -> S` so XAD/odelia stay out of
+// this header (mirrors ff16_replay_cohort_active_light). The caller wires it to
+// the FROZEN resident env: in the AD context it seeds value + slope from
+// FF16_Environment::get_environment_at_height / get_environment_deriv_at_height
+// so d(light)/d(height) flows -- the mutant-through-frozen-canopy feedback (a
+// taller focal cohort reads higher in the resident profile). Stage codes:
+//   stage 0 -> k1 env  = the env at the step START (environment_history[n-1][5],
+//                        or the birth env for n==step0); recomputing k1 against
+//                        it is numerically identical to the solver's FSAL reuse;
+//   stage 1..5 -> the envs for the k2..k6 derivs (environment_history[n][0..4]).
+// The 6th cached env (environment_history[n][5], the solver's dydt_out stage) is
+// re-used as the next step's stage-0 env, exactly as first_same_as_last does. The
+// y-update uses k1,k3,k4,k6 (c2==c5==0), matching ode_step.hpp::step line-for-line.
+template <typename S, typename StageLightFn>
+FF16State<S> ff16_replay_cohort_rkck(const FF16ProdPars<S>& p, FF16State<S> y,
+                                     const std::vector<double>& step_h,
+                                     std::size_t step0,
+                                     StageLightFn&& crown_light,
+                                     bool mortality_finite) {
+  // Cash-Karp coefficients, identical to odelia::ode::Step (from GSL).
+  const double b21    = 1.0 / 5.0;
+  const double b3[2]  = {3.0 / 40.0, 9.0 / 40.0};
+  const double b4[3]  = {0.3, -0.9, 1.2};
+  const double b5[4]  = {-11.0 / 54.0, 2.5, -70.0 / 27.0, 35.0 / 27.0};
+  const double b6[5]  = {1631.0 / 55296.0, 175.0 / 512.0, 575.0 / 13824.0,
+                         44275.0 / 110592.0, 253.0 / 4096.0};
+  const double c1 = 37.0 / 378.0, c3 = 250.0 / 621.0,
+               c4 = 125.0 / 594.0, c6 = 512.0 / 1771.0;
+
+  // The 5-state FF16 derivative at a trial state, reading the frozen stage env.
+  auto deriv = [&](const FF16State<S>& s, std::size_t n, int stage) -> FF16State<S> {
+    const S light_E = crown_light(n, stage, s.height);
+    const FF16Rates<S> r =
+        ff16_compute_rates_crown_top(p, s.height, light_E, mortality_finite);
+    return FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+                        r.area_heartwood_dt, r.mass_heartwood_dt};
+  };
+  // y <- y + c*k (each component materialised as S so XAD expression templates
+  // don't break scalar deduction, as in ff16_grow_demography).
+  auto axpy = [](const FF16State<S>& a, S c, const FF16State<S>& k) -> FF16State<S> {
+    return FF16State<S>{a.height + c * k.height, a.mortality + c * k.mortality,
+                        a.fecundity + c * k.fecundity,
+                        a.area_heartwood + c * k.area_heartwood,
+                        a.mass_heartwood + c * k.mass_heartwood};
+  };
+
+  for (std::size_t n = step0; n < step_h.size(); ++n) {
+    const double h = step_h[n];
+    const FF16State<S> k1 = deriv(y, n, 0);
+    const FF16State<S> y2 = axpy(y, S(b21 * h), k1);
+    const FF16State<S> k2 = deriv(y2, n, 1);
+    FF16State<S> y3 = axpy(y, S(h * b3[0]), k1); y3 = axpy(y3, S(h * b3[1]), k2);
+    const FF16State<S> k3 = deriv(y3, n, 2);
+    FF16State<S> y4 = axpy(y, S(h * b4[0]), k1);
+    y4 = axpy(y4, S(h * b4[1]), k2); y4 = axpy(y4, S(h * b4[2]), k3);
+    const FF16State<S> k4 = deriv(y4, n, 3);
+    FF16State<S> y5 = axpy(y, S(h * b5[0]), k1);
+    y5 = axpy(y5, S(h * b5[1]), k2); y5 = axpy(y5, S(h * b5[2]), k3);
+    y5 = axpy(y5, S(h * b5[3]), k4);
+    const FF16State<S> k5 = deriv(y5, n, 4);
+    FF16State<S> y6 = axpy(y, S(h * b6[0]), k1);
+    y6 = axpy(y6, S(h * b6[1]), k2); y6 = axpy(y6, S(h * b6[2]), k3);
+    y6 = axpy(y6, S(h * b6[3]), k4); y6 = axpy(y6, S(h * b6[4]), k5);
+    const FF16State<S> k6 = deriv(y6, n, 5);
+    // Final 5th-order sum (c2 == c5 == 0), matching ode_step.hpp::step.
+    y.height         = y.height + S(h) * (S(c1) * k1.height + S(c3) * k3.height + S(c4) * k4.height + S(c6) * k6.height);
+    y.mortality      = y.mortality + S(h) * (S(c1) * k1.mortality + S(c3) * k3.mortality + S(c4) * k4.mortality + S(c6) * k6.mortality);
+    y.fecundity      = y.fecundity + S(h) * (S(c1) * k1.fecundity + S(c3) * k3.fecundity + S(c4) * k4.fecundity + S(c6) * k6.fecundity);
+    y.area_heartwood = y.area_heartwood + S(h) * (S(c1) * k1.area_heartwood + S(c3) * k3.area_heartwood + S(c4) * k4.area_heartwood + S(c6) * k6.area_heartwood);
+    y.mass_heartwood = y.mass_heartwood + S(h) * (S(c1) * k1.mass_heartwood + S(c3) * k3.mass_heartwood + S(c4) * k4.mass_heartwood + S(c6) * k6.mass_heartwood);
+  }
+  return y;
+}
+
 // Resident light availability E(z) = exp( - sum_i density_i * k_I * area_leaf_i *
 // Q(z/h_i) ) at height z from a FROZEN stand (heights/densities are pass-1
 // doubles), ACTIVE in the traits through each cohort's area_leaf [eqn 2]

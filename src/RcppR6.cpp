@@ -2445,6 +2445,24 @@ Rcpp::List Patch___FF16__FF16_Env__state__get(plant::RcppR6::RcppR6<plant::Patch
   return obj_->r_get_state();
 }
 
+// [[Rcpp::export]]
+std::vector<double> Patch___FF16__FF16_Env__step_history__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->step_history;
+}
+// [[Rcpp::export]]
+void Patch___FF16__FF16_Env__step_history__set(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<double> value) {
+  obj_->step_history = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<plant::FF16_Environment> > Patch___FF16__FF16_Env__environment_history__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->environment_history;
+}
+// [[Rcpp::export]]
+void Patch___FF16__FF16_Env__environment_history__set(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<std::vector<plant::FF16_Environment> > value) {
+  obj_->environment_history = value;
+}
+
 
 // [[Rcpp::export]]
 plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> Patch___TF24__TF24_Env__ctor(plant::Parameters<plant::TF24_Strategy,plant::TF24_Environment> parameters, plant::TF24_Environment environment, plant::Control control) {
@@ -2574,6 +2592,24 @@ size_t Patch___TF24__TF24_Env__node_ode_size__get(plant::RcppR6::RcppR6<plant::P
 // [[Rcpp::export]]
 Rcpp::List Patch___TF24__TF24_Env__state__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
   return obj_->r_get_state();
+}
+
+// [[Rcpp::export]]
+std::vector<double> Patch___TF24__TF24_Env__step_history__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->step_history;
+}
+// [[Rcpp::export]]
+void Patch___TF24__TF24_Env__step_history__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<double> value) {
+  obj_->step_history = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<plant::TF24_Environment> > Patch___TF24__TF24_Env__environment_history__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->environment_history;
+}
+// [[Rcpp::export]]
+void Patch___TF24__TF24_Env__environment_history__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<plant::TF24_Environment> > value) {
+  obj_->environment_history = value;
 }
 
 
@@ -2707,6 +2743,24 @@ Rcpp::List Patch___TF24f__TF24_Env__state__get(plant::RcppR6::RcppR6<plant::Patc
   return obj_->r_get_state();
 }
 
+// [[Rcpp::export]]
+std::vector<double> Patch___TF24f__TF24_Env__step_history__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->step_history;
+}
+// [[Rcpp::export]]
+void Patch___TF24f__TF24_Env__step_history__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<double> value) {
+  obj_->step_history = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<plant::TF24_Environment> > Patch___TF24f__TF24_Env__environment_history__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->environment_history;
+}
+// [[Rcpp::export]]
+void Patch___TF24f__TF24_Env__environment_history__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<plant::TF24_Environment> > value) {
+  obj_->environment_history = value;
+}
+
 
 // [[Rcpp::export]]
 plant::Patch<plant::K93_Strategy,plant::K93_Environment> Patch___K93__K93_Env__ctor(plant::Parameters<plant::K93_Strategy,plant::K93_Environment> parameters, plant::K93_Environment environment, plant::Control control) {
@@ -2836,6 +2890,24 @@ size_t Patch___K93__K93_Env__node_ode_size__get(plant::RcppR6::RcppR6<plant::Pat
 // [[Rcpp::export]]
 Rcpp::List Patch___K93__K93_Env__state__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
   return obj_->r_get_state();
+}
+
+// [[Rcpp::export]]
+std::vector<double> Patch___K93__K93_Env__step_history__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->step_history;
+}
+// [[Rcpp::export]]
+void Patch___K93__K93_Env__step_history__set(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<double> value) {
+  obj_->step_history = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<plant::K93_Environment> > Patch___K93__K93_Env__environment_history__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->environment_history;
+}
+// [[Rcpp::export]]
+void Patch___K93__K93_Env__environment_history__set(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<std::vector<plant::K93_Environment> > value) {
+  obj_->environment_history = value;
 }
 
 

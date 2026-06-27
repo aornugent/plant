@@ -644,6 +644,14 @@ Patch:
     ode_aux: {type: "std::vector<double>", access: function, name_cpp: "odelia::ode::r_ode_aux"}
     node_ode_size: {type: size_t, access: member}
     state: {type: "Rcpp::List", access: member, name_cpp: r_get_state}
+    # Resident environment trajectory cached during a save_RK45_cache run (the
+    # mutant-replay landscape). step_history holds the ODE step times
+    # {0, t_1, ...}; environment_history[n] holds the 6 frozen per-RK-stage
+    # environments for the step advancing step_history[n] -> step_history[n+1].
+    # Exposed so the two-pass AD emergent-gradient driver (#472 scope B) can
+    # harvest the frozen resident light schedule without re-running in C++.
+    step_history: {type: "std::vector<double>", access: field}
+    environment_history: {type: "std::vector<std::vector<E> >", access: field}
   methods:
     introduce_new_node:
       return_type: void
