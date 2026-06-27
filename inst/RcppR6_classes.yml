@@ -652,6 +652,10 @@ Patch:
     # harvest the frozen resident light schedule without re-running in C++.
     step_history: {type: "std::vector<double>", access: field}
     environment_history: {type: "std::vector<std::vector<E> >", access: field}
+    # Per-ODE-step resident stand (species 0) for the active-knot self-shading
+    # reconstruction: node heights and per-node competition effects per step.
+    stand_height_history: {type: "std::vector<std::vector<double> >", access: field}
+    stand_competition_history: {type: "std::vector<std::vector<double> >", access: field}
   methods:
     introduce_new_node:
       return_type: void

@@ -153,6 +153,17 @@ public:
   std::vector<std::vector<environment_type>> environment_history;
   std::vector<environment_type> environment_cache;
 
+  // Per-ODE-step resident STAND state for species 0, captured alongside
+  // environment_history during a save_RK45_cache run: each entry is the node
+  // heights / per-node competition effects (node.compute_competition(0) =
+  // k_I * area_leaf, so resident competition(z) = trapezium_i(ce_i * Q(z/h_i))).
+  // Exposed so the active-knot self-shading AD driver (#472 scope B) can
+  // reconstruct the resident light DIFFERENTIABLY per step (light responds to an
+  // allometric trait via area_leaf) instead of holding the cached env frozen.
+  // Single-species for now (the FF16 self-shading demo); multi-species is additive.
+  std::vector<std::vector<double>> stand_height_history;
+  std::vector<std::vector<double>> stand_competition_history;
+
   void cache_ode_step();
   void cache_RK45_step(int step);
   void load_ode_step();
@@ -655,9 +666,15 @@ odelia::ode::const_iterator Patch<T,E,S>::set_ode_state(odelia::ode::const_itera
 // saves cached set of environments(6) from each ODE step to the step history
 template <typename T, typename E, typename S>
 void Patch<T,E,S>::cache_ode_step() {
-  if(save_RK45_cache) { 
+  if(save_RK45_cache) {
     step_history.push_back(time());
     environment_history.push_back(environment_cache);
+    // Capture the species-0 stand (heights + per-node competition effect) at this
+    // step boundary, for the active-knot resident-light reconstruction.
+    if (!species.empty()) {
+      stand_height_history.push_back(species[0].r_heights());
+      stand_competition_history.push_back(species[0].r_compute_competition_effect_by_nodes());
+    }
   }
 }
 
