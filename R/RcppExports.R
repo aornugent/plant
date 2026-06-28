@@ -4444,6 +4444,14 @@ make_node_schedule__Parameters___TF24__TF24_Env <- function(p) {
     .Call('_plant_make_node_schedule__Parameters___TF24__TF24_Env', PACKAGE = 'plant', p)
 }
 
+tf24_crown_centre_fecundity_dt <- function(height, light_E, vcmax_25) {
+    .Call('_plant_tf24_crown_centre_fecundity_dt', PACKAGE = 'plant', height, light_E, vcmax_25)
+}
+
+tf24_fecundity_dt_grad_vcmax <- function(height, light_E) {
+    .Call('_plant_tf24_fecundity_dt_grad_vcmax', PACKAGE = 'plant', height, light_E)
+}
+
 node_schedule_default__Parameters___TF24f__TF24_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___TF24f__TF24_Env', PACKAGE = 'plant', p)
 }

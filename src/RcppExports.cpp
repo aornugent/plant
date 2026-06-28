@@ -12454,6 +12454,31 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// tf24_crown_centre_fecundity_dt
+double tf24_crown_centre_fecundity_dt(double height, double light_E, double vcmax_25);
+RcppExport SEXP _plant_tf24_crown_centre_fecundity_dt(SEXP heightSEXP, SEXP light_ESEXP, SEXP vcmax_25SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< double >::type height(heightSEXP);
+    Rcpp::traits::input_parameter< double >::type light_E(light_ESEXP);
+    Rcpp::traits::input_parameter< double >::type vcmax_25(vcmax_25SEXP);
+    rcpp_result_gen = Rcpp::wrap(tf24_crown_centre_fecundity_dt(height, light_E, vcmax_25));
+    return rcpp_result_gen;
+END_RCPP
+}
+// tf24_fecundity_dt_grad_vcmax
+double tf24_fecundity_dt_grad_vcmax(double height, double light_E);
+RcppExport SEXP _plant_tf24_fecundity_dt_grad_vcmax(SEXP heightSEXP, SEXP light_ESEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< double >::type height(heightSEXP);
+    Rcpp::traits::input_parameter< double >::type light_E(light_ESEXP);
+    rcpp_result_gen = Rcpp::wrap(tf24_fecundity_dt_grad_vcmax(height, light_E));
+    return rcpp_result_gen;
+END_RCPP
+}
 // node_schedule_default__Parameters___TF24f__TF24_Env
 plant::NodeSchedule node_schedule_default__Parameters___TF24f__TF24_Env(const plant::Parameters<plant::TF24f_Strategy,plant::TF24_Environment>& p);
 RcppExport SEXP _plant_node_schedule_default__Parameters___TF24f__TF24_Env(SEXP pSEXP) {
@@ -13644,6 +13669,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_TF24f_strategy_expand_allometry", (DL_FUNC) &_plant_TF24f_strategy_expand_allometry, 4},
     {"_plant_node_schedule_default__Parameters___TF24__TF24_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___TF24__TF24_Env, 1},
     {"_plant_make_node_schedule__Parameters___TF24__TF24_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___TF24__TF24_Env, 1},
+    {"_plant_tf24_crown_centre_fecundity_dt", (DL_FUNC) &_plant_tf24_crown_centre_fecundity_dt, 3},
+    {"_plant_tf24_fecundity_dt_grad_vcmax", (DL_FUNC) &_plant_tf24_fecundity_dt_grad_vcmax, 2},
     {"_plant_node_schedule_default__Parameters___TF24f__TF24_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___TF24f__TF24_Env, 1},
     {"_plant_make_node_schedule__Parameters___TF24f__TF24_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___TF24f__TF24_Env, 1},
     {"_plant_test_uniroot", (DL_FUNC) &_plant_test_uniroot, 3},
