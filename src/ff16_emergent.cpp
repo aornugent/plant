@@ -89,7 +89,7 @@ S deep_net(const plant::FF16ProdPars<S>& pd, const plant::quadrature::QK* integ,
 // Emergent offspring_production = sum_i tw_i * offspring_weighted_i (deep-crown
 // 6-state replay through ff16_cashkarp_replay); establishment frozen via mort0.
 template <typename S>
-S stand_offspring(const plant::FF16ProdPars<S>& pd, const Frozen& F) {
+S stand_offspring(const plant::FF16ProdPars<S>& pd, const Frozen& F, S h0) {
   using std::exp; using std::log;
   S J = S(0.0);
   for (std::size_t i = 0; i < F.birth.size(); ++i) {
@@ -97,10 +97,11 @@ S stand_offspring(const plant::FF16ProdPars<S>& pd, const Frozen& F) {
     const double ppsab = F.ppsab[i];
     // Establishment (recruitment filter), DIFFERENTIATED: mortality_0 =
     // -log(pr_estab), pr_estab from the seedling net production (deep-crown) in the
-    // frozen birth env -> the trait flows through net0 and area_leaf_0.
+    // frozen birth env -> the trait flows through net0 and area_leaf_0. h0 (seedling
+    // height) carries its own d/d(trait) via the IFT injection (see the caller).
     const plant::FF16_Environment* eb = (b > 0) ? &F.eh[b - 1][5] : &F.eh[0][0];
-    S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, S(F.h0));
-    S net0 = deep_net<S>(pd, F.integ, F.eta, eb, S(F.h0));
+    S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
+    S net0 = deep_net<S>(pd, F.integ, F.eta, eb, h0);
     S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
     S mort0 = -log(pr_estab);
     auto deriv = [&](const plant::FF16LifeState<S>& s, std::size_t n, int stage)
@@ -121,7 +122,7 @@ S stand_offspring(const plant::FF16ProdPars<S>& pd, const Frozen& F) {
         a.demog.fecundity+c*k.demog.fecundity, a.demog.area_heartwood+c*k.demog.area_heartwood,
         a.demog.mass_heartwood+c*k.demog.mass_heartwood}, a.offspring+c*k.offspring};
     };
-    plant::FF16LifeState<S> y{plant::FF16State<S>{S(F.h0), mort0, S(0), S(0), S(0)}, S(0)};
+    plant::FF16LifeState<S> y{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, S(0)};
     y = plant::ff16_cashkarp_replay(y, F.step_h, b, deriv, axpy);
     J += S(F.tw[i]) * y.offspring;
   }
@@ -180,13 +181,44 @@ Rcpp::NumericVector ff16_offspring_production_gradient_impl(
     idx.push_back(std::distance(names.begin(), it));
   }
 
+  // d(height_0)/d(trait) by the implicit function theorem at the height_seed root
+  // (mass_live_given_height(h0) == omega). A separate reverse sweep of mass_live at
+  // h0 gives d(mass_live)/d(theta_k) and d(mass_live)/d(height); IFT then gives
+  // d(h0)/d(theta_k) (the seedling-size response, the #539 pattern). Scoped in its
+  // own block so its tape is torn down before the main recording.
+  const double h0v = s.initial_height();
+  std::vector<double> dh0(idx.size(), 0.0);
+  {
+    ad::tape_type tape0;
+    auto pm = lift<ad_t>(pd);
+    auto fm = field_ptrs<ad_t>(pm);
+    ad_t hin = h0v;
+    for (auto i : idx) tape0.registerInput(*fm[i]);
+    tape0.registerInput(hin);
+    tape0.newRecording();
+    ad_t m = plant::ff16_mass_live_given_height<ad_t>(pm, hin);
+    tape0.registerOutput(m); xad::derivative(m) = 1.0; tape0.computeAdjoints();
+    const double dm_dh = xad::derivative(hin);
+    auto names_o = field_names();
+    for (std::size_t k = 0; k < idx.size(); ++k) {
+      double dm_dtheta = xad::derivative(*fm[idx[k]]);
+      double dF_dtheta = dm_dtheta - (names_o[idx[k]] == "omega" ? 1.0 : 0.0);
+      dh0[k] = (dm_dh != 0.0) ? -dF_dtheta / dm_dh : 0.0;
+    }
+  }
+
   // ONE reverse sweep over the requested traits.
   ad::tape_type tape;
   auto pa = lift<ad_t>(pd);
   auto fp = field_ptrs<ad_t>(pa);
   for (auto i : idx) tape.registerInput(*fp[i]);
   tape.newRecording();
-  ad_t J = stand_offspring<ad_t>(pa, F);
+  // h0 active: value h0v + the IFT first-order injection so the tape carries
+  // d(h0)/d(theta_k) for each registered trait (zero for traits not in mass_live).
+  ad_t h0 = h0v;
+  for (std::size_t k = 0; k < idx.size(); ++k)
+    h0 = h0 + ad_t(dh0[k]) * (*fp[idx[k]] - ad_t(xad::value(*fp[idx[k]])));
+  ad_t J = stand_offspring<ad_t>(pa, F, h0);
   tape.registerOutput(J); xad::derivative(J) = 1.0; tape.computeAdjoints();
 
   Rcpp::NumericVector grad(idx.size());

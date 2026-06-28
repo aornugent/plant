@@ -127,6 +127,24 @@ S ff16_assimilation_deep_crown_replay(S a_p1, S a_p2, S area_leaf,
   return area_leaf * A;
 }
 
+// Total live mass given height (#472 scope B): the same leaf+sapwood+bark+root mass
+// cascade as ff16_net_from_components, as a function of height. Mirrors
+// FF16_Strategy::mass_live_given_height. The seedling height_0 solves
+// mass_live_given_height(h0) = omega, so this is the residual whose root is height_0;
+// differentiating it gives d(height_0)/d(trait) by the implicit function theorem
+//   d(h0)/d(theta) = -(d mass_live/d theta - [theta==omega]) / (d mass_live/d height)
+// at h0 -- the seedling-size response of the emergent gradient (the #539 IFT pattern).
+template <typename S>
+S ff16_mass_live_given_height(const FF16ProdPars<S>& p, S height) {
+  const S area_leaf    = ff16_area_leaf(p.a_l1, p.a_l2, height);
+  const S area_sapwood = area_leaf * p.theta;
+  const S mass_leaf    = area_leaf * p.lma;
+  const S mass_sapwood = area_sapwood * height * p.eta_c * p.rho;
+  const S mass_bark    = p.a_b1 * area_sapwood * height * p.eta_c * p.rho;
+  const S mass_root    = p.a_r1 * area_leaf;
+  return mass_leaf + mass_sapwood + mass_bark + mass_root;
+}
+
 // Establishment probability (the recruitment filter), scalar-templated as a
 // function of the SEEDLING net production (#472 scope B). Mirrors
 // FF16_Strategy::establishment_probability:

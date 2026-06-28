@@ -13,6 +13,8 @@ test_that("offspring_production_gradient matches a two-pass finite difference", 
                  refine_schedule = FALSE)
 
   g <- offspring_production_gradient(scm, traits = c("a_p1", "lma"))
+  # lma changes the seedling size height_0 (a height_seed root-find), so its gradient
+  # exercises the implicit-function-theorem h0 path, not just the demographic replay.
 
   # The replay reconstructs the SCM's emergent output.
   expect_equal(attr(g, "offspring_production"), scm$offspring_production[[1]],
@@ -37,14 +39,24 @@ test_that("offspring_production_gradient matches a two-pass finite difference", 
   for (k in seq_len(N)) for (s in 1:6) ppsurv[k, s] <- scm$patch$pr_survival(sh[k] + ah[s] * hN[k])
   ppsab <- sp$pr_patch_survival_at_birth
 
-  J_at <- function(a_p1) {
-    q <- pp; q[["a_p1"]] <- a_p1
-    gg <- ff16_offspring_production_gradient_impl(q, eh, sh, birth_step, ppsurv,
-                                                  ppsab, tw, "a_p1")
-    attr(gg, "offspring_production")
+  # Two-pass FD over the same frozen schedule, perturbing one trait in the parameter
+  # vector. The impl recomputes height_0 from the (perturbed) parameters, so this is
+  # an h0-ACTIVE finite difference -- it validates the IFT seedling-size term too.
+  fd_best <- function(trait, rel_h) {
+    J_at <- function(v) {
+      q <- pp; q[[trait]] <- v
+      attr(ff16_offspring_production_gradient_impl(q, eh, sh, birth_step, ppsurv,
+                                                   ppsab, tw, trait),
+           "offspring_production")
+    }
+    fds <- vapply(rel_h, function(rh) {
+      h <- rh * abs(pp[[trait]])
+      (J_at(pp[[trait]] + h) - J_at(pp[[trait]] - h)) / (2 * h)
+    }, numeric(1))
+    fds[which.min(abs(fds - g[[trait]]))]   # best step (FD has a truncation/roundoff sweet spot)
   }
-  h <- 1e-6 * pp[["a_p1"]]
-  fd <- (J_at(pp[["a_p1"]] + h) - J_at(pp[["a_p1"]] - h)) / (2 * h)
-  expect_equal(g[["a_p1"]], fd, tolerance = 1e-4)
-  expect_true(is.finite(g[["lma"]]))
+  # a_p1: physiology, does not touch height_0.
+  expect_equal(g[["a_p1"]], fd_best("a_p1", c(1e-5, 1e-6)), tolerance = 1e-4)
+  # lma: flows through the IFT height_0 term as well as the replay.
+  expect_equal(g[["lma"]], fd_best("lma", c(1e-4, 1e-5)), tolerance = 1e-3)
 })
