@@ -365,6 +365,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// Leaf__dprofit_dEup
+double Leaf__dprofit_dEup(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi);
+RcppExport SEXP _plant_Leaf__dprofit_dEup(SEXP obj_SEXP, SEXP opt_root_psiSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Leaf> >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< double >::type opt_root_psi(opt_root_psiSEXP);
+    rcpp_result_gen = Rcpp::wrap(Leaf__dprofit_dEup(obj_, opt_root_psi));
+    return rcpp_result_gen;
+END_RCPP
+}
 // Leaf__dprofit_db
 double Leaf__dprofit_db(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi);
 RcppExport SEXP _plant_Leaf__dprofit_db(SEXP obj_SEXP, SEXP opt_root_psiSEXP) {
@@ -12553,6 +12565,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Leaf__dprofit_dg1_TF24", (DL_FUNC) &_plant_Leaf__dprofit_dg1_TF24, 2},
     {"_plant_Leaf__dprofit_dbeta2", (DL_FUNC) &_plant_Leaf__dprofit_dbeta2, 2},
     {"_plant_Leaf__dprofit_dkmax", (DL_FUNC) &_plant_Leaf__dprofit_dkmax, 2},
+    {"_plant_Leaf__dprofit_dEup", (DL_FUNC) &_plant_Leaf__dprofit_dEup, 2},
     {"_plant_Leaf__dprofit_db", (DL_FUNC) &_plant_Leaf__dprofit_db, 2},
     {"_plant_Leaf__dprofit_dc", (DL_FUNC) &_plant_Leaf__dprofit_dc, 2},
     {"_plant_Leaf__dprofit_djmax25", (DL_FUNC) &_plant_Leaf__dprofit_djmax25, 2},

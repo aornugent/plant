@@ -105,6 +105,10 @@ Leaf__dprofit_dkmax <- function(obj_, opt_root_psi) {
     .Call('_plant_Leaf__dprofit_dkmax', PACKAGE = 'plant', obj_, opt_root_psi)
 }
 
+Leaf__dprofit_dEup <- function(obj_, opt_root_psi) {
+    .Call('_plant_Leaf__dprofit_dEup', PACKAGE = 'plant', obj_, opt_root_psi)
+}
+
 Leaf__dprofit_db <- function(obj_, opt_root_psi) {
     .Call('_plant_Leaf__dprofit_db', PACKAGE = 'plant', obj_, opt_root_psi)
 }

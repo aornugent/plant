@@ -190,6 +190,10 @@ Leaf:
       return_type: double
       args: [opt_root_psi: double]
 
+    dprofit_dEup:
+      return_type: double
+      args: [opt_root_psi: double]
+
     dprofit_db:
       return_type: double
       args: [opt_root_psi: double]

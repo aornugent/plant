@@ -1122,6 +1122,44 @@ double Leaf::dprofit_dkmax(double opt_root_psi) {
   return A_prime * dci_dkmax - C_prime * dpsistem_dkmax;
 }
 
+// Exact d(profit*)/d(E_up_) at the optimised operating point: the sensitivity of
+// the leaf profit to the soil->root-collar water uptake E_up_ (kg H2O m^-2 LA
+// s^-1). Used by the mass-cascade trait a_r1 (root mass per leaf area), which
+// scales every root hydraulic resistance by 1/a_r1, hence E_up_ linearly
+// (d E_up_/d a_r1 = E_up_/a_r1); the strategy chains that factor.
+//
+// Unlike k_max, perturbing E_up_ DOES change the supply-side transpiration
+// (= E_up_ at the operating point), so gc -- hence ci -- moves:
+//   E_psi_stem = E_up_/k_max + S(psi)  =>  dpsi_stem/dE_up_ = 1/(prop_cond(psi_stem)*k_max),
+//   gc = gc_const * E_up_  =>  dgc/dE_up_ = gc_const,
+//   dci/dE_up_ = gc_const (ca-ci) inv_atm / g_ci,  g_ci = A'(ci) umol_to_mol + gc inv_atm,
+//   dprofit/dE_up_ = A'(ci) dci/dE_up_ - C'(psi_stem) dpsi_stem/dE_up_.
+double Leaf::dprofit_dEup(double opt_root_psi) {
+  using AD = xad::fwd<double>::active_type;
+  const double psi = opt_root_psi;
+  const double gstar_Pa = gamma_ * umol_per_mol_to_Pa;
+  const double k_max = leaf_specific_conductance_max_;
+  const double psi_stem = find_psi_stem_from_psi_root(-psi, psi_soil_inverted_);
+  const double ci = psi_stem_to_ci(psi_stem, psi);
+  if (!std::isfinite(psi_stem) || !std::isfinite(ci)) return 0.0;
+
+  AD ci_ad = ci; xad::derivative(ci_ad) = 1.0;
+  const double A_prime = xad::derivative(assim_colimited_ad(
+      ci_ad, vcmax_, electron_transport_, gstar_Pa, km_, R_d_, curv_fact_colim));
+  AD ps_ad = psi_stem; xad::derivative(ps_ad) = 1.0;
+  const double C_prime = xad::derivative(hydraulic_cost_ad(ps_ad, b, c, g1_TF24, beta2));
+
+  const double dpsistem_dEup =
+      1.0 / (proportion_of_conductivity(psi_stem) * k_max);
+  const double gc_const =
+      atm_kpa_ * kg_to_mol_h2o / atm_vpd_ / H2O_CO2_stom_diff_ratio;
+  const double gc = gc_const * transpiration(psi_stem, psi);  // = gc_const * E_up_
+  const double inv_atm = 1.0 / (atm_kpa_ * kPa_to_Pa);
+  const double g_ci = A_prime * umol_to_mol + gc * inv_atm;
+  const double dci_dEup = (gc_const * (ca_ - ci) * inv_atm) / g_ci;
+  return A_prime * dci_dEup - C_prime * dpsistem_dEup;
+}
+
 // dS/d(trait) at a fixed potential x, where S(x) = int_0^x exp(-(s/b)^c) ds is
 // the cumulative transpiration curve (transpiration_from_psi). Used by the
 // b/c hydraulic gradients.

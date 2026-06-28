@@ -106,6 +106,10 @@ double Leaf__dprofit_dkmax(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_r
   return obj_->dprofit_dkmax(opt_root_psi);
 }
 // [[Rcpp::export]]
+double Leaf__dprofit_dEup(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi) {
+  return obj_->dprofit_dEup(opt_root_psi);
+}
+// [[Rcpp::export]]
 double Leaf__dprofit_db(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi) {
   return obj_->dprofit_db(opt_root_psi);
 }

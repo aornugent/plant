@@ -349,6 +349,10 @@ public:
   // psi_stem and ci, not the cost explicitly). The TF24 trait K_s scales k_max
   // linearly (k_max = K_s*theta/(h*eta_c)), so the strategy chains by k_max/K_s.
   double dprofit_dkmax(double opt_root_psi);
+  // d(profit*)/d(E_up_): sensitivity to the soil->collar water uptake. Used by
+  // the mass-cascade trait a_r1 (root mass per leaf area), which scales every
+  // root resistance by 1/a_r1 hence E_up_ linearly (d E_up_/d a_r1 = E_up_/a_r1).
+  double dprofit_dEup(double opt_root_psi);
   // d(profit*)/d(b) and d(profit*)/d(c): the xylem vulnerability shape traits
   // (prop_cond = exp(-(psi/b)^c)). They reshape the transpiration spline (so
   // psi_stem moves) and enter the cost explicitly; ci/benefit are frozen because
