@@ -17,8 +17,11 @@
 # injects d(net)/d(vcmax_25) = a_bio*a_y*area_leaf*conv*dprofit_dvcmax25 and the
 # FD height-Jacobian, and carries the offspring accumulator's sensitivity
 #   d(off_dt)/dvcmax = sw * exp(-mortality) * (s_fecundity_dt - fecundity_dt*s_mortality).
-# ESTABLISHMENT is FROZEN here (mortality_0 from the resident vcmax, in AD AND FD --
-# a clean separable partial; differentiating it is the #539/C-26 follow-up).
+# ESTABLISHMENT is now DIFFERENTIATED: the node's initial mortality
+# -log(establishment_probability) responds to vcmax through the SEEDLING net
+# production (a leaf opt at height_0 in the birth env), so its trait sensitivity seeds
+# the mortality state; the two-pass FD recomputes establishment at the perturbed trait
+# so AD and FD agree on the recruitment-filter contribution.
 #
 # Checks: (a) reconstruction -- the double replay's trapezium offspring_production
 # matches the live SCM; (b) gradient -- d(offspring_production)/d(vcmax_25) AD vs a
@@ -121,7 +124,7 @@ static double net_at(plant::TF24_Strategy& s, plant::TF24_Environment& e, double
 }
 
 static TL replay(Ctx& C, std::size_t birth, const std::vector<double>& step_h,
-                 double h0, double mort0, bool sens) {
+                 double h0, double mort0, double dmort0, bool sens) {
   auto deriv = [&](const TL& y, std::size_t n, int stage) -> TL {
     plant::TF24_Environment* e =
       (stage==0)?((n>0)?&(*C.eh)[n-1][5]:&(*C.eh)[0][0]):&(*C.eh)[n][stage-1];
@@ -160,13 +163,36 @@ static TL replay(Ctx& C, std::size_t birth, const std::vector<double>& step_h,
     return TL{ L6{a.v.h+c*k.v.h,a.v.m+c*k.v.m,a.v.f+c*k.v.f,a.v.ah+c*k.v.ah,a.v.mh+c*k.v.mh,a.v.off+c*k.v.off},
                L6{a.s.h+c*k.s.h,a.s.m+c*k.s.m,a.s.f+c*k.s.f,a.s.ah+c*k.s.ah,a.s.mh+c*k.s.mh,a.s.off+c*k.s.off} };
   };
-  TL y{ L6{h0,mort0,0,0,0,0}, L6{0,0,0,0,0,0} };
+  // The node initial mortality is -log(establishment_probability); its trait
+  // sensitivity dmort0 (0 when establishment is frozen) seeds the mortality sens.
+  TL y{ L6{h0,mort0,0,0,0,0}, L6{0,(sens?dmort0:0.0),0,0,0,0} };
   return plant::ff16_cashkarp_replay(y, step_h, birth, deriv, axpy);
 }
 
-// mortality at birth = -log(establishment_probability) in the frozen birth env.
+// mortality at birth = -log(establishment_probability) in the birth env.
 static double mort0_for(plant::TF24_Strategy& s, plant::TF24_Environment& eb) {
   return -std::log(s.establishment_probability(eb));
+}
+
+// mort0 AND its d/d(vcmax_25): establishment_probability = decay/((a_d0*al0/net0)^2+1),
+// with net0 the SEEDLING net production (a leaf opt at height_0 in the birth env).
+// vcmax enters only via net0 -> profit at the seedling operating point. height_0 and
+// area_leaf_0 are vcmax-independent (vcmax is a pure leaf trait), so this is the only
+// channel. Returns mort0; writes d(mort0)/d(vcmax) to dmort0.
+static double mort0_and_dmort_dvcmax(plant::TF24_Strategy& s, plant::TF24_Environment& eb,
+                                     double conv, double& dmort0) {
+  using std::exp; using std::log;
+  const double h0 = s.initial_height(), al0 = s.area_leaf(h0);
+  const double net0 = s.net_mass_production_dt(eb, h0, al0, 1.0/h0);  // seedling opt
+  const double decay = exp(-s.pars.recruitment_decay * eb.time);
+  const double u = s.pars.a_d0 * al0 / net0;        // net0 > 0 at a viable seedling
+  const double pr = decay / (u*u + 1.0);
+  const double opt = -s.leaf.root_collar_psi_;
+  const double dnet0 = s.pars.a_bio*s.pars.a_y*al0*conv*s.leaf.dprofit_dvcmax25(opt);
+  const double du = -u/net0 * dnet0;
+  const double dpr = decay * (-2.0*u/((u*u+1.0)*(u*u+1.0))) * du;
+  dmort0 = -(1.0/pr) * dpr;                          // d(-log pr)/d(vcmax)
+  return -log(pr);
 }
 
 static double offspring_production(Ctx& C, const std::vector<int>& birth,
@@ -177,7 +203,7 @@ static double offspring_production(Ctx& C, const std::vector<int>& birth,
     const std::size_t b=(std::size_t)birth[i];
     plant::TF24_Environment& eb = (b>0)?EH[b-1][5]:EH[0][0];
     double m0 = mort0_for(*C.st, eb);
-    J += tw[i]*replay(C,b,step_h,h0,m0,false).v.off;
+    J += tw[i]*replay(C,b,step_h,h0,m0,0.0,false).v.off;
   }
   return J;
 }
@@ -197,33 +223,38 @@ Rcpp::List tf24_emergent_offspring(Rcpp::NumericVector pp, Rcpp::List eh_list,
   const double h0 = s0.initial_height();
 
   // AD: reconstruct offspring_production + d/d(vcmax) in one tangent-linear pass.
-  // Establishment frozen: mort0_i computed at the RESIDENT vcmax, reused everywhere.
-  std::vector<double> mort0(birth.size());
-  { Ctx C0{&s0, s0.prod_pars(), &EH, 60.0*60.0*12.0*365.0/1e6, &ppsurv, 1.0};
-    for (std::size_t i=0;i<birth.size();++i){
-      const std::size_t b=(std::size_t)birth[i];
-      plant::TF24_Environment& eb=(b>0)?EH[b-1][5]:EH[0][0];
-      mort0[i]=mort0_for(*C0.st, eb);
-    }
+  // Establishment ACTIVE: mort0_i AND d(mort0_i)/d(vcmax) at the seedling operating
+  // point seed the node initial mortality value + sensitivity.
+  const double conv = 60.0*60.0*12.0*365.0/1e6;
+  std::vector<double> mort0(birth.size()), dmort0(birth.size());
+  for (std::size_t i=0;i<birth.size();++i){
+    const std::size_t b=(std::size_t)birth[i];
+    plant::TF24_Environment& eb=(b>0)?EH[b-1][5]:EH[0][0];
+    mort0[i]=mort0_and_dmort_dvcmax(s0, eb, conv, dmort0[i]);
   }
   double J=0, sJ=0;
   for (std::size_t i=0;i<birth.size();++i){
-    Ctx C{&s0, s0.prod_pars(), &EH, 60.0*60.0*12.0*365.0/1e6, &ppsurv, ppsab[i]};
-    TL y = replay(C,(std::size_t)birth[i],step_h,h0,mort0[i],true);
+    Ctx C{&s0, s0.prod_pars(), &EH, conv, &ppsurv, ppsab[i]};
+    TL y = replay(C,(std::size_t)birth[i],step_h,h0,mort0[i],dmort0[i],true);
     J += tw[i]*y.v.off; sJ += tw[i]*y.s.off;
   }
 
-  // two-pass FD (perturb vcmax; establishment mort0 stays FROZEN at resident value).
+  // two-pass FD (perturb vcmax; establishment RECOMPUTED at the perturbed trait, so
+  // the FD includes the recruitment-filter response -- matching the active AD).
   std::vector<double> rel={1e-3,1e-4,1e-5}, fd;
   for (double rh: rel){ double dd=rh*vc0;
-    double Jp=0, Jm=0;
+    double Jp=0, Jm=0; double junk;
     plant::TF24_Strategy sp=make_strategy(pp,vc0+dd);
     plant::TF24_Strategy sm=make_strategy(pp,vc0-dd);
     for (std::size_t i=0;i<birth.size();++i){
-      Ctx Cp{&sp,sp.prod_pars(),&EH,60.0*60.0*12.0*365.0/1e6,&ppsurv,ppsab[i]};
-      Ctx Cm{&sm,sm.prod_pars(),&EH,60.0*60.0*12.0*365.0/1e6,&ppsurv,ppsab[i]};
-      Jp += tw[i]*replay(Cp,(std::size_t)birth[i],step_h,sp.initial_height(),mort0[i],false).v.off;
-      Jm += tw[i]*replay(Cm,(std::size_t)birth[i],step_h,sm.initial_height(),mort0[i],false).v.off;
+      const std::size_t b=(std::size_t)birth[i];
+      plant::TF24_Environment& eb=(b>0)?EH[b-1][5]:EH[0][0];
+      double m0p=mort0_and_dmort_dvcmax(sp, eb, conv, junk);
+      double m0m=mort0_and_dmort_dvcmax(sm, eb, conv, junk);
+      Ctx Cp{&sp,sp.prod_pars(),&EH,conv,&ppsurv,ppsab[i]};
+      Ctx Cm{&sm,sm.prod_pars(),&EH,conv,&ppsurv,ppsab[i]};
+      Jp += tw[i]*replay(Cp,b,step_h,sp.initial_height(),m0p,0.0,false).v.off;
+      Jm += tw[i]*replay(Cm,b,step_h,sm.initial_height(),m0m,0.0,false).v.off;
     }
     fd.push_back((Jp-Jm)/(2*dd));
   }
