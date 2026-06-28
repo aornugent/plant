@@ -274,14 +274,27 @@ These compile the kernels against the live FF16 symbols in `plant.so` and the
 reverse-mode tape in `odelia.so`, so they need `plant` installed from this branch
 (matching headers and library), plus `odelia` and `BH`.
 
-## What's next
+## Beyond FF16: TF24
 
-The FF16 emergent gradient is complete and shipped behind
-`offspring_production_gradient()`. The same machinery is now being extended to the
-**TF24** hydraulic strategy, where assimilation comes from an *optimised* leaf: the
-trait gradient combines the envelope theorem for the stomatal optimisation (at an
-interior optimum the optimal operating point is held fixed) with the same
-implicit-function-theorem treatment of the leaf's internal `psi_stem -> ci`
-root-find — the leaf-level gradient and the first TF24 net-production gradient are
-already validated. Smaller refinements (per-RK-stage resident-stand harvesting for a
-bit-exact self-shading field; multi-species stands) round out the remaining work.
+The same machinery now reaches the **TF24** hydraulic strategy, where assimilation
+comes from an *optimised* leaf rather than a closed-form expression. The extra
+ingredient is the **envelope theorem** for the stomatal optimisation — at the leaf's
+interior operating point the optimal water potential is stationary, so it is held
+fixed and only the explicit trait dependence is differentiated — combined with the
+same **implicit-function-theorem** treatment of the leaf's internal `psi_stem -> ci`
+root-find (the #539 pattern). Photosynthesis traits behave like `vcmax` (mind the
+`R_d = 0.015·vcmax` coupling); hydraulic traits (the vulnerability curve, conductance)
+additionally move the cost and the transport; cascade traits enter a scalar-templated
+TF24 net-production kernel directly, with `height_0` injected by IFT.
+
+With the per-RK-stage leaf operating point harvested once in the discovery pass (the
+only un-tapeable part — the hydraulic root-find), the cohort trajectory becomes a
+leaf-opt-free, fully tapeable expression, so TF24 too gets a full **reverse-mode
+emergent gradient** of `offspring_production` through the live SCM: all 27 traits in
+one backward sweep per cohort, validated against two-pass finite differences across
+every trait class. Both FF16 and TF24 now differentiate an emergent SCM output w.r.t.
+their full trait vectors.
+
+Smaller refinements remain — per-RK-stage resident-stand harvesting for a bit-exact
+self-shading field, and multi-species stands — but the core capability is in place
+for both strategies.
