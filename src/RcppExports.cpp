@@ -12075,6 +12075,36 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ff16_reverse_tape_probe
+double ff16_reverse_tape_probe(double height, double light_E);
+RcppExport SEXP _plant_ff16_reverse_tape_probe(SEXP heightSEXP, SEXP light_ESEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< double >::type height(heightSEXP);
+    Rcpp::traits::input_parameter< double >::type light_E(light_ESEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_reverse_tape_probe(height, light_E));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ff16_offspring_production_gradient_impl
+Rcpp::NumericVector ff16_offspring_production_gradient_impl(Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw, std::vector<std::string> traits);
+RcppExport SEXP _plant_ff16_offspring_production_gradient_impl(SEXP ppSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP ppsurvSEXP, SEXP ppsabSEXP, SEXP twSEXP, SEXP traitsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type eh_list(eh_listSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sh(shSEXP);
+    Rcpp::traits::input_parameter< std::vector<int> >::type birth(birthSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type ppsurv(ppsurvSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type ppsab(ppsabSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type tw(twSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type traits(traitsSEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_offspring_production_gradient_impl(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits));
+    return rcpp_result_gen;
+END_RCPP
+}
 // node_schedule_default__Parameters___FF16__FF16_Env
 plant::NodeSchedule node_schedule_default__Parameters___FF16__FF16_Env(const plant::Parameters<plant::FF16_Strategy,plant::FF16_Environment>& p);
 RcppExport SEXP _plant_node_schedule_default__Parameters___FF16__FF16_Env(SEXP pSEXP) {
@@ -13451,6 +13481,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_TF24_Environment__light_availability__set", (DL_FUNC) &_plant_TF24_Environment__light_availability__set, 2},
     {"_plant_TF24_Environment__soil__get", (DL_FUNC) &_plant_TF24_Environment__soil__get, 1},
     {"_plant_TF24f_Strategy__ctor", (DL_FUNC) &_plant_TF24f_Strategy__ctor, 0},
+    {"_plant_ff16_reverse_tape_probe", (DL_FUNC) &_plant_ff16_reverse_tape_probe, 2},
+    {"_plant_ff16_offspring_production_gradient_impl", (DL_FUNC) &_plant_ff16_offspring_production_gradient_impl, 8},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
     {"_plant_make_node_schedule__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___FF16__FF16_Env, 1},
     {"_plant_ff16_fecundity_dt_grad_ap1", (DL_FUNC) &_plant_ff16_fecundity_dt_grad_ap1, 2},

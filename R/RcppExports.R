@@ -4297,6 +4297,14 @@ TF24f_Strategy__ctor <- function() {
     .Call('_plant_TF24f_Strategy__ctor', PACKAGE = 'plant')
 }
 
+ff16_reverse_tape_probe <- function(height, light_E) {
+    .Call('_plant_ff16_reverse_tape_probe', PACKAGE = 'plant', height, light_E)
+}
+
+ff16_offspring_production_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits) {
+    .Call('_plant_ff16_offspring_production_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits)
+}
+
 node_schedule_default__Parameters___FF16__FF16_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___FF16__FF16_Env', PACKAGE = 'plant', p)
 }
