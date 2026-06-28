@@ -349,6 +349,16 @@ public:
   // psi_stem and ci, not the cost explicitly). The TF24 trait K_s scales k_max
   // linearly (k_max = K_s*theta/(h*eta_c)), so the strategy chains by k_max/K_s.
   double dprofit_dkmax(double opt_root_psi);
+  // d(profit*)/d(b) and d(profit*)/d(c): the xylem vulnerability shape traits
+  // (prop_cond = exp(-(psi/b)^c)). They reshape the transpiration spline (so
+  // psi_stem moves) and enter the cost explicitly; ci/benefit are frozen because
+  // the operating-point transpiration equals the (root-vulnerability) uptake
+  // E_up_. dprofit_dbc(.., wrt_b) is the shared core. dtranspiration_integral_
+  // dtrait is dS/d(trait) for the cumulative transpiration curve S.
+  double dprofit_db(double opt_root_psi);
+  double dprofit_dc(double opt_root_psi);
+  double dprofit_dbc(double opt_root_psi, bool wrt_b);
+  double dtranspiration_integral_dtrait(double x, bool wrt_b);
   // Analytic d(E_up_)/d(collar potential) for the soil->root-collar uptake
   // (kg H2O m^-2 s^-1 per MPa of signed collar potential P_x_r), mirroring the
   // general branch of E_from_Soil_to_Root_Collar layer by layer. The integral's

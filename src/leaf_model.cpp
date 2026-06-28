@@ -1113,6 +1113,75 @@ double Leaf::dprofit_dkmax(double opt_root_psi) {
   return A_prime * dci_dkmax - C_prime * dpsistem_dkmax;
 }
 
+// dS/d(trait) at a fixed potential x, where S(x) = int_0^x exp(-(s/b)^c) ds is
+// the cumulative transpiration curve (transpiration_from_psi). Used by the
+// b/c hydraulic gradients.
+//   wrt_b: EXACT closed form. Integration by parts of the analytic integrand
+//          exp(-(s/b)^c)*c*(s/b)^c/b gives dS/db = [S(x) - x*prop_cond(x)] / b
+//          (S(x) read from the same spline, so consistent with the value path).
+//   wrt_c: dS/dc = -int_0^x exp(-(s/b)^c)*(s/b)^c*ln(s/b) ds, which has no
+//          elementary closed form, by a local high-accuracy Gauss-Kronrod
+//          quadrature (the leaf's own `integrator` is never initialised).
+double Leaf::dtranspiration_integral_dtrait(double x, bool wrt_b) {
+  if (x <= 0.0) return 0.0;
+  if (wrt_b) {
+    const double S = transpiration_from_psi.eval(x);
+    const double pc = proportion_of_conductivity(x);
+    return (S - x * pc) / b;
+  }
+  const double bb = b, cc = c;
+  std::function<double(double)> f = [bb, cc](double s) -> double {
+    if (s <= 0.0) return 0.0;  // (s/b)^c -> 0 dominates ln(s/b) -> -inf
+    const double u = std::pow(s / bb, cc);
+    return -std::exp(-u) * u * std::log(s / bb);
+  };
+  quadrature::QAG q(21, 100, 1e-10, 1e-10);
+  return q.integrate(f, 0.0, x);
+}
+
+// Exact d(profit*)/d(b) or d(profit*)/d(c) at the optimised operating point
+// (#472 scope B / Phase F1-full -- the HARDEST hydraulic traits). b and c set
+// the xylem vulnerability prop_cond(psi) = exp(-(psi/b)^c), so they reshape the
+// transpiration spline S (hence psi_stem) AND enter the cost explicitly.
+//
+// KEY SIMPLIFICATION: at the operating point the supply-side transpiration
+// equals the soil->collar uptake E_up_ (S(psi_stem) = E_up_/k_max + S(psi) by
+// construction of find_psi_stem_from_psi_root), and E_up_ depends on the ROOT
+// vulnerability (root_b/root_c), NOT the stem b/c. So gc -- hence ci and the
+// assimilation benefit -- are FROZEN w.r.t. stem b/c at fixed collar. Only
+// psi_stem and the hydraulic cost move, so
+//   dprofit/dt = -(C'(psi_stem) dpsi_stem/dt + dC/dt|_explicit).
+// With psi_stem = P(E_psi_stem; t), E_psi_stem = E_up_/k_max + S(psi; t),
+// P = S^{-1} (so P_E = 1/prop_cond(psi_stem)) and dE_psi_stem/dt = dS/dt(psi):
+//   dpsi_stem/dt = [dS/dt(psi) - dS/dt(psi_stem)] / prop_cond(psi_stem).
+// C'(psi_stem) and dC/dt|_explicit are forward-AD of the templated cost.
+double Leaf::dprofit_dbc(double opt_root_psi, bool wrt_b) {
+  using AD = xad::fwd<double>::active_type;
+  const double psi = opt_root_psi;
+  const double psi_stem = find_psi_stem_from_psi_root(-psi, psi_soil_inverted_);
+  const double ci = psi_stem_to_ci(psi_stem, psi);
+  if (!std::isfinite(psi_stem) || !std::isfinite(ci)) return 0.0;
+
+  // dpsi_stem/dt through the trait-reshaped transport (ci frozen -- see above).
+  const double pc_stem = proportion_of_conductivity(psi_stem);
+  const double dS_psi     = dtranspiration_integral_dtrait(psi, wrt_b);
+  const double dS_psistem = dtranspiration_integral_dtrait(psi_stem, wrt_b);
+  const double dpsistem_dt = (dS_psi - dS_psistem) / pc_stem;
+
+  // C'(psi_stem) and the explicit trait derivative of the cost, by forward AD.
+  AD ps_ad = psi_stem; xad::derivative(ps_ad) = 1.0;
+  const double C_prime = xad::derivative(
+      hydraulic_cost_full<AD>(ps_ad, AD(b), AD(c), AD(g1_TF24), AD(beta2)));
+  AD t_ad = wrt_b ? b : c; xad::derivative(t_ad) = 1.0;
+  const double dC_dt_expl = xad::derivative(hydraulic_cost_full<AD>(
+      AD(psi_stem), wrt_b ? t_ad : AD(b), wrt_b ? AD(c) : t_ad,
+      AD(g1_TF24), AD(beta2)));
+
+  return -(C_prime * dpsistem_dt + dC_dt_expl);
+}
+double Leaf::dprofit_db(double opt_root_psi) { return dprofit_dbc(opt_root_psi, true); }
+double Leaf::dprofit_dc(double opt_root_psi) { return dprofit_dbc(opt_root_psi, false); }
+
 // Analytic d(E_up_)/d(P_x_r): the signed-collar-potential derivative of the
 // soil->root-collar uptake, mirroring the general branch of
 // E_from_Soil_to_Root_Collar. Per layer, with span = |psi_soil[i] - P_x_r| and

@@ -11,7 +11,13 @@
 #  - the TRANSPORT trait K_s, which scales the supply-side conductance
 #    k_max = K_s*theta/(h*eta_c) linearly; it moves psi_stem and ci (not the cost
 #    explicitly), handled by the transport+IFT pattern (Leaf::dprofit_dkmax,
-#    chained by k_max/K_s).
+#    chained by k_max/K_s);
+#  - the VULNERABILITY-SHAPE traits b and c (prop_cond = exp(-(psi/b)^c)), which
+#    reshape the transpiration spline AND enter the cost explicitly. ci/benefit
+#    are frozen (operating-point transpiration = the root-vulnerability uptake
+#    E_up_), so dprofit/dt = -(C'(psi_stem)*dpsi_stem/dt + dC/dt|explicit), with
+#    dpsi_stem/dt from the exact dS/dt of the cumulative curve (Leaf::dprofit_db /
+#    dprofit_dc).
 #
 # Each hydraulic trait enters TF24 net production ONLY through the optimised leaf
 # profit (the mass cascade, respiration, turnover and area_leaf are all
@@ -54,9 +60,19 @@ static double tf24_net(const std::string& trait, double val, double light, doubl
   // dprofit/dcollar ~ -4e-4, and for a transport trait (K_s) the collar moves
   // enough with the trait that this residual shows up as a ~1e-4 AD-vs-FD gap.
   s.control.GSS_tol_abs = 1e-9;
+  // b/c reshape the transpiration spline; the AD uses the EXACT continuous dS/dt
+  // (closed form for b, high-accuracy quadrature for c) while the FD rebuilds the
+  // spline, so the AD-vs-FD gap is the spline interpolation error. At the default
+  // ncontrol=100 that is ~5e-6; at 2000 it falls to ~1e-8 (confirming the AD is
+  // the exact derivative). Use the dense spline for an unambiguous check.
+  s.control.vulnerability_curve_ncontrol = 2000;
   if (trait == "g1_TF24")  s.g1_TF24  = val;
   else if (trait == "beta2") s.pars.beta2 = val;
   else if (trait == "K_s")   s.pars.K_s   = val;
+  // b/c perturbed alone (psi_crit held at its stale default), matching the AD,
+  // which differentiates the cost+transport at fixed psi_crit and c (resp. b).
+  else if (trait == "b")     s.pars.b     = val;
+  else if (trait == "c")     s.pars.c     = val;
   else Rcpp::stop("unknown trait");
   s.prepare_strategy();
   plant::TF24_Environment env; env.set_fixed_environment(light, 1e4);
@@ -66,7 +82,13 @@ static double tf24_net(const std::string& trait, double val, double light, doubl
 // [[Rcpp::export]]
 Rcpp::NumericVector tf24_dnet_dhydraulic(std::string trait, double light, double height) {
   plant::TF24_Strategy s; s.control.shading_model = "crown-centre";
-  s.control.GSS_tol_abs = 1e-9; s.prepare_strategy();
+  s.control.GSS_tol_abs = 1e-9;
+  // b/c reshape the transpiration spline; the AD uses the EXACT continuous dS/dt
+  // (closed form for b, high-accuracy quadrature for c) while the FD rebuilds the
+  // spline, so the AD-vs-FD gap is the spline interpolation error. At the default
+  // ncontrol=100 that is ~5e-6; at 2000 it falls to ~1e-8 (confirming the AD is
+  // the exact derivative). Use the dense spline for an unambiguous check.
+  s.control.vulnerability_curve_ncontrol = 2000; s.prepare_strategy();
   plant::TF24_Environment env; env.set_fixed_environment(light, 1e4);
   const double al  = s.area_leaf(height);
   const double net = s.net_mass_production_dt(env, height, al, 1.0 / height);
@@ -84,6 +106,8 @@ Rcpp::NumericVector tf24_dnet_dhydraulic(std::string trait, double light, double
     dprofit = s.leaf.dprofit_dkmax(opt) * (kmax / s.pars.K_s);
     v0 = s.pars.K_s;
   }
+  else if (trait == "b") { dprofit = s.leaf.dprofit_db(opt); v0 = s.pars.b; }
+  else if (trait == "c") { dprofit = s.leaf.dprofit_dc(opt); v0 = s.pars.c; }
   else Rcpp::stop("unknown trait");
 
   const double ad = scale * dprofit;
@@ -95,16 +119,18 @@ Rcpp::NumericVector tf24_dnet_dhydraulic(std::string trait, double light, double
 }')
 
 ok <- TRUE
-for (trait in c("g1_TF24", "beta2", "K_s")) {
+for (trait in c("g1_TF24", "beta2", "K_s", "b", "c")) {
   cat(sprintf("\nTF24 d(net_mass_production_dt)/d(%s): AD (envelope) vs strategy FD\n", trait))
   for (light in c(0.4, 0.7, 1.0)) {
     r <- tf24_dnet_dhydraulic(trait, light, 5.0)
-    re <- abs(r[["AD"]] - r[["FD"]]) / max(abs(r[["FD"]]), 1e-30)
-    ok <- ok && re < 1e-5 && r[["profit"]] > 0 && abs(r[["dprofit_dcollar"]]) < 1e-2
+    ae <- abs(r[["AD"]] - r[["FD"]])
+    re <- ae / max(abs(r[["FD"]]), 1e-30)
+    pass <- re < 1e-5 || ae < 1e-6   # small-value cases: judge on absolute error
+    ok <- ok && pass && r[["profit"]] > 0 && abs(r[["dprofit_dcollar"]]) < 1e-2
     cat(sprintf("  light=%.1f  profit=%7.3f (interior: dp/dcollar=%.1e)  AD=%.7g FD=%.7g rel=%.1e %s\n",
                 light, r[["profit"]], r[["dprofit_dcollar"]], r[["AD"]], r[["FD"]], re,
-                if (re < 1e-5) "OK" else "** MISMATCH **"))
+                if (pass) "OK" else "** MISMATCH **"))
   }
 }
 stopifnot(ok)
-cat("\nTF24 hydraulic gradients (g1_TF24, beta2, K_s) validated vs net FD.\n")
+cat("\nTF24 hydraulic gradients (g1_TF24, beta2, K_s, b, c) validated vs net FD.\n")

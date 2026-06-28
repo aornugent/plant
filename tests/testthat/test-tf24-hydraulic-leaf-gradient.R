@@ -14,14 +14,14 @@
 # dprofit/dcollar ~ 0 where the envelope theorem applies). The same harness as
 # test-tf24-leaf-gradient.R; here `run` returns the solved leaf so callers read
 # either profit_ or a gradient at the optimised collar.
-mk <- function(g1 = 5, beta2 = 1, vc = 100) {
+mk <- function(g1 = 5, beta2 = 1, vc = 100, b = 3, c = 2.04, ncontrol = 100) {
   rc <- 2.65; rb <- 1.29
-  Leaf(vcmax_25 = vc, jmax_25 = 167, c = 2.04, b = 3, psi_crit = 5,
+  Leaf(vcmax_25 = vc, jmax_25 = 167, c = c, b = b, psi_crit = 5,
        root_c = rc, root_b = rb, root_psi_crit = rb * (log(1 / 0.05))^(1 / rc),
        beta2 = beta2, hk_s = 75, a = 0.3, curv_fact_elec_trans = 0.7,
        curv_fact_colim = 0.99, GSS_tol_abs = 1e-9,
-       vulnerability_curve_ncontrol = 100, ci_abs_tol = 1e-6, ci_niter = 1000,
-       g1_TF24 = g1, beta_R_H = 3.4e3, beta_R_V = 9.4e4)
+       vulnerability_curve_ncontrol = ncontrol, ci_abs_tol = 1e-6,
+       ci_niter = 1000, g1_TF24 = g1, beta_R_H = 3.4e3, beta_R_V = 9.4e4)
 }
 theta <- 0.000157 * 20; h <- 5
 run <- function(l, kmax = theta / h) {
@@ -69,4 +69,33 @@ test_that("dprofit_dkmax (transport trait) matches a re-optimising FD", {
   hfd <- 1e-6 * k0
   fd <- (profit_at(k0 + hfd) - profit_at(k0 - hfd)) / (2 * hfd)
   expect_equal(ad, fd, tolerance = 1e-4)
+})
+
+# b and c reshape the transpiration spline AND enter the cost. The AD uses the
+# exact continuous dS/dt (closed form for b, quadrature for c), so against a
+# re-optimising FD that rebuilds the spline the residual is the spline
+# interpolation error -- ~5e-6 at the default ncontrol=100, ~1e-8 at 2000. The
+# dense-spline tests confirm the AD is the exact derivative.
+test_that("dprofit_db (vulnerability shape) matches a re-optimising FD", {
+  b0 <- 3
+  l0 <- run(mk(b = b0, ncontrol = 2000))
+  opt <- -l0$root_collar_psi_
+  expect_lt(abs(l0$dprofit_droot_collar_psi(opt)), 1e-3)
+  ad <- l0$dprofit_db(opt)
+  profit_at <- function(bb) run(mk(b = bb, ncontrol = 2000))$profit_
+  hfd <- 1e-6 * b0
+  fd <- (profit_at(b0 + hfd) - profit_at(b0 - hfd)) / (2 * hfd)
+  expect_equal(ad, fd, tolerance = 1e-5)
+})
+
+test_that("dprofit_dc (vulnerability shape) matches a re-optimising FD", {
+  c0 <- 2.04
+  l0 <- run(mk(c = c0, ncontrol = 2000))
+  opt <- -l0$root_collar_psi_
+  expect_lt(abs(l0$dprofit_droot_collar_psi(opt)), 1e-3)
+  ad <- l0$dprofit_dc(opt)
+  profit_at <- function(cc) run(mk(c = cc, ncontrol = 2000))$profit_
+  hfd <- 1e-6 * c0
+  fd <- (profit_at(c0 + hfd) - profit_at(c0 - hfd)) / (2 * hfd)
+  expect_equal(ad, fd, tolerance = 1e-5)
 })
