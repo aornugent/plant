@@ -93,6 +93,18 @@ Leaf__dprofit_dvcmax25 <- function(obj_, opt_root_psi) {
     .Call('_plant_Leaf__dprofit_dvcmax25', PACKAGE = 'plant', obj_, opt_root_psi)
 }
 
+Leaf__dprofit_dg1_TF24 <- function(obj_, opt_root_psi) {
+    .Call('_plant_Leaf__dprofit_dg1_TF24', PACKAGE = 'plant', obj_, opt_root_psi)
+}
+
+Leaf__dprofit_dbeta2 <- function(obj_, opt_root_psi) {
+    .Call('_plant_Leaf__dprofit_dbeta2', PACKAGE = 'plant', obj_, opt_root_psi)
+}
+
+Leaf__dprofit_dkmax <- function(obj_, opt_root_psi) {
+    .Call('_plant_Leaf__dprofit_dkmax', PACKAGE = 'plant', obj_, opt_root_psi)
+}
+
 Leaf__psi_stem_to_ci <- function(obj_, psi_stem, psi_upstream) {
     .Call('_plant_Leaf__psi_stem_to_ci', PACKAGE = 'plant', obj_, psi_stem, psi_upstream)
 }

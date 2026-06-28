@@ -24,6 +24,14 @@ template <typename T>
 T hydraulic_cost_ad(T psi_stem, double b, double c, double g1, double beta2) {
   return g1 * pow(1.0 - exp(-pow(psi_stem / b, c)), beta2);
 }
+// As hydraulic_cost_ad but with EVERY hydraulic trait templated, so forward-mode
+// AD can seed any one of psi_stem / b / c / g1 / beta2 (the others passed as AD
+// constants). Mirrors Leaf::hydraulic_cost_TF exactly. Used by the hydraulic
+// leaf-trait gradients d(profit*)/d{g1,beta2,b,c} (#472 scope B / Phase F1-full).
+template <typename T>
+T hydraulic_cost_full(T psi_stem, T b, T c, T g1, T beta2) {
+  return g1 * pow(1.0 - exp(-pow(psi_stem / b, c)), beta2);
+}
 // As assim_colimited_ad but with vcmax also templated, so forward-mode AD can seed
 // EITHER ci OR vcmax (the others passed as AD constants). Used for the trait gradient
 // d(profit)/d(vcmax) where vcmax is the active input (#472 scope B / Phase F).
@@ -1009,6 +1017,100 @@ double Leaf::dprofit_dvcmax25(double opt_root_psi) {
   const double dci_dvcmax = -(A_vcmax * umol_to_mol) / g_ci;
   const double dprofit_dvcmax = A_vcmax + A_prime * dci_dvcmax;
   return dprofit_dvcmax * (vcmax_ / vcmax_25);  // chain vcmax_ -> vcmax_25 (linear)
+}
+
+// Exact d(profit*)/d(g1_TF24) at the optimised operating point (#472 scope B /
+// Phase F1-full). g1_TF24 is the linear scale of the hydraulic cost
+//   C = g1_TF24 * (1 - exp(-(psi_stem/b)^c))^beta2,
+// and enters NEITHER the transport (psi_stem) NOR assimilation (ci) -- it only
+// scales the cost. So by the envelope theorem (optimal collar frozen)
+//   dprofit/dg1 = -dC/dg1 = -(1 - exp(-(psi_stem/b)^c))^beta2 = -C/g1_TF24.
+// The simplest hydraulic trait: no IFT, no transport derivative. Computed by
+// forward-AD of the templated cost for symmetry with the harder traits.
+double Leaf::dprofit_dg1_TF24(double opt_root_psi) {
+  using AD = xad::fwd<double>::active_type;
+  const double psi = opt_root_psi;
+  const double psi_stem = find_psi_stem_from_psi_root(-psi, psi_soil_inverted_);
+  if (!std::isfinite(psi_stem)) return 0.0;
+  AD g1_ad = g1_TF24; xad::derivative(g1_ad) = 1.0;
+  const double dC_dg1 = xad::derivative(hydraulic_cost_full<AD>(
+      AD(psi_stem), AD(b), AD(c), g1_ad, AD(beta2)));
+  return -dC_dg1;  // profit = A(ci) - C; only C moves
+}
+
+// Exact d(profit*)/d(beta2) at the optimised operating point (#472 scope B /
+// Phase F1-full). beta2 is the hydraulic-risk exponent of the cost
+//   C = g1_TF24 * base^beta2,   base = 1 - exp(-(psi_stem/b)^c),
+// and (like g1) enters neither transport nor assimilation, so
+//   dprofit/dbeta2 = -dC/dbeta2 = -g1_TF24 * base^beta2 * ln(base).
+double Leaf::dprofit_dbeta2(double opt_root_psi) {
+  using AD = xad::fwd<double>::active_type;
+  const double psi = opt_root_psi;
+  const double psi_stem = find_psi_stem_from_psi_root(-psi, psi_soil_inverted_);
+  if (!std::isfinite(psi_stem)) return 0.0;
+  AD beta2_ad = beta2; xad::derivative(beta2_ad) = 1.0;
+  const double dC_dbeta2 = xad::derivative(hydraulic_cost_full<AD>(
+      AD(psi_stem), AD(b), AD(c), AD(g1_TF24), beta2_ad));
+  return -dC_dbeta2;
+}
+
+// Exact d(profit*)/d(leaf_specific_conductance_max_) at the optimised operating
+// point (#472 scope B / Phase F1-full). k_max (= leaf_specific_conductance_max_)
+// scales the supply-side transpiration linearly; the TF24 trait K_s sets it via
+// k_max = K_s * theta / (height * eta_c), so the strategy chains this by
+// k_max / K_s. Unlike g1/beta2 this is a TRANSPORT trait: it does NOT enter the
+// cost explicitly, but it moves psi_stem (the soil->collar uptake E_up_ is
+// k_max-independent, so E_psi_stem = E_up_/k_max + S(psi) shifts) and hence ci.
+//
+// At the frozen optimal collar psi (envelope theorem, dprofit/dcollar = 0):
+//   psi_stem  = P(E_psi_stem),  E_psi_stem = E_up_/k_max + S(psi),  r = -psi,
+//   dpsi_stem/dkmax = P'(E_psi_stem) * (-E_up_/k_max^2).
+// The stomatal supply gc = gc_const * k_max * (S(psi_stem) - S(psi)) so its TOTAL
+// k_max derivative carries both the explicit scale and the psi_stem motion:
+//   dgc/dkmax = gc_const*[(S(psi_stem)-S(psi)) + k_max*S'(psi_stem)*dpsi_stem/dkmax].
+// IFT on the conductance residual g(ci) = A(ci) umol_to_mol - gc (ca-ci) inv_atm:
+//   dci/dkmax = (dgc/dkmax)(ca-ci) inv_atm / g_ci,  g_ci = A'(ci) umol_to_mol + gc inv_atm,
+// and  dprofit/dkmax = A'(ci) dci/dkmax - C'(psi_stem) dpsi_stem/dkmax.
+// Mirrors dprofit_droot_collar_psi's transport+IFT machinery (the #539 pattern).
+double Leaf::dprofit_dkmax(double opt_root_psi) {
+  using AD = xad::fwd<double>::active_type;
+  const double psi = opt_root_psi;
+  const double gstar_Pa = gamma_ * umol_per_mol_to_Pa;
+  const double k_max = leaf_specific_conductance_max_;
+
+  const double psi_stem = find_psi_stem_from_psi_root(-psi, psi_soil_inverted_);
+  const double ci = psi_stem_to_ci(psi_stem, psi);
+  if (!std::isfinite(psi_stem) || !std::isfinite(ci)) return 0.0;
+
+  // A'(ci) and C'(psi_stem) by forward-mode AD of the analytic algebra.
+  AD ci_ad = ci; xad::derivative(ci_ad) = 1.0;
+  const double A_prime = xad::derivative(assim_colimited_ad(
+      ci_ad, vcmax_, electron_transport_, gstar_Pa, km_, R_d_, curv_fact_colim));
+  AD ps_ad = psi_stem; xad::derivative(ps_ad) = 1.0;
+  const double C_prime = xad::derivative(hydraulic_cost_ad(ps_ad, b, c, g1_TF24, beta2));
+
+  // dpsi_stem/dkmax through the transport spline (E_up_ is k_max-independent).
+  E_from_Soil_to_Root_Collar(-psi, psi_soil_inverted_);  // refresh E_up_ at r=-psi
+  const double E_up = E_up_;
+  const double S_psi = transpiration_from_psi.eval(psi);
+  const double E_psi_stem = E_up / k_max + S_psi;
+  const double dpsistem_dkmax =
+      psi_from_transpiration.deriv(E_psi_stem) * (-E_up / (k_max * k_max));
+
+  // gc and its TOTAL k_max derivative (explicit scale + psi_stem motion).
+  const double gc_const =
+      atm_kpa_ * kg_to_mol_h2o / atm_vpd_ / H2O_CO2_stom_diff_ratio;
+  const double S_pstem = transpiration_from_psi.eval(psi_stem);
+  const double gc = gc_const * k_max * (S_pstem - S_psi);
+  const double dgc_dkmax =
+      gc_const * ((S_pstem - S_psi) +
+                  k_max * transpiration_from_psi.deriv(psi_stem) * dpsistem_dkmax);
+
+  // IFT for dci/dkmax, then assemble dprofit/dkmax.
+  const double inv_atm = 1.0 / (atm_kpa_ * kPa_to_Pa);
+  const double g_ci = A_prime * umol_to_mol + gc * inv_atm;
+  const double dci_dkmax = (dgc_dkmax * (ca_ - ci) * inv_atm) / g_ci;
+  return A_prime * dci_dkmax - C_prime * dpsistem_dkmax;
 }
 
 // Analytic d(E_up_)/d(P_x_r): the signed-collar-potential derivative of the

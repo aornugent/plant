@@ -94,6 +94,18 @@ double Leaf__dprofit_dvcmax25(plant::RcppR6::RcppR6<plant::Leaf> obj_, double op
   return obj_->dprofit_dvcmax25(opt_root_psi);
 }
 // [[Rcpp::export]]
+double Leaf__dprofit_dg1_TF24(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi) {
+  return obj_->dprofit_dg1_TF24(opt_root_psi);
+}
+// [[Rcpp::export]]
+double Leaf__dprofit_dbeta2(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi) {
+  return obj_->dprofit_dbeta2(opt_root_psi);
+}
+// [[Rcpp::export]]
+double Leaf__dprofit_dkmax(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi) {
+  return obj_->dprofit_dkmax(opt_root_psi);
+}
+// [[Rcpp::export]]
 double Leaf__psi_stem_to_ci(plant::RcppR6::RcppR6<plant::Leaf> obj_, double psi_stem, double psi_upstream) {
   return obj_->psi_stem_to_ci(psi_stem, psi_upstream);
 }

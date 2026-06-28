@@ -178,6 +178,18 @@ Leaf:
       return_type: double
       args: [opt_root_psi: double]
 
+    dprofit_dg1_TF24:
+      return_type: double
+      args: [opt_root_psi: double]
+
+    dprofit_dbeta2:
+      return_type: double
+      args: [opt_root_psi: double]
+
+    dprofit_dkmax:
+      return_type: double
+      args: [opt_root_psi: double]
+
     psi_stem_to_ci:
       return_type: double
       args: [psi_stem: double, psi_upstream: double]

@@ -337,6 +337,18 @@ public:
   // handles the psi_stem->ci root-find. The first TF24 trait gradient; the pattern
   // the TF24 net-production kernel reuses for every leaf trait.
   double dprofit_dvcmax25(double opt_root_psi);
+  // Exact d(profit*)/d(hydraulic trait) at the optimised operating point (#472
+  // scope B / Phase F1-full). g1_TF24 and beta2 enter only the hydraulic cost
+  // (no transport / assimilation change), so the envelope theorem reduces each
+  // to minus the explicit cost derivative (forward-mode AD of the templated
+  // cost). The harder hydraulic traits (b, c, K_s) -- which also move psi_stem
+  // and ci -- follow the dprofit_droot_collar_psi transport+IFT pattern.
+  double dprofit_dg1_TF24(double opt_root_psi);
+  double dprofit_dbeta2(double opt_root_psi);
+  // d(profit*)/d(leaf_specific_conductance_max_): a TRANSPORT trait (moves
+  // psi_stem and ci, not the cost explicitly). The TF24 trait K_s scales k_max
+  // linearly (k_max = K_s*theta/(h*eta_c)), so the strategy chains by k_max/K_s.
+  double dprofit_dkmax(double opt_root_psi);
   // Analytic d(E_up_)/d(collar potential) for the soil->root-collar uptake
   // (kg H2O m^-2 s^-1 per MPa of signed collar potential P_x_r), mirroring the
   // general branch of E_from_Soil_to_Root_Collar layer by layer. The integral's
