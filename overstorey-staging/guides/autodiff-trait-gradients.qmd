@@ -5,12 +5,14 @@ title: "Automatic differentiation: trait gradients of FF16 outputs"
 <!--
 STAGING COPY. Written for the Overstorey site
 (https://github.com/traitecoevo/overstorey) but kept in the plant repo for now
-because it documents the `spike-ff16-hierarchy` branch (#472 scope B / #537,
-Milestone C), which is not yet merged. When that branch lands, move this file to
+because it documents AD work (#472 scope B / #537) that is not yet merged: the
+scalar-templated kernels + `<T,E,S>` hierarchy of `spike-ff16-hierarchy` (PR #541)
+and the live-SCM emergent gradient + calibration API built on top of it on
+`spike-ff16-scm-emergent`. When those land, move this file to
 `overstorey/guides/autodiff-trait-gradients.qmd`, add it to the Guides sidebar in
-`_quarto.yml`, and delete the `overstorey-staging/` directory here. This guide is
-deliberately narrative + one runnable pointer (`scripts/ad_gradient_examples.R`);
-it builds no figures, so nothing static needs to move with it.
+`_quarto.yml`, and delete the `overstorey-staging/` directory here. The guide is
+deliberately narrative + runnable pointers (the `scripts/ad_*.R` family); it builds
+no figures, so nothing static needs to move with it.
 -->
 
 ::: {.eyebrow}
@@ -164,24 +166,96 @@ makes the light spline itself differentiable, and a focal plant's net production
 then differentiates **through the self-shaded light field** — matching finite
 differences to ~1e-11.
 
-## Trying it
+## Closing the loop: the live SCM
 
-All of the kernels live in
-`inst/include/plant/models/ff16_production_kernel.h`. The script
-`scripts/ad_gradient_examples.R` runs the leaf-level precedent (forward-mode AD +
-IFT, in pure R via the exposed `Leaf` class) and four FF16 gradients — the rate
-fill, the emergent stand, the self-shading coupling, and the whole 19-trait
-gradient from a single reverse sweep — checking each against a central finite
-difference:
+Steps 1–7 built and verified every kernel against finite differences; the last
+piece — driving the discovery pass from a real `run_scm()` — has since landed,
+turning the building blocks into an end-to-end gradient of a genuine SCM output.
 
-```bash
-# after installing plant from this branch:
-R CMD INSTALL .
-Rscript scripts/ad_gradient_examples.R
+**The two-pass driver, faithfully.** Pass one runs the ordinary adaptive SCM with
+its per-sub-step environment cache on; the node-introduction schedule and the
+per-RK-stage resident light are then harvested from the patch (now exposed as
+`Patch$step_history` / `environment_history`). Pass two replays each cohort with
+**the same integrator the SCM used** — the adaptive Cash–Karp RKCK stepper
+(`ff16_replay_cohort_rkck`), *not* a forward-Euler stand-in (forward Euler only
+mirrors the non-default fixed-step path; the real solver is adaptive RKCK, so the
+faithful replay has to be too). Each cohort reads the frozen per-RK-stage resident
+light. The check that matters: the double replay reproduces the live SCM's cohort
+heights to ~1e-14. Bit-faithful — so the gradient is of the real model, not a
+lookalike.
+
+**The emergent output, for real.** The SCM's own `offspring_production` is a
+node-spacing trapezium, over the introduction times, of (survival-weighted lifetime
+fecundity × birth rate). The replay therefore carries a sixth, survival-weighted
+offspring state —
+`d/dt = fecundity_dt · exp(−mortality) · pr_patch_survival(t) / pr_patch_survival_at_birth`
+— seeded with the establishment initial condition. Reconstructed from the replay it
+matches the SCM's `offspring_production` to ~1e-13, and **one reverse sweep returns
+its gradient w.r.t. all 28 production traits at once**, each matching a two-pass
+finite difference (~1e-8). This covers both crown-top and FF16's default deep-crown
+assimilation (the deep-crown net is differentiated through the same moving-node
+crown integral as in #540).
+
+**Differentiating the filters.** Two quantities were frozen at first and then made
+active, on the same principle: if the *value* the gradient targets responds to a
+quantity, the gradient must differentiate it too, or it is internally inconsistent.
+The recruitment filter — establishment probability, a function of the seedling's net
+production in its birth light — and the seedling size `height_0`, which *solves*
+`mass_live(height_0) = seed mass` (a root-find, so its trait sensitivity comes from
+the implicit function theorem, the #539 pattern once more), are both now part of the
+gradient. With them included the 28-trait vector matches finite differences across
+the board.
+
+**Two gradients, not one.** Holding the resident light frozen gives the rare-mutant
+invasion-fitness gradient — the selection gradient of adaptive dynamics, and the
+right object for finding evolutionary singular strategies. Letting the resident
+light *respond* to the trait (the active-knot self-shading of step 7, now applied
+over the whole live stand step by step) gives the distinct *resident-reshaping*
+gradient; for an allometric trait the self-shading term can dominate and even flip
+the sign of the frozen-resident value — a reminder the two are genuinely different
+questions.
+
+## The calibration interface
+
+The headline is a single R call. Given an SCM run with the sub-step cache on,
+`offspring_production_gradient()` returns the derivative of the emergent
+`offspring_production` w.r.t. all 28 production traits in one reverse sweep:
+
+```r
+p <- scm_base_parameters("FF16")
+p <- add_strategies(p, trait_matrix(0.0825, "lma"),
+                    hyperpar = FF16_hyperpar, birth_rate = list(20))
+p <- run_scm(p, Environment("FF16"), control(), refine_schedule = TRUE)$parameters
+scm <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
+               refine_schedule = FALSE)
+
+g <- offspring_production_gradient(scm)   # named vector: d(offspring_production)/d(trait)
 ```
 
-It prints, for each example, the AD derivative, the finite difference, and the
-relative error — for instance:
+This is the "many traits in, one scalar out" shape of a calibration objective,
+delivered at the cost of a single extra model evaluation rather than one re-run per
+trait. There is no on-the-fly compilation: the reverse-mode replay is compiled into
+`plant.so` (the XAD adjoint tape resolved at *load* against `odelia`'s single
+compiled copy), so it is an ordinary package call — and is covered by the test suite
+in plain R, not only by the sourceCpp scripts below.
+
+## Trying the kernels directly
+
+The lower-level kernels all live in
+`inst/include/plant/models/ff16_production_kernel.h`, and a family of scripts under
+`scripts/` exercise them against finite differences with `Rcpp::sourceCpp`:
+
+- `ad_gradient_examples.R` — the leaf precedent (forward-mode AD + IFT, in pure R via
+  the exposed `Leaf` class) and the kernel-level FF16 gradients;
+- `ad_emergent_gradient.R`, `ad_offspring_gradient.R` — the live-SCM two-pass
+  gradients (stand fecundity, then the real `offspring_production`);
+- `ad_whole_gradient_offspring.R` — all 28 trait derivatives from one reverse sweep;
+- `ad_deep_crown_*` — the default deep-crown assimilation;
+- `ad_self_shading_live.R`, `ad_self_shading_timeint.R` — the resident-reshaping
+  (self-shading) gradient, at a census and over the whole stand.
+
+Each prints the AD derivative, the finite difference, and the relative error — for
+instance:
 
 ```
 == Example 3: full self-shading gradient (resident light responds to trait) ==
@@ -189,22 +263,25 @@ relative error — for instance:
   d(focal net)/d(a_l1)         AD =  1.6583209   FD =  1.6583209   rel.err = 1.7e-11 OK
 ```
 
-The AD path is C++-only: the script compiles the kernels with `Rcpp::sourceCpp`,
-linking the live FF16 symbols from `plant.so` and the reverse-mode tape from
-`odelia.so`. (It needs `plant` installed from this branch so the installed
-headers match the compiled library, plus `odelia` and `BH`.)
+```bash
+# after installing plant from this branch:
+R CMD INSTALL .
+Rscript scripts/ad_gradient_examples.R
+Rscript scripts/ad_whole_gradient_offspring.R
+```
 
-## What is — and isn't — done
+These compile the kernels against the live FF16 symbols in `plant.so` and the
+reverse-mode tape in `odelia.so`, so they need `plant` installed from this branch
+(matching headers and library), plus `odelia` and `BH`.
 
-Every *component* needed to differentiate an emergent SCM output w.r.t. a trait
-is now built and validated against finite differences: the templated hierarchy,
-a constructible AD plant, the full demographic rate fill, time integration, the
-multi-cohort replay, the crown-light feedback, and the self-shading coupling.
+## What's next
 
-What remains is **production integration**, not a question of feasibility:
-driving the first (discovery) pass from a live `run_scm()` means harvesting the
-real node-introduction schedule and the per-sub-step light environment from the
-solver's internal cache, then calling these kernels under AD. The publicly
-collected SCM output is sampled at schedule events rather than integration
-sub-steps, so that step is a small C++ entry point rather than R-level plumbing —
-a natural next piece of work.
+The FF16 emergent gradient is complete and shipped behind
+`offspring_production_gradient()`. The same machinery is now being extended to the
+**TF24** hydraulic strategy, where assimilation comes from an *optimised* leaf: the
+trait gradient combines the envelope theorem for the stomatal optimisation (at an
+interior optimum the optimal operating point is held fixed) with the same
+implicit-function-theorem treatment of the leaf's internal `psi_stem -> ci`
+root-find — the leaf-level gradient and the first TF24 net-production gradient are
+already validated. Smaller refinements (per-RK-stage resident-stand harvesting for a
+bit-exact self-shading field; multi-species stands) round out the remaining work.
