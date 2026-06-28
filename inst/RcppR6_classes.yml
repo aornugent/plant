@@ -198,6 +198,22 @@ Leaf:
       return_type: double
       args: [opt_root_psi: double]
 
+    dprofit_djmax25:
+      return_type: double
+      args: [opt_root_psi: double]
+
+    dprofit_da:
+      return_type: double
+      args: [opt_root_psi: double]
+
+    dprofit_dcurv_elec:
+      return_type: double
+      args: [opt_root_psi: double]
+
+    dprofit_dcurv_colim:
+      return_type: double
+      args: [opt_root_psi: double]
+
     psi_stem_to_ci:
       return_type: double
       args: [psi_stem: double, psi_upstream: double]

@@ -36,11 +36,20 @@ T hydraulic_cost_full(T psi_stem, T b, T c, T g1, T beta2) {
 // EITHER ci OR vcmax (the others passed as AD constants). Used for the trait gradient
 // d(profit)/d(vcmax) where vcmax is the active input (#472 scope B / Phase F).
 template <typename T>
-T assim_colimited_full(T ci, T vcmax, T et, T gstar_Pa, T km, T R_d, double curv) {
+T assim_colimited_full(T ci, T vcmax, T et, T gstar_Pa, T km, T R_d, T curv) {
   T ar = vcmax * (ci - gstar_Pa) / (ci + km);
   T ae = et / 4.0 * (ci - gstar_Pa) / (ci + 2.0 * gstar_Pa);
   T s = ar + ae;
   return (s - sqrt(s * s - 4.0 * curv * ar * ae)) / (2.0 * curv) - R_d;
+}
+// Templated electron-transport rate (Smith & Keenan colimitation of light and
+// jmax), so forward-mode AD can seed the quantum yield a, jmax, or the electron-
+// transport curvature. Mirrors Leaf::electron_transport exactly. PPFD is a fixed
+// driver (not a trait). Used by the photosynthesis leaf-trait gradients.
+template <typename T>
+T electron_transport_full(double PPFD, T a, T jmax, T curv_elec) {
+  T x = a * PPFD + jmax;
+  return (x - sqrt(x * x - 4.0 * curv_elec * a * PPFD * jmax)) / (2.0 * curv_elec);
 }
 }  // namespace
 Leaf::Leaf()
@@ -1000,14 +1009,14 @@ double Leaf::dprofit_dvcmax25(double opt_root_psi) {
   AD ci_ad = ci; xad::derivative(ci_ad) = 1.0;
   const double A_prime = xad::derivative(assim_colimited_full<AD>(
       ci_ad, AD(vcmax_), AD(electron_transport_), AD(gstar_Pa), AD(km_),
-      AD(R_d_), curv_fact_colim));
+      AD(R_d_), AD(curv_fact_colim)));
   // dark respiration R_d = 0.015 * vcmax (set_physiology), so seed R_d as a function
   // of vcmax too -- omitting d(R_d)/d(vcmax) = 0.015 was a real bug (A_vcmax too
   // large, the gradient ~1.85x off).
   AD vc_ad = vcmax_; xad::derivative(vc_ad) = 1.0;
   const double A_vcmax = xad::derivative(assim_colimited_full<AD>(
       AD(ci), vc_ad, AD(electron_transport_), AD(gstar_Pa), AD(km_),
-      0.015 * vc_ad, curv_fact_colim));
+      0.015 * vc_ad, AD(curv_fact_colim)));
   // IFT on the stomatal-conductance residual (gc fixed: psi_stem frozen).
   const double gc_const =
       atm_kpa_ * kg_to_mol_h2o / atm_vpd_ / H2O_CO2_stom_diff_ratio;
@@ -1181,6 +1190,72 @@ double Leaf::dprofit_dbc(double opt_root_psi, bool wrt_b) {
 }
 double Leaf::dprofit_db(double opt_root_psi) { return dprofit_dbc(opt_root_psi, true); }
 double Leaf::dprofit_dc(double opt_root_psi) { return dprofit_dbc(opt_root_psi, false); }
+
+// Photosynthesis leaf-trait gradients (#472 scope B / Phase F1-full). Like
+// vcmax_25, the traits jmax_25 / a / curv_fact_elec_trans / curv_fact_colim
+// affect ONLY assimilation (not the transport or the hydraulic cost), so by the
+// envelope theorem (optimal collar frozen, psi_stem and gc fixed)
+//   dprofit/dt = A_t + A'(ci) * dci/dt,   dci/dt = -(A_t * umol_to_mol) / g_ci,
+// where A_t = d(assim_colimited)/dt holding ci. jmax_25, a and the electron-
+// transport curvature enter through the electron-transport rate et (chain
+// A_t = A_et * det/dt); the colimitation curvature enters the colimitation min
+// directly. which: 0=jmax_25, 1=a, 2=curv_fact_elec_trans, 3=curv_fact_colim.
+// (R_d = 0.015*vcmax is vcmax-only, so unlike dprofit_dvcmax25 these hold it.)
+double Leaf::dprofit_dphoto(double opt_root_psi, int which) {
+  using AD = xad::fwd<double>::active_type;
+  const double psi = opt_root_psi;
+  const double gstar_Pa = gamma_ * umol_per_mol_to_Pa;
+  const double psi_stem = find_psi_stem_from_psi_root(-psi, psi_soil_inverted_);
+  const double ci = psi_stem_to_ci(psi_stem, psi);
+  if (!std::isfinite(psi_stem) || !std::isfinite(ci)) return 0.0;
+
+  // A'(ci): seed ci.
+  AD ci_ad = ci; xad::derivative(ci_ad) = 1.0;
+  const double A_prime = xad::derivative(assim_colimited_full<AD>(
+      ci_ad, AD(vcmax_), AD(electron_transport_), AD(gstar_Pa), AD(km_),
+      AD(R_d_), AD(curv_fact_colim)));
+
+  // A_t = d(assim)/d(trait) holding ci.
+  double A_t;
+  if (which == 3) {  // curv_fact_colim: seed the colimitation curvature directly
+    AD cv = curv_fact_colim; xad::derivative(cv) = 1.0;
+    A_t = xad::derivative(assim_colimited_full<AD>(
+        AD(ci), AD(vcmax_), AD(electron_transport_), AD(gstar_Pa), AD(km_),
+        AD(R_d_), cv));
+  } else {           // chain through the electron-transport rate et
+    AD et_ad = electron_transport_; xad::derivative(et_ad) = 1.0;
+    const double A_et = xad::derivative(assim_colimited_full<AD>(
+        AD(ci), AD(vcmax_), et_ad, AD(gstar_Pa), AD(km_),
+        AD(R_d_), AD(curv_fact_colim)));
+    double det_dt;
+    if (which == 0) {        // jmax_25 -> jmax_ (linear, d jmax_/d jmax_25 = jmax_/jmax_25)
+      AD jm = jmax_; xad::derivative(jm) = 1.0;
+      det_dt = xad::derivative(electron_transport_full<AD>(
+                   PPFD_, AD(a), jm, AD(curv_fact_elec_trans))) * (jmax_ / jmax_25);
+    } else if (which == 1) { // a (quantum yield)
+      AD a_ad = a; xad::derivative(a_ad) = 1.0;
+      det_dt = xad::derivative(electron_transport_full<AD>(
+                   PPFD_, a_ad, AD(jmax_), AD(curv_fact_elec_trans)));
+    } else {                 // curv_fact_elec_trans
+      AD cv = curv_fact_elec_trans; xad::derivative(cv) = 1.0;
+      det_dt = xad::derivative(electron_transport_full<AD>(
+                   PPFD_, AD(a), AD(jmax_), cv));
+    }
+    A_t = A_et * det_dt;
+  }
+
+  const double gc_const =
+      atm_kpa_ * kg_to_mol_h2o / atm_vpd_ / H2O_CO2_stom_diff_ratio;
+  const double gc = gc_const * transpiration(psi_stem, psi);
+  const double inv_atm = 1.0 / (atm_kpa_ * kPa_to_Pa);
+  const double g_ci = A_prime * umol_to_mol + gc * inv_atm;
+  const double dci_dt = -(A_t * umol_to_mol) / g_ci;
+  return A_t + A_prime * dci_dt;
+}
+double Leaf::dprofit_djmax25(double o)     { return dprofit_dphoto(o, 0); }
+double Leaf::dprofit_da(double o)          { return dprofit_dphoto(o, 1); }
+double Leaf::dprofit_dcurv_elec(double o)  { return dprofit_dphoto(o, 2); }
+double Leaf::dprofit_dcurv_colim(double o) { return dprofit_dphoto(o, 3); }
 
 // Analytic d(E_up_)/d(P_x_r): the signed-collar-potential derivative of the
 // soil->root-collar uptake, mirroring the general branch of

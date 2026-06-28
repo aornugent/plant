@@ -1,7 +1,8 @@
-# TF24 HYDRAULIC leaf-trait gradients (#472 scope B, Phase F1-full): exact
-# d(profit*)/d{g1_TF24, beta2, leaf_specific_conductance_max} at the optimised
-# leaf operating point. Extends test-tf24-leaf-gradient.R (vcmax_25) to the
-# hydraulic traits:
+# TF24 HYDRAULIC + PHOTOSYNTHESIS leaf-trait gradients (#472 scope B, Phase
+# F1-full): exact d(profit*)/d(trait) at the optimised leaf operating point,
+# extending test-tf24-leaf-gradient.R (vcmax_25). Photosynthesis traits (jmax_25,
+# a, curv_fact_elec_trans, curv_fact_colim) are vcmax-like (assimilation only).
+# Hydraulic traits:
 #   - g1_TF24, beta2 enter only the hydraulic cost (no transport / assimilation
 #     change), so the envelope theorem reduces each to minus the explicit cost
 #     derivative (Leaf::dprofit_dg1_TF24 / dprofit_dbeta2);
@@ -14,12 +15,13 @@
 # dprofit/dcollar ~ 0 where the envelope theorem applies). The same harness as
 # test-tf24-leaf-gradient.R; here `run` returns the solved leaf so callers read
 # either profit_ or a gradient at the optimised collar.
-mk <- function(g1 = 5, beta2 = 1, vc = 100, b = 3, c = 2.04, ncontrol = 100) {
+mk <- function(g1 = 5, beta2 = 1, vc = 100, b = 3, c = 2.04, ncontrol = 100,
+               jmax = 167, a = 0.3, cet = 0.7, ccol = 0.99) {
   rc <- 2.65; rb <- 1.29
-  Leaf(vcmax_25 = vc, jmax_25 = 167, c = c, b = b, psi_crit = 5,
+  Leaf(vcmax_25 = vc, jmax_25 = jmax, c = c, b = b, psi_crit = 5,
        root_c = rc, root_b = rb, root_psi_crit = rb * (log(1 / 0.05))^(1 / rc),
-       beta2 = beta2, hk_s = 75, a = 0.3, curv_fact_elec_trans = 0.7,
-       curv_fact_colim = 0.99, GSS_tol_abs = 1e-9,
+       beta2 = beta2, hk_s = 75, a = a, curv_fact_elec_trans = cet,
+       curv_fact_colim = ccol, GSS_tol_abs = 1e-9,
        vulnerability_curve_ncontrol = ncontrol, ci_abs_tol = 1e-6,
        ci_niter = 1000, g1_TF24 = g1, beta_R_H = 3.4e3, beta_R_V = 9.4e4)
 }
@@ -98,4 +100,45 @@ test_that("dprofit_dc (vulnerability shape) matches a re-optimising FD", {
   hfd <- 1e-6 * c0
   fd <- (profit_at(c0 + hfd) - profit_at(c0 - hfd)) / (2 * hfd)
   expect_equal(ad, fd, tolerance = 1e-5)
+})
+
+# Photosynthesis traits (jmax_25, a, curv_fact_elec_trans, curv_fact_colim):
+# vcmax-like (assimilation only), validated vs a re-optimising leaf FD.
+test_that("dprofit_djmax25 matches a re-optimising finite difference", {
+  j0 <- 167
+  l0 <- run(mk(jmax = j0))
+  opt <- -l0$root_collar_psi_
+  expect_lt(abs(l0$dprofit_droot_collar_psi(opt)), 1e-3)
+  ad <- l0$dprofit_djmax25(opt)
+  profit_at <- function(j) run(mk(jmax = j))$profit_
+  hfd <- 1e-5 * j0
+  fd <- (profit_at(j0 + hfd) - profit_at(j0 - hfd)) / (2 * hfd)
+  expect_equal(ad, fd, tolerance = 1e-5)
+})
+
+test_that("dprofit_da (quantum yield) matches a re-optimising FD", {
+  a0 <- 0.3
+  l0 <- run(mk(a = a0))
+  opt <- -l0$root_collar_psi_
+  ad <- l0$dprofit_da(opt)
+  profit_at <- function(aa) run(mk(a = aa))$profit_
+  hfd <- 1e-6 * a0
+  fd <- (profit_at(a0 + hfd) - profit_at(a0 - hfd)) / (2 * hfd)
+  expect_equal(ad, fd, tolerance = 1e-5)
+})
+
+test_that("dprofit_dcurv_elec / dprofit_dcurv_colim match re-optimising FDs", {
+  l0 <- run(mk())
+  opt <- -l0$root_collar_psi_
+  ad_e <- l0$dprofit_dcurv_elec(opt)
+  pe <- function(x) run(mk(cet = x))$profit_
+  he <- 1e-6 * 0.7
+  fd_e <- (pe(0.7 + he) - pe(0.7 - he)) / (2 * he)
+  expect_equal(ad_e, fd_e, tolerance = 1e-5)
+
+  ad_c <- l0$dprofit_dcurv_colim(opt)
+  pc <- function(x) run(mk(ccol = x))$profit_
+  hc <- 1e-7 * 0.99
+  fd_c <- (pc(0.99 + hc) - pc(0.99 - hc)) / (2 * hc)
+  expect_equal(ad_c, fd_c, tolerance = 1e-4)
 })

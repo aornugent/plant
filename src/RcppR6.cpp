@@ -114,6 +114,22 @@ double Leaf__dprofit_dc(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root
   return obj_->dprofit_dc(opt_root_psi);
 }
 // [[Rcpp::export]]
+double Leaf__dprofit_djmax25(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi) {
+  return obj_->dprofit_djmax25(opt_root_psi);
+}
+// [[Rcpp::export]]
+double Leaf__dprofit_da(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi) {
+  return obj_->dprofit_da(opt_root_psi);
+}
+// [[Rcpp::export]]
+double Leaf__dprofit_dcurv_elec(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi) {
+  return obj_->dprofit_dcurv_elec(opt_root_psi);
+}
+// [[Rcpp::export]]
+double Leaf__dprofit_dcurv_colim(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi) {
+  return obj_->dprofit_dcurv_colim(opt_root_psi);
+}
+// [[Rcpp::export]]
 double Leaf__psi_stem_to_ci(plant::RcppR6::RcppR6<plant::Leaf> obj_, double psi_stem, double psi_upstream) {
   return obj_->psi_stem_to_ci(psi_stem, psi_upstream);
 }
