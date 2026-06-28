@@ -317,6 +317,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// Leaf__dprofit_dvcmax25
+double Leaf__dprofit_dvcmax25(plant::RcppR6::RcppR6<plant::Leaf> obj_, double opt_root_psi);
+RcppExport SEXP _plant_Leaf__dprofit_dvcmax25(SEXP obj_SEXP, SEXP opt_root_psiSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Leaf> >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< double >::type opt_root_psi(opt_root_psiSEXP);
+    rcpp_result_gen = Rcpp::wrap(Leaf__dprofit_dvcmax25(obj_, opt_root_psi));
+    return rcpp_result_gen;
+END_RCPP
+}
 // Leaf__psi_stem_to_ci
 double Leaf__psi_stem_to_ci(plant::RcppR6::RcppR6<plant::Leaf> obj_, double psi_stem, double psi_upstream);
 RcppExport SEXP _plant_Leaf__psi_stem_to_ci(SEXP obj_SEXP, SEXP psi_stemSEXP, SEXP psi_upstreamSEXP) {
@@ -12429,6 +12441,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Leaf__find_psi_stem_from_psi_root", (DL_FUNC) &_plant_Leaf__find_psi_stem_from_psi_root, 3},
     {"_plant_Leaf__evaluate_root_collar_psi", (DL_FUNC) &_plant_Leaf__evaluate_root_collar_psi, 2},
     {"_plant_Leaf__dprofit_droot_collar_psi", (DL_FUNC) &_plant_Leaf__dprofit_droot_collar_psi, 2},
+    {"_plant_Leaf__dprofit_dvcmax25", (DL_FUNC) &_plant_Leaf__dprofit_dvcmax25, 2},
     {"_plant_Leaf__psi_stem_to_ci", (DL_FUNC) &_plant_Leaf__psi_stem_to_ci, 3},
     {"_plant_Leaf__hydraulic_cost_Sperry", (DL_FUNC) &_plant_Leaf__hydraulic_cost_Sperry, 3},
     {"_plant_Leaf__hydraulic_cost_TF", (DL_FUNC) &_plant_Leaf__hydraulic_cost_TF, 2},

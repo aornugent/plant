@@ -332,6 +332,11 @@ public:
   // the noisy finite-difference gradient. Assumes prepare_collar_solve setup has
   // run (psi_soil_inverted_ etc.), as evaluate_root_collar_psi does.
   double dprofit_droot_collar_psi(double opt_root_psi);
+  // Exact d(profit*)/d(vcmax_25) at the optimised operating point (#472 scope B /
+  // Phase F): the envelope theorem fixes the optimal collar potential, the IFT
+  // handles the psi_stem->ci root-find. The first TF24 trait gradient; the pattern
+  // the TF24 net-production kernel reuses for every leaf trait.
+  double dprofit_dvcmax25(double opt_root_psi);
   // Analytic d(E_up_)/d(collar potential) for the soil->root-collar uptake
   // (kg H2O m^-2 s^-1 per MPa of signed collar potential P_x_r), mirroring the
   // general branch of E_from_Soil_to_Root_Collar layer by layer. The integral's

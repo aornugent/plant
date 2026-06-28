@@ -89,6 +89,10 @@ Leaf__dprofit_droot_collar_psi <- function(obj_, opt_root_psi) {
     .Call('_plant_Leaf__dprofit_droot_collar_psi', PACKAGE = 'plant', obj_, opt_root_psi)
 }
 
+Leaf__dprofit_dvcmax25 <- function(obj_, opt_root_psi) {
+    .Call('_plant_Leaf__dprofit_dvcmax25', PACKAGE = 'plant', obj_, opt_root_psi)
+}
+
 Leaf__psi_stem_to_ci <- function(obj_, psi_stem, psi_upstream) {
     .Call('_plant_Leaf__psi_stem_to_ci', PACKAGE = 'plant', obj_, psi_stem, psi_upstream)
 }
