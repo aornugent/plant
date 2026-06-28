@@ -20,7 +20,7 @@ coordinated on a shared [project board](https://github.com/orgs/traitecoevo/proj
 | Repository | Role |
 |---|---|
 | [**plant**](https://github.com/traitecoevo/plant) | Core C++/R model: size- and trait-structured demography, the SCM solver, and the physiological strategies (FF16, TF24, …). |
-| [**plant.assembly**](https://github.com/traitecoevo/plant.assembly) | Evolutionary community assembly on top of `plant` — invasion fitness, demographic equilibria, and selection gradients. |
+| [**regnans**](https://github.com/traitecoevo/regnans) | Evolutionary community assembly on top of `plant` — invasion fitness, demographic equilibria, and selection gradients. |
 | [**overstorey**](https://github.com/traitecoevo/overstorey) | The narrative documentation / field guide site (user guides, theory, worked reproductions). |
 
 Issues from all three repositories feed into the
