@@ -1,5 +1,5 @@
 ---
-title: "Automatic differentiation: trait gradients of FF16 outputs"
+title: "Automatic differentiation: trait gradients of FF16 and TF24 outputs"
 ---
 
 <!--
@@ -276,25 +276,173 @@ reverse-mode tape in `odelia.so`, so they need `plant` installed from this branc
 
 ## Beyond FF16: TF24
 
-The same machinery now reaches the **TF24** hydraulic strategy, where assimilation
-comes from an *optimised* leaf rather than a closed-form expression. The extra
-ingredient is the **envelope theorem** for the stomatal optimisation — at the leaf's
-interior operating point the optimal water potential is stationary, so it is held
-fixed and only the explicit trait dependence is differentiated — combined with the
-same **implicit-function-theorem** treatment of the leaf's internal `psi_stem -> ci`
-root-find (the #539 pattern). Photosynthesis traits behave like `vcmax` (mind the
-`R_d = 0.015·vcmax` coupling); hydraulic traits (the vulnerability curve, conductance)
-additionally move the cost and the transport; cascade traits enter a scalar-templated
-TF24 net-production kernel directly, with `height_0` injected by IFT.
+Everything above is FF16, where net production is a *closed-form* function of light
+and traits — which is exactly why the whole cohort trajectory can be recorded on the
+tape and reverse-swept directly. **TF24** breaks that assumption: its net production
+comes from an *optimised* leaf — a maximisation of carbon profit over the root-collar
+water potential, nesting a stomatal `psi_stem -> ci` root-find. An iterative
+optimiser/solver cannot be recorded on the adjoint tape and played backward. So the
+TF24 story is really the story of *how to keep using AD when the core quantity is the
+output of a solver* — and the answer, throughout, is the same: **never tape the
+solver; inject its converged sensitivities.**
 
-With the per-RK-stage leaf operating point harvested once in the discovery pass (the
-only un-tapeable part — the hydraulic root-find), the cohort trajectory becomes a
-leaf-opt-free, fully tapeable expression, so TF24 too gets a full **reverse-mode
-emergent gradient** of `offspring_production` through the live SCM: all 27 traits in
-one backward sweep per cohort, validated against two-pass finite differences across
-every trait class. Both FF16 and TF24 now differentiate an emergent SCM output w.r.t.
-their full trait vectors.
+### The leaf gradients: envelope theorem + IFT
 
-Smaller refinements remain — per-RK-stage resident-stand harvesting for a bit-exact
-self-shading field, and multi-species stands — but the core capability is in place
-for both strategies.
+At the leaf's interior optimum the profit is stationary in the collar potential
+(`dprofit/dcollar ≈ 0`), so the **envelope theorem** lets us hold the optimal collar
+*fixed* and differentiate only the explicit trait dependence — no optimiser
+differentiation. The internal `psi_stem -> ci` root-find is handled by the **implicit
+function theorem** (the #539 pattern: differentiate the converged residual, not the
+loop). On that basis each of TF24's ten leaf traits got an exact, FD-validated
+`Leaf::dprofit_d*`:
+
+- **photosynthesis** (`vcmax_25`, `jmax_25`, `a`, the two curvatures) behave like
+  `vcmax` — assimilation only. The lesson that cost a long debug: `vcmax` carries the
+  dark-respiration coupling `R_d = 0.015·vcmax`, so its derivative must seed `R_d`
+  active too; holding it constant made the gradient ~1.85× too big;
+- **hydraulic** (`g1_TF24`, `beta2`) enter only the cost — pure envelope-theorem
+  terms; **`K_s`** scales the supply conductance, moving `psi_stem` and `ci`
+  (transport + IFT); the **vulnerability shape** `b`, `c` reshape the transpiration
+  spline *and* the cost, with the benefit frozen because at the operating point
+  transpiration equals the soil→collar uptake (which uses the *root* vulnerability,
+  not the stem `b`/`c`).
+
+A recurring gotcha: validate the envelope-theorem gradient at a **healthy interior
+optimum** (the real strategy sits there at all light levels), and tighten the collar
+golden-section (`GSS_tol_abs = 1e-9`) — at the default `1e-3` the optimum is
+under-converged and a transport trait's collar moves enough to show a ~1e-4 AD-vs-FD
+gap whose size tracks `|dprofit/dcollar|`.
+
+### A committed, bit-identical TF24 kernel
+
+The rates *downstream* of net production are, pleasingly, **algebraically identical to
+FF16** — only `assimilation = profit · area_leaf · conv` differs. So
+`inst/include/plant/models/tf24_production_kernel.h` mirrors the FF16 kernel
+(`tf24_net_from_components`, `tf24_compute_rates_from_net<S>`, `TF24ProdPars<S>`), and
+`TF24_Strategy`'s `double` rate methods *delegate* to it — keeping the reference test
+suite bit-for-bit unchanged (FAIL 0) while the active instantiation differentiates.
+The kernel is covered in plain R on CI (`test-tf24-rate-kernel-gradient.R`).
+
+### Reverse mode at the net-production level
+
+With the leaf sensitivities in hand, `d(net)/d(trait)` for **all 27 production
+traits** comes from a single reverse sweep over `tf24_net_mass_production`: the leaf
+optimiser is not taped — its `dprofit_d*` are *injected* into an active `profit` (the
+same first-order injection used for FF16's `height_0`), allometry traits drive
+`area_leaf`, and `theta` / `a_r1` carry *both* a cascade pathway and a leaf-coupling
+(`theta` via `k_max`, `a_r1` via `E_up`) on the same tape variable. The reverse
+27-vector matches the per-trait **forward**-mode values to machine precision — the
+real contract — and matches a live finite difference for all 27.
+
+Getting that FD *reference* right taught the sharpest TF24 lesson. The optimal FD step
+spans **orders of magnitude across traits**: leaf-coupled traits go through the
+root-find, whose noise floor swamps a too-small step, while a trait like `jmax` is
+truncation-limited and wants a *small* step. No single step works, so the FD uses a
+**robust plateau picker** (evaluate a ladder of steps, report the most
+self-consistent rung). This per-trait step-tuning is precisely the asymmetry
+reverse-mode AD sidesteps — the AD needs no tuning at all. (The one genuinely
+FD-limited trait is the vulnerability shape `c`: the AD computes the exact *continuous*
+`dS/dt` while the FD rebuilds a discretised spline, so the residual is spline
+interpolation error that shrinks with `vulnerability_curve_ncontrol` — itself the
+proof the AD is exact.)
+
+### Through the whole SCM
+
+The emergent gradient cannot tape the live trajectory (the leaf opt runs at every RK
+stage of every cohort). The resolution is a **two-pass tangent-linear replay**: pass
+one is the real adaptive crown-centre SCM with the cache on; pass two replays each
+cohort with the *same* Cash–Karp stepper (the generic `ff16_cashkarp_replay`),
+**running the real leaf optimisation at each stage** so the double trajectory stays
+faithful, and propagating the trait sensitivity alongside —
+`d(net)/d(trait)` injected from the leaf gradient, the within-trajectory
+`d(net)/d(height)` from a small central FD of the leaf opt, and the rate-fill
+sensitivities from forward-mode XAD over the kernel.
+
+Faithfulness here is **~5e-7**, not FF16's ~1e-14 — and the difference is instructive:
+FF16's closed-form net is exact, whereas TF24's replay re-solves the leaf opt, so the
+floor is the *optimiser's own tolerance*, not the integrator. With it, `offspring_production`
+is reconstructed to ~3e-8 and `d(offspring_production)/d(vcmax_25)` matches a two-pass
+FD converging `O(h²)` to ~7e-6.
+
+Two finite-difference gotchas were worth their debugging time, both the same shape —
+**a too-small step is corrupted by a hidden solver's noise floor**:
+
+- the within-trajectory `d(net)/d(height)` needs a step of `1e-5·h`; at `1e-6·h` the
+  leaf root-find noise dominated and the emergent gradient was ~1.6e-4 off (`1e-5` → ~1e-5);
+- `d(height_0)/d(lma)` (the seedling-size shift, an IFT quantity) needs a `1e-4` step;
+  at `1e-6` the seedling root-find noise made it **9 % wrong**, which then biased the
+  whole `lma` gradient. (`ci_abs_tol`, by contrast, turned out irrelevant — the noise
+  is the collar golden-section, not the `ci` solve.)
+
+### Reverse mode through the SCM, too
+
+The forward replay does one pass *per trait*. But the expensive per-RK-stage harvest —
+the optimised profit, the ten `dprofit_d*`, `k_max`, `E_up`, and the `d(profit)/d(height)`
+Jacobian — is **trait-independent**. Recording it once per cohort turns the propagation
+into a *leaf-opt-free, fully tapeable* expression:
+
+```
+profit(h, θ) = profit₀ + dprofit_dh·(h − h₀_stage)
+                       + Σ_k  dprofit_dθ_k · (θ_k − θ_k0)
+```
+
+with the cascade/area traits entering the kernel directly and `height_0` IFT-injected.
+So TF24 *does* get a **reverse-mode emergent gradient through the live SCM** after all:
+one backward sweep per cohort returns all 27 trait derivatives, summed over cohorts for
+the full gradient. It matches the forward 27-vector (to ~3e-6, the leaf-opt noise
+between independent SCM runs) and a two-pass FD for representatives of every trait
+class.
+
+That closes the apparent gap between the strategies. The leaf root-find is **never**
+taped in any path — for FF16 there is none; for TF24 it is harvested at one operating
+point (net production) or per stage (emergent), and its envelope/IFT sensitivities are
+injected. FF16's only real advantage is that its closed-form net needs no harvest step.
+
+### The TF24 scripts
+
+- `ad_tf24_net_gradient.R`, `ad_tf24_photo_gradient.R`, `ad_tf24_hydraulic_gradient.R`,
+  `ad_tf24_mass_gradient.R` — the per-class leaf and cascade `d(net)/d(trait)` gradients;
+- `ad_tf24_reverse_sweep.R` — all 27 `d(net)/d(trait)` in one reverse sweep
+  (reverse == forward to machine precision; plateau-picked FD reference);
+- `ad_tf24_emergent_gradient.R` — the live-SCM emergent gradient (tangent-linear) for a
+  leaf trait *and* a cascade trait (`vcmax_25`, `lma` with its `height_0` shift);
+- `ad_tf24_emergent_offspring.R` — the real `offspring_production`, with the
+  survival-weighted state + establishment + trapezium;
+- `ad_tf24_emergent_all_traits.R` — the full 27-trait vector in one shared-harvest
+  forward pass;
+- `ad_tf24_emergent_reverse.R` — the same 27-vector by **one reverse sweep per cohort**.
+
+## Lessons, distilled
+
+Three principles recur across both strategies and are the real transferable content:
+
+1. **Never differentiate a solver — differentiate its converged point.** Root-finds
+   via the implicit function theorem, optimisations via the envelope theorem,
+   adaptive integrators via a frozen-schedule replay. The iteration is always a
+   `double` discovery pass; only the converged result is taped or injected.
+2. **The derivative of a built quantity must come from the same construction as the
+   value** — the same spline (#539), the same harvested operating point (TF24's
+   replay), or the value and gradient drift apart and the result is internally
+   inconsistent.
+3. **A finite-difference *reference* is only as good as its step, and the right step
+   is governed by the hidden solver's noise floor.** Where a quantity flows through a
+   root-find, a too-small step is worse than useless; per-trait plateau-picking or a
+   deliberately larger step is required. That fragility is itself the argument for AD,
+   which has no step to tune.
+
+## What's next
+
+- **Differentiate establishment in the emergent path** for TF24 (it is currently
+  frozen across the FD comparison — a clean separable partial, exactly as FF16 did it
+  before making it active).
+- **Full per-trait FD validation** of the TF24 emergent 27-vector (representatives of
+  every class are validated; the rest lean on the machinery shared with the
+  single-trait scripts and on reverse == forward).
+- **Multi-species stands**, and **per-RK-stage resident-stand harvesting** for a
+  bit-exact (rather than reconstruction-faithful) self-shading field.
+- **A committed harvested-replay kernel** if the emergent replay graduates from
+  demonstration scripts to a first-class API like FF16's `offspring_production_gradient()`.
+- Longer term, the **`<T,E,S>` hierarchy** lets the same reverse machinery drive
+  gradient-based **calibration** and **adaptive-dynamics** analyses (the
+  frozen-resident gradient *is* the invasion-fitness selection gradient) across both
+  strategies.
