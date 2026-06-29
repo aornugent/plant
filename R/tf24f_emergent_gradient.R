@@ -139,3 +139,65 @@ tf24f_grow_individual_to_size_gradient_fd <- function(individual, sizes, size_na
   list(sizes = sizes, time = base$time, state = base$state,
        d_time = d_time, d_state = d_state)
 }
+
+# TF24f RESIDENT (coupled) census trait gradient (#472 scope B, the resident-feedback
+# surface -- prototype). The TOTAL stand-level d(census metric)/d(theta): unlike the
+# frozen (rare-mutant) gradient, every cohort's height + density feeds back through the
+# canopy light that the whole stand reads, so the feedback routinely dominates and can
+# flip the sign relative to the frozen reading. Computed as a central finite difference
+# over the FULL SCM: perturb a (post-hyperpar) strategy parameter, re-run run_scm on the
+# SAME fixed node schedule, and difference the realised stand metric. This is the ground-
+# truth resident gradient (the SCM responds in full) and the reference the coupled AD
+# engine must reproduce; it is slow (one SCM solve per trait per side), so keep `traits`
+# small. LAI is read from the realised patch (compute_competition(0)); size_moment is the
+# size-distribution first moment Sum density_i * height_i (trapezium over the stand).
+tf24f_resident_census_gradient_fd <- function(p, env, ctrl,
+                                              metrics = c("LAI", "size_moment"),
+                                              traits = NULL, species = 1L,
+                                              rel_step = 1e-4) {
+  if (is.null(traits)) traits <- tf24_default_traits()
+  metric_set <- c("LAI", "size_moment")
+  bad <- setdiff(metrics, metric_set)
+  if (length(bad)) stop("unsupported resident metric(s): ", paste(bad, collapse = ", "))
+
+  # Realised stand metrics from a completed SCM (the coupled, self-shaded stand).
+  stand_metrics <- function(scm) {
+    patch <- scm$patch
+    out <- c(LAI = patch$compute_competition(0))
+    sp <- patch$species[[species]]
+    h <- sp$heights; dens <- exp(sp$log_densities)
+    ord <- order(h, decreasing = TRUE)
+    h <- h[ord]; dens <- dens[ord]
+    # size_moment = trapezium of density*height over descending heights down to h0.
+    phi <- dens * h
+    sm <- 0
+    if (length(h) > 1) sm <- sum(0.5 * (h[-length(h)] - h[-1]) * (phi[-length(h)] + phi[-1]))
+    out["size_moment"] <- sm
+    out[metrics]
+  }
+  run_with <- function(pp_override) {
+    pmod <- p
+    if (!is.null(pp_override)) {
+      s <- pmod$strategies[[species]]
+      s$pars <- pp_override
+      pmod$strategies[[species]] <- s
+    }
+    run_scm(pmod, env, ctrl, refine_schedule = FALSE)
+  }
+
+  base_scm <- run_with(NULL)
+  values <- stand_metrics(base_scm)
+  pars0 <- p$strategies[[species]]$pars
+  jac <- matrix(0, length(metrics), length(traits),
+                dimnames = list(metrics, traits))
+  for (j in seq_along(traits)) {
+    tr <- traits[j]
+    if (!tr %in% names(pars0)) stop("unknown TF24f trait: ", tr)
+    d <- rel_step * max(abs(pars0[[tr]]), 1e-8)
+    pp_p <- pars0; pp_p[[tr]] <- pp_p[[tr]] + d
+    pp_m <- pars0; pp_m[[tr]] <- pp_m[[tr]] - d
+    mp <- stand_metrics(run_with(pp_p)); mm <- stand_metrics(run_with(pp_m))
+    jac[, j] <- (mp - mm) / (2 * d)
+  }
+  list(jacobian = jac, values = values)
+}

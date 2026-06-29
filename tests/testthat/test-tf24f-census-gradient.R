@@ -89,6 +89,33 @@ test_that("tf24f_census_gradient_fd: finite frozen census Jacobian (R1 gate)", {
                tolerance = 2e-2)
 })
 
+test_that("tf24f resident census FD gradient is the total gradient (flips sign)", {
+  # The resident (coupled) gradient is the TOTAL stand-level d(metric)/d(theta): the
+  # canopy feedback routinely dominates and flips the sign relative to the frozen
+  # (rare-mutant / invasion) gradient. Ground truth here is FD over the full SCM.
+  H <- 4L
+  p <- scm_base_parameters("TF24f"); p$max_patch_lifetime <- H
+  p <- add_strategies(p, trait_matrix(0.1978791, "lma"), hyperpar = TF24f_hyperpar,
+                      birth_rate = list(20))
+  p$node_schedule_times <- list(seq(0, H, length.out = 9L))
+  ctlc <- control(shading_model = "crown-centre", GSS_tol_abs = 1e-9,
+                  ode_tol_rel = 1e-4, ode_tol_abs = 1e-4, save_RK45_cache = TRUE)
+  tr <- c("lma", "K_s")
+  gr <- plant:::tf24f_resident_census_gradient_fd(p, Environment("TF24f"), ctlc,
+          metrics = c("LAI", "size_moment"), traits = tr)
+  expect_equal(dim(gr$jacobian), c(2L, length(tr)))
+  expect_true(all(is.finite(gr$jacobian)))
+
+  scm <- run_scm(p, Environment("TF24f"), ctlc, refine_schedule = FALSE)
+  expect_equal(unname(gr$values[["LAI"]]), scm$patch$compute_competition(0),
+               tolerance = 1e-6)
+  # The defining property: feedback flips d(LAI)/d(lma) -- positive for a rare mutant
+  # against the frozen canopy, negative as the whole stand's LMA rises.
+  gf <- plant:::tf24f_census_gradient_fd(scm, metrics = "LAI", traits = "lma")
+  expect_gt(gf$jacobian["LAI", "lma"], 0)
+  expect_lt(gr$jacobian["LAI", "lma"], 0)
+})
+
 test_that("tf24f census recon is strategy-guarded", {
   # A TF24 (non-f) resident has no tracked-collar state; the harvest must reject it.
   p <- scm_base_parameters("TF24"); p$max_patch_lifetime <- 4L
