@@ -2253,6 +2253,22 @@ Patch___FF16__FF16_Env__stand_competition_stage_history__set <- function(obj_, v
     invisible(.Call('_plant_Patch___FF16__FF16_Env__stand_competition_stage_history__set', PACKAGE = 'plant', obj_, value))
 }
 
+Patch___FF16__FF16_Env__stand_newnode_height_stage_history__get <- function(obj_) {
+    .Call('_plant_Patch___FF16__FF16_Env__stand_newnode_height_stage_history__get', PACKAGE = 'plant', obj_)
+}
+
+Patch___FF16__FF16_Env__stand_newnode_height_stage_history__set <- function(obj_, value) {
+    invisible(.Call('_plant_Patch___FF16__FF16_Env__stand_newnode_height_stage_history__set', PACKAGE = 'plant', obj_, value))
+}
+
+Patch___FF16__FF16_Env__stand_newnode_competition_stage_history__get <- function(obj_) {
+    .Call('_plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history__get', PACKAGE = 'plant', obj_)
+}
+
+Patch___FF16__FF16_Env__stand_newnode_competition_stage_history__set <- function(obj_, value) {
+    invisible(.Call('_plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history__set', PACKAGE = 'plant', obj_, value))
+}
+
 Patch___TF24__TF24_Env__ctor <- function(parameters, environment, control) {
     .Call('_plant_Patch___TF24__TF24_Env__ctor', PACKAGE = 'plant', parameters, environment, control)
 }
@@ -2415,6 +2431,22 @@ Patch___TF24__TF24_Env__stand_competition_stage_history__get <- function(obj_) {
 
 Patch___TF24__TF24_Env__stand_competition_stage_history__set <- function(obj_, value) {
     invisible(.Call('_plant_Patch___TF24__TF24_Env__stand_competition_stage_history__set', PACKAGE = 'plant', obj_, value))
+}
+
+Patch___TF24__TF24_Env__stand_newnode_height_stage_history__get <- function(obj_) {
+    .Call('_plant_Patch___TF24__TF24_Env__stand_newnode_height_stage_history__get', PACKAGE = 'plant', obj_)
+}
+
+Patch___TF24__TF24_Env__stand_newnode_height_stage_history__set <- function(obj_, value) {
+    invisible(.Call('_plant_Patch___TF24__TF24_Env__stand_newnode_height_stage_history__set', PACKAGE = 'plant', obj_, value))
+}
+
+Patch___TF24__TF24_Env__stand_newnode_competition_stage_history__get <- function(obj_) {
+    .Call('_plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history__get', PACKAGE = 'plant', obj_)
+}
+
+Patch___TF24__TF24_Env__stand_newnode_competition_stage_history__set <- function(obj_, value) {
+    invisible(.Call('_plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history__set', PACKAGE = 'plant', obj_, value))
 }
 
 Patch___TF24f__TF24_Env__ctor <- function(parameters, environment, control) {
@@ -2581,6 +2613,22 @@ Patch___TF24f__TF24_Env__stand_competition_stage_history__set <- function(obj_, 
     invisible(.Call('_plant_Patch___TF24f__TF24_Env__stand_competition_stage_history__set', PACKAGE = 'plant', obj_, value))
 }
 
+Patch___TF24f__TF24_Env__stand_newnode_height_stage_history__get <- function(obj_) {
+    .Call('_plant_Patch___TF24f__TF24_Env__stand_newnode_height_stage_history__get', PACKAGE = 'plant', obj_)
+}
+
+Patch___TF24f__TF24_Env__stand_newnode_height_stage_history__set <- function(obj_, value) {
+    invisible(.Call('_plant_Patch___TF24f__TF24_Env__stand_newnode_height_stage_history__set', PACKAGE = 'plant', obj_, value))
+}
+
+Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history__get <- function(obj_) {
+    .Call('_plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history__get', PACKAGE = 'plant', obj_)
+}
+
+Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history__set <- function(obj_, value) {
+    invisible(.Call('_plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history__set', PACKAGE = 'plant', obj_, value))
+}
+
 Patch___K93__K93_Env__ctor <- function(parameters, environment, control) {
     .Call('_plant_Patch___K93__K93_Env__ctor', PACKAGE = 'plant', parameters, environment, control)
 }
@@ -2743,6 +2791,22 @@ Patch___K93__K93_Env__stand_competition_stage_history__get <- function(obj_) {
 
 Patch___K93__K93_Env__stand_competition_stage_history__set <- function(obj_, value) {
     invisible(.Call('_plant_Patch___K93__K93_Env__stand_competition_stage_history__set', PACKAGE = 'plant', obj_, value))
+}
+
+Patch___K93__K93_Env__stand_newnode_height_stage_history__get <- function(obj_) {
+    .Call('_plant_Patch___K93__K93_Env__stand_newnode_height_stage_history__get', PACKAGE = 'plant', obj_)
+}
+
+Patch___K93__K93_Env__stand_newnode_height_stage_history__set <- function(obj_, value) {
+    invisible(.Call('_plant_Patch___K93__K93_Env__stand_newnode_height_stage_history__set', PACKAGE = 'plant', obj_, value))
+}
+
+Patch___K93__K93_Env__stand_newnode_competition_stage_history__get <- function(obj_) {
+    .Call('_plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history__get', PACKAGE = 'plant', obj_)
+}
+
+Patch___K93__K93_Env__stand_newnode_competition_stage_history__set <- function(obj_, value) {
+    invisible(.Call('_plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history__set', PACKAGE = 'plant', obj_, value))
 }
 
 SCM___FF16__FF16_Env__ctor <- function(parameters, environment, control) {

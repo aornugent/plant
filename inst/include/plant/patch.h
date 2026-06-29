@@ -180,6 +180,26 @@ public:
   std::vector<std::vector<double>> stand_height_stage_cache;
   std::vector<std::vector<double>> stand_competition_stage_cache;
 
+  // Boundary (new_node) per-RK-stage state for species 0: its height + competition
+  // effect. r_compute_competition_effect_by_nodes / r_heights iterate `nodes` only
+  // and OMIT the boundary new_node, whose tail term Species::compute_competition
+  // DOES add (it is the bottom of the last trapezium segment). Without it the
+  // coupled-replay env reconstruction (#472 scope B, R0) is wrong at ground level
+  // (z < the seedling top), where the boundary node's projected leaf area lands.
+  // [step][stage 0..5], a single scalar per stage (species 0). Empty for an empty
+  // species (a NaN-free placeholder is pushed so indices stay aligned).
+  std::vector<std::vector<double>> stand_newnode_height_stage_history;
+  std::vector<std::vector<double>> stand_newnode_competition_stage_history;
+  std::vector<double> stand_newnode_height_stage_cache;
+  std::vector<double> stand_newnode_competition_stage_cache;
+  // Boundary-node state SNAPSHOT taken at the moment compute_environment builds the
+  // light spline (species 0). compute_rates() then calls new_node.compute_initial_
+  // conditions and MUTATES the boundary node, so querying it at cache time (after
+  // derivs = compute_environment + compute_rates) reads the wrong state. These hold
+  // the new_node baked into the cached env. (#472 scope B, R0 reconstruction.)
+  double newnode_height_env_snapshot = 0.0;
+  double newnode_competition_env_snapshot = 0.0;
+
   void cache_ode_step();
   void cache_RK45_step(int step);
   void load_ode_step();
@@ -528,6 +548,13 @@ void Patch<T,E,S>::compute_environment(bool rescale) {
 
   if (size() > 0 & !is_mutant_run) {
     environment.compute_environment(f, height_max(), rescale);
+    // Snapshot the boundary node baked into THIS spline, before compute_rates()
+    // mutates it (species 0; the per-RK-stage harvest reads these in cache).
+    if (!species.empty()) {
+      const auto& nn = species[0].r_new_node();
+      newnode_height_env_snapshot = nn.height();
+      newnode_competition_env_snapshot = nn.compute_competition(0.0);
+    }
   }
 }
 
@@ -694,6 +721,8 @@ void Patch<T,E,S>::cache_ode_step() {
     // Flush the per-RK-stage stand caches accumulated over this step's 6 stages.
     stand_height_stage_history.push_back(stand_height_stage_cache);
     stand_competition_stage_history.push_back(stand_competition_stage_cache);
+    stand_newnode_height_stage_history.push_back(stand_newnode_height_stage_cache);
+    stand_newnode_competition_stage_history.push_back(stand_newnode_competition_stage_cache);
   }
 }
 
@@ -706,6 +735,8 @@ void Patch<T,E,S>::cache_RK45_step(int step) {
       environment_cache.clear();
       stand_height_stage_cache.clear();
       stand_competition_stage_cache.clear();
+      stand_newnode_height_stage_cache.clear();
+      stand_newnode_competition_stage_cache.clear();
     }
     environment_cache.push_back(environment);
     // Capture the species-0 stand that produced THIS stage's environment (the ODE
@@ -714,9 +745,15 @@ void Patch<T,E,S>::cache_RK45_step(int step) {
     if (!species.empty()) {
       stand_height_stage_cache.push_back(species[0].r_heights());
       stand_competition_stage_cache.push_back(species[0].r_compute_competition_effect_by_nodes());
+      // Boundary node tail term (compute_competition adds it beyond the `nodes` loop),
+      // snapshotted in compute_environment before compute_rates mutated it.
+      stand_newnode_height_stage_cache.push_back(newnode_height_env_snapshot);
+      stand_newnode_competition_stage_cache.push_back(newnode_competition_env_snapshot);
     } else {
       stand_height_stage_cache.emplace_back();
       stand_competition_stage_cache.emplace_back();
+      stand_newnode_height_stage_cache.push_back(0.0);
+      stand_newnode_competition_stage_cache.push_back(0.0);
     }
   }
 }

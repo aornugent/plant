@@ -705,6 +705,10 @@ Patch:
     # the RESIDENT total-gradient reconstruction (#472 scope B, R0).
     stand_height_stage_history: {type: "std::vector<std::vector<std::vector<double> > >", access: field}
     stand_competition_stage_history: {type: "std::vector<std::vector<std::vector<double> > >", access: field}
+    # Boundary (new_node) per-RK-stage state (species 0): height + competition effect,
+    # the tail term Species::compute_competition adds beyond the `nodes` loop. [step][stage].
+    stand_newnode_height_stage_history: {type: "std::vector<std::vector<double> >", access: field}
+    stand_newnode_competition_stage_history: {type: "std::vector<std::vector<double> >", access: field}
   methods:
     introduce_new_node:
       return_type: void
