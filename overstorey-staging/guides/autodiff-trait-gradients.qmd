@@ -432,12 +432,12 @@ Three principles recur across both strategies and are the real transferable cont
 
 ## What's next
 
-- **Differentiate establishment in the emergent path** for TF24 (it is currently
-  frozen across the FD comparison — a clean separable partial, exactly as FF16 did it
-  before making it active).
-- **Full per-trait FD validation** of the TF24 emergent 27-vector (representatives of
-  every class are validated; the rest lean on the machinery shared with the
-  single-trait scripts and on reverse == forward).
+Two items from this list are now done: TF24's establishment filter is **differentiated**
+in the emergent path (the seedling-net channel, validated active in both AD and FD), and
+the TF24 emergent 27-vector is **fully FD-validated** — every trait against a two-pass
+live finite difference (the 27 independent replays run across cores; all match to ≤2e-4,
+with the photosynthesis curvatures needing a finer FD step their AD does not). Remaining:
+
 - **Multi-species stands**, and **per-RK-stage resident-stand harvesting** for a
   bit-exact (rather than reconstruction-faithful) self-shading field.
 - **A committed harvested-replay kernel** if the emergent replay graduates from
