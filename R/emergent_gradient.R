@@ -67,12 +67,16 @@ ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
     stop("species index out of range: stand has ", length(scm$patch$species),
          " species")
   }
-  sh <- scm$patch$step_history
-  eh <- scm$patch$environment_history
+  # Cache the patch once: `scm$patch` rebuilds the whole RcppR6 patch object (every
+  # node + species) on each access, so repeatedly indexing it -- especially the
+  # per-stage pr_survival loop below -- is O(stand size) per call (~1600x slower).
+  patch <- scm$patch
+  sh <- patch$step_history
+  eh <- patch$environment_history
   if (length(eh) < 1L) {
     stop("No resident schedule cached: run the SCM with control(save_RK45_cache = TRUE)")
   }
-  sp    <- scm$patch$species[[species]]
+  sp    <- patch$species[[species]]
   nt    <- sp$node_times
   pdens <- sp$patch_densities
   ppsab <- sp$pr_patch_survival_at_birth
@@ -95,7 +99,7 @@ ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
   ah <- c(0, 0.2, 0.3, 0.6, 1.0, 0.875); hN <- diff(sh)
   ppsurv <- matrix(0, N, 6)
   for (k in seq_len(N)) for (s in 1:6) {
-    ppsurv[k, s] <- scm$patch$pr_survival(sh[k] + ah[s] * hN[k])
+    ppsurv[k, s] <- patch$pr_survival(sh[k] + ah[s] * hN[k])
   }
 
   list(pp = pp, eh = eh, sh = sh, birth_step = birth_step, ppsurv = ppsurv,

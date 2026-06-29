@@ -38,9 +38,10 @@ test_that("tf24_offspring_production_gradient reconstructs the SCM and matches F
   # the leaf opts + recomputes height_0 from the perturbed pp -> validates the cascade
   # + IFT-h0 terms). lma is the robust representative; tiny-magnitude photo traits are
   # vacuous at this small stand (validated at a real stand in the script).
-  sh <- scm$patch$step_history
-  eh <- scm$patch$environment_history
-  sp <- scm$patch$species[[1]]
+  patch <- scm$patch          # cache: scm$patch rebuilds the whole patch each access
+  sh <- patch$step_history
+  eh <- patch$environment_history
+  sp <- patch$species[[1]]
   nt <- sp$node_times
   pp <- unlist(scm$parameters$strategies[[1]]$pars)
   br <- scm$offspring_production[[1]] / scm$net_reproduction_ratios[[1]]
@@ -52,7 +53,7 @@ test_that("tf24_offspring_production_gradient reconstructs the SCM and matches F
   tw <- tcoef * sp$patch_densities * pp[["S_D"]] * br
   ah <- c(0, 0.2, 0.3, 0.6, 1.0, 0.875); hN <- diff(sh)
   ppsurv <- matrix(0, N, 6)
-  for (k in seq_len(N)) for (s in 1:6) ppsurv[k, s] <- scm$patch$pr_survival(sh[k] + ah[s] * hN[k])
+  for (k in seq_len(N)) for (s in 1:6) ppsurv[k, s] <- patch$pr_survival(sh[k] + ah[s] * hN[k])
   ppsab <- sp$pr_patch_survival_at_birth
 
   J_at <- function(v) {
