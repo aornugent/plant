@@ -22,6 +22,7 @@
 #include <XAD/XAD.hpp>
 #include <plant.h>                 // RcppR6 as<>/wrap for FF16_Environment etc.
 #include <plant/models/ff16_production_kernel.h>
+#include <odelia/interpolator.hpp> // basic_interpolator<S> (active-value light spline)
 
 using ad   = xad::adj<double>;
 using ad_t = ad::active_type;
@@ -89,6 +90,23 @@ struct Frozen {
   bool anchor = true;
   double area = 1.0;
   std::vector<std::vector<std::vector<double>>> st_h, st_C;
+
+  // COUPLED resident replay (#472 scope B, R0-R1, the course-corrected build). The
+  // whole stand is re-evolved together over the frozen schedule and the canopy light
+  // is reconstructed per RK stage from the ACTIVE stand (heights AND densities respond
+  // to theta), so EVERY trait feeds back -- not just the leaf-area channel of the
+  // frozen-geometry graft above. coupled=true selects it.
+  //   kI            : light extinction coefficient (competition = kI*leaf-area*Q).
+  //   knot_x[n][s]  : the env light-spline's frozen knot x-positions at step n,
+  //                   cached stage s (the "freeze knot positions" of odelia #32).
+  //   knot_y0[n][s] : the SCM's stored knot light VALUES there (the R0 ground truth
+  //                   the active reconstruction must reproduce).
+  //   nn_h/nn_c[n][s]: the boundary new_node height + competition effect at (n,s)
+  //                   (FROZEN; the seedling tail term, a tiny ground-level channel).
+  bool coupled = false;
+  double kI = 0.0;
+  std::vector<std::vector<std::vector<double>>> knot_x, knot_y0;
+  std::vector<std::vector<double>> nn_h, nn_c;
 };
 
 // Deep-crown net at `height` reading the frozen env `e` (moving-node GK integral).
@@ -597,6 +615,300 @@ std::vector<S> assemble_metrics(const plant::FF16ProdPars<S>& pa, const Frozen& 
   return J;
 }
 
+// ===========================================================================
+// COUPLED resident replay (#472 scope B, R0-R1 -- the course-corrected build).
+// All alive cohorts are stepped TOGETHER over the frozen schedule; at each RK
+// stage the canopy light is reconstructed from the CURRENT active stand (active
+// heights h_i, active densities exp(log_density_i), active area_leaf), filling an
+// odelia basic_interpolator<S> at the env spline's FROZEN knot x-positions. So
+// every trait that moves a height or a density re-shades the whole stand -- the
+// genuine resident feedback, not the leaf-area-only frozen-geometry graft. Built
+// ONCE per stage and shared across cohorts (O(N) per knot, not O(N^2)).
+// ===========================================================================
+
+// Competition at a frozen knot z over the active stand (descending heights h,
+// per-node effect-coefficients geff_i = density_i*kI*area_leaf_i; the boundary node
+// appended with its frozen ce_b). Matches Species::compute_competition's trapezium
+// (comp = (1/2) sum_adjacent (h0-h1)(g0+g1), g_i = geff_i*Q(z/h_i), Q the Yokozawa
+// (1-u^eta)^2). Returned UN-divided by patch area (caller divides). z is the frozen
+// knot (double); h_i / geff_i are active. Crown check on the height VALUE (discrete).
+template <typename S>
+S coupled_comp_at(double z, const std::vector<S>& h, const std::vector<S>& geff,
+                  double eta) {
+  using std::pow;
+  const std::size_t n = h.size();
+  if (n < 2) return S(0.0);
+  auto g = [&](std::size_t i) -> S {
+    if (z >= as_double(h[i])) return S(0.0);     // no leaf area above the crown
+    const S u  = S(z) / h[i];
+    const S om = S(1.0) - pow(u, S(eta));
+    return geff[i] * (om * om);
+  };
+  S comp = S(0.0);
+  S gp = g(0); S hp = h[0];
+  for (std::size_t i = 1; i < n; ++i) {
+    S gi = g(i);
+    comp = comp + (hp - h[i]) * (gp + gi);
+    hp = h[i]; gp = gi;
+  }
+  return S(0.5) * comp;
+}
+
+// Deep-crown net at `height` reading the ACTIVE light interpolator (the coupled
+// resident canopy). Mirrors deep_net but light(z) = interp(z) [+ analytic z-slope
+// for the focal-height channel], active in the interpolator's knot values. Above the
+// frozen cap light is the open value 1; the #253 floor (max(0,.)) and its zero
+// derivative are replicated so it matches FF16_Environment::get_environment_at_height
+// /get_environment_deriv_at_height at theta0 (where interp == the frozen env spline).
+template <typename S>
+S deep_net_coupled(const plant::FF16ProdPars<S>& pd, const plant::quadrature::QK* integ,
+                   double eta, const odelia::interpolator::basic_interpolator<S>& interp,
+                   double cap, S height) {
+  auto integrand = [&](S z) -> S {
+    double zv = as_double(z);
+    S lv, ld;
+    if (zv > cap) { lv = S(1.0); ld = S(0.0); }
+    else {
+      lv = interp(zv);
+      if (as_double(lv) > 0.0) { ld = interp.deriv(zv); }
+      else { lv = S(0.0); ld = S(0.0); }
+    }
+    S light = lv + ld * (z - S(zv));
+    return plant::ff16_assimilation_leaf<S>(pd.a_p1, pd.a_p2, light) *
+           plant::ff16_canopy_q<S>(eta, z / height, z);
+  };
+  S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, height);
+  S assim = area_leaf * integ->integrate_ad<S>(integrand, S(0.0), height);
+  return plant::ff16_net_from_components(pd, height, area_leaf, assim);
+}
+
+template <typename S>
+S deep_height_dt_coupled(const plant::FF16ProdPars<S>& pd,
+                         const plant::quadrature::QK* integ, double eta,
+                         const odelia::interpolator::basic_interpolator<S>& interp,
+                         double cap, S height) {
+  S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, height);
+  S net = deep_net_coupled<S>(pd, integ, eta, interp, cap, height);
+  return plant::ff16_height_dt_from_net(pd, height, area_leaf, net);
+}
+
+// Single Cash-Karp RKCK step over an arbitrary state (the whole-stand vector), one
+// frozen step of size h at replay step rn. Same tableau as ff16_cashkarp_replay,
+// peeled to a single step so the coupled driver can introduce cohorts between steps.
+template <typename State, typename DerivFn, typename AxpyFn>
+State rkck_one_step(State y, double h, std::size_t rn, DerivFn&& deriv, AxpyFn&& axpy) {
+  const double b21 = 1.0 / 5.0;
+  const double b3[2] = {3.0 / 40.0, 9.0 / 40.0};
+  const double b4[3] = {0.3, -0.9, 1.2};
+  const double b5[4] = {-11.0 / 54.0, 2.5, -70.0 / 27.0, 35.0 / 27.0};
+  const double b6[5] = {1631.0 / 55296.0, 175.0 / 512.0, 575.0 / 13824.0,
+                        44275.0 / 110592.0, 253.0 / 4096.0};
+  const double c1 = 37.0 / 378.0, c3 = 250.0 / 621.0,
+               c4 = 125.0 / 594.0, c6 = 512.0 / 1771.0;
+  const State k1 = deriv(y, rn, 0);
+  const State k2 = deriv(axpy(y, b21 * h, k1), rn, 1);
+  State y3 = axpy(y, h * b3[0], k1); y3 = axpy(y3, h * b3[1], k2);
+  const State k3 = deriv(y3, rn, 2);
+  State y4 = axpy(y, h * b4[0], k1);
+  y4 = axpy(y4, h * b4[1], k2); y4 = axpy(y4, h * b4[2], k3);
+  const State k4 = deriv(y4, rn, 3);
+  State y5 = axpy(y, h * b5[0], k1);
+  y5 = axpy(y5, h * b5[1], k2); y5 = axpy(y5, h * b5[2], k3); y5 = axpy(y5, h * b5[3], k4);
+  const State k5 = deriv(y5, rn, 4);
+  State y6 = axpy(y, h * b6[0], k1);
+  y6 = axpy(y6, h * b6[1], k2); y6 = axpy(y6, h * b6[2], k3);
+  y6 = axpy(y6, h * b6[3], k4); y6 = axpy(y6, h * b6[4], k5);
+  const State k6 = deriv(y6, rn, 5);
+  return axpy(axpy(axpy(axpy(y, h * c1, k1), h * c3, k3), h * c4, k4), h * c6, k6);
+}
+
+// The coupled whole-stand replay + emergent-metric reduction. Re-evolves all
+// cohorts together over the frozen schedule, reconstructing the active canopy each
+// RK stage, and reduces the final census to the requested metrics. Cohort initial
+// conditions use the FROZEN harvested birth env (exact at theta0; the birth-env
+// feedback is a small deferred channel) -- only the GROWTH-phase env is active.
+// If env_err != nullptr (double only), accumulates max|reconstructed knot light -
+// SCM knot light| across all stages (the R0 coupled-drift gauge).
+template <typename S>
+std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const Frozen& F,
+    const std::vector<std::string>& metrics, double birth_rate, S h0,
+    double* env_err = nullptr, double* env_err_z = nullptr) {
+  using std::exp; using std::log;
+  using interp_t = odelia::interpolator::basic_interpolator<S>;
+  const std::size_t nC = F.birth.size(), N = F.eh.size();
+  const double GEPS = 1e-6;                          // Control::node_gradient_eps
+
+  std::vector<CensusState<S>> stand(nC);             // all cohorts, zero until birth
+  std::vector<char> alive(nC, 0);
+
+  // (rn, stage) -> the cached env (en, es) it reads, mirroring stage_env().
+  auto env_idx = [&](std::size_t rn, int rs, std::size_t& en, int& es) {
+    if (rs == 0) { if (rn > 0) { en = rn - 1; es = 5; } else { en = 0; es = 0; } }
+    else { en = rn; es = rs - 1; }
+  };
+
+  // Build the active light interpolator at (en, es)'s frozen knots from the current
+  // alive stand + the frozen boundary node. Shared by all cohorts in this stage.
+  auto build_interp = [&](const std::vector<CensusState<S>>& y,
+                          std::size_t en, int es) -> interp_t {
+    const std::vector<double>& kx = F.knot_x[en][es];
+    std::vector<S> hv, gv;
+    hv.reserve(nC + 1); gv.reserve(nC + 1);
+    for (std::size_t i = 0; i < nC; ++i) if (alive[i]) {
+      S hi = y[i].demog.height;
+      S dens = exp(y[i].log_density);
+      S al = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, hi);
+      hv.push_back(hi); gv.push_back(dens * S(F.kI) * al);
+    }
+    hv.push_back(S(F.nn_h[en][es])); gv.push_back(S(F.nn_c[en][es]));  // boundary tail
+    std::vector<std::size_t> ord(hv.size());
+    for (std::size_t i = 0; i < ord.size(); ++i) ord[i] = i;
+    std::sort(ord.begin(), ord.end(),
+              [&](std::size_t a, std::size_t b){ return as_double(hv[a]) > as_double(hv[b]); });
+    std::vector<S> hs(hv.size()), gs(hv.size());
+    for (std::size_t k = 0; k < ord.size(); ++k) { hs[k] = hv[ord[k]]; gs[k] = gv[ord[k]]; }
+    std::vector<S> ly(kx.size());
+    for (std::size_t k = 0; k < kx.size(); ++k)
+      ly[k] = exp(-coupled_comp_at<S>(kx[k], hs, gs, F.eta) * S(1.0 / F.area));
+    if (env_err) {
+      const std::vector<double>& y0 = F.knot_y0[en][es];
+      for (std::size_t k = 0; k < ly.size() && k < y0.size(); ++k) {
+        double e = std::abs(as_double(ly[k]) - y0[k]);
+        if (e > *env_err) { *env_err = e; if (env_err_z) *env_err_z = kx[k]; }
+      }
+    }
+    interp_t interp; interp.init(kx, ly);
+    return interp;
+  };
+
+  // Whole-stand derivative at replay step rn, RK stage rs (alive cohorts only).
+  auto deriv = [&](const std::vector<CensusState<S>>& y, std::size_t rn, int rs)
+      -> std::vector<CensusState<S>> {
+    std::size_t en; int es; env_idx(rn, rs, en, es);
+    interp_t interp = build_interp(y, en, es);
+    const double cap = F.knot_x[en][es].back();
+    std::vector<CensusState<S>> dy(nC);
+    for (std::size_t i = 0; i < nC; ++i) {
+      if (!alive[i]) {
+        dy[i] = CensusState<S>{plant::FF16State<S>{S(0),S(0),S(0),S(0),S(0)}, S(0)};
+        continue;
+      }
+      const S h = y[i].demog.height;
+      S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h);
+      S net = deep_net_coupled<S>(pd, F.integ, F.eta, interp, cap, h);
+      plant::FF16Rates<S> r = plant::ff16_compute_rates_from_net(pd, h, area_leaf, net, true);
+      // log_density rate: -(g' + mortality_dt); g' = backward FD (abs step GEPS) of
+      // height_dt, reusing r.height_dt as fx (the SCM's own scheme).
+      S g_back = deep_height_dt_coupled<S>(pd, F.integ, F.eta, interp, cap, h - S(GEPS));
+      S gprime = (r.height_dt - g_back) / S(GEPS);
+      S log_density_dt = -gprime - r.mortality_dt;
+      dy[i] = CensusState<S>{plant::FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+        r.area_heartwood_dt, r.mass_heartwood_dt}, log_density_dt};
+    }
+    return dy;
+  };
+  auto axpy = [&](const std::vector<CensusState<S>>& a, double c,
+                  const std::vector<CensusState<S>>& k) -> std::vector<CensusState<S>> {
+    std::vector<CensusState<S>> r(a.size());
+    for (std::size_t i = 0; i < a.size(); ++i)
+      r[i] = CensusState<S>{plant::FF16State<S>{
+        a[i].demog.height + c * k[i].demog.height,
+        a[i].demog.mortality + c * k[i].demog.mortality,
+        a[i].demog.fecundity + c * k[i].demog.fecundity,
+        a[i].demog.area_heartwood + c * k[i].demog.area_heartwood,
+        a[i].demog.mass_heartwood + c * k[i].demog.mass_heartwood},
+        a[i].log_density + c * k[i].log_density};
+    return r;
+  };
+
+  // March the frozen schedule: introduce cohorts born at step rn, then step all.
+  for (std::size_t rn = 0; rn < N; ++rn) {
+    for (std::size_t i = 0; i < nC; ++i) {
+      if ((std::size_t)F.birth[i] != rn) continue;
+      // Initial conditions in the FROZEN harvested birth env (deep_net over F.eh).
+      const plant::FF16_Environment* eb = (rn > 0) ? &F.eh[rn-1][5] : &F.eh[0][0];
+      S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
+      S net0 = deep_net<S>(pd, F.integ, F.eta, eb, h0);
+      S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
+      S mort0 = -log(pr_estab);
+      S g0 = deep_height_dt<S>(pd, F.integ, F.eta, eb, h0);
+      S logd0 = log(S(birth_rate) * pr_estab / g0);
+      stand[i] = CensusState<S>{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, logd0};
+      alive[i] = 1;
+    }
+    stand = rkck_one_step(stand, F.step_h[rn], rn, deriv, axpy);
+  }
+
+  // Final-census reduction: the size-distribution integral = the height-trapezium of
+  // density_i * psi(state_i) over the cohorts (descending height) + the pending-seed
+  // tail. Mirrors assemble_metrics' census_reduce (the boundary seed via the FINAL
+  // active env reconstructed from the final stand).
+  std::vector<std::size_t> ord(nC);
+  for (std::size_t i = 0; i < nC; ++i) ord[i] = i;
+  std::sort(ord.begin(), ord.end(), [&](std::size_t a, std::size_t b){
+    return as_double(stand[a].demog.height) > as_double(stand[b].demog.height); });
+
+  // Pending-seed density via establishment in the FINAL env (frozen harvested tail).
+  S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
+  S net0 = deep_net<S>(pd, F.integ, F.eta, &F.eh.back()[5], h0);
+  S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay.back());
+  S g0 = deep_height_dt<S>(pd, F.integ, F.eta, &F.eh.back()[5], h0);
+  S dens_new = S(birth_rate) * pr_estab / g0;
+
+  auto census_reduce = [&](auto psi) -> S {
+    std::vector<S> phi(nC);
+    for (std::size_t i = 0; i < nC; ++i)
+      phi[i] = psi(stand[i].demog.height, exp(stand[i].log_density), stand[i].demog.mass_heartwood);
+    S J = S(0.0);
+    for (std::size_t j = 0; j + 1 < nC; ++j) {
+      const std::size_t a = ord[j], b = ord[j+1];
+      J = J + S(0.5) * (stand[a].demog.height - stand[b].demog.height) * (phi[a] + phi[b]);
+    }
+    if (nC > 0) {
+      const std::size_t last = ord[nC-1];
+      S phi_new = psi(h0, dens_new, S(0.0));
+      J = J + S(0.5) * (stand[last].demog.height - h0) * (phi[last] + phi_new);
+    }
+    return J;
+  };
+
+  std::vector<S> J(metrics.size());
+  for (std::size_t m = 0; m < metrics.size(); ++m) {
+    const std::string& nm = metrics[m];
+    if (nm == "LAI") {
+      J[m] = census_reduce([&](S h, S dens, S) -> S {
+        return dens * S(F.kI) * plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h); });
+    } else if (nm == "biomass") {
+      J[m] = census_reduce([&](S h, S dens, S mhw) -> S {
+        return dens * (plant::ff16_mass_live_given_height(pd, h) + mhw); });
+    } else { // size_moment
+      J[m] = census_reduce([&](S h, S dens, S) -> S { return dens * h; });
+    }
+  }
+  return J;
+}
+
+// Populate the COUPLED harvest on F: kI, the frozen knot x-positions + SCM knot light
+// values per cached stage (from F.eh's light spline), and the boundary new_node
+// (height + competition effect) per stage from the R-side harvest.
+void attach_coupled(Frozen& F, double kI, double area,
+                    Rcpp::List nn_h_list, Rcpp::List nn_c_list) {
+  F.coupled = true; F.kI = kI; F.area = area;
+  const std::size_t N = F.eh.size();
+  F.knot_x.resize(N); F.knot_y0.resize(N);
+  F.nn_h.resize(N); F.nn_c.resize(N);
+  for (std::size_t n = 0; n < N; ++n) {
+    const std::size_t ns = F.eh[n].size();
+    F.knot_x[n].resize(ns); F.knot_y0[n].resize(ns);
+    for (std::size_t s = 0; s < ns; ++s) {
+      F.knot_x[n][s]  = F.eh[n][s].light_availability.spline.get_x();
+      F.knot_y0[n][s] = F.eh[n][s].light_availability.spline.get_y();
+    }
+    F.nn_h[n] = Rcpp::as<std::vector<double>>(nn_h_list[n]);
+    F.nn_c[n] = Rcpp::as<std::vector<double>>(nn_c_list[n]);
+  }
+}
+
 } // namespace
 
 // Reverse-mode probe (CI smoke test of the tape-at-load): d(fecundity_dt)/d(a_p1)
@@ -774,6 +1086,37 @@ Rcpp::List ff16_stand_gradient_impl(
   values.attr("names") = Rcpp::wrap(metrics);
   return Rcpp::List::create(Rcpp::Named("jacobian") = jac,
                             Rcpp::Named("values")   = values);
+}
+
+// R0 gate for the COUPLED resident replay (#472 scope B): a double-precision whole-
+// stand re-evolution that reconstructs the active canopy per RK stage and reduces the
+// emergent metrics. Returns the reconstructed metric VALUES and `env_err` = the worst
+// |reconstructed knot light - SCM knot light| over all stages (the coupled-drift
+// gauge -- should be ~3e-14 if the re-evolution reproduces the SCM stand). nn_h_list/
+// nn_c_list are the boundary new_node height/effect per cached stage (R harvest).
+// [[Rcpp::export]]
+Rcpp::List ff16_coupled_metrics_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, std::vector<std::string> metrics, double birth_rate,
+    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area) {
+  auto s  = make_strategy(pp);
+  auto pd = s.prod_pars();
+  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
+  attach_coupled(F, s.pars.k_I, patch_area, nn_h_list, nn_c_list);
+  for (auto& nm : metrics)
+    if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
+      Rcpp::stop("coupled metrics: expected LAI / biomass / size_moment, got " + nm);
+  const double h0v = s.initial_height();
+  double env_err = 0.0, env_err_z = -1.0;
+  std::vector<double> J = assemble_metrics_coupled<double>(pd, F, metrics, birth_rate,
+                                                           h0v, &env_err, &env_err_z);
+  Rcpp::NumericVector values(J.size());
+  for (std::size_t m = 0; m < J.size(); ++m) values[m] = J[m];
+  values.attr("names") = Rcpp::wrap(metrics);
+  return Rcpp::List::create(Rcpp::Named("values") = values,
+                            Rcpp::Named("env_err") = env_err,
+                            Rcpp::Named("env_err_z") = env_err_z);
 }
 
 // De-risk accessor: reconstruct each cohort's census height + log_density (double

@@ -12615,6 +12615,28 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ff16_coupled_metrics_impl
+Rcpp::List ff16_coupled_metrics_impl(Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw, std::vector<std::string> metrics, double birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area);
+RcppExport SEXP _plant_ff16_coupled_metrics_impl(SEXP ppSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP ppsurvSEXP, SEXP ppsabSEXP, SEXP twSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP nn_h_listSEXP, SEXP nn_c_listSEXP, SEXP patch_areaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type eh_list(eh_listSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sh(shSEXP);
+    Rcpp::traits::input_parameter< std::vector<int> >::type birth(birthSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type ppsurv(ppsurvSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type ppsab(ppsabSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type tw(twSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type metrics(metricsSEXP);
+    Rcpp::traits::input_parameter< double >::type birth_rate(birth_rateSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type nn_h_list(nn_h_listSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type nn_c_list(nn_c_listSEXP);
+    Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_coupled_metrics_impl(pp, eh_list, sh, birth, ppsurv, ppsab, tw, metrics, birth_rate, nn_h_list, nn_c_list, patch_area));
+    return rcpp_result_gen;
+END_RCPP
+}
 // ff16_census_reconstruct_impl
 Rcpp::List ff16_census_reconstruct_impl(Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw, double birth_rate);
 RcppExport SEXP _plant_ff16_census_reconstruct_impl(SEXP ppSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP ppsurvSEXP, SEXP ppsabSEXP, SEXP twSEXP, SEXP birth_rateSEXP) {
@@ -14155,6 +14177,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ff16_reverse_tape_probe", (DL_FUNC) &_plant_ff16_reverse_tape_probe, 2},
     {"_plant_ff16_offspring_production_gradient_impl", (DL_FUNC) &_plant_ff16_offspring_production_gradient_impl, 8},
     {"_plant_ff16_stand_gradient_impl", (DL_FUNC) &_plant_ff16_stand_gradient_impl, 16},
+    {"_plant_ff16_coupled_metrics_impl", (DL_FUNC) &_plant_ff16_coupled_metrics_impl, 12},
     {"_plant_ff16_census_reconstruct_impl", (DL_FUNC) &_plant_ff16_census_reconstruct_impl, 8},
     {"_plant_ff16_state_jacobian_impl", (DL_FUNC) &_plant_ff16_state_jacobian_impl, 8},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
