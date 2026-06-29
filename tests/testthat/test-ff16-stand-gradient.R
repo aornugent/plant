@@ -105,6 +105,109 @@ test_that("feedback='resident' is the coupled total gradient (every trait feeds 
   expect_equal(gro$jacobian, gfo$jacobian, tolerance = 1e-8)
 })
 
+# Helper: harvest a multi-species FF16 SCM into the per-species arrays the multi-species
+# coupled engine consumes (mirrors ff16_harvest's single-species gather, all species).
+ms_harvest <- function(scm) {
+  patch <- scm$patch
+  nsp <- length(scm$parameters$strategies)
+  sh  <- patch$step_history
+  list(
+    pp_list = lapply(seq_len(nsp), function(s)
+      unlist(scm$parameters$strategies[[s]]$pars)),
+    eh = patch$environment_history, sh = sh,
+    birth_list = lapply(seq_len(nsp), function(s)
+      vapply(patch$species[[s]]$node_times,
+             function(t) which.min(abs(sh - t)) - 1L, integer(1))),
+    birth_rate = vapply(seq_len(nsp), function(s)
+      scm$offspring_production[[s]] / scm$net_reproduction_ratios[[s]], numeric(1)),
+    nn_h = patch$stand_newnode_height_stage_history_all,
+    nn_c = patch$stand_newnode_competition_stage_history_all,
+    area = scm$parameters$patch_area, nsp = nsp)
+}
+
+test_that("feedback='resident' on a multi-species stand is the cross-species gradient", {
+  p <- scm_base_parameters("FF16")
+  p <- add_strategies(p, trait_matrix(c(0.0825, 0.2), "lma"), hyperpar = FF16_hyperpar,
+                      birth_rate = list(20, 20))
+  p$node_schedule_times <- list(seq(0, 70, length.out = 16), seq(0, 70, length.out = 16))
+  p$max_patch_lifetime <- 70
+  scm <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
+                 refine_schedule = FALSE)
+  tr <- c("lma", "a_p1")
+  # The public resident path on a >1-species stand routes to the cross-species coupled
+  # engine: d(TOTAL-stand metric)/d(theta of species `species`), finite + matching the
+  # internal impl, and materially different from the per-species frozen reading.
+  gr <- stand_gradient(scm, metrics = c("LAI", "size_moment"), traits = tr,
+                       species = 1L, feedback = "resident")
+  expect_true(all(is.finite(gr$jacobian)))
+  h <- plant:::ff16_harvest_ms(scm)
+  gms <- plant:::ff16_coupled_gradient_ms_impl(h$pp_list, h$eh, h$sh, h$birth_list, tr,
+           c("LAI", "size_moment"), h$birth_rate, h$nn_h, h$nn_c, h$patch_area, 1L)
+  expect_equal(gr$jacobian, gms$jacobian, tolerance = 1e-10)
+  gf <- stand_gradient(scm, metrics = c("LAI", "size_moment"), traits = tr,
+                       species = 1L, feedback = "frozen")
+  expect_true(all(abs(gr$jacobian - gf$jacobian) > 0))
+  # frozen is also fine multi-species (per-species invasion gradient).
+  expect_equal(dim(gf$jacobian), c(2L, length(tr)))
+})
+
+test_that("multi-species coupled R0 reconstructs the joint canopy + total metrics", {
+  p <- scm_base_parameters("FF16")
+  p <- add_strategies(p, trait_matrix(c(0.0825, 0.2), "lma"), hyperpar = FF16_hyperpar,
+                      birth_rate = list(20, 20))
+  p$node_schedule_times <- list(seq(0, 70, length.out = 14), seq(0, 70, length.out = 14))
+  p$max_patch_lifetime <- 70
+  scm <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
+                 refine_schedule = FALSE)
+  h <- ms_harvest(scm)
+  mets <- c("LAI", "biomass", "size_moment")
+  ms <- plant:::ff16_coupled_metrics_ms_impl(h$pp_list, h$eh, h$sh, h$birth_list, mets,
+          h$birth_rate, h$nn_h, h$nn_c, h$area)
+  # joint canopy re-evolution tracks the SCM stand (env drift small on a fixed schedule)
+  expect_lt(ms$env_err, 1e-3)
+  # total LAI reconstructs the SCM's compute_competition(0) at the final census
+  scm_lai <- -log(h$eh[[length(h$eh)]][[6]]$get_environment_at_height(0))
+  expect_equal(unname(ms$values[["LAI"]]), scm_lai, tolerance = 5e-3)
+  # total biomass/size_moment == the single-species frozen engine summed over species
+  frz <- c(LAI = 0, biomass = 0, size_moment = 0)
+  for (s in seq_len(h$nsp))
+    frz <- frz + stand_gradient(scm, metrics = mets, species = s,
+                                feedback = "frozen")$values
+  expect_equal(unname(ms$values[["biomass"]]), unname(frz[["biomass"]]),
+               tolerance = 5e-3)
+})
+
+test_that("multi-species cross-species gradient: AD == coupled-recon FD, cross term != 0", {
+  p <- scm_base_parameters("FF16")
+  p <- add_strategies(p, trait_matrix(c(0.0825, 0.2), "lma"), hyperpar = FF16_hyperpar,
+                      birth_rate = list(20, 20))
+  p$node_schedule_times <- list(seq(0, 70, length.out = 16), seq(0, 70, length.out = 16))
+  p$max_patch_lifetime <- 70
+  scm <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
+                 refine_schedule = FALSE)
+  h <- ms_harvest(scm)
+  mets <- c("LAI", "size_moment"); tr <- "a_p1"; target <- 1L
+  g <- plant:::ff16_coupled_gradient_ms_impl(h$pp_list, h$eh, h$sh, h$birth_list, tr,
+         mets, h$birth_rate, h$nn_h, h$nn_c, h$area, target)
+  # AD vs central FD over the SAME coupled reconstruction. Validate on LAI, the
+  # cleanest metric: the mass/size-weighted reductions carry cohort-height-crossing
+  # value noise that swamps a coarse-schedule FD (a step sweep shows size_moment's FD
+  # bounces by 10x while AD is stable -- AD is the exact reference, FD the noise floor).
+  cval <- function(pt) {
+    pl <- h$pp_list; pl[[target]] <- pt
+    plant:::ff16_coupled_metrics_ms_impl(pl, h$eh, h$sh, h$birth_list, mets,
+      h$birth_rate, h$nn_h, h$nn_c, h$area)$values
+  }
+  d <- 1e-4 * abs(h$pp_list[[target]][[tr]])
+  p1 <- p2 <- h$pp_list[[target]]; p1[[tr]] <- p1[[tr]] + d; p2[[tr]] <- p2[[tr]] - d
+  fd <- (cval(p1) - cval(p2)) / (2 * d)
+  expect_equal(unname(g$jacobian["LAI", tr]), unname(fd[["LAI"]]), tolerance = 2e-2)
+  # the cross-species + self feedback moves the total gradient off the frozen reading
+  gf <- stand_gradient(scm, metrics = mets, traits = tr, species = target,
+                       feedback = "frozen")
+  expect_true(all(abs(g$jacobian[, tr] - gf$jacobian[, tr]) > 0))
+})
+
 test_that("stand_state_jacobian matches a frozen-resident FD per cohort", {
   p <- scm_base_parameters("FF16")
   p <- add_strategies(p, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar,

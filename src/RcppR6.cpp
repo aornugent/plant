@@ -2561,6 +2561,42 @@ void Patch___FF16__FF16_Env__stand_newnode_competition_stage_history__set(plant:
   obj_->stand_newnode_competition_stage_history = value;
 }
 
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<std::vector<double> > > >  Patch___FF16__FF16_Env__stand_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->stand_height_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___FF16__FF16_Env__stand_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > >  value) {
+  obj_->stand_height_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<std::vector<double> > > >  Patch___FF16__FF16_Env__stand_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->stand_competition_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___FF16__FF16_Env__stand_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > >  value) {
+  obj_->stand_competition_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<double> > > Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->stand_newnode_height_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value) {
+  obj_->stand_newnode_height_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<double> > > Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->stand_newnode_competition_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value) {
+  obj_->stand_newnode_competition_stage_history_all = value;
+}
+
 
 // [[Rcpp::export]]
 plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> Patch___TF24__TF24_Env__ctor(plant::Parameters<plant::TF24_Strategy,plant::TF24_Environment> parameters, plant::TF24_Environment environment, plant::Control control) {
@@ -2762,6 +2798,42 @@ std::vector<std::vector<double> > Patch___TF24__TF24_Env__stand_newnode_competit
 // [[Rcpp::export]]
 void Patch___TF24__TF24_Env__stand_newnode_competition_stage_history__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<double> > value) {
   obj_->stand_newnode_competition_stage_history = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<std::vector<double> > > >  Patch___TF24__TF24_Env__stand_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->stand_height_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___TF24__TF24_Env__stand_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > >  value) {
+  obj_->stand_height_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<std::vector<double> > > >  Patch___TF24__TF24_Env__stand_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->stand_competition_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___TF24__TF24_Env__stand_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > >  value) {
+  obj_->stand_competition_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<double> > > Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->stand_newnode_height_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value) {
+  obj_->stand_newnode_height_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<double> > > Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->stand_newnode_competition_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value) {
+  obj_->stand_newnode_competition_stage_history_all = value;
 }
 
 
@@ -2967,6 +3039,42 @@ void Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history__set(plant
   obj_->stand_newnode_competition_stage_history = value;
 }
 
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<std::vector<double> > > >  Patch___TF24f__TF24_Env__stand_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->stand_height_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___TF24f__TF24_Env__stand_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > >  value) {
+  obj_->stand_height_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<std::vector<double> > > >  Patch___TF24f__TF24_Env__stand_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->stand_competition_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___TF24f__TF24_Env__stand_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > >  value) {
+  obj_->stand_competition_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<double> > > Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->stand_newnode_height_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value) {
+  obj_->stand_newnode_height_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<double> > > Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->stand_newnode_competition_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value) {
+  obj_->stand_newnode_competition_stage_history_all = value;
+}
+
 
 // [[Rcpp::export]]
 plant::Patch<plant::K93_Strategy,plant::K93_Environment> Patch___K93__K93_Env__ctor(plant::Parameters<plant::K93_Strategy,plant::K93_Environment> parameters, plant::K93_Environment environment, plant::Control control) {
@@ -3168,6 +3276,42 @@ std::vector<std::vector<double> > Patch___K93__K93_Env__stand_newnode_competitio
 // [[Rcpp::export]]
 void Patch___K93__K93_Env__stand_newnode_competition_stage_history__set(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<std::vector<double> > value) {
   obj_->stand_newnode_competition_stage_history = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<std::vector<double> > > >  Patch___K93__K93_Env__stand_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->stand_height_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___K93__K93_Env__stand_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > >  value) {
+  obj_->stand_height_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<std::vector<double> > > >  Patch___K93__K93_Env__stand_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->stand_competition_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___K93__K93_Env__stand_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > >  value) {
+  obj_->stand_competition_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<double> > > Patch___K93__K93_Env__stand_newnode_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->stand_newnode_height_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___K93__K93_Env__stand_newnode_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value) {
+  obj_->stand_newnode_height_stage_history_all = value;
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<std::vector<double> > > Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->stand_newnode_competition_stage_history_all;
+}
+// [[Rcpp::export]]
+void Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value) {
+  obj_->stand_newnode_competition_stage_history_all = value;
 }
 
 

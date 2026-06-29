@@ -119,6 +119,41 @@ ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
        sh_h = sh_h, sh_c = sh_c, nn_h = nn_h, nn_c = nn_c, patch_area = patch_area)
 }
 
+# Harvest a run-with-cache FF16 SCM into the ALL-SPECIES arrays the multi-species
+# coupled engine consumes (the cross-species resident Jacobian, #472 scope B R2): the
+# shared schedule + joint env, per-species parameter vectors / cohort birth steps /
+# constant birth rates, and the all-species per-RK-stage boundary harvest
+# (stand_newnode_*_stage_history_all, [step][stage][species]). The joint stand light is
+# reconstructed in C++ from each species' re-evolved cohorts; only these per-species
+# pieces are needed from R.
+ff16_harvest_ms <- function(scm) {
+  patch <- scm$patch
+  nsp <- length(scm$parameters$strategies)
+  sh  <- patch$step_history
+  eh  <- patch$environment_history
+  if (length(eh) < 1L) {
+    stop("No resident schedule cached: run the SCM with control(save_RK45_cache = TRUE)")
+  }
+  nn_h <- patch$stand_newnode_height_stage_history_all
+  nn_c <- patch$stand_newnode_competition_stage_history_all
+  if (length(nn_h) < 1L) {
+    stop("feedback = 'resident' on a multi-species stand needs the all-species ",
+         "per-RK-stage harvest; re-run the resident SCM on this plant version with ",
+         "control(save_RK45_cache = TRUE)")
+  }
+  list(
+    pp_list = lapply(seq_len(nsp), function(s)
+      unlist(scm$parameters$strategies[[s]]$pars)),
+    eh = eh, sh = sh,
+    birth_list = lapply(seq_len(nsp), function(s)
+      vapply(patch$species[[s]]$node_times,
+             function(t) which.min(abs(sh - t)) - 1L, integer(1))),
+    birth_rate = vapply(seq_len(nsp), function(s)
+      scm$offspring_production[[s]] / scm$net_reproduction_ratios[[s]], numeric(1)),
+    nn_h = nn_h, nn_c = nn_c,
+    patch_area = scm$parameters$patch_area, nsp = nsp)
+}
+
 ##' Reverse-mode trait gradient of an SCM's emergent stand metrics (#472 scope B,
 ##' the calibration-facing generic engine, FF16).
 ##'
@@ -159,7 +194,22 @@ ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
 ##'   and flips the sign of the census metrics (LAI / biomass / size-moment) relative
 ##'   to the frozen reading. Applies to the census metrics; \code{offspring_production}
 ##'   stays \code{"frozen"} (the invasion gradient) even under \code{"resident"}. FF16
-##'   only so far (#472 scope B, R0-R1).
+##'   only so far (#472 scope B). \strong{Recommended use} (scope decision): for the
+##'   census metrics (LAI / biomass / size_moment) \code{"resident"} is the correct
+##'   stand-level total gradient and \code{"frozen"} the rare-mutant invasion gradient;
+##'   for \code{offspring_production} the two coincide (it is always the invasion
+##'   gradient). The default is left at \code{"frozen"} so the function is a safe,
+##'   backward-compatible no-feedback derivative unless feedback is asked for.
+##'   \strong{Multi-species:} on a stand with more than one species \code{"resident"}
+##'   returns the CROSS-SPECIES total gradient \eqn{d(\mathrm{total\ stand\ metric})/
+##'   d(\theta_{\mathrm{species}})} -- the joint canopy is rebuilt from every species'
+##'   re-evolved cohorts and the census metrics are summed over species, so the
+##'   differentiated species' traits feed back through the canopy that every species
+##'   reads (the cross term \code{"frozen"} sets to zero). The joint re-evolution is
+##'   well-conditioned on a \emph{fixed} node schedule; on a strongly clustered
+##'   adaptively-refined schedule it can go stiff, and the function then raises a clear
+##'   error (gated by a cheap baseline pass) asking for a fixed/uniform schedule rather
+##'   than returning a diverged result.
 ##' @return A list with \code{$jacobian} (a metrics x traits matrix) and
 ##'   \code{$values} (the reconstructed metric values, which should match the SCM's
 ##'   emergent outputs).
@@ -211,10 +261,39 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
     jac <- matrix(0, length(metrics), length(traits),
                   dimnames = list(metrics, traits))
     values <- stats::setNames(numeric(length(metrics)), metrics)
+    nsp <- length(scm$patch$species)
     if (length(census)) {
-      gc <- ff16_coupled_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
-              h$ppsab, h$tw, traits, census, h$birth_rate, h$nn_h, h$nn_c,
-              h$patch_area)
+      if (nsp == 1L) {
+        # Single-species coupled total gradient (canopy = this species' re-evolved stand).
+        gc <- ff16_coupled_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
+                h$ppsab, h$tw, traits, census, h$birth_rate, h$nn_h, h$nn_c,
+                h$patch_area)
+      } else {
+        # Multi-species CROSS-SPECIES coupled Jacobian: the joint canopy is rebuilt from
+        # ALL species' re-evolved cohorts and the census metrics are TOTAL-stand sums, so
+        # this returns d(total-stand metric)/d(theta of species `species`) -- including
+        # the cross term whereby the differentiated species re-shades the canopy every
+        # species reads. The joint re-evolution is well-conditioned on a fixed node
+        # schedule but can go stiff (one cohort's log-density runs away) on a strongly
+        # clustered ADAPTIVELY-REFINED schedule; a cheap double R0 pass gates it and
+        # raises a clear error (rather than returning NaN) so the caller can re-run the
+        # resident SCM with a fixed/uniform node schedule.
+        hm <- ff16_harvest_ms(scm)
+        r0 <- ff16_coupled_metrics_ms_impl(hm$pp_list, hm$eh, hm$sh, hm$birth_list,
+                census, hm$birth_rate, hm$nn_h, hm$nn_c, hm$patch_area)
+        if (!all(is.finite(r0$values)) || r0$env_err > 1e-2) {
+          stop("the multi-species coupled resident re-evolution diverged on this node ",
+               "schedule (joint env drift = ", signif(r0$env_err, 3), "). The ",
+               "cross-species coupled gradient needs a well-conditioned node schedule; ",
+               "re-run the resident SCM with a fixed/uniform schedule (e.g. ",
+               "p$node_schedule_times <- list(seq(0, T, length.out = n), ...); ",
+               "run_scm(p, ..., refine_schedule = FALSE)) rather than an adaptively ",
+               "refined one.")
+        }
+        gc <- ff16_coupled_gradient_ms_impl(hm$pp_list, hm$eh, hm$sh, hm$birth_list,
+                traits, census, hm$birth_rate, hm$nn_h, hm$nn_c, hm$patch_area,
+                as.integer(species))
+      }
       jac[census, ] <- gc$jacobian[census, , drop = FALSE]
       values[census] <- gc$values[census]
     }

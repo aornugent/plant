@@ -107,6 +107,13 @@ struct Frozen {
   double kI = 0.0;
   std::vector<std::vector<std::vector<double>>> knot_x, knot_y0;
   std::vector<std::vector<double>> nn_h, nn_c;
+  // ACTIVE birth-env establishment (#472 scope B, R1 step 2). When true the cohort
+  // initial conditions (net0/pr_estab/mort0/g0/logd0) read the canopy RECONSTRUCTED
+  // from the already-alive cohorts at the start of the birth step (active in theta),
+  // not the FROZEN harvested birth env -- so a trait feeds back through establishment
+  // too. Exact at theta0 (the alive set there == the harvested stand). false restores
+  // the frozen-birth-env behaviour (used to A/B-measure the birth-env channel).
+  bool coupled_active_birthenv = true;
 };
 
 // Deep-crown net at `height` reading the frozen env `e` (moving-node GK integral).
@@ -823,18 +830,38 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
 
   // March the frozen schedule: introduce cohorts born at step rn, then step all.
   for (std::size_t rn = 0; rn < N; ++rn) {
-    for (std::size_t i = 0; i < nC; ++i) {
-      if ((std::size_t)F.birth[i] != rn) continue;
-      // Initial conditions in the FROZEN harvested birth env (deep_net over F.eh).
-      const plant::FF16_Environment* eb = (rn > 0) ? &F.eh[rn-1][5] : &F.eh[0][0];
-      S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
-      S net0 = deep_net<S>(pd, F.integ, F.eta, eb, h0);
-      S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
-      S mort0 = -log(pr_estab);
-      S g0 = deep_height_dt<S>(pd, F.integ, F.eta, eb, h0);
-      S logd0 = log(S(birth_rate) * pr_estab / g0);
-      stand[i] = CensusState<S>{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, logd0};
-      alive[i] = 1;
+    // Birth canopy at the start of step rn (stage 0 env env_idx(rn,0)). ACTIVE path:
+    // reconstruct it from the already-alive cohorts (born < rn) + the boundary node
+    // BEFORE adding the cohorts born at rn -- non-circular (cohort i is not yet
+    // alive), exact at theta0 (the alive set here reproduces the harvested stand at
+    // (rn-1,5)). FROZEN path: read the harvested env F.eh as a constant.
+    bool any_born = false;
+    for (std::size_t i = 0; i < nC; ++i)
+      if ((std::size_t)F.birth[i] == rn) { any_born = true; break; }
+    if (any_born) {
+      std::size_t en; int es; env_idx(rn, 0, en, es);
+      const plant::FF16_Environment* eb = stage_env<S>(F, rn, 0);
+      interp_t binterp;
+      double bcap = 0.0;
+      const bool active_be = F.coupled_active_birthenv;
+      if (active_be) { binterp = build_interp(stand, en, es); bcap = F.knot_x[en][es].back(); }
+      for (std::size_t i = 0; i < nC; ++i) {
+        if ((std::size_t)F.birth[i] != rn) continue;
+        S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
+        S net0, g0;
+        if (active_be) {
+          net0 = deep_net_coupled<S>(pd, F.integ, F.eta, binterp, bcap, h0);
+          g0   = deep_height_dt_coupled<S>(pd, F.integ, F.eta, binterp, bcap, h0);
+        } else {
+          net0 = deep_net<S>(pd, F.integ, F.eta, eb, h0);
+          g0   = deep_height_dt<S>(pd, F.integ, F.eta, eb, h0);
+        }
+        S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
+        S mort0 = -log(pr_estab);
+        S logd0 = log(S(birth_rate) * pr_estab / g0);
+        stand[i] = CensusState<S>{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, logd0};
+        alive[i] = 1;
+      }
     }
     stand = rkck_one_step(stand, F.step_h[rn], rn, deriv, axpy);
   }
@@ -892,8 +919,10 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
 // values per cached stage (from F.eh's light spline), and the boundary new_node
 // (height + competition effect) per stage from the R-side harvest.
 void attach_coupled(Frozen& F, double kI, double area,
-                    Rcpp::List nn_h_list, Rcpp::List nn_c_list) {
+                    Rcpp::List nn_h_list, Rcpp::List nn_c_list,
+                    bool active_birthenv = true) {
   F.coupled = true; F.kI = kI; F.area = area;
+  F.coupled_active_birthenv = active_birthenv;
   const std::size_t N = F.eh.size();
   F.knot_x.resize(N); F.knot_y0.resize(N);
   F.nn_h.resize(N); F.nn_c.resize(N);
@@ -907,6 +936,302 @@ void attach_coupled(Frozen& F, double kI, double area,
     F.nn_h[n] = Rcpp::as<std::vector<double>>(nn_h_list[n]);
     F.nn_c[n] = Rcpp::as<std::vector<double>>(nn_c_list[n]);
   }
+}
+
+// ===========================================================================
+// MULTI-SPECIES COUPLED replay (#472 scope B, R2 -- the cross-species resident
+// Jacobian). All species' cohorts are re-evolved TOGETHER over the frozen schedule;
+// the canopy light each RK stage is the JOINT reconstruction
+//   competition(z) = (1/area) * sum_species [ trapezium over species s's active
+//                    cohorts + its boundary node, with species s's eta ]
+// (matching Patch::compute_competition = sum_s Species_s::compute_competition/area --
+// per-species trapeziums summed, NOT one merged trapezium). Every census metric is
+// the sum over species of that species' size-distribution trapezium. Differentiating
+// w.r.t. ONE species' traits gives the cross-species total: the target species'
+// traits move its cohorts, which re-shade the joint canopy that EVERY species reads,
+// so the other species' contributions respond too (the cross term the frozen/mutant
+// gradient sets to zero).
+// ===========================================================================
+
+// Per-species frozen harvest for the multi-species coupled replay. The schedule, the
+// joint env spline knots (knot_x/knot_y0 from the joint eh) and the patch area are
+// shared; everything else is per species.
+struct FrozenMS {
+  std::vector<std::vector<plant::FF16_Environment>> eh;          // joint env [step][0..5]
+  std::vector<double> step_h;
+  const plant::quadrature::QK* integ = nullptr;
+  double area = 1.0;
+  std::vector<std::vector<std::vector<double>>> knot_x, knot_y0; // [step][stage][knot]
+  bool active_birthenv = true;
+
+  std::size_t nS = 0;
+  std::vector<plant::FF16ProdPars<double>> pd;                   // [species]
+  std::vector<double> eta, kI, a_d0, h0, birth_rate;             // [species]
+  std::vector<std::vector<int>> birth;                           // [species][cohort]
+  std::vector<std::vector<double>> decay;                        // [species][cohort]
+  std::vector<std::vector<std::vector<double>>> nn_h, nn_c;      // [species][step][stage]
+};
+
+// The coupled whole-stand replay + emergent-metric reduction, ALL SPECIES. Re-evolves
+// every species' cohorts together, reconstructing the joint canopy each RK stage, and
+// reduces the final census to the requested TOTAL-stand metrics (summed over species).
+// pds carries the per-species prod_pars lifted to S; h0s the per-species seedling
+// height (active for the differentiated species via the IFT injection). If env_err !=
+// nullptr (double only) accumulates max|reconstructed knot light - SCM knot light|.
+template <typename S>
+std::vector<S> assemble_metrics_coupled_ms(const std::vector<plant::FF16ProdPars<S>>& pds,
+    const FrozenMS& F, const std::vector<std::string>& metrics,
+    const std::vector<S>& h0s, double birth_rate_unused = 0.0,
+    double* env_err = nullptr, double* env_err_z = nullptr) {
+  using std::exp; using std::log;
+  using interp_t = odelia::interpolator::basic_interpolator<S>;
+  const std::size_t nS = F.nS, N = F.eh.size();
+  const double GEPS = 1e-6;                          // Control::node_gradient_eps
+  (void)birth_rate_unused;
+
+  // Flatten cohorts across species into a global list (species, local, birth step).
+  std::vector<std::size_t> gspec, glocal;
+  std::vector<int> gbirth;
+  for (std::size_t s = 0; s < nS; ++s)
+    for (std::size_t i = 0; i < F.birth[s].size(); ++i) {
+      gspec.push_back(s); glocal.push_back(i); gbirth.push_back(F.birth[s][i]);
+    }
+  const std::size_t nG = gspec.size();
+  std::vector<CensusState<S>> stand(nG);
+  std::vector<char> alive(nG, 0);
+
+  auto env_idx = [&](std::size_t rn, int rs, std::size_t& en, int& es) {
+    if (rs == 0) { if (rn > 0) { en = rn - 1; es = 5; } else { en = 0; es = 0; } }
+    else { en = rn; es = rs - 1; }
+  };
+
+  // Joint canopy interpolator at (en,es)'s frozen knots: per-species trapezium summed.
+  auto build_interp = [&](const std::vector<CensusState<S>>& y,
+                          std::size_t en, int es) -> interp_t {
+    const std::vector<double>& kx = F.knot_x[en][es];
+    std::vector<std::vector<S>> hv(nS), gv(nS);
+    for (std::size_t g = 0; g < nG; ++g) if (alive[g]) {
+      const std::size_t s = gspec[g];
+      S hi = y[g].demog.height;
+      S dens = exp(y[g].log_density);
+      S al = plant::ff16_area_leaf(pds[s].a_l1, pds[s].a_l2, hi);
+      hv[s].push_back(hi); gv[s].push_back(dens * S(F.kI[s]) * al);
+    }
+    std::vector<S> comp(kx.size(), S(0.0));
+    for (std::size_t s = 0; s < nS; ++s) {
+      hv[s].push_back(S(F.nn_h[s][en][es]));            // boundary tail (per species)
+      gv[s].push_back(S(F.nn_c[s][en][es]));
+      std::vector<std::size_t> ord(hv[s].size());
+      for (std::size_t i = 0; i < ord.size(); ++i) ord[i] = i;
+      std::sort(ord.begin(), ord.end(), [&](std::size_t a, std::size_t b){
+        return as_double(hv[s][a]) > as_double(hv[s][b]); });
+      std::vector<S> hs(hv[s].size()), gs(hv[s].size());
+      for (std::size_t k = 0; k < ord.size(); ++k) { hs[k] = hv[s][ord[k]]; gs[k] = gv[s][ord[k]]; }
+      for (std::size_t k = 0; k < kx.size(); ++k)
+        comp[k] = comp[k] + coupled_comp_at<S>(kx[k], hs, gs, F.eta[s]);
+    }
+    std::vector<S> ly(kx.size());
+    for (std::size_t k = 0; k < kx.size(); ++k) ly[k] = exp(-comp[k] * S(1.0 / F.area));
+    if (env_err) {
+      const std::vector<double>& y0 = F.knot_y0[en][es];
+      for (std::size_t k = 0; k < ly.size() && k < y0.size(); ++k) {
+        double e = std::abs(as_double(ly[k]) - y0[k]);
+        if (e > *env_err) { *env_err = e; if (env_err_z) *env_err_z = kx[k]; }
+      }
+    }
+    interp_t interp; interp.init(kx, ly);
+    return interp;
+  };
+
+  auto deriv = [&](const std::vector<CensusState<S>>& y, std::size_t rn, int rs)
+      -> std::vector<CensusState<S>> {
+    std::size_t en; int es; env_idx(rn, rs, en, es);
+    interp_t interp = build_interp(y, en, es);
+    const double cap = F.knot_x[en][es].back();
+    std::vector<CensusState<S>> dy(nG);
+    for (std::size_t g = 0; g < nG; ++g) {
+      if (!alive[g]) {
+        dy[g] = CensusState<S>{plant::FF16State<S>{S(0),S(0),S(0),S(0),S(0)}, S(0)};
+        continue;
+      }
+      const std::size_t s = gspec[g];
+      const S h = y[g].demog.height;
+      S area_leaf = plant::ff16_area_leaf(pds[s].a_l1, pds[s].a_l2, h);
+      S net = deep_net_coupled<S>(pds[s], F.integ, F.eta[s], interp, cap, h);
+      plant::FF16Rates<S> r = plant::ff16_compute_rates_from_net(pds[s], h, area_leaf, net, true);
+      S g_back = deep_height_dt_coupled<S>(pds[s], F.integ, F.eta[s], interp, cap, h - S(GEPS));
+      S gprime = (r.height_dt - g_back) / S(GEPS);
+      S log_density_dt = -gprime - r.mortality_dt;
+      dy[g] = CensusState<S>{plant::FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+        r.area_heartwood_dt, r.mass_heartwood_dt}, log_density_dt};
+    }
+    return dy;
+  };
+  auto axpy = [&](const std::vector<CensusState<S>>& a, double c,
+                  const std::vector<CensusState<S>>& k) -> std::vector<CensusState<S>> {
+    std::vector<CensusState<S>> r(a.size());
+    for (std::size_t g = 0; g < a.size(); ++g)
+      r[g] = CensusState<S>{plant::FF16State<S>{
+        a[g].demog.height + c * k[g].demog.height,
+        a[g].demog.mortality + c * k[g].demog.mortality,
+        a[g].demog.fecundity + c * k[g].demog.fecundity,
+        a[g].demog.area_heartwood + c * k[g].demog.area_heartwood,
+        a[g].demog.mass_heartwood + c * k[g].demog.mass_heartwood},
+        a[g].log_density + c * k[g].log_density};
+    return r;
+  };
+
+  for (std::size_t rn = 0; rn < N; ++rn) {
+    bool any_born = false;
+    for (std::size_t g = 0; g < nG; ++g)
+      if ((std::size_t)gbirth[g] == rn) { any_born = true; break; }
+    if (any_born) {
+      std::size_t en; int es; env_idx(rn, 0, en, es);
+      interp_t binterp;
+      double bcap = 0.0;
+      const plant::FF16_Environment* eb = (rn > 0) ? &F.eh[rn-1][5] : &F.eh[0][0];
+      if (F.active_birthenv) { binterp = build_interp(stand, en, es); bcap = F.knot_x[en][es].back(); }
+      for (std::size_t g = 0; g < nG; ++g) {
+        if ((std::size_t)gbirth[g] != rn) continue;
+        const std::size_t s = gspec[g];
+        S h0 = h0s[s];
+        S area_leaf_0 = plant::ff16_area_leaf(pds[s].a_l1, pds[s].a_l2, h0);
+        S net0, g0;
+        if (F.active_birthenv) {
+          net0 = deep_net_coupled<S>(pds[s], F.integ, F.eta[s], binterp, bcap, h0);
+          g0   = deep_height_dt_coupled<S>(pds[s], F.integ, F.eta[s], binterp, bcap, h0);
+        } else {
+          net0 = deep_net<S>(pds[s], F.integ, F.eta[s], eb, h0);
+          g0   = deep_height_dt<S>(pds[s], F.integ, F.eta[s], eb, h0);
+        }
+        S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0[s],
+                       F.decay[s][glocal[g]]);
+        S mort0 = -log(pr_estab);
+        S logd0 = log(S(F.birth_rate[s]) * pr_estab / g0);
+        stand[g] = CensusState<S>{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, logd0};
+        alive[g] = 1;
+      }
+    }
+    stand = rkck_one_step(stand, F.step_h[rn], rn, deriv, axpy);
+  }
+
+  // Total-stand reduction: sum over species of that species' size-distribution
+  // trapezium (descending height within species + the species' pending-seed tail).
+  std::vector<S> J(metrics.size(), S(0.0));
+  for (std::size_t s = 0; s < nS; ++s) {
+    std::vector<std::size_t> gs;                       // global indices of species s
+    for (std::size_t g = 0; g < nG; ++g) if (gspec[g] == s) gs.push_back(g);
+    const std::size_t nc = gs.size();
+    std::vector<std::size_t> ord(nc);
+    for (std::size_t i = 0; i < nc; ++i) ord[i] = i;
+    std::sort(ord.begin(), ord.end(), [&](std::size_t a, std::size_t b){
+      return as_double(stand[gs[a]].demog.height) > as_double(stand[gs[b]].demog.height); });
+    // pending seed for species s, established in the frozen final joint env.
+    S h0 = h0s[s];
+    S area_leaf_0 = plant::ff16_area_leaf(pds[s].a_l1, pds[s].a_l2, h0);
+    S net0 = deep_net<S>(pds[s], F.integ, F.eta[s], &F.eh.back()[5], h0);
+    S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0[s],
+                   F.decay[s].back());
+    S g0 = deep_height_dt<S>(pds[s], F.integ, F.eta[s], &F.eh.back()[5], h0);
+    S dens_new = S(F.birth_rate[s]) * pr_estab / g0;
+
+    auto census_reduce = [&](auto psi) -> S {
+      std::vector<S> phi(nc);
+      for (std::size_t i = 0; i < nc; ++i) {
+        const CensusState<S>& y = stand[gs[i]];
+        phi[i] = psi(y.demog.height, exp(y.log_density), y.demog.mass_heartwood);
+      }
+      S Js = S(0.0);
+      for (std::size_t j = 0; j + 1 < nc; ++j) {
+        const std::size_t a = ord[j], b = ord[j+1];
+        Js = Js + S(0.5) * (stand[gs[a]].demog.height - stand[gs[b]].demog.height) *
+                  (phi[a] + phi[b]);
+      }
+      if (nc > 0) {
+        const std::size_t last = ord[nc-1];
+        S phi_new = psi(h0, dens_new, S(0.0));
+        Js = Js + S(0.5) * (stand[gs[last]].demog.height - h0) * (phi[last] + phi_new);
+      }
+      return Js;
+    };
+
+    for (std::size_t m = 0; m < metrics.size(); ++m) {
+      const std::string& nm = metrics[m];
+      if (nm == "LAI") {
+        J[m] = J[m] + census_reduce([&](S h, S dens, S) -> S {
+          return dens * S(F.kI[s]) * plant::ff16_area_leaf(pds[s].a_l1, pds[s].a_l2, h); });
+      } else if (nm == "biomass") {
+        J[m] = J[m] + census_reduce([&](S h, S dens, S mhw) -> S {
+          return dens * (plant::ff16_mass_live_given_height(pds[s], h) + mhw); });
+      } else { // size_moment
+        J[m] = J[m] + census_reduce([&](S h, S dens, S) -> S { return dens * h; });
+      }
+    }
+  }
+  return J;
+}
+
+// Build the multi-species frozen harvest from per-species R-side arrays. pp_list:
+// per-species parameter vectors; birth_list: per-species cohort birth steps; nn_h/c:
+// the all-species boundary harvest [step][stage][species]; sh: shared step times.
+FrozenMS build_frozen_ms(Rcpp::List pp_list, Rcpp::List eh_list,
+    const std::vector<double>& sh, Rcpp::List birth_list,
+    std::vector<double> birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list,
+    double patch_area, bool active_birthenv) {
+  FrozenMS F;
+  F.area = patch_area; F.active_birthenv = active_birthenv;
+  const std::size_t nS = pp_list.size(); F.nS = nS;
+  const std::size_t N = eh_list.size();
+  F.eh.resize(N); F.step_h.resize(N);
+  for (std::size_t n = 0; n < N; ++n) {
+    Rcpp::List st = eh_list[n];
+    for (R_xlen_t k = 0; k < st.size(); ++k)
+      F.eh[n].push_back(Rcpp::as<plant::FF16_Environment>(st[k]));
+  }
+  for (std::size_t n = 0; n < N; ++n) F.step_h[n] = sh[n+1] - sh[n];
+  // Joint env spline knots (shared canopy).
+  F.knot_x.resize(N); F.knot_y0.resize(N);
+  for (std::size_t n = 0; n < N; ++n) {
+    const std::size_t ns = F.eh[n].size();
+    F.knot_x[n].resize(ns); F.knot_y0[n].resize(ns);
+    for (std::size_t s = 0; s < ns; ++s) {
+      F.knot_x[n][s]  = F.eh[n][s].light_availability.spline.get_x();
+      F.knot_y0[n][s] = F.eh[n][s].light_availability.spline.get_y();
+    }
+  }
+  // Per-species scalars, prod_pars, birth steps, decay, boundary.
+  F.pd.resize(nS); F.eta.resize(nS); F.kI.resize(nS); F.a_d0.resize(nS);
+  F.h0.resize(nS); F.birth_rate.resize(nS); F.birth.resize(nS); F.decay.resize(nS);
+  F.nn_h.resize(nS); F.nn_c.resize(nS);
+  // F.integ is the Gauss-Kronrod quadrature rule -- strategy-independent (the same
+  // nodes/weights regardless of biology), so the caller sets it from its own strategy
+  // (whose lifetime spans the assemble); we only copy out per-species values here.
+  F.integ = nullptr;
+  for (std::size_t s = 0; s < nS; ++s) {
+    Rcpp::NumericVector pp = pp_list[s];
+    plant::FF16_Strategy st = make_strategy(pp);
+    F.pd[s] = st.prod_pars();
+    F.eta[s] = st.pars.eta; F.kI[s] = st.pars.k_I; F.a_d0[s] = st.pars.a_d0;
+    F.h0[s] = st.initial_height(); F.birth_rate[s] = birth_rate[s];
+    F.birth[s] = Rcpp::as<std::vector<int>>(birth_list[s]);
+    F.decay[s].resize(F.birth[s].size());
+    for (std::size_t i = 0; i < F.birth[s].size(); ++i)
+      F.decay[s][i] = std::exp(-st.pars.recruitment_decay * sh[(std::size_t)F.birth[s][i]]);
+    // Reshape the all-species boundary harvest [step][stage][species] -> [step][stage].
+    F.nn_h[s].resize(N); F.nn_c[s].resize(N);
+    for (std::size_t n = 0; n < N; ++n) {
+      Rcpp::List hns = nn_h_list[n], cns = nn_c_list[n];
+      const std::size_t ns = hns.size();
+      F.nn_h[s][n].resize(ns); F.nn_c[s][n].resize(ns);
+      for (std::size_t k = 0; k < ns; ++k) {
+        std::vector<double> hv = Rcpp::as<std::vector<double>>(hns[k]);
+        std::vector<double> cv = Rcpp::as<std::vector<double>>(cns[k]);
+        F.nn_h[s][n][k] = (s < hv.size()) ? hv[s] : 0.0;
+        F.nn_c[s][n][k] = (s < cv.size()) ? cv[s] : 0.0;
+      }
+    }
+  }
+  return F;
 }
 
 } // namespace
@@ -1099,11 +1424,12 @@ Rcpp::List ff16_coupled_metrics_impl(
     Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
     std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
     std::vector<double> tw, std::vector<std::string> metrics, double birth_rate,
-    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area) {
+    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area,
+    bool active_birthenv = true) {
   auto s  = make_strategy(pp);
   auto pd = s.prod_pars();
   Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
-  attach_coupled(F, s.pars.k_I, patch_area, nn_h_list, nn_c_list);
+  attach_coupled(F, s.pars.k_I, patch_area, nn_h_list, nn_c_list, active_birthenv);
   for (auto& nm : metrics)
     if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
       Rcpp::stop("coupled metrics: expected LAI / biomass / size_moment, got " + nm);
@@ -1134,11 +1460,12 @@ Rcpp::List ff16_coupled_gradient_impl(
     std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
     std::vector<double> tw, std::vector<std::string> traits,
     std::vector<std::string> metrics, double birth_rate,
-    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area) {
+    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area,
+    bool active_birthenv = true) {
   auto s  = make_strategy(pp);
   auto pd = s.prod_pars();
   Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
-  attach_coupled(F, s.pars.k_I, patch_area, nn_h_list, nn_c_list);
+  attach_coupled(F, s.pars.k_I, patch_area, nn_h_list, nn_c_list, active_birthenv);
   for (auto& nm : metrics)
     if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
       Rcpp::stop("coupled gradient: expected LAI / biomass / size_moment, got " + nm);
@@ -1159,6 +1486,99 @@ Rcpp::List ff16_coupled_gradient_impl(
     tape.newRecording();
     ad_t h0 = inject_h0(h0v, fp, idx, dh0);            // IFT seedling-size channel
     std::vector<ad_t> J = assemble_metrics_coupled<ad_t>(pa, F, metrics, birth_rate, h0);
+    for (std::size_t m = 0; m < M; ++m) tape.registerOutput(J[m]);
+    for (std::size_t m = 0; m < M; ++m) {
+      tape.clearDerivatives();
+      xad::derivative(J[m]) = 1.0;
+      tape.computeAdjoints();
+      for (std::size_t k = 0; k < nT; ++k) jac(m, k) = xad::derivative(*fp[idx[k]]);
+      values[m] = as_double(J[m]);
+    }
+  }
+  jac.attr("dimnames") = Rcpp::List::create(Rcpp::wrap(metrics), Rcpp::wrap(traits));
+  values.attr("names") = Rcpp::wrap(metrics);
+  return Rcpp::List::create(Rcpp::Named("jacobian") = jac,
+                            Rcpp::Named("values")   = values);
+}
+
+// R0 gate for the MULTI-SPECIES coupled replay (#472 scope B, R2): a double-precision
+// joint whole-stand re-evolution reconstructing the joint canopy per RK stage. Returns
+// the reconstructed TOTAL-stand metric VALUES and `env_err` = worst |reconstructed knot
+// light - SCM knot light| over all stages (the coupled-drift gauge). pp_list/birth_list
+// are per-species; nn_h_list/nn_c_list the all-species boundary harvest [step][stage][species].
+// [[Rcpp::export]]
+Rcpp::List ff16_coupled_metrics_ms_impl(
+    Rcpp::List pp_list, Rcpp::List eh_list, std::vector<double> sh,
+    Rcpp::List birth_list, std::vector<std::string> metrics,
+    std::vector<double> birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list,
+    double patch_area, bool active_birthenv = true) {
+  for (auto& nm : metrics)
+    if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
+      Rcpp::stop("coupled MS metrics: expected LAI / biomass / size_moment, got " + nm);
+  FrozenMS F = build_frozen_ms(pp_list, eh_list, sh, birth_list, birth_rate,
+                               nn_h_list, nn_c_list, patch_area, active_birthenv);
+  // Own a strategy so its (strategy-independent) GK integrator outlives the assemble.
+  Rcpp::NumericVector pp0 = pp_list[0];
+  plant::FF16_Strategy s0 = make_strategy(pp0);
+  F.integ = &s0.function_integrator;
+  std::vector<double> h0s = F.h0;
+  double env_err = 0.0, env_err_z = -1.0;
+  std::vector<double> J = assemble_metrics_coupled_ms<double>(F.pd, F, metrics, h0s,
+                           0.0, &env_err, &env_err_z);
+  Rcpp::NumericVector values(J.size());
+  for (std::size_t m = 0; m < J.size(); ++m) values[m] = J[m];
+  values.attr("names") = Rcpp::wrap(metrics);
+  return Rcpp::List::create(Rcpp::Named("values") = values,
+                            Rcpp::Named("env_err") = env_err,
+                            Rcpp::Named("env_err_z") = env_err_z);
+}
+
+// R1 of the MULTI-SPECIES coupled replay (#472 scope B, R2): the CROSS-SPECIES resident
+// total trait gradient of the TOTAL-stand census metrics, w.r.t. the traits of ONE
+// species (`target` is 1-based). All species' cohorts are lifted to the adjoint tape and
+// re-evolved jointly; only the target species' trait fields (+ its seedling-size IFT
+// channel) are registered as inputs, so one reverse sweep per metric yields
+// d(total metric)/d(theta of the target species) -- including the cross term whereby the
+// target's traits re-shade the joint canopy that every species reads. nn_h_list/nn_c_list:
+// the all-species boundary harvest [step][stage][species].
+// [[Rcpp::export]]
+Rcpp::List ff16_coupled_gradient_ms_impl(
+    Rcpp::List pp_list, Rcpp::List eh_list, std::vector<double> sh,
+    Rcpp::List birth_list, std::vector<std::string> traits,
+    std::vector<std::string> metrics, std::vector<double> birth_rate,
+    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, int target,
+    bool active_birthenv = true) {
+  for (auto& nm : metrics)
+    if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
+      Rcpp::stop("coupled MS gradient: expected LAI / biomass / size_moment, got " + nm);
+  FrozenMS F = build_frozen_ms(pp_list, eh_list, sh, birth_list, birth_rate,
+                               nn_h_list, nn_c_list, patch_area, active_birthenv);
+  const std::size_t tgt = (std::size_t)(target - 1);
+  if (tgt >= F.nS) Rcpp::stop("target species out of range");
+  Rcpp::NumericVector pp0 = pp_list[(R_xlen_t)tgt];
+  plant::FF16_Strategy s0 = make_strategy(pp0);   // owns the GK integrator
+  F.integ = &s0.function_integrator;
+  std::vector<std::size_t> idx = resolve_traits(traits);
+  const double h0v = F.h0[tgt];
+  std::vector<double> dh0 = compute_dh0(F.pd[tgt], h0v, idx);
+  const std::size_t M = metrics.size(), nT = idx.size(), nS = F.nS;
+
+  Rcpp::NumericMatrix jac(M, nT);
+  Rcpp::NumericVector values(M);
+  {
+    // One joint adjoint tape, scoped. Lift every species' prod_pars to ad_t (the canopy
+    // couples them) but register ONLY the target species' selected traits as inputs.
+    ad::tape_type tape;
+    std::vector<plant::FF16ProdPars<ad_t>> pas(nS);
+    for (std::size_t s = 0; s < nS; ++s) pas[s] = lift<ad_t>(F.pd[s]);
+    auto fp = field_ptrs<ad_t>(pas[tgt]);
+    for (auto i : idx) tape.registerInput(*fp[i]);
+    tape.newRecording();
+    // Per-species seedling height: active (IFT injection) for the target, constant else.
+    std::vector<ad_t> h0s(nS);
+    for (std::size_t s = 0; s < nS; ++s) h0s[s] = ad_t(F.h0[s]);
+    h0s[tgt] = inject_h0(h0v, fp, idx, dh0);
+    std::vector<ad_t> J = assemble_metrics_coupled_ms<ad_t>(pas, F, metrics, h0s, 0.0);
     for (std::size_t m = 0; m < M; ++m) tape.registerOutput(J[m]);
     for (std::size_t m = 0; m < M; ++m) {
       tape.clearDerivatives();

@@ -366,20 +366,79 @@ The reverse sweep's cost is independent of the trait count (it is per-*metric*),
 advantage compounds: comparable here at 28 traits, decisive at 100+, and exact either
 way (no step-size lottery, no per-metric noise floor).
 
-**Honest scope: it is the frozen-*geometry* resident total.** The coupled gradient
-freezes the grid (step schedule, knot positions, cohort-introduction schedule) and the
-seedling establishment env, recomputing only the stand state and the active light.
-Against a *full* `run_scm` finite difference (which lets the adaptive step sizes and
-the birth canopy re-respond too) the coupled `d(LAI)/dθ` differs by ~**20–33 % for
-geometry traits** (`lma` 33 %, `a_l1` 20 %) but only ~2 % for `a_p1` — i.e. the
-grid-freezing approximation is material for traits that strongly reshape *where* the
-solver places its grid, and small for rate-only traits. Decomposing that gap (frozen
-step sizes vs frozen knots vs frozen birth-env establishment) and turning the birth-env
-channel active (reconstruct it from the already-alive cohorts — exact at θ₀,
-non-circular) are the next refinements. The reproducing scripts are
+**Honest scope: it is the frozen-*grid* resident total.** The coupled gradient freezes
+the grid (step schedule, knot positions, cohort-introduction schedule), recomputing the
+stand state, the active light, **and** — as of the R1 round-out — the seedling
+establishment env (reconstructed from the already-alive cohorts at each birth step;
+exact at θ₀, non-circular). Against a *full* `run_scm` finite difference (which also lets
+the adaptive step sizes and knot positions re-respond) the coupled `d(LAI)/dθ` differs
+by ~**16–29 % for geometry traits** (`lma` 29 %, `a_l1` 16 %) and a few % for rate-only
+traits. Decomposing that residual with an ODE-tolerance sweep
+(`scripts/coupled_gap_decompose.R`) attributes roughly **half to the grid response**
+(frozen adaptive step sizes + knot positions — a quantity that vanishes as tol→0 and is
+arguably *not* the wanted derivative, since it tracks where the solver places its grid
+rather than the biology) and **half to the birth-env + boundary channels**. Turning
+birth-env active (`scripts/coupled_birthenv_channel.R`) closes the birth-env part —
+`lma` 33→29 %, `a_l1` 20→16 %; the **boundary new_node** is the lowest, ground-level
+node (~0.4 % of the canopy, derivative channel far smaller) and is left frozen as
+negligible. The remaining gap is the grid response. The reproducing scripts are
 `scripts/recon_static_check.R` (R0 static, 4.4e-16), `scripts/coupled_r0_check.R` (R0
-metrics + env drift) and `scripts/coupled_r1_check.R` (R1 AD-vs-FD + the feedback
-table).
+metrics + env drift), `scripts/coupled_r1_check.R` (R1 AD-vs-FD + the feedback table),
+`scripts/coupled_gap_decompose.R` (the grid-vs-birth-env decomposition) and
+`scripts/coupled_birthenv_channel.R` (the birth-env channel).
+
+**Multi-species: the cross-species total gradient (working).** On a stand with more
+than one species, `feedback = "resident"` returns the cross-species total
+`d(total-stand metric)/d(θ of species s)` — the genuinely new object (the mutant
+cross-term was zero):
+
+```r
+# 2-species stand, fixed node schedule
+gr <- stand_gradient(scm, metrics = c("LAI", "size_moment"),
+                     species = 1L, feedback = "resident")   # d(total stand)/d(θ_species1)
+```
+
+The joint canopy is reconstructed from *every* species' re-evolved cohorts as a **sum
+of per-species trapeziums** — `competition(z) = (1/area)·Σ_species [trapezium over
+species s's active cohorts + its boundary node, with species s's η]`, matching
+`Patch::compute_competition = Σ_s Species_s::compute_competition / area` (it is *not*
+one merged-and-sorted trapezium). The census metrics are TOTAL-stand sums over species,
+and the differentiated species' traits feed back through the canopy *every* species
+reads, so the other species' contributions respond too — the cross term `"frozen"` sets
+to zero (e.g. `d(LAI)/d(lma₁)`: total resident −0.47 vs target-frozen −1.03). All
+species' cohorts are lifted to one adjoint tape; only the differentiated species' traits
+(plus its `height_0` IFT channel) are registered, so one reverse sweep per metric gives
+the cross-species column. It is exposed through the same `stand_gradient()` call (the
+implementation harvests every species via the all-species per-RK-stage history
+`stand_*_stage_history_all`, RcppR6-exposed). Validation: the all-species harvest
+reconstructs the joint canopy to ~1e-6 (`scripts/coupled_multispp_r0_static.R`,
+`coupled_multispp_r0.R`) and AD matches a finite difference over the same reconstruction
+(`scripts/coupled_multispp_r1.R`), with the mass/size-weighted metrics noise-limited
+exactly as in the single-species case.
+
+**The instability, and why it is a replay artifact (not a model behaviour).** On a
+**fixed** node schedule the joint re-evolution is well-conditioned (env drift ≤1e-4). On
+a strongly clustered *adaptively-refined* schedule it can go stiff: the env drift stays
+below ~1e-3 for ~100 steps and then **jumps to ~0.8 at a single step** when one cohort's
+`log_density` runs away to ±∞. The mechanism is the method-of-characteristics density
+rate `d(log_density)/dt = −g′ − mortality`, where `g′ = ∂(height_dt)/∂height` is a
+backward finite difference (the SCM's own scheme, abs step 1e-6). Where a cohort sits
+just under a sharp light gradient, `g′` is large and negative, so `log_density` is
+stiff there — and a normal `run_scm` handles it by **stepping adaptively** (those
+clustered ~1e-5 steps *are* the solver controlling exactly this stiffness, against its
+own exact canopy). The replay, however, reuses the *frozen* step sizes while re-evolving
+the stand, so it integrates that stiff term against a canopy that has drifted ~1e-3 from
+the SCM's; with two species the joint canopy couples both species' density dynamics, and
+that small canopy difference tips the one cohort past the runaway threshold. So the
+blow-up is purely an artifact of replaying frozen step sizes on a re-evolved canopy:
+`run_scm` itself never diverges, and single-species replays are robust even on the
+refined schedule (their drift is ~7e-6 and they never tip). The shipped resolution
+(adequate for fixed-schedule calibration, which is the use case): a cheap double-precision
+R0 pass gates the public path and raises a clear error asking for a fixed/uniform node
+schedule whenever the joint env drift exceeds 1e-2, rather than returning a diverged
+gradient. Possible future hardening, if a refined-schedule resident gradient is ever
+wanted, is a `log_density`-rate cap mirroring the SCM's own `check_initial_density_rates`
+guard, or sub-stepping the clustered early steps in the replay.
 
 ## Trying the kernels directly
 
@@ -611,9 +670,19 @@ differences. What remains:
   faithfully); the `ResidentHarvest` seam formalised for multi-patch/stochastic
   variants; and the same pattern on `Leaf` and `grow_individual_to_size`.
   Likelihoods/calibration/adaptive-dynamics stay downstream (other packages).
-- **Per-RK-stage resident-stand harvesting** for a bit-exact (rather than
-  reconstruction-faithful) self-shading field; and the cross-species Jacobian
-  `d(offspring_s)/d(θ_{s'})` (needs the resident canopy to reshape with the trait).
+- **The cross-species resident Jacobian has landed for FF16** (see the coupled-replay
+  section above): `stand_gradient(feedback = "resident", species = s)` on a multi-species
+  stand returns `d(total-stand census metric)/d(θ_s)` via a joint whole-stand replay, the
+  genuinely new object the frozen/mutant reading sets to zero. It is well-conditioned on a
+  fixed node schedule and guards (with a clear error) against the refined-schedule replay
+  stiffness described there.
+- **`grow_individual_to_size` / `grow_individual_to_height`** is the last FF16 surface
+  still to gain a trait gradient — the same "gradient as an optional output of the call
+  you already make" pattern (one plant grown to a target size, differentiated w.r.t.
+  traits via the demographic-rate kernel + an IFT/implicit handling of the
+  grow-to-target solve). With it, every FF16 entry point — per-plant rates, time-integrated
+  growth, emergent `offspring_production`, the census metrics (frozen and resident,
+  single- and multi-species), and individual growth-to-size — is gradient-enabled.
 - Calibration, likelihoods, and adaptive-dynamics analyses themselves live in
   *downstream packages*; `plant`'s job is to expose the gradient capability cleanly —
   the frozen-resident gradient *is* the invasion-fitness selection gradient those

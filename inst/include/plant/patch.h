@@ -200,6 +200,23 @@ public:
   double newnode_height_env_snapshot = 0.0;
   double newnode_competition_env_snapshot = 0.0;
 
+  // ALL-SPECIES per-RK-stage harvest (#472 scope B, R2 -- the cross-species coupled
+  // Jacobian). The species-0 fields above drive the single-species coupled replay;
+  // these add the species dimension so the JOINT canopy can be reconstructed from
+  // every species' re-evolved cohorts. [step][stage 0..5][species][cohort] for the
+  // stand, [step][stage][species] for the boundary node. Additive: the single-species
+  // path is untouched. Filled only on save_RK45_cache runs.
+  std::vector<std::vector<std::vector<std::vector<double>>>> stand_height_stage_history_all;
+  std::vector<std::vector<std::vector<std::vector<double>>>> stand_competition_stage_history_all;
+  std::vector<std::vector<std::vector<double>>> stand_newnode_height_stage_history_all;
+  std::vector<std::vector<std::vector<double>>> stand_newnode_competition_stage_history_all;
+  std::vector<std::vector<std::vector<double>>> stand_height_stage_cache_all;
+  std::vector<std::vector<std::vector<double>>> stand_competition_stage_cache_all;
+  std::vector<std::vector<double>> stand_newnode_height_stage_cache_all;
+  std::vector<std::vector<double>> stand_newnode_competition_stage_cache_all;
+  std::vector<double> newnode_height_env_snapshot_all;
+  std::vector<double> newnode_competition_env_snapshot_all;
+
   void cache_ode_step();
   void cache_RK45_step(int step);
   void load_ode_step();
@@ -555,6 +572,14 @@ void Patch<T,E,S>::compute_environment(bool rescale) {
       newnode_height_env_snapshot = nn.height();
       newnode_competition_env_snapshot = nn.compute_competition(0.0);
     }
+    // Per-species boundary-node snapshot for the all-species coupled harvest (R2).
+    newnode_height_env_snapshot_all.assign(species.size(), 0.0);
+    newnode_competition_env_snapshot_all.assign(species.size(), 0.0);
+    for (size_t k = 0; k < species.size(); ++k) {
+      const auto& nnk = species[k].r_new_node();
+      newnode_height_env_snapshot_all[k] = nnk.height();
+      newnode_competition_env_snapshot_all[k] = nnk.compute_competition(0.0);
+    }
   }
 }
 
@@ -723,6 +748,11 @@ void Patch<T,E,S>::cache_ode_step() {
     stand_competition_stage_history.push_back(stand_competition_stage_cache);
     stand_newnode_height_stage_history.push_back(stand_newnode_height_stage_cache);
     stand_newnode_competition_stage_history.push_back(stand_newnode_competition_stage_cache);
+    // All-species harvest (R2).
+    stand_height_stage_history_all.push_back(stand_height_stage_cache_all);
+    stand_competition_stage_history_all.push_back(stand_competition_stage_cache_all);
+    stand_newnode_height_stage_history_all.push_back(stand_newnode_height_stage_cache_all);
+    stand_newnode_competition_stage_history_all.push_back(stand_newnode_competition_stage_cache_all);
   }
 }
 
@@ -737,8 +767,30 @@ void Patch<T,E,S>::cache_RK45_step(int step) {
       stand_competition_stage_cache.clear();
       stand_newnode_height_stage_cache.clear();
       stand_newnode_competition_stage_cache.clear();
+      stand_height_stage_cache_all.clear();
+      stand_competition_stage_cache_all.clear();
+      stand_newnode_height_stage_cache_all.clear();
+      stand_newnode_competition_stage_cache_all.clear();
     }
     environment_cache.push_back(environment);
+    // All-species stand for THIS stage: [species][cohort] heights + per-node effect,
+    // and the per-species boundary node. Mirrors the species-0 capture below.
+    {
+      std::vector<std::vector<double>> h_all(species.size()), c_all(species.size());
+      std::vector<double> nnh_all(species.size(), 0.0), nnc_all(species.size(), 0.0);
+      for (size_t k = 0; k < species.size(); ++k) {
+        h_all[k] = species[k].r_heights();
+        c_all[k] = species[k].r_compute_competition_effect_by_nodes();
+        if (k < newnode_height_env_snapshot_all.size()) {
+          nnh_all[k] = newnode_height_env_snapshot_all[k];
+          nnc_all[k] = newnode_competition_env_snapshot_all[k];
+        }
+      }
+      stand_height_stage_cache_all.push_back(h_all);
+      stand_competition_stage_cache_all.push_back(c_all);
+      stand_newnode_height_stage_cache_all.push_back(nnh_all);
+      stand_newnode_competition_stage_cache_all.push_back(nnc_all);
+    }
     // Capture the species-0 stand that produced THIS stage's environment (the ODE
     // state was just set to the stage trial point and compute_environment ran in
     // derivs, immediately before this cache call), aligned 1:1 with environment_cache.

@@ -34,13 +34,31 @@ default.}
 
 \item{feedback}{How the resident light responds to the trait. \code{"frozen"}
 (default) holds the canopy fixed -- the rare-mutant / invasion-fitness gradient,
-correct for \code{offspring_production}. \code{"resident"} makes the canopy light
-an active function of the trait through every resident's leaf area (the resident
-TOTAL gradient, the right quantity for LAI / biomass / size-moment as resident
-ecosystem outcomes). Resident feedback is carried for the allometric traits
-(\code{a_l1}, \code{a_l2}) under frozen geometry (#472 scope B, R0-R1); FF16 only
-so far. The metric VALUES are identical between the two (value-anchored
-reconstruction); only the gradient differs.}
+correct for \code{offspring_production}. \code{"resident"} is the resident TOTAL
+gradient via the COUPLED whole-stand replay: all cohorts are re-evolved together
+over the frozen schedule and the canopy light is reconstructed each RK stage from
+the active stand (cohort heights AND densities respond to the trait, odelia #32
+active-knot spline). So EVERY trait feeds back -- a trait that changes growth or
+mortality moves the canopy everyone reads -- and the feedback routinely dominates
+and flips the sign of the census metrics (LAI / biomass / size-moment) relative
+to the frozen reading. Applies to the census metrics; \code{offspring_production}
+stays \code{"frozen"} (the invasion gradient) even under \code{"resident"}. FF16
+only so far (#472 scope B). \strong{Recommended use} (scope decision): for the
+census metrics (LAI / biomass / size_moment) \code{"resident"} is the correct
+stand-level total gradient and \code{"frozen"} the rare-mutant invasion gradient;
+for \code{offspring_production} the two coincide (it is always the invasion
+gradient). The default is left at \code{"frozen"} so the function is a safe,
+backward-compatible no-feedback derivative unless feedback is asked for.
+\strong{Multi-species:} on a stand with more than one species \code{"resident"}
+returns the CROSS-SPECIES total gradient \eqn{d(\mathrm{total\ stand\ metric})/
+d(\theta_{\mathrm{species}})} -- the joint canopy is rebuilt from every species'
+re-evolved cohorts and the census metrics are summed over species, so the
+differentiated species' traits feed back through the canopy that every species
+reads (the cross term \code{"frozen"} sets to zero). The joint re-evolution is
+well-conditioned on a \emph{fixed} node schedule; on a strongly clustered
+adaptively-refined schedule it can go stiff, and the function then raises a clear
+error (gated by a cheap baseline pass) asking for a fixed/uniform schedule rather
+than returning a diverged result.}
 }
 \value{
 A list with \code{$jacobian} (a metrics x traits matrix) and

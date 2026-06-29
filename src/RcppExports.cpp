@@ -6426,6 +6426,94 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// Patch___FF16__FF16_Env__stand_height_stage_history_all__get
+std::vector<std::vector<std::vector<std::vector<double> > > > Patch___FF16__FF16_Env__stand_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_);
+RcppExport SEXP _plant_Patch___FF16__FF16_Env__stand_height_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___FF16__FF16_Env__stand_height_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___FF16__FF16_Env__stand_height_stage_history_all__set
+void Patch___FF16__FF16_Env__stand_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > > value);
+RcppExport SEXP _plant_Patch___FF16__FF16_Env__stand_height_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<std::vector<double> > > > >::type value(valueSEXP);
+    Patch___FF16__FF16_Env__stand_height_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___FF16__FF16_Env__stand_competition_stage_history_all__get
+std::vector<std::vector<std::vector<std::vector<double> > > > Patch___FF16__FF16_Env__stand_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_);
+RcppExport SEXP _plant_Patch___FF16__FF16_Env__stand_competition_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___FF16__FF16_Env__stand_competition_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___FF16__FF16_Env__stand_competition_stage_history_all__set
+void Patch___FF16__FF16_Env__stand_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > > value);
+RcppExport SEXP _plant_Patch___FF16__FF16_Env__stand_competition_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<std::vector<double> > > > >::type value(valueSEXP);
+    Patch___FF16__FF16_Env__stand_competition_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__get
+std::vector<std::vector<std::vector<double> > > Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_);
+RcppExport SEXP _plant_Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__set
+void Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value);
+RcppExport SEXP _plant_Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<double> > > >::type value(valueSEXP);
+    Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__get
+std::vector<std::vector<std::vector<double> > > Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_);
+RcppExport SEXP _plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__set
+void Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value);
+RcppExport SEXP _plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<double> > > >::type value(valueSEXP);
+    Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
 // Patch___TF24__TF24_Env__ctor
 plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> Patch___TF24__TF24_Env__ctor(plant::Parameters<plant::TF24_Strategy,plant::TF24_Environment> parameters, plant::TF24_Environment environment, plant::Control control);
 RcppExport SEXP _plant_Patch___TF24__TF24_Env__ctor(SEXP parametersSEXP, SEXP environmentSEXP, SEXP controlSEXP) {
@@ -6928,6 +7016,94 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
     Rcpp::traits::input_parameter< std::vector<std::vector<double> > >::type value(valueSEXP);
     Patch___TF24__TF24_Env__stand_newnode_competition_stage_history__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___TF24__TF24_Env__stand_height_stage_history_all__get
+std::vector<std::vector<std::vector<std::vector<double> > > > Patch___TF24__TF24_Env__stand_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_Patch___TF24__TF24_Env__stand_height_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24__TF24_Env__stand_height_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___TF24__TF24_Env__stand_height_stage_history_all__set
+void Patch___TF24__TF24_Env__stand_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > > value);
+RcppExport SEXP _plant_Patch___TF24__TF24_Env__stand_height_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<std::vector<double> > > > >::type value(valueSEXP);
+    Patch___TF24__TF24_Env__stand_height_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___TF24__TF24_Env__stand_competition_stage_history_all__get
+std::vector<std::vector<std::vector<std::vector<double> > > > Patch___TF24__TF24_Env__stand_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_Patch___TF24__TF24_Env__stand_competition_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24__TF24_Env__stand_competition_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___TF24__TF24_Env__stand_competition_stage_history_all__set
+void Patch___TF24__TF24_Env__stand_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > > value);
+RcppExport SEXP _plant_Patch___TF24__TF24_Env__stand_competition_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<std::vector<double> > > > >::type value(valueSEXP);
+    Patch___TF24__TF24_Env__stand_competition_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__get
+std::vector<std::vector<std::vector<double> > > Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__set
+void Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value);
+RcppExport SEXP _plant_Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<double> > > >::type value(valueSEXP);
+    Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__get
+std::vector<std::vector<std::vector<double> > > Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__set
+void Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value);
+RcppExport SEXP _plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<double> > > >::type value(valueSEXP);
+    Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__set(obj_, value);
     return R_NilValue;
 END_RCPP
 }
@@ -7436,6 +7612,94 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// Patch___TF24f__TF24_Env__stand_height_stage_history_all__get
+std::vector<std::vector<std::vector<std::vector<double> > > > Patch___TF24f__TF24_Env__stand_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_Patch___TF24f__TF24_Env__stand_height_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24f__TF24_Env__stand_height_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___TF24f__TF24_Env__stand_height_stage_history_all__set
+void Patch___TF24f__TF24_Env__stand_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > > value);
+RcppExport SEXP _plant_Patch___TF24f__TF24_Env__stand_height_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<std::vector<double> > > > >::type value(valueSEXP);
+    Patch___TF24f__TF24_Env__stand_height_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___TF24f__TF24_Env__stand_competition_stage_history_all__get
+std::vector<std::vector<std::vector<std::vector<double> > > > Patch___TF24f__TF24_Env__stand_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_Patch___TF24f__TF24_Env__stand_competition_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24f__TF24_Env__stand_competition_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___TF24f__TF24_Env__stand_competition_stage_history_all__set
+void Patch___TF24f__TF24_Env__stand_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > > value);
+RcppExport SEXP _plant_Patch___TF24f__TF24_Env__stand_competition_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<std::vector<double> > > > >::type value(valueSEXP);
+    Patch___TF24f__TF24_Env__stand_competition_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__get
+std::vector<std::vector<std::vector<double> > > Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__set
+void Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value);
+RcppExport SEXP _plant_Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<double> > > >::type value(valueSEXP);
+    Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__get
+std::vector<std::vector<std::vector<double> > > Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__set
+void Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value);
+RcppExport SEXP _plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<double> > > >::type value(valueSEXP);
+    Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
 // Patch___K93__K93_Env__ctor
 plant::Patch<plant::K93_Strategy,plant::K93_Environment> Patch___K93__K93_Env__ctor(plant::Parameters<plant::K93_Strategy,plant::K93_Environment> parameters, plant::K93_Environment environment, plant::Control control);
 RcppExport SEXP _plant_Patch___K93__K93_Env__ctor(SEXP parametersSEXP, SEXP environmentSEXP, SEXP controlSEXP) {
@@ -7938,6 +8202,94 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
     Rcpp::traits::input_parameter< std::vector<std::vector<double> > >::type value(valueSEXP);
     Patch___K93__K93_Env__stand_newnode_competition_stage_history__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___K93__K93_Env__stand_height_stage_history_all__get
+std::vector<std::vector<std::vector<std::vector<double> > > > Patch___K93__K93_Env__stand_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_);
+RcppExport SEXP _plant_Patch___K93__K93_Env__stand_height_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___K93__K93_Env__stand_height_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___K93__K93_Env__stand_height_stage_history_all__set
+void Patch___K93__K93_Env__stand_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > > value);
+RcppExport SEXP _plant_Patch___K93__K93_Env__stand_height_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<std::vector<double> > > > >::type value(valueSEXP);
+    Patch___K93__K93_Env__stand_height_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___K93__K93_Env__stand_competition_stage_history_all__get
+std::vector<std::vector<std::vector<std::vector<double> > > > Patch___K93__K93_Env__stand_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_);
+RcppExport SEXP _plant_Patch___K93__K93_Env__stand_competition_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___K93__K93_Env__stand_competition_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___K93__K93_Env__stand_competition_stage_history_all__set
+void Patch___K93__K93_Env__stand_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<std::vector<std::vector<std::vector<double> > > > value);
+RcppExport SEXP _plant_Patch___K93__K93_Env__stand_competition_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<std::vector<double> > > > >::type value(valueSEXP);
+    Patch___K93__K93_Env__stand_competition_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___K93__K93_Env__stand_newnode_height_stage_history_all__get
+std::vector<std::vector<std::vector<double> > > Patch___K93__K93_Env__stand_newnode_height_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_);
+RcppExport SEXP _plant_Patch___K93__K93_Env__stand_newnode_height_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___K93__K93_Env__stand_newnode_height_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___K93__K93_Env__stand_newnode_height_stage_history_all__set
+void Patch___K93__K93_Env__stand_newnode_height_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value);
+RcppExport SEXP _plant_Patch___K93__K93_Env__stand_newnode_height_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<double> > > >::type value(valueSEXP);
+    Patch___K93__K93_Env__stand_newnode_height_stage_history_all__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__get
+std::vector<std::vector<std::vector<double> > > Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_);
+RcppExport SEXP _plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__set
+void Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__set(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<std::vector<std::vector<double> > > value);
+RcppExport SEXP _plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<std::vector<double> > > >::type value(valueSEXP);
+    Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__set(obj_, value);
     return R_NilValue;
 END_RCPP
 }
@@ -12616,8 +12968,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // ff16_coupled_metrics_impl
-Rcpp::List ff16_coupled_metrics_impl(Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw, std::vector<std::string> metrics, double birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area);
-RcppExport SEXP _plant_ff16_coupled_metrics_impl(SEXP ppSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP ppsurvSEXP, SEXP ppsabSEXP, SEXP twSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP nn_h_listSEXP, SEXP nn_c_listSEXP, SEXP patch_areaSEXP) {
+Rcpp::List ff16_coupled_metrics_impl(Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw, std::vector<std::string> metrics, double birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, bool active_birthenv);
+RcppExport SEXP _plant_ff16_coupled_metrics_impl(SEXP ppSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP ppsurvSEXP, SEXP ppsabSEXP, SEXP twSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP nn_h_listSEXP, SEXP nn_c_listSEXP, SEXP patch_areaSEXP, SEXP active_birthenvSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -12633,13 +12985,14 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< Rcpp::List >::type nn_h_list(nn_h_listSEXP);
     Rcpp::traits::input_parameter< Rcpp::List >::type nn_c_list(nn_c_listSEXP);
     Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
-    rcpp_result_gen = Rcpp::wrap(ff16_coupled_metrics_impl(pp, eh_list, sh, birth, ppsurv, ppsab, tw, metrics, birth_rate, nn_h_list, nn_c_list, patch_area));
+    Rcpp::traits::input_parameter< bool >::type active_birthenv(active_birthenvSEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_coupled_metrics_impl(pp, eh_list, sh, birth, ppsurv, ppsab, tw, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv));
     return rcpp_result_gen;
 END_RCPP
 }
 // ff16_coupled_gradient_impl
-Rcpp::List ff16_coupled_gradient_impl(Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw, std::vector<std::string> traits, std::vector<std::string> metrics, double birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area);
-RcppExport SEXP _plant_ff16_coupled_gradient_impl(SEXP ppSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP ppsurvSEXP, SEXP ppsabSEXP, SEXP twSEXP, SEXP traitsSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP nn_h_listSEXP, SEXP nn_c_listSEXP, SEXP patch_areaSEXP) {
+Rcpp::List ff16_coupled_gradient_impl(Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw, std::vector<std::string> traits, std::vector<std::string> metrics, double birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, bool active_birthenv);
+RcppExport SEXP _plant_ff16_coupled_gradient_impl(SEXP ppSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP ppsurvSEXP, SEXP ppsabSEXP, SEXP twSEXP, SEXP traitsSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP nn_h_listSEXP, SEXP nn_c_listSEXP, SEXP patch_areaSEXP, SEXP active_birthenvSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -12656,7 +13009,50 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< Rcpp::List >::type nn_h_list(nn_h_listSEXP);
     Rcpp::traits::input_parameter< Rcpp::List >::type nn_c_list(nn_c_listSEXP);
     Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
-    rcpp_result_gen = Rcpp::wrap(ff16_coupled_gradient_impl(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate, nn_h_list, nn_c_list, patch_area));
+    Rcpp::traits::input_parameter< bool >::type active_birthenv(active_birthenvSEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_coupled_gradient_impl(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ff16_coupled_metrics_ms_impl
+Rcpp::List ff16_coupled_metrics_ms_impl(Rcpp::List pp_list, Rcpp::List eh_list, std::vector<double> sh, Rcpp::List birth_list, std::vector<std::string> metrics, std::vector<double> birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, bool active_birthenv);
+RcppExport SEXP _plant_ff16_coupled_metrics_ms_impl(SEXP pp_listSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birth_listSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP nn_h_listSEXP, SEXP nn_c_listSEXP, SEXP patch_areaSEXP, SEXP active_birthenvSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::List >::type pp_list(pp_listSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type eh_list(eh_listSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sh(shSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type birth_list(birth_listSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type metrics(metricsSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type birth_rate(birth_rateSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type nn_h_list(nn_h_listSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type nn_c_list(nn_c_listSEXP);
+    Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
+    Rcpp::traits::input_parameter< bool >::type active_birthenv(active_birthenvSEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_coupled_metrics_ms_impl(pp_list, eh_list, sh, birth_list, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ff16_coupled_gradient_ms_impl
+Rcpp::List ff16_coupled_gradient_ms_impl(Rcpp::List pp_list, Rcpp::List eh_list, std::vector<double> sh, Rcpp::List birth_list, std::vector<std::string> traits, std::vector<std::string> metrics, std::vector<double> birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, int target, bool active_birthenv);
+RcppExport SEXP _plant_ff16_coupled_gradient_ms_impl(SEXP pp_listSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birth_listSEXP, SEXP traitsSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP nn_h_listSEXP, SEXP nn_c_listSEXP, SEXP patch_areaSEXP, SEXP targetSEXP, SEXP active_birthenvSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::List >::type pp_list(pp_listSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type eh_list(eh_listSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sh(shSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type birth_list(birth_listSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type traits(traitsSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type metrics(metricsSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type birth_rate(birth_rateSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type nn_h_list(nn_h_listSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type nn_c_list(nn_c_listSEXP);
+    Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
+    Rcpp::traits::input_parameter< int >::type target(targetSEXP);
+    Rcpp::traits::input_parameter< bool >::type active_birthenv(active_birthenvSEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_coupled_gradient_ms_impl(pp_list, eh_list, sh, birth_list, traits, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, target, active_birthenv));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -13647,6 +14043,14 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___FF16__FF16_Env__stand_newnode_height_stage_history__set", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__stand_newnode_height_stage_history__set, 2},
     {"_plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history__get", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history__get, 1},
     {"_plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history__set", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history__set, 2},
+    {"_plant_Patch___FF16__FF16_Env__stand_height_stage_history_all__get", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__stand_height_stage_history_all__get, 1},
+    {"_plant_Patch___FF16__FF16_Env__stand_height_stage_history_all__set", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__stand_height_stage_history_all__set, 2},
+    {"_plant_Patch___FF16__FF16_Env__stand_competition_stage_history_all__get", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__stand_competition_stage_history_all__get, 1},
+    {"_plant_Patch___FF16__FF16_Env__stand_competition_stage_history_all__set", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__stand_competition_stage_history_all__set, 2},
+    {"_plant_Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__get", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__get, 1},
+    {"_plant_Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__set", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__stand_newnode_height_stage_history_all__set, 2},
+    {"_plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__get", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__get, 1},
+    {"_plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__set", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__stand_newnode_competition_stage_history_all__set, 2},
     {"_plant_Patch___TF24__TF24_Env__ctor", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__ctor, 3},
     {"_plant_Patch___TF24__TF24_Env__introduce_new_node", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__introduce_new_node, 2},
     {"_plant_Patch___TF24__TF24_Env__compute_environment", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__compute_environment, 1},
@@ -13692,6 +14096,14 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___TF24__TF24_Env__stand_newnode_height_stage_history__set", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__stand_newnode_height_stage_history__set, 2},
     {"_plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history__get", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history__get, 1},
     {"_plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history__set", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history__set, 2},
+    {"_plant_Patch___TF24__TF24_Env__stand_height_stage_history_all__get", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__stand_height_stage_history_all__get, 1},
+    {"_plant_Patch___TF24__TF24_Env__stand_height_stage_history_all__set", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__stand_height_stage_history_all__set, 2},
+    {"_plant_Patch___TF24__TF24_Env__stand_competition_stage_history_all__get", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__stand_competition_stage_history_all__get, 1},
+    {"_plant_Patch___TF24__TF24_Env__stand_competition_stage_history_all__set", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__stand_competition_stage_history_all__set, 2},
+    {"_plant_Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__get", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__get, 1},
+    {"_plant_Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__set", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__stand_newnode_height_stage_history_all__set, 2},
+    {"_plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__get", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__get, 1},
+    {"_plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__set", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__stand_newnode_competition_stage_history_all__set, 2},
     {"_plant_Patch___TF24f__TF24_Env__ctor", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__ctor, 3},
     {"_plant_Patch___TF24f__TF24_Env__introduce_new_node", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__introduce_new_node, 2},
     {"_plant_Patch___TF24f__TF24_Env__compute_environment", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__compute_environment, 1},
@@ -13737,6 +14149,14 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___TF24f__TF24_Env__stand_newnode_height_stage_history__set", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__stand_newnode_height_stage_history__set, 2},
     {"_plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history__get", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history__get, 1},
     {"_plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history__set", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history__set, 2},
+    {"_plant_Patch___TF24f__TF24_Env__stand_height_stage_history_all__get", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__stand_height_stage_history_all__get, 1},
+    {"_plant_Patch___TF24f__TF24_Env__stand_height_stage_history_all__set", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__stand_height_stage_history_all__set, 2},
+    {"_plant_Patch___TF24f__TF24_Env__stand_competition_stage_history_all__get", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__stand_competition_stage_history_all__get, 1},
+    {"_plant_Patch___TF24f__TF24_Env__stand_competition_stage_history_all__set", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__stand_competition_stage_history_all__set, 2},
+    {"_plant_Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__get", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__get, 1},
+    {"_plant_Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__set", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__stand_newnode_height_stage_history_all__set, 2},
+    {"_plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__get", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__get, 1},
+    {"_plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__set", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__stand_newnode_competition_stage_history_all__set, 2},
     {"_plant_Patch___K93__K93_Env__ctor", (DL_FUNC) &_plant_Patch___K93__K93_Env__ctor, 3},
     {"_plant_Patch___K93__K93_Env__introduce_new_node", (DL_FUNC) &_plant_Patch___K93__K93_Env__introduce_new_node, 2},
     {"_plant_Patch___K93__K93_Env__compute_environment", (DL_FUNC) &_plant_Patch___K93__K93_Env__compute_environment, 1},
@@ -13782,6 +14202,14 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___K93__K93_Env__stand_newnode_height_stage_history__set", (DL_FUNC) &_plant_Patch___K93__K93_Env__stand_newnode_height_stage_history__set, 2},
     {"_plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history__get", (DL_FUNC) &_plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history__get, 1},
     {"_plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history__set", (DL_FUNC) &_plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history__set, 2},
+    {"_plant_Patch___K93__K93_Env__stand_height_stage_history_all__get", (DL_FUNC) &_plant_Patch___K93__K93_Env__stand_height_stage_history_all__get, 1},
+    {"_plant_Patch___K93__K93_Env__stand_height_stage_history_all__set", (DL_FUNC) &_plant_Patch___K93__K93_Env__stand_height_stage_history_all__set, 2},
+    {"_plant_Patch___K93__K93_Env__stand_competition_stage_history_all__get", (DL_FUNC) &_plant_Patch___K93__K93_Env__stand_competition_stage_history_all__get, 1},
+    {"_plant_Patch___K93__K93_Env__stand_competition_stage_history_all__set", (DL_FUNC) &_plant_Patch___K93__K93_Env__stand_competition_stage_history_all__set, 2},
+    {"_plant_Patch___K93__K93_Env__stand_newnode_height_stage_history_all__get", (DL_FUNC) &_plant_Patch___K93__K93_Env__stand_newnode_height_stage_history_all__get, 1},
+    {"_plant_Patch___K93__K93_Env__stand_newnode_height_stage_history_all__set", (DL_FUNC) &_plant_Patch___K93__K93_Env__stand_newnode_height_stage_history_all__set, 2},
+    {"_plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__get", (DL_FUNC) &_plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__get, 1},
+    {"_plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__set", (DL_FUNC) &_plant_Patch___K93__K93_Env__stand_newnode_competition_stage_history_all__set, 2},
     {"_plant_SCM___FF16__FF16_Env__ctor", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__ctor, 3},
     {"_plant_SCM___FF16__FF16_Env__run", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__run, 1},
     {"_plant_SCM___FF16__FF16_Env__run_mutant", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__run_mutant, 2},
@@ -14200,8 +14628,10 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ff16_reverse_tape_probe", (DL_FUNC) &_plant_ff16_reverse_tape_probe, 2},
     {"_plant_ff16_offspring_production_gradient_impl", (DL_FUNC) &_plant_ff16_offspring_production_gradient_impl, 8},
     {"_plant_ff16_stand_gradient_impl", (DL_FUNC) &_plant_ff16_stand_gradient_impl, 16},
-    {"_plant_ff16_coupled_metrics_impl", (DL_FUNC) &_plant_ff16_coupled_metrics_impl, 12},
-    {"_plant_ff16_coupled_gradient_impl", (DL_FUNC) &_plant_ff16_coupled_gradient_impl, 13},
+    {"_plant_ff16_coupled_metrics_impl", (DL_FUNC) &_plant_ff16_coupled_metrics_impl, 13},
+    {"_plant_ff16_coupled_gradient_impl", (DL_FUNC) &_plant_ff16_coupled_gradient_impl, 14},
+    {"_plant_ff16_coupled_metrics_ms_impl", (DL_FUNC) &_plant_ff16_coupled_metrics_ms_impl, 10},
+    {"_plant_ff16_coupled_gradient_ms_impl", (DL_FUNC) &_plant_ff16_coupled_gradient_ms_impl, 12},
     {"_plant_ff16_census_reconstruct_impl", (DL_FUNC) &_plant_ff16_census_reconstruct_impl, 8},
     {"_plant_ff16_state_jacobian_impl", (DL_FUNC) &_plant_ff16_state_jacobian_impl, 8},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
