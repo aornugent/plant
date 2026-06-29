@@ -440,16 +440,25 @@ Three principles recur across both strategies and are the real transferable cont
 
 ## What's next
 
-Two items from this list are now done: TF24's establishment filter is **differentiated**
-in the emergent path (the seedling-net channel, validated active in both AD and FD), and
-the TF24 emergent 27-vector is **fully FD-validated** — every trait against a two-pass
-live finite difference (the 27 independent replays run across cores; all match to ≤2e-4,
-with the photosynthesis curvatures needing a finer FD step their AD does not). Remaining:
+Three things on the earlier roadmap are now done. TF24's establishment filter is
+**differentiated** in the emergent path (the seedling-net channel, validated active in
+both AD and FD); the TF24 emergent 27-vector is **fully FD-validated** — every trait
+against a two-pass live finite difference (the 27 independent replays run across cores;
+all match to ≤2e-4, with the photosynthesis curvatures needing a finer FD step their AD
+does not); and the reverse-per-cohort replay is now a **committed first-class API**,
+`tf24_offspring_production_gradient()`, on a par with FF16's (both compiled into
+`plant.so`, both covered by plain-R CI tests). What remains:
 
-- **Multi-species stands**, and **per-RK-stage resident-stand harvesting** for a
-  bit-exact (rather than reconstruction-faithful) self-shading field.
-- **A committed harvested-replay kernel** if the emergent replay graduates from
-  demonstration scripts to a first-class API like FF16's `offspring_production_gradient()`.
+- **Multi-species stands.** Every emergent script and both committed APIs currently
+  assume a single species (`species[[1]]`). The frozen resident environment already
+  encodes the *whole* canopy's shading, so each species' cohorts read the same frozen
+  field — generalising is mostly a loop over species (harvest → replay → per-species
+  `offspring_production` and gradient). The clean first target is the per-species
+  *own-trait* gradient `d(offspring_s)/d(θ_s)` (each species a mutant in the fixed
+  N-species canopy — the invasion reading); the full cross-species Jacobian
+  `d(offspring_s)/d(θ_{s'})` is a later step.
+- **Per-RK-stage resident-stand harvesting** for a bit-exact (rather than
+  reconstruction-faithful) self-shading field.
 - Longer term, the **`<T,E,S>` hierarchy** lets the same reverse machinery drive
   gradient-based **calibration** and **adaptive-dynamics** analyses (the
   frozen-resident gradient *is* the invasion-fitness selection gradient) across both
