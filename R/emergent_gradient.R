@@ -319,6 +319,81 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
   }
 }
 
+##' Reverse-mode trait gradient of \code{\link{grow_individual_to_size}} (#472 scope
+##' B, FF16): a single plant grown in a FIXED environment to target size(s),
+##' differentiated w.r.t. traits.
+##'
+##' The per-plant, fixed-environment counterpart of \code{\link{stand_gradient}}: there
+##' is no resident feedback (the environment is given), so the gradient is the exact
+##' derivative of the grow-to-size solve. For each target size it returns the derivative
+##' of the stopping TIME \eqn{t^*} (the time the plant reaches the target) and of every
+##' ODE STATE component at \eqn{t^*}, w.r.t. all FF16 traits, as an optional output of
+##' the same call you already make. This is the gradient a growth-rate or
+##' time-to-size calibration / optimisation consumes (e.g.
+##' \code{\link{optimise_individual_rate_at_size_by_trait}}).
+##'
+##' It is a two-pass method mirroring the SCM gradients. Pass 1 runs the ordinary
+##' \code{\link{grow_individual_to_size}} (its adaptive Cash-Karp step schedule and
+##' per-node trajectory are harvested). Pass 2 replays the demographic ODE over that
+##' FROZEN schedule with the trait active, reading the fixed environment with the
+##' default deep-crown assimilation, to a single partial final step landing on
+##' \eqn{t^*}; one reverse sweep per state component gives \eqn{\partial
+##' \mathrm{state}/\partial\theta} at fixed \eqn{t^*}. The stopping time itself responds
+##' to the trait through the implicit function theorem on the stopping condition
+##' \eqn{\mathrm{size}(t^*,\theta) = \mathrm{target}}:
+##' \deqn{dt^*/d\theta = -\,(\partial\,\mathrm{size}/\partial\theta\,|_{t^*}) /
+##'   \dot{\mathrm{size}}(t^*),}
+##' so the TOTAL derivative of each returned component \eqn{y_c} is \eqn{dy_c/d\theta =
+##' \partial y_c/\partial\theta|_{t^*} + \dot y_c(t^*)\,dt^*/d\theta} (for the size
+##' component itself the two terms cancel, as it is pinned to the target). The seedling
+##' size \eqn{h_0} (which solves \eqn{\mathrm{mass}(h_0) = \mathrm{seed\ mass}}) carries
+##' its own \eqn{dh_0/d\theta} by the same implicit-function step.
+##'
+##' @title Reverse-mode gradient of grow_individual_to_size (FF16)
+##' @param individual An \code{Individual} object (FF16 strategy), as passed to
+##'   \code{\link{grow_individual_to_size}}.
+##' @param sizes A vector of target sizes to grow the plant to (increasing).
+##' @param size_name The size variable the targets refer to (one of the ODE state
+##'   names, e.g. \code{"height"}; FF16's monotonic size).
+##' @param env An \code{Environment} object (the fixed environment).
+##' @param traits Character vector of FF16 trait names; \code{NULL} (default) uses all
+##'   28 production-relevant parameters.
+##' @param time_max,warn Passed through to \code{\link{grow_individual_to_size}} for the
+##'   schedule-discovery pass.
+##' @return A list with \code{$time} (the reconstructed \eqn{t^*} per size),
+##'   \code{$state} (a sizes x component matrix of the ODE state at \eqn{t^*}),
+##'   \code{$d_time} (a sizes x trait matrix \eqn{dt^*/d\theta}) and \code{$d_state} (a
+##'   sizes x component x trait array of TOTAL \eqn{d\,\mathrm{state}/d\theta}). The
+##'   reconstructed \code{$time}/\code{$state} match \code{grow_individual_to_size} to
+##'   the live \code{uniroot} tolerance.
+##' @seealso \code{\link{grow_individual_to_size}}, \code{\link{stand_gradient}}.
+##' @export
+grow_individual_to_size_gradient <- function(individual, sizes, size_name, env,
+                                             traits = NULL, time_max = Inf,
+                                             warn = TRUE) {
+  if (!grepl("^FF16", individual$strategy_name))
+    stop("grow_individual_to_size_gradient is implemented for the FF16 strategy only")
+  if (is.unsorted(sizes) || length(sizes) == 0L)
+    stop("sizes must be non-empty and sorted")
+  sidx <- match(size_name, individual$ode_names)
+  if (is.na(sidx))
+    stop("size_name must be one of the ODE state names: ",
+         paste(individual$ode_names, collapse = ", "))
+  if (is.null(traits)) traits <- ff16_default_traits()
+
+  # Pass 1: harvest the adaptive step schedule + initial state (the frozen schedule the
+  # replay reproduces). grow_individual_bracket returns the step times and per-node states.
+  brk <- grow_individual_bracket(individual, sizes, size_name, env, time_max, warn)
+  y0  <- stats::setNames(individual$ode_state, individual$ode_names)
+  pp  <- unlist(individual$strategy$pars)
+
+  res <- ff16_grow_to_size_gradient_impl(pp, env, y0, brk$time, as.numeric(sizes),
+                                         as.integer(sidx - 1L), traits, TRUE)
+  rownames(res$time)  <- NULL
+  res$sizes <- sizes
+  res
+}
+
 ##' Per-cohort state x trait Jacobian of a resident SCM (#472 scope B, the
 ##' calibration-facing engine's escape hatch, FF16).
 ##'

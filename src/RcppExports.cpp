@@ -13092,6 +13092,24 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ff16_grow_to_size_gradient_impl
+Rcpp::List ff16_grow_to_size_gradient_impl(Rcpp::NumericVector pp, plant::FF16_Environment env, Rcpp::NumericVector y0v, std::vector<double> sh, std::vector<double> targets, int sidx, std::vector<std::string> traits, bool active_h0);
+RcppExport SEXP _plant_ff16_grow_to_size_gradient_impl(SEXP ppSEXP, SEXP envSEXP, SEXP y0vSEXP, SEXP shSEXP, SEXP targetsSEXP, SEXP sidxSEXP, SEXP traitsSEXP, SEXP active_h0SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< plant::FF16_Environment >::type env(envSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type y0v(y0vSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sh(shSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type targets(targetsSEXP);
+    Rcpp::traits::input_parameter< int >::type sidx(sidxSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type traits(traitsSEXP);
+    Rcpp::traits::input_parameter< bool >::type active_h0(active_h0SEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_grow_to_size_gradient_impl(pp, env, y0v, sh, targets, sidx, traits, active_h0));
+    return rcpp_result_gen;
+END_RCPP
+}
 // node_schedule_default__Parameters___FF16__FF16_Env
 plant::NodeSchedule node_schedule_default__Parameters___FF16__FF16_Env(const plant::Parameters<plant::FF16_Strategy,plant::FF16_Environment>& p);
 RcppExport SEXP _plant_node_schedule_default__Parameters___FF16__FF16_Env(SEXP pSEXP) {
@@ -14634,6 +14652,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ff16_coupled_gradient_ms_impl", (DL_FUNC) &_plant_ff16_coupled_gradient_ms_impl, 12},
     {"_plant_ff16_census_reconstruct_impl", (DL_FUNC) &_plant_ff16_census_reconstruct_impl, 8},
     {"_plant_ff16_state_jacobian_impl", (DL_FUNC) &_plant_ff16_state_jacobian_impl, 8},
+    {"_plant_ff16_grow_to_size_gradient_impl", (DL_FUNC) &_plant_ff16_grow_to_size_gradient_impl, 8},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
     {"_plant_make_node_schedule__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___FF16__FF16_Env, 1},
     {"_plant_ff16_fecundity_dt_grad_ap1", (DL_FUNC) &_plant_ff16_fecundity_dt_grad_ap1, 2},

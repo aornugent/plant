@@ -129,6 +129,43 @@ Caveats to flag, not blockers:
   mortality guard) so the taped expression is straight-line.
 - TF24F adds a state, so the coupled replay carries 6 states/cohort not 5; trivial.
 
+## 4b. The single-plant `grow_individual_to_size` surface (FF16 done; TF24 analogue)
+
+FF16 now has `grow_individual_to_size_gradient()` — a trait gradient of one plant grown
+in a **fixed** environment to a target size (the guide's "The same pattern on a single
+plant"). It is the lightest gradient: no resident feedback, so it is just the two-pass
+frozen-schedule replay + the **IFT stopping-time step** on `size(t*,θ)=target`
+(`dt*/dθ = −(∂size/∂θ)/size_dt`), returning `d(t*)/dθ` and the total `d(state at t*)/dθ`.
+The TF24 analogue would be wanted for the same use case (e.g.
+`optimise_individual_rate_at_size_by_trait`, the leaf/whole-plant growth optimisations).
+
+How it ports to TF24/TF24F — it is **strictly easier than the TF24 census** above,
+because there is *no canopy and no density*:
+- **No `g′` / number-density problem at all.** The single-plant grow tracks only the
+  demographic state along one trajectory; there is no `log_density` rate, so the
+  census-density curvature obstacle of §3 simply does not arise.
+- **The replay machinery is the existing TF24 emergent path.** TF24's
+  `tf24_offspring_production_gradient` already replays one cohort's demographic ODE over
+  a frozen Cash-Karp schedule with the leaf opt harvested per stage and a linearised,
+  tapeable profit injected. The grow-to-size gradient is that same per-cohort replay,
+  driven by a *fixed env* (no per-stage resident light to harvest — the env is given) and
+  stopped by the IFT step instead of integrated to the census. So it reuses the harvested
+  -profit replay wholesale; only the FF16 `deep_net` rate call is swapped for the TF24
+  leaf evaluation, exactly as for the offspring gradient.
+- **The stopping-time IFT needs `size_dt(t*)` only** — `height_dt` at the operating
+  point, which the harvest already produces (it is the `height_dt` whose within-trajectory
+  `d/dh` the emergent path already central-differences). No new sensitivity.
+- **TF24 fidelity floor stays ~5e-7** (the optimiser tolerance), as for offspring; **TF24F
+  is clean** (analytic leaf rates, collar carried as the 6th replayed state — the same
+  reason it is the right census target).
+
+So the per-plant grow-to-size gradient for TF24 is low-risk follow-on work that should be
+done *with* (or before) the TF24F census, sharing the harvested-profit replay; it does
+**not** need the curvature harvest §3 requires. Build order: a TF24 grow-to-size R0
+(double replay reproduces `grow_individual_to_size` to the optimiser floor) then R1 (AD
+vs frozen-schedule FD), mirroring `test-ff16-grow-individual-gradient.R` and
+`scripts/ad_grow_individual_gradient.R`.
+
 ## 5. Feasibility verdict by metric × feedback
 
 | target | TF24 | TF24F |
@@ -138,6 +175,7 @@ Caveats to flag, not blockers:
 | census, **resident** (coupled, self-shading) | curvature harvest + per-stage leaf-opt in the re-evolution (stiff, many solves) | **clean + cheaper** (no optimiser; 1 leaf eval/step) |
 | census, **multi-species** (cross-species) | as above; canopy ports free | as above; canopy ports free |
 | `stand_state_jacobian` (escape hatch) | per-cohort, harvested profit | per-cohort, analytic |
+| `grow_individual_to_size` (single plant, fixed env) | reuses harvested-profit replay + IFT stop; no g′/density; ~5e-7 floor | **clean** (analytic rates + IFT stop); FF16 done |
 
 The canopy/geometry half is free for both. The only real cost is the leaf-opt sensitivity
 in the rates+density — manageable for TF24 (curvature harvest), **clean for TF24F**.

@@ -4633,6 +4633,10 @@ ff16_state_jacobian_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, 
     .Call('_plant_ff16_state_jacobian_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits)
 }
 
+ff16_grow_to_size_gradient_impl <- function(pp, env, y0v, sh, targets, sidx, traits, active_h0) {
+    .Call('_plant_ff16_grow_to_size_gradient_impl', PACKAGE = 'plant', pp, env, y0v, sh, targets, sidx, traits, active_h0)
+}
+
 node_schedule_default__Parameters___FF16__FF16_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___FF16__FF16_Env', PACKAGE = 'plant', p)
 }

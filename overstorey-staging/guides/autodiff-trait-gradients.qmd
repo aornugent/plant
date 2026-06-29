@@ -288,10 +288,69 @@ Any smooth metric over the cohort states then has its gradient by the chain rule
 `plant` never needing to know the metric — the same boundary as "likelihoods live
 downstream" (data never enters `plant`, which is what lets many likelihood terms share
 one stand baseline). The same "gradient as an optional output of the call you already
-make" pattern then extends to `Leaf` (standalone leaf calibration) and
-`grow_individual_to_size` (growth-rate optimisation), and the engine mirrors onto TF24
-(the offspring entry is `tf24_offspring_production_gradient()`; the census metrics are
-the TF24 follow-up).
+make" pattern also reaches the single-plant `grow_individual_to_size` (growth-rate /
+time-to-size optimisation — landed, see the next section) and `Leaf` (standalone leaf
+calibration — still to come), and the engine mirrors onto TF24 (the offspring entry is
+`tf24_offspring_production_gradient()`; the census metrics are the TF24 follow-up).
+
+## The same pattern on a single plant: `grow_individual_to_size`
+
+The stand engine differentiates an emergent output of a whole resident; the *simplest*
+member of the family differentiates one plant. `grow_individual_to_size(individual,
+sizes, size_name, env, ...)` grows a single plant in a **fixed** environment up to a
+target size and returns the ODE state there — the per-plant, fixed-environment problem
+behind a growth-rate or time-to-size calibration (e.g.
+`optimise_individual_rate_at_size_by_trait`). Because the environment is *given*, there
+is no resident feedback at all, so this is the lightest of the FF16 gradients —
+the two-pass replay with **one** extra idea, the stopping-time implicit-function step.
+
+```r
+g <- grow_individual_to_size_gradient(individual, sizes = c(2, 5, 10), "height", env)
+g$time      # t* per size; g$d_time = d(t*)/d(theta), a sizes x trait matrix
+g$state     # the ODE state at t*; g$d_state = TOTAL d(state)/d(theta), sizes x comp x trait
+```
+
+Pass one is the ordinary `grow_individual_to_size`: its adaptive Cash–Karp schedule and
+per-node trajectory are harvested (via `grow_individual_bracket`). Pass two replays the
+demographic ODE over that frozen schedule with the trait active, reading the fixed env
+with the default deep-crown assimilation, to a **single partial final step** that lands
+on `t*`. One reverse sweep per state component gives the *partial* `∂state/∂θ` at fixed
+`t*`. The stopping time responds to the trait too, through the **implicit function
+theorem** on the stopping condition `size(t*, θ) = target` (the #539 pattern once more —
+differentiate the converged condition, never the bisection loop):
+
+$$ \frac{dt^*}{d\theta} = -\,\frac{\partial\,\text{size}/\partial\theta\,|_{t^*}}{\dot{\text{size}}(t^*)},
+\qquad \frac{dy_c}{d\theta} = \frac{\partial y_c}{\partial\theta}\Big|_{t^*} + \dot y_c(t^*)\,\frac{dt^*}{d\theta}. $$
+
+For the size component itself the two terms cancel (it is pinned to the target) — the
+clean self-check the validation lands on: `d(height)/dθ` comes back at ~1.7 × 10⁻¹², the
+IFT term wired correctly. The seedling size `h₀` (which solves `mass(h₀) = seed mass`)
+carries its own `dh₀/dθ` by the same implicit step, so `lma`/`a_l1`/`ρ` — which shift
+where the plant *starts* — are differentiated correctly (omitting that channel made
+their gradient a near-constant offset wrong, the tell that it was the initial condition).
+
+**A subtlety worth recording — why a *single* partial step, not a sub-stepped one.** The
+schedule interval that contains `t*` is integrated as exactly **one** RKCK step whether
+it is "the partial step" or, after the trait nudges `t*` past a node, "a full step". That
+keeps the frozen-schedule function **C1-smooth across node boundaries**, so its
+finite-difference reference matches AD to the integrator floor. Sub-dividing the final
+step would improve fidelity to the live *adaptive* solver but introduce a granularity
+kink at each node crossing that a small-step FD then reads as noise — the same
+"differentiate the function you actually compute" discipline as everywhere else.
+
+**Validation.** R0: the double replay reproduces `grow_individual_to_size`'s `t*`/state
+up to the live `uniroot` tolerance (its `t*` is itself only resolved to ~1e-4; the C++
+bisection is tighter, so the match is uniroot-limited, not a fidelity statement). R1: the
+AD total gradient — `d(t*)/dθ` and `d(state at t*)/dθ` for all 28 traits — matches a
+central FD over the *same* frozen-schedule function (per-trait plateau-picked step, since
+a trajectory-flowing trait like `a_b1` wants a ~1e-3 step while the bisection noise floor
+swamps a smaller one — the recurring lesson). The honest-scope gap to a FD over the
+fully-*adaptive* `grow_individual_to_size` (which lets the step schedule re-respond to
+the trait) is the grid response: ~1e-5 at small targets, growing to a few–30 % for
+geometry traits at the largest target — exactly the frozen-grid caveat of the SCM
+resident gradient, one plant instead of a stand. The reproducing script is
+`scripts/ad_grow_individual_gradient.R`; the compiled path is covered in plain R by
+`test-ff16-grow-individual-gradient.R`.
 
 ## The resident total gradient: the coupled replay (FF16)
 
@@ -668,21 +727,23 @@ differences. What remains:
   density needs a leaf-optimisation cross-sensitivity — the SCM's growth-rate gradient
   re-solves the leaf opt, which the linearised harvest does not differentiate
   faithfully); the `ResidentHarvest` seam formalised for multi-patch/stochastic
-  variants; and the same pattern on `Leaf` and `grow_individual_to_size`.
-  Likelihoods/calibration/adaptive-dynamics stay downstream (other packages).
+  variants; and the same pattern on `Leaf` (standalone leaf calibration —
+  `grow_individual_to_size` has since landed, see below). Likelihoods / calibration /
+  adaptive-dynamics stay downstream (other packages).
 - **The cross-species resident Jacobian has landed for FF16** (see the coupled-replay
   section above): `stand_gradient(feedback = "resident", species = s)` on a multi-species
   stand returns `d(total-stand census metric)/d(θ_s)` via a joint whole-stand replay, the
   genuinely new object the frozen/mutant reading sets to zero. It is well-conditioned on a
   fixed node schedule and guards (with a clear error) against the refined-schedule replay
   stiffness described there.
-- **`grow_individual_to_size` / `grow_individual_to_height`** is the last FF16 surface
-  still to gain a trait gradient — the same "gradient as an optional output of the call
-  you already make" pattern (one plant grown to a target size, differentiated w.r.t.
-  traits via the demographic-rate kernel + an IFT/implicit handling of the
-  grow-to-target solve). With it, every FF16 entry point — per-plant rates, time-integrated
-  growth, emergent `offspring_production`, the census metrics (frozen and resident,
-  single- and multi-species), and individual growth-to-size — is gradient-enabled.
+- **`grow_individual_to_size` / `grow_individual_to_height` has landed** (see "The same
+  pattern on a single plant" above): `grow_individual_to_size_gradient()` returns
+  `d(t*)/dθ` and the total `d(state at t*)/dθ` for all 28 traits, via the demographic-rate
+  kernel replayed over the harvested schedule + the IFT stopping-time step, compiled into
+  `plant.so` and covered by a plain-R CI test. **With it, every FF16 entry point — per-plant
+  rates, time-integrated growth, emergent `offspring_production`, the census metrics (frozen
+  and resident, single- and multi-species), and individual growth-to-size — is
+  gradient-enabled**, and the branch is a complete PR boundary for the FF16 AD surface.
 - Calibration, likelihoods, and adaptive-dynamics analyses themselves live in
   *downstream packages*; `plant`'s job is to expose the gradient capability cleanly —
   the frozen-resident gradient *is* the invasion-fitness selection gradient those

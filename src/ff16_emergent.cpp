@@ -1234,6 +1234,85 @@ FrozenMS build_frozen_ms(Rcpp::List pp_list, Rcpp::List eh_list,
   return F;
 }
 
+// ===========================================================================
+// grow_individual_to_size trait gradient (#472 scope B, the last FF16 surface).
+// A single plant grown in a FIXED environment to a target size, differentiated
+// w.r.t. traits. No resident feedback (the env is given), so the only machinery
+// beyond the SCM replay is the stopping-time implicit-function step.
+//
+// Pass 1 (double, R): grow_individual_to_size finds t* (height==target) and hands
+//   us the adaptive step schedule + initial state via grow_individual_bracket.
+// Pass 2 (here): replay the demographic ODE over the FROZEN schedule reading the
+//   FIXED env (deep-crown) to a single partial final step landing on t*. The
+//   schedule interval containing t* is integrated as exactly ONE RKCK step whether
+//   it is the partial step or (post node-crossing) a full step, so the function is
+//   C1-smooth across node boundaries and its FD reference matches AD to the floor.
+//   One reverse sweep per state component gives the PARTIAL d(state at t*)/d(theta)
+//   holding t* fixed; the stopping time responds to the trait via the IFT on
+//   size(t*, theta) = target:  d(t*)/d(theta) = -(d size/d theta|t*) / size_dt(t*),
+//   and the TOTAL derivative of each returned component is
+//      d y_c/d theta = d y_c/d theta|t* + y_dot_c(t*) * d(t*)/d(theta).
+//   For the size component itself the two terms cancel (it is pinned to target).
+// ===========================================================================
+
+// 5-state FF16 demographic derivative at a state, reading the FIXED env (deep-crown,
+// the FF16 default). mortality_finite frozen true (matches the live grow path).
+template <typename S>
+plant::FF16State<S> grow_deriv_fixed(const plant::FF16ProdPars<S>& pd,
+    const plant::quadrature::QK* integ, double eta, const plant::FF16_Environment* e,
+    const plant::FF16State<S>& st) {
+  S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, st.height);
+  S net = deep_net<S>(pd, integ, eta, e, st.height);
+  plant::FF16Rates<S> r = plant::ff16_compute_rates_from_net(pd, st.height, area_leaf, net, true);
+  return plant::FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+                             r.area_heartwood_dt, r.mass_heartwood_dt};
+}
+template <typename S>
+plant::FF16State<S> grow_axpy(const plant::FF16State<S>& a, double c, const plant::FF16State<S>& k) {
+  return plant::FF16State<S>{a.height+c*k.height, a.mortality+c*k.mortality,
+    a.fecundity+c*k.fecundity, a.area_heartwood+c*k.area_heartwood, a.mass_heartwood+c*k.mass_heartwood};
+}
+// Replay over a frozen step schedule reading the FIXED env (RKCK), from step 0.
+template <typename S>
+plant::FF16State<S> grow_replay_fixed(const plant::FF16ProdPars<S>& pd,
+    const plant::quadrature::QK* integ, double eta, const plant::FF16_Environment* e,
+    plant::FF16State<S> y, const std::vector<double>& sched) {
+  auto deriv=[&](const plant::FF16State<S>& st, std::size_t, int){ return grow_deriv_fixed<S>(pd,integ,eta,e,st); };
+  auto axpy=[](const plant::FF16State<S>& a, double c, const plant::FF16State<S>& k){ return grow_axpy<S>(a,c,k); };
+  return plant::ff16_cashkarp_replay(y, sched, 0, deriv, axpy);
+}
+// One FF16State component by index (0..4): height, mortality, fecundity, area_hw, mass_hw.
+double grow_state_at(const plant::FF16State<double>& s, int c) {
+  switch (c) { case 0: return s.height; case 1: return s.mortality; case 2: return s.fecundity;
+               case 3: return s.area_heartwood; default: return s.mass_heartwood; }
+}
+// Double discovery: integrate y0 over step_h (fixed env) until the size component
+// `sidx` crosses `target`; return the full-step count before crossing (nfull) and the
+// bisected partial final step dt_final so the trajectory lands on size==target.
+void grow_discover(const plant::FF16ProdPars<double>& pd, const plant::quadrature::QK* integ,
+    double eta, const plant::FF16_Environment* e, const plant::FF16State<double>& y0,
+    const std::vector<double>& step_h, double target, int sidx,
+    int& nfull, double& dt_final, plant::FF16State<double>& final_state) {
+  plant::FF16State<double> y = y0;
+  for (std::size_t n = 0; n < step_h.size(); ++n) {
+    plant::FF16State<double> ynext = grow_replay_fixed<double>(pd, integ, eta, e, y, {step_h[n]});
+    if (grow_state_at(ynext, sidx) >= target) {
+      nfull = (int)n;
+      double lo = 0.0, hi = step_h[n];
+      for (int it = 0; it < 80; ++it) {
+        double mid = 0.5 * (lo + hi);
+        double sm = grow_state_at(grow_replay_fixed<double>(pd, integ, eta, e, y, {mid}), sidx);
+        if (sm < target) lo = mid; else hi = mid;
+      }
+      dt_final = 0.5 * (lo + hi);
+      final_state = grow_replay_fixed<double>(pd, integ, eta, e, y, {dt_final});
+      return;
+    }
+    y = ynext;
+  }
+  nfull = -1;  // target not reached within the schedule
+}
+
 } // namespace
 
 // Reverse-mode probe (CI smoke test of the tape-at-load): d(fecundity_dt)/d(a_p1)
@@ -1680,4 +1759,93 @@ Rcpp::List ff16_state_jacobian_impl(
                                             Rcpp::wrap(traits));
   return Rcpp::List::create(Rcpp::Named("states") = states,
                             Rcpp::Named("jacobian") = jac);
+}
+
+// Trait gradient of grow_individual_to_size (FF16): given the harvested adaptive step
+// schedule `sh` (step times t[0..M] from grow_individual_bracket), the initial ODE
+// state `y0v`, the FIXED environment `env`, and a vector of `targets` for the size
+// component `sidx` (0=height,...), return per (size x trait) the derivative of the
+// stopping time t* and per (size x component x trait) the TOTAL derivative of the ODE
+// state at t*. active_h0 injects the seedling-size IFT d(h0)/d(theta) (matching the
+// live grow path, which starts each plant at its trait-dependent initial_height()).
+// [[Rcpp::export]]
+Rcpp::List ff16_grow_to_size_gradient_impl(
+    Rcpp::NumericVector pp, plant::FF16_Environment env, Rcpp::NumericVector y0v,
+    std::vector<double> sh, std::vector<double> targets, int sidx,
+    std::vector<std::string> traits, bool active_h0) {
+  auto s = make_strategy(pp);
+  auto pd = s.prod_pars();
+  const double eta = s.pars.eta;
+  const plant::quadrature::QK* integ = &s.function_integrator;
+  const plant::FF16_Environment* e = &env;
+  std::vector<std::size_t> idx = resolve_traits(traits);
+  const std::size_t nT = idx.size();
+  if (sh.size() < 2) Rcpp::stop("schedule must have at least two step times");
+  std::vector<double> step_h(sh.size() - 1);
+  for (std::size_t n = 0; n + 1 < sh.size(); ++n) step_h[n] = sh[n + 1] - sh[n];
+
+  const double h0v = y0v[0];
+  std::vector<double> dh0 = active_h0 ? compute_dh0(pd, h0v, idx) : std::vector<double>(nT, 0.0);
+  plant::FF16State<double> y0{y0v[0], y0v[1], y0v[2], y0v[3], y0v[4]};
+
+  const std::vector<std::string> comp =
+    {"height","mortality","fecundity","area_heartwood","mass_heartwood"};
+  const std::size_t nS = comp.size(), nG = targets.size();
+
+  Rcpp::NumericVector tstar(nG);
+  Rcpp::NumericMatrix state(nG, nS);
+  Rcpp::NumericMatrix dtime(nG, nT);                  // d(t*)/d(theta)
+  Rcpp::NumericVector dstate(nG * nS * nT);           // [nG, nS, nT] total d y_c/d theta
+  auto DS = [&](std::size_t g, std::size_t c, std::size_t k) -> double& {
+    return dstate[g + nG * (c + nS * k)]; };
+
+  for (std::size_t g = 0; g < nG; ++g) {
+    int nfull; double dt_final; plant::FF16State<double> fin;
+    grow_discover(pd, integ, eta, e, y0, step_h, targets[g], sidx, nfull, dt_final, fin);
+    if (nfull < 0) Rcpp::stop("target size not reached within the schedule");
+    tstar[g] = sh[nfull] + dt_final;
+    double fs[5] = {fin.height, fin.mortality, fin.fecundity, fin.area_heartwood, fin.mass_heartwood};
+    for (std::size_t c = 0; c < nS; ++c) state(g, c) = fs[c];
+    // Rates at t* (double) for the IFT correction.
+    plant::FF16State<double> rate = grow_deriv_fixed<double>(pd, integ, eta, e, fin);
+    double yd[5] = {rate.height, rate.mortality, rate.fecundity, rate.area_heartwood, rate.mass_heartwood};
+    const double sdot = yd[sidx];
+
+    // Frozen schedule to t*: nfull full steps + the single partial step dt_final.
+    std::vector<double> sched(step_h.begin(), step_h.begin() + nfull);
+    sched.push_back(dt_final);
+
+    // AD: partial d y_c/d theta holding t* fixed (one reverse sweep per component).
+    ad::tape_type tape;
+    auto pa = lift<ad_t>(pd);
+    auto fp = field_ptrs<ad_t>(pa);
+    for (auto j : idx) tape.registerInput(*fp[j]);
+    tape.newRecording();
+    ad_t h0 = h0v;
+    for (std::size_t k = 0; k < nT; ++k)
+      h0 = h0 + ad_t(dh0[k]) * (*fp[idx[k]] - ad_t(xad::value(*fp[idx[k]])));
+    plant::FF16State<ad_t> yad{h0, ad_t(y0v[1]), ad_t(y0v[2]), ad_t(y0v[3]), ad_t(y0v[4])};
+    plant::FF16State<ad_t> out = grow_replay_fixed<ad_t>(pa, integ, eta, e, yad, sched);
+    ad_t oc[5] = {out.height, out.mortality, out.fecundity, out.area_heartwood, out.mass_heartwood};
+    for (std::size_t c = 0; c < nS; ++c) tape.registerOutput(oc[c]);
+    std::vector<std::vector<double>> P(nS, std::vector<double>(nT, 0.0));
+    for (std::size_t c = 0; c < nS; ++c) {
+      tape.clearDerivatives();
+      xad::derivative(oc[c]) = 1.0;
+      tape.computeAdjoints();
+      for (std::size_t k = 0; k < nT; ++k) P[c][k] = xad::derivative(*fp[idx[k]]);
+    }
+    // IFT: d(t*)/d(theta_k) = -(d size/d theta_k|t*) / size_dt(t*); total = P + ydot*dt*.
+    for (std::size_t k = 0; k < nT; ++k) {
+      double dtk = (sdot != 0.0) ? -P[sidx][k] / sdot : 0.0;
+      dtime(g, k) = dtk;
+      for (std::size_t c = 0; c < nS; ++c) DS(g, c, k) = P[c][k] + yd[c] * dtk;
+    }
+  }
+  state.attr("dimnames") = Rcpp::List::create(R_NilValue, Rcpp::wrap(comp));
+  dtime.attr("dimnames") = Rcpp::List::create(R_NilValue, Rcpp::wrap(traits));
+  dstate.attr("dim") = Rcpp::IntegerVector::create((int)nG, (int)nS, (int)nT);
+  dstate.attr("dimnames") = Rcpp::List::create(R_NilValue, Rcpp::wrap(comp), Rcpp::wrap(traits));
+  return Rcpp::List::create(Rcpp::Named("time") = tstar, Rcpp::Named("state") = state,
+                            Rcpp::Named("d_time") = dtime, Rcpp::Named("d_state") = dstate);
 }
