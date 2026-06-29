@@ -239,6 +239,32 @@ trait. There is no on-the-fly compilation: the reverse-mode replay is compiled i
 compiled copy), so it is an ordinary package call — and is covered by the test suite
 in plain R, not only by the sourceCpp scripts below.
 
+For a **multi-species** stand `offspring_production` is a per-species vector, and the
+call takes a `species` index — `offspring_production_gradient(scm, species = s)`
+returns the gradient of species `s`'s emergent output against the *shared* frozen
+canopy of all species (the rare-mutant / invasion reading; each species' cohorts read
+the same frozen field). It is validated per species against finite differences for
+both strategies.
+
+::: {.callout-note}
+## This single-output call is being generalised
+
+`offspring_production_gradient()` differentiates one privileged output. The agreed
+calibration-facing design (see `notes/scm-gradient-architecture.md` in the `plant`
+repo) replaces it with a generic, metric-*symmetric* engine that lives **outside** the
+SCM object: it consumes a `ResidentHarvest` that any SCM variant (single-patch,
+multi-patch, stochastic, …) can emit, differentiates a *supplied* set of weighted
+reductions `metric = Σ_i w_i·f(state_i)` over one replay — `offspring_production`,
+`LAI`, `biomass`, a size-distribution moment are all equal entries, none privileged —
+and returns a metrics × traits **Jacobian** from one baseline (one forward replay, a
+cheap reverse sweep per metric). Likelihoods compose *downstream* (data never enters
+`plant`), which is what lets many likelihood terms share one stand. The same "gradient
+as an optional output of the call you already make" pattern then extends to `Leaf`
+(standalone leaf calibration) and `grow_individual_to_size` (growth-rate optimisation).
+This guide will gain runnable calibration/optimisation *setup* demonstrations once that
+engine lands.
+:::
+
 ## Trying the kernels directly
 
 The lower-level kernels all live in
@@ -447,19 +473,23 @@ against a two-pass live finite difference (the 27 independent replays run across
 all match to ≤2e-4, with the photosynthesis curvatures needing a finer FD step their AD
 does not); and the reverse-per-cohort replay is now a **committed first-class API**,
 `tf24_offspring_production_gradient()`, on a par with FF16's (both compiled into
-`plant.so`, both covered by plain-R CI tests). What remains:
+`plant.so`, both covered by plain-R CI tests). And **multi-species stands** are now
+supported: both APIs take a `species` index and return the per-species invasion
+gradient against the shared frozen canopy, validated per species against finite
+differences. What remains:
 
-- **Multi-species stands.** Every emergent script and both committed APIs currently
-  assume a single species (`species[[1]]`). The frozen resident environment already
-  encodes the *whole* canopy's shading, so each species' cohorts read the same frozen
-  field — generalising is mostly a loop over species (harvest → replay → per-species
-  `offspring_production` and gradient). The clean first target is the per-species
-  *own-trait* gradient `d(offspring_s)/d(θ_s)` (each species a mutant in the fixed
-  N-species canopy — the invasion reading); the full cross-species Jacobian
-  `d(offspring_s)/d(θ_{s'})` is a later step.
+- **The calibration-facing generalisation** (agreed design,
+  `notes/scm-gradient-architecture.md`): a generic, metric-symmetric stand-gradient
+  engine *outside* the SCM object, consuming a `ResidentHarvest` any SCM variant emits,
+  differentiating a supplied set of `(w, f)` reductions over one replay → a metrics ×
+  traits Jacobian, with a state-Jacobian escape hatch for downstream-defined metrics;
+  likelihoods compose downstream. The same pattern extends gradient capability to
+  `Leaf` and `grow_individual_to_size`. This supersedes the single-output
+  `offspring_production_gradient()` and is the next build.
 - **Per-RK-stage resident-stand harvesting** for a bit-exact (rather than
-  reconstruction-faithful) self-shading field.
-- Longer term, the **`<T,E,S>` hierarchy** lets the same reverse machinery drive
-  gradient-based **calibration** and **adaptive-dynamics** analyses (the
-  frozen-resident gradient *is* the invasion-fitness selection gradient) across both
-  strategies.
+  reconstruction-faithful) self-shading field; and the cross-species Jacobian
+  `d(offspring_s)/d(θ_{s'})` (needs the resident canopy to reshape with the trait).
+- Calibration, likelihoods, and adaptive-dynamics analyses themselves live in
+  *downstream packages*; `plant`'s job is to expose the gradient capability cleanly —
+  the frozen-resident gradient *is* the invasion-fitness selection gradient those
+  analyses consume.
