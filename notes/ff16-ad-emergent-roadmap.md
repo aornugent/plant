@@ -11,6 +11,19 @@ Every piece is checked against finite differences and faithful to the live SCM
 What it is NOT yet: landed on `develop`, CI-tested end-to-end, or exposed as a
 callable calibration API. This roadmap is the plan from here.
 
+> **Architecture decided 2026-06-29 (calibration-facing generalisation) — see
+> [`scm-gradient-architecture.md`](scm-gradient-architecture.md).** The single-purpose
+> `offspring_production_gradient()` is superseded by a generic, metric-symmetric stand
+> gradient engine that lives **outside** the SCM object (behind a `ResidentHarvest`
+> seam every SCM variant fills), differentiates a supplied set of `(w, f)` reductions
+> over one replay → a metrics × traits **Jacobian**, with a state-Jacobian escape hatch
+> for downstream-defined metrics; likelihoods compose downstream (data never enters
+> `plant`). The same "gradient as an optional output of the call you already make"
+> pattern extends to `Leaf` and `grow_individual_to_size`. Phases C/D below are the
+> earlier single-metric steps that this generalises; the multi-species per-species
+> gradient (`species` arg) is DONE and committed (`db7ea69f`). Next-session build order
+> is in the design note's "Build order" section.
+
 ## Phase A — Land the foundation (gate; not coding)
 
 - Get **PR #541** (`spike-ff16-hierarchy`, the `<T,E,S>` hierarchy + Node exact
