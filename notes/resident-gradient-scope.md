@@ -92,6 +92,11 @@ fixed-schedule stepper the earlier notes anticipated, now actually needed.)
 
 ## Build order (FIRST CUT = R0–R2, decided 2026-06-29)
 
+> STATUS 2026-06-29: a FIRST-CUT R0–R1 shipped (`6a6b1ef0`) as the **leaf-area-only**
+> frozen-canopy approximation (validated: sign flip, AD-vs-FD ~1e-5) — but it over-froze
+> the canopy `h_i`/`density_i` (see COURSE CORRECTION). The build below (true coupled
+> stepper, canopy state responds to θ) is now the active target; see the seed note.
+
 - **R0 — coupled stepper + baseline check (FF16, light).** Build the all-cohorts-
   together fixed-schedule `Patch<...,ad>` replay over the frozen schedule, reconstructing
   the active light spline per RK stage from the **per-RK-stage** harvested stand state.
@@ -123,7 +128,43 @@ fixed-schedule stepper the earlier notes anticipated, now actually needed.)
    mutant replay's ~3e-14 standard), NOT the cheaper per-step C-28 reconstruction. New
    per-RK-stage harvest fields are part of R0.
 
+## COURSE CORRECTION (2026-06-29, Dan) — "frozen geometry" was over-frozen
+
+A clarification that changes the build. "Freeze geometry, recompute knot values" means
+freeze the **knot x-positions** (the env spline's sampling grid), the **step schedule**
+and the **cohort-introduction schedule** — and recompute the knot **y-values** (light) as
+active functions of the **trait-dependent stand state**. The *stand state* = the canopy
+cohorts' **heights `h_i` and number-densities `density_i`** — and those MUST respond to θ
+(every cohort grows taller / denser differently under θ and re-shades everyone).
+
+The first cut (R0–R1, committed `6a6b1ef0`) **over-froze**: it held the background-canopy
+`h_i` and `density_i` (the per-RK-stage harvest `stand_{height,competition}_stage_history`,
+with `C_i = ce_i/area_leaf(θ₀,h_i) = density_iˑk_I` frozen) at θ₀ and let only
+`area_leaf(θ, h_i)` move. So it captures ONLY the **leaf-area channel** of the feedback
+(the C-27 sign-flip — real and now a committed number), and **not** the height/density-
+reshaping channel. Because the canopy was frozen, cohorts decoupled and forward-mode over
+{a_l1,a_l2} sufficed; and (the giveaway) only 2 of 28 traits got any feedback. Under the
+correct design **every trait** reshapes the canopy, so **all 28 feed back** — exactly Dan's
+point.
+
+**DECISION: build the coupled replay (option b).** All alive cohorts stepped together
+through the frozen schedule; at each RK stage build ONE active canopy from the current
+ACTIVE stand (active `h_i`, active `density_i`, active `area_leaf`), each cohort reads its
+crown light from it. This is the manual fixed-schedule `Patch<...,ad>` stepper the original
+R0 bullet describes. Cost note: built ONCE per stage and shared (not re-looped per cohort
+per GK point — that was the first-cut's O(N²) trap), the coupled tape is ~O(Nˑstepsˑstages)
+≈ the frozen monolithic tape (~1.3s), so ONE reverse sweep gives all 28 traits. Value-
+anchoring is then unnecessary — the spline is genuinely active (odelia #32: frozen knot
+x-positions, active knot y-values).
+
+What R0–R1 leaves in place and still useful for the coupled build: the per-RK-stage stand
+harvest (for the θ₀ baseline check + knot x-positions), the `feedback=` API surface, the
+validated leaf-area sign-flip as a sanity check on the coupled result's leaf-area part.
+
+See `notes/resident-coupled-replay-seed.md` for the fresh-chat handoff.
+
 ## R0 implementation decision — VALUE-ANCHORED reconstruction (2026-06-29, AD spike)
+## [superseded by the COURSE CORRECTION above for the coupled build; kept for the R0-R1 record]
 
 Discovered while building R0: the baseline-consistency gate (#3, ~3e-14) and the
 coupled-tape worry both dissolve under a **value-anchored** reconstruction, the same
