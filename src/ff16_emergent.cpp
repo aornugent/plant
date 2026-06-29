@@ -129,6 +129,68 @@ plant::FF16LifeState<S> replay_cohort_final(const plant::FF16ProdPars<S>& pd,
   return plant::ff16_cashkarp_replay(y, F.step_h, b, deriv, axpy);
 }
 
+// Deep-crown dheight/dt at `height` reading the frozen env `e` (= the resident
+// growth rate g of a plant of that height). area_leaf is derived from height.
+template <typename S>
+S deep_height_dt(const plant::FF16ProdPars<S>& pd, const plant::quadrature::QK* integ,
+                 double eta, const plant::FF16_Environment* e, S height) {
+  S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, height);
+  S net = deep_net<S>(pd, integ, eta, e, height);
+  return plant::ff16_height_dt_from_net(pd, height, area_leaf, net);
+}
+
+// Census-state replay: the 5 demographic states + log_density (the cohort's
+// size-distribution number density along its characteristic). log_density evolves
+// by the method-of-characteristics rate the SCM uses (Node::compute_rates):
+//   d(log_density)/dt = - growth_rate_gradient - mortality_dt,
+// growth_rate_gradient = d(height_dt)/d(height). We reproduce the SCM's EXACT
+// scheme for that gradient (Node::growth_rate_gradient default): a BACKWARD finite
+// difference with ABSOLUTE step node_gradient_eps = 1e-6, reusing the already-known
+// height_dt as fx -- g' = (height_dt(h) - height_dt(h - eps)) / eps. Replicating
+// the SCM's own g' (rather than an exact derivative) is what makes the replayed
+// census density reproduce the SCM's stored density; the trait derivative of that
+// FD expression is taken exactly by AD, consistent with how the SCM formed it.
+template <typename S> struct CensusState { plant::FF16State<S> demog; S log_density; };
+
+template <typename S>
+CensusState<S> replay_cohort_census(const plant::FF16ProdPars<S>& pd, const Frozen& F,
+                                    std::size_t i, S h0, double birth_rate) {
+  using std::log;
+  const std::size_t b = (std::size_t)F.birth[i];
+  const plant::FF16_Environment* eb = (b > 0) ? &F.eh[b - 1][5] : &F.eh[0][0];
+  const double GEPS = 1e-6;                          // Control::node_gradient_eps
+  // Establishment + seedling growth rate g0 in the birth env -> log_density_0.
+  S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
+  S net0 = deep_net<S>(pd, F.integ, F.eta, eb, h0);
+  S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
+  S mort0 = -log(pr_estab);
+  S g0 = deep_height_dt<S>(pd, F.integ, F.eta, eb, h0);
+  S logd0 = log(S(birth_rate) * pr_estab / g0);      // = log(birth_rate*pr_estab/g0)
+
+  auto deriv = [&](const CensusState<S>& s, std::size_t n, int stage) -> CensusState<S> {
+    const plant::FF16_Environment* e =
+      (stage==0)?((n>0)?&F.eh[n-1][5]:&F.eh[0][0]):&F.eh[n][stage-1];
+    const S h = s.demog.height;
+    S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h);
+    S net = deep_net<S>(pd, F.integ, F.eta, e, h);
+    plant::FF16Rates<S> r = plant::ff16_compute_rates_from_net(pd, h, area_leaf, net, true);
+    // g' = backward FD (abs step GEPS) of height_dt, reusing r.height_dt as fx.
+    S g_back = deep_height_dt<S>(pd, F.integ, F.eta, e, h - S(GEPS));
+    S gprime = (r.height_dt - g_back) / S(GEPS);
+    S log_density_dt = -gprime - r.mortality_dt;
+    return CensusState<S>{plant::FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+      r.area_heartwood_dt, r.mass_heartwood_dt}, log_density_dt};
+  };
+  auto axpy = [](const CensusState<S>& a, double c, const CensusState<S>& k) -> CensusState<S> {
+    return CensusState<S>{plant::FF16State<S>{
+      a.demog.height+c*k.demog.height, a.demog.mortality+c*k.demog.mortality,
+      a.demog.fecundity+c*k.demog.fecundity, a.demog.area_heartwood+c*k.demog.area_heartwood,
+      a.demog.mass_heartwood+c*k.demog.mass_heartwood}, a.log_density+c*k.log_density};
+  };
+  CensusState<S> y{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, logd0};
+  return plant::ff16_cashkarp_replay(y, F.step_h, b, deriv, axpy);
+}
+
 // Emergent offspring_production = sum_i tw_i * offspring_weighted_i (deep-crown
 // 6-state replay); establishment frozen via mort0. Kept as the dedicated routine
 // behind offspring_production_gradient(); the generic engine below reproduces it
@@ -139,6 +201,74 @@ S stand_offspring(const plant::FF16ProdPars<S>& pd, const Frozen& F, S h0) {
   for (std::size_t i = 0; i < F.birth.size(); ++i)
     J += S(F.tw[i]) * replay_cohort_final<S>(pd, F, i, h0).offspring;
   return J;
+}
+
+// Unified cohort state for the generic engine: the 5 demographic states + the
+// survival-weighted offspring accumulator (Lagrangian metrics like
+// offspring_production) + log_density (census metrics like LAI / biomass / size
+// moments). One replay carries BOTH so every metric shares ONE recorded tape. The
+// offspring and log_density accumulators are independent fields, so this is
+// bit-identical to the dedicated replays for each (the offspring gate is unchanged).
+template <typename S>
+struct FullState { plant::FF16State<S> demog; S offspring; S log_density; };
+
+template <typename S>
+FullState<S> replay_cohort_full(const plant::FF16ProdPars<S>& pd, const Frozen& F,
+                                std::size_t i, S h0, double birth_rate) {
+  using std::exp; using std::log;
+  const std::size_t b = (std::size_t)F.birth[i];
+  const double ppsab = F.ppsab[i];
+  const plant::FF16_Environment* eb = (b > 0) ? &F.eh[b - 1][5] : &F.eh[0][0];
+  const double GEPS = 1e-6;                              // Control::node_gradient_eps
+  S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
+  S net0 = deep_net<S>(pd, F.integ, F.eta, eb, h0);
+  S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
+  S mort0 = -log(pr_estab);
+  S g0 = deep_height_dt<S>(pd, F.integ, F.eta, eb, h0);
+  S logd0 = log(S(birth_rate) * pr_estab / g0);
+
+  auto deriv = [&](const FullState<S>& s, std::size_t n, int stage) -> FullState<S> {
+    const plant::FF16_Environment* e =
+      (stage==0)?((n>0)?&F.eh[n-1][5]:&F.eh[0][0]):&F.eh[n][stage-1];
+    const S h = s.demog.height;
+    S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h);
+    S net = deep_net<S>(pd, F.integ, F.eta, e, h);
+    plant::FF16Rates<S> r = plant::ff16_compute_rates_from_net(pd, h, area_leaf, net, true);
+    S off_dt = r.fecundity_dt * exp(-s.demog.mortality) * S(F.ppsurv(n, stage) / ppsab);
+    // log_density rate: -(growth_rate_gradient + mortality_dt); g' replicates the
+    // SCM's backward FD (abs step GEPS), reusing r.height_dt as fx.
+    S g_back = deep_height_dt<S>(pd, F.integ, F.eta, e, h - S(GEPS));
+    S gprime = (r.height_dt - g_back) / S(GEPS);
+    S log_density_dt = -gprime - r.mortality_dt;
+    return FullState<S>{plant::FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+      r.area_heartwood_dt, r.mass_heartwood_dt}, off_dt, log_density_dt};
+  };
+  auto axpy = [](const FullState<S>& a, double c, const FullState<S>& k) -> FullState<S> {
+    return FullState<S>{plant::FF16State<S>{
+      a.demog.height+c*k.demog.height, a.demog.mortality+c*k.demog.mortality,
+      a.demog.fecundity+c*k.demog.fecundity, a.demog.area_heartwood+c*k.demog.area_heartwood,
+      a.demog.mass_heartwood+c*k.demog.mass_heartwood}, a.offspring+c*k.offspring,
+      a.log_density+c*k.log_density};
+  };
+  FullState<S> y{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, S(0), logd0};
+  return plant::ff16_cashkarp_replay(y, F.step_h, b, deriv, axpy);
+}
+
+// The new_node (pending seed) census contribution, born into the FINAL-time env
+// (the SCM's compute_competition tail term). Establishment + seedling growth rate
+// are evaluated in the last cached stage env; returns (density_new, h0).
+template <typename S>
+void new_node_census(const plant::FF16ProdPars<S>& pd, const Frozen& F, S h0,
+                     double birth_rate, S& density_new) {
+  using std::log; using std::exp;
+  const plant::FF16_Environment* ef = &F.eh.back()[5];   // final-time env
+  S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
+  S net0 = deep_net<S>(pd, F.integ, F.eta, ef, h0);
+  // The seed's establishment uses the run-end decay factor (last birth time slot).
+  S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0,
+                                                        F.decay.back());
+  S g0 = deep_height_dt<S>(pd, F.integ, F.eta, ef, h0);
+  density_new = S(birth_rate) * pr_estab / g0;           // = exp(log_density_new)
 }
 
 // ---------------------------------------------------------------------------
@@ -153,16 +283,6 @@ S stand_offspring(const plant::FF16ProdPars<S>& pd, const Frozen& F, S h0) {
 // replay + M*sweep, not M replays. This is the calibration-facing core: a
 // metrics x traits Jacobian + the metric values, out of one resident baseline.
 // ---------------------------------------------------------------------------
-
-// A registered metric: its frozen per-cohort weight w_i and the contribution
-// functor f(state) -> S. Census-time per-cohort number density (for LAI/biomass/
-// size moments) is supplied to f as `density`, evolved as a replayed state.
-template <typename S>
-struct Metric {
-  std::string name;
-  std::vector<double> w;                                 // frozen per-cohort weight
-  std::function<S(const plant::FF16LifeState<S>&)> f;    // contribution from state
-};
 
 // Assemble the Frozen harvest (resident schedule + per-RK-stage env + per-cohort
 // survival/weights/decay) from the R-side arrays. Shared by every entry point.
@@ -275,40 +395,35 @@ Rcpp::NumericVector ff16_offspring_production_gradient_impl(
 }
 
 // Compiled core of the generic stand-gradient engine (#472 scope B, build-order
-// step 1). Records ONE forward replay of every cohort's final state onto a single
-// adjoint tape, then for EACH requested metric m = sum_i w_i * f_m(state_i) takes
-// one reverse sweep, giving the metrics x traits Jacobian (+ the metric values) out
-// of one resident baseline. No metric is privileged: offspring_production is just
-// one registered (w, f) entry. Census metrics (LAI/biomass/size moments, which need
-// the per-cohort census number density) are added in a later increment; this first
-// increment carries offspring_production to prove the engine reproduces the
-// dedicated routine as one symmetric entry.
+// step 1). Records ONE forward replay of every cohort (final demographic state +
+// offspring accumulator + log_density) onto a single adjoint tape, then for EACH
+// requested metric takes one reverse sweep, giving the metrics x traits Jacobian
+// (+ the metric values) out of one resident baseline. No metric is privileged.
+// Two symmetric reduction kinds, both weighted reductions over the replayed cohorts:
+//   - Lagrangian (offspring_production): J = sum_i w_i * f(state_i), frozen w_i;
+//   - census (LAI / biomass / size_moment): the size-distribution integral at the
+//     final census = the height-trapezium of density_i * psi(state_i) over the
+//     cohorts (descending height) + the pending-seed tail term, matching the SCM's
+//     compute_competition arithmetic. density_i = exp(log_density_i) is the replayed
+//     census number density (log_density evolved with the SCM's own g' scheme).
 // [[Rcpp::export]]
 Rcpp::List ff16_stand_gradient_impl(
     Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
     std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
     std::vector<double> tw, std::vector<std::string> traits,
-    std::vector<std::string> metrics) {
+    std::vector<std::string> metrics, double birth_rate) {
   auto s  = make_strategy(pp);
   auto pd = s.prod_pars();
   Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
   std::vector<std::size_t> idx = resolve_traits(traits);
   const double h0v = s.initial_height();
   std::vector<double> dh0 = compute_dh0(pd, h0v, idx);
+  const double kI = s.pars.k_I;
   const std::size_t M = metrics.size(), nC = F.birth.size(), nT = idx.size();
-
-  // Build the requested metrics as (w, f) reductions. offspring_production:
-  // w_i = tw_i (the node-spacing trapezoid * patch_density * S_D * birth_rate from
-  // pass 1), f = the survival-weighted offspring accumulator at the final census.
-  std::vector<Metric<ad_t>> mets; mets.reserve(M);
-  for (auto& nm : metrics) {
-    if (nm == "offspring_production") {
-      mets.push_back({nm, F.tw,
-        [](const plant::FF16LifeState<ad_t>& st) -> ad_t { return st.offspring; }});
-    } else {
+  for (auto& nm : metrics)
+    if (nm != "offspring_production" && nm != "LAI" && nm != "biomass" &&
+        nm != "size_moment")
       Rcpp::stop("unknown stand metric: " + nm);
-    }
-  }
 
   // ONE forward recording: replay every cohort, then form each metric scalar.
   ad::tape_type tape;
@@ -321,15 +436,56 @@ Rcpp::List ff16_stand_gradient_impl(
   for (std::size_t k = 0; k < nT; ++k)
     h0 = h0 + ad_t(dh0[k]) * (*fp[idx[k]] - ad_t(xad::value(*fp[idx[k]])));
 
-  std::vector<plant::FF16LifeState<ad_t>> finals; finals.reserve(nC);
+  std::vector<FullState<ad_t>> finals; finals.reserve(nC);
   for (std::size_t i = 0; i < nC; ++i)
-    finals.push_back(replay_cohort_final<ad_t>(pa, F, i, h0));
+    finals.push_back(replay_cohort_full<ad_t>(pa, F, i, h0, birth_rate));
+  ad_t dens_new; new_node_census<ad_t>(pa, F, h0, birth_rate, dens_new);
+
+  // Census order: cohorts sorted by census height DESCENDING (the order the SCM's
+  // compute_competition trapezium walks); the seed (h0) closes the tail interval.
+  std::vector<std::size_t> ord(nC);
+  for (std::size_t i = 0; i < nC; ++i) ord[i] = i;
+  std::sort(ord.begin(), ord.end(), [&](std::size_t a, std::size_t b) {
+    return xad::value(finals[a].demog.height) > xad::value(finals[b].demog.height);
+  });
+  // Height-trapezium of a per-node contribution psi(height, density, mass_heartwood),
+  // with the pending-seed tail (density_new at h0, heartwood 0).
+  auto census_reduce = [&](auto psi) -> ad_t {
+    using std::exp;
+    std::vector<ad_t> phi(nC);
+    for (std::size_t i = 0; i < nC; ++i)
+      phi[i] = psi(finals[i].demog.height, exp(finals[i].log_density),
+                   finals[i].demog.mass_heartwood);
+    ad_t J = ad_t(0.0);
+    for (std::size_t j = 0; j + 1 < nC; ++j) {
+      const std::size_t a = ord[j], b = ord[j + 1];
+      J = J + ad_t(0.5) * (finals[a].demog.height - finals[b].demog.height) *
+              (phi[a] + phi[b]);
+    }
+    if (nC > 0) {
+      const std::size_t last = ord[nC - 1];
+      ad_t phi_new = psi(h0, dens_new, ad_t(0.0));
+      J = J + ad_t(0.5) * (finals[last].demog.height - h0) * (phi[last] + phi_new);
+    }
+    return J;
+  };
 
   std::vector<ad_t> J(M);
   for (std::size_t m = 0; m < M; ++m) {
-    ad_t acc = ad_t(0.0);
-    for (std::size_t i = 0; i < nC; ++i) acc = acc + ad_t(mets[m].w[i]) * mets[m].f(finals[i]);
-    J[m] = acc;
+    const std::string& nm = metrics[m];
+    if (nm == "offspring_production") {
+      ad_t acc = ad_t(0.0);
+      for (std::size_t i = 0; i < nC; ++i) acc = acc + ad_t(F.tw[i]) * finals[i].offspring;
+      J[m] = acc;
+    } else if (nm == "LAI") {
+      J[m] = census_reduce([&](ad_t h, ad_t dens, ad_t) -> ad_t {
+        return dens * ad_t(kI) * plant::ff16_area_leaf(pa.a_l1, pa.a_l2, h); });
+    } else if (nm == "biomass") {
+      J[m] = census_reduce([&](ad_t h, ad_t dens, ad_t mhw) -> ad_t {
+        return dens * (plant::ff16_mass_live_given_height(pa, h) + mhw); });
+    } else { // size_moment: first moment of the size distribution, integral n(h)*h dh
+      J[m] = census_reduce([&](ad_t h, ad_t dens, ad_t) -> ad_t { return dens * h; });
+    }
     tape.registerOutput(J[m]);
   }
 
@@ -349,6 +505,28 @@ Rcpp::List ff16_stand_gradient_impl(
   values.attr("names") = Rcpp::wrap(metrics);
   return Rcpp::List::create(Rcpp::Named("jacobian") = jac,
                             Rcpp::Named("values")   = values);
+}
+
+// De-risk accessor: reconstruct each cohort's census height + log_density (double
+// replay, no AD) to validate the census-density replay against the SCM's stored
+// per-node state before differentiating it.
+// [[Rcpp::export]]
+Rcpp::List ff16_census_reconstruct_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, double birth_rate) {
+  auto s  = make_strategy(pp);
+  auto pd = s.prod_pars();
+  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
+  const std::size_t nC = F.birth.size();
+  const double h0 = s.initial_height();
+  Rcpp::NumericVector height(nC), logd(nC);
+  for (std::size_t i = 0; i < nC; ++i) {
+    CensusState<double> y = replay_cohort_census<double>(pd, F, i, h0, birth_rate);
+    height[i] = y.demog.height; logd[i] = y.log_density;
+  }
+  return Rcpp::List::create(Rcpp::Named("height") = height,
+                            Rcpp::Named("log_density") = logd);
 }
 
 // Escape hatch (#472 scope B, build-order step 1): the per-cohort state x trait

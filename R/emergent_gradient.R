@@ -119,9 +119,12 @@ ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
 ##'
 ##' @title Reverse-mode Jacobian of emergent stand metrics (FF16)
 ##' @param scm An \code{SCM} run with \code{save_RK45_cache = TRUE} (FF16 strategy).
-##' @param metrics Character vector of stand-metric names. Currently
-##'   \code{"offspring_production"} (more -- LAI, biomass, size-distribution moments
-##'   -- are being added on the same symmetric footing).
+##' @param metrics Character vector of stand-metric names, any of
+##'   \code{"offspring_production"} (the seed-rain integral), \code{"LAI"} (leaf-area
+##'   index = the SCM's \code{compute_competition(0)}), \code{"biomass"} (the
+##'   size-distribution integral of live + heartwood mass) and \code{"size_moment"}
+##'   (the first moment of the size distribution, \eqn{\int n(h)\,h\,dh}). All are
+##'   symmetric reductions over the replayed cohorts; none is privileged.
 ##' @param traits Character vector of FF16 trait names. \code{NULL} (default) uses
 ##'   all 28 production-relevant parameters.
 ##' @param species Integer index of the species (cohort family); see
@@ -138,7 +141,7 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
   if (is.null(traits)) traits <- ff16_default_traits()
   h <- ff16_harvest(scm, species, birth_rate)
   ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
-                           traits, metrics)
+                           traits, metrics, h$birth_rate)
 }
 
 ##' Per-cohort state x trait Jacobian of a resident SCM (#472 scope B, the

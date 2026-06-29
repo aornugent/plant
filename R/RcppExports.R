@@ -4349,8 +4349,12 @@ ff16_offspring_production_gradient_impl <- function(pp, eh_list, sh, birth, ppsu
     .Call('_plant_ff16_offspring_production_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits)
 }
 
-ff16_stand_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics) {
-    .Call('_plant_ff16_stand_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics)
+ff16_stand_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate) {
+    .Call('_plant_ff16_stand_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate)
+}
+
+ff16_census_reconstruct_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, birth_rate) {
+    .Call('_plant_ff16_census_reconstruct_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, birth_rate)
 }
 
 ff16_state_jacobian_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits) {
