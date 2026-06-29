@@ -1,0 +1,80 @@
+##' Reverse-mode trait gradient of an SCM's emergent \code{offspring_production}
+##' for the TF24 strategy (#472 scope B, Phase F1-full).
+##'
+##' The TF24 counterpart of \code{\link{offspring_production_gradient}} (FF16). Given a
+##' TF24 \code{SCM} run with \code{control(shading_model = "crown-centre",
+##' save_RK45_cache = TRUE)}, this returns \eqn{d(\mathrm{offspring\_production}) /
+##' d(\theta_k)} for a set of TF24 traits in ONE reverse-mode sweep per cohort -- the
+##' calibration-objective gradient (many traits in, one scalar out).
+##'
+##' TF24 net production comes from a hydraulic leaf optimisation, which has no adjoint
+##' tape. So a first (double) pass harvests the trait-independent leaf operating point
+##' at every RK stage (the optimised profit, the leaf sensitivities, the
+##' \eqn{d(\mathrm{profit})/d(\mathrm{height})} Jacobian); a second pass replays each
+##' cohort's survival-weighted offspring over that harvest as a leaf-opt-free, tapeable
+##' expression and takes one backward sweep. The full mass cascade + leaf path, the
+##' seedling size \code{height_0} (implicit function theorem) and the recruitment
+##' filter (establishment, via the seedling net production) are all differentiated; the
+##' resident light is held frozen (the rare-mutant / invasion-fitness gradient).
+##'
+##' The cached resident SCM MUST have been run with \code{shading_model =
+##' "crown-centre"} (the replay re-solves the crown-centre leaf optimisation); a
+##' deep-crown resident would not be reproduced faithfully.
+##'
+##' @title Reverse-mode gradient of emergent offspring_production (TF24)
+##' @param scm A TF24 \code{SCM} run with \code{control(shading_model = "crown-centre",
+##'   save_RK45_cache = TRUE)}. The cached schedule + per-RK-stage resident environment
+##'   are read from its patch; the SCM is not re-run.
+##' @param traits Character vector of TF24 trait names to differentiate. \code{NULL}
+##'   (default) uses all 27 net-production traits (10 leaf + 17 mass-cascade). The
+##'   reverse sweep covers all 27 regardless; \code{traits} only selects the output.
+##' @param birth_rate The (constant) birth-rate driver used in the run. By default it
+##'   is recovered as \code{offspring_production / net_reproduction_ratio}.
+##' @return A named numeric vector of trait derivatives, with attribute
+##'   \code{"offspring_production"} (the value reconstructed by the replay, which should
+##'   match \code{scm$offspring_production}).
+##' @seealso \code{\link{offspring_production_gradient}} (FF16).
+##' @export
+tf24_offspring_production_gradient <- function(scm, traits = NULL, birth_rate = NULL) {
+  types <- extract_RcppR6_template_types(scm$parameters, "Parameters")
+  if (!identical(types[[1]], "TF24")) {
+    stop("tf24_offspring_production_gradient is for the TF24 strategy only")
+  }
+  sh <- scm$patch$step_history
+  eh <- scm$patch$environment_history
+  if (length(eh) < 1L) {
+    stop("No resident schedule cached: run the SCM with control(save_RK45_cache = TRUE)")
+  }
+  sp    <- scm$patch$species[[1]]
+  nt    <- sp$node_times
+  pdens <- sp$patch_densities
+  ppsab <- sp$pr_patch_survival_at_birth
+  pp    <- unlist(scm$parameters$strategies[[1]]$pars)
+
+  if (is.null(birth_rate)) {
+    birth_rate <- scm$offspring_production[[1]] / scm$net_reproduction_ratios[[1]]
+  }
+  if (is.null(traits)) {
+    traits <- c("vcmax_25","g1_TF24","beta2","K_s","b","c","jmax_25","a","curv_elec",
+                "curv_colim","lma","rho","a_b1","r_l","r_b","r_s","r_r","k_l","k_b",
+                "k_s","k_r","a_bio","a_y","a_l1","a_l2","theta","a_r1")
+  }
+
+  # Cohort birth steps (introductions land on step times).
+  birth_step <- vapply(nt, function(t) which.min(abs(sh - t)) - 1L, integer(1))
+  N <- length(eh)
+  # Node-spacing trapezoid weights so offspring_production == sum_i tw_i * offspring_i.
+  tcoef <- numeric(length(nt)); x <- nt; n <- length(x)
+  tcoef[1] <- 0.5 * (x[2] - x[1]); tcoef[n] <- 0.5 * (x[n] - x[n - 1])
+  if (n > 2) tcoef[2:(n - 1)] <- 0.5 * (x[3:n] - x[1:(n - 2)])
+  tw <- tcoef * pdens * pp[["S_D"]] * birth_rate
+  # pr_patch_survival at the exact Cash-Karp stage times sh[k] + ah[s]*h.
+  ah <- c(0, 0.2, 0.3, 0.6, 1.0, 0.875); hN <- diff(sh)
+  ppsurv <- matrix(0, N, 6)
+  for (k in seq_len(N)) for (s in 1:6) {
+    ppsurv[k, s] <- scm$patch$pr_survival(sh[k] + ah[s] * hN[k])
+  }
+
+  tf24_offspring_production_gradient_impl(pp, eh, sh, birth_step, ppsurv, ppsab, tw,
+                                          traits)
+}

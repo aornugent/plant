@@ -4436,6 +4436,10 @@ TF24f_strategy_expand_allometry <- function(s, height, area_heartwood, mass_hear
     .Call('_plant_TF24f_strategy_expand_allometry', PACKAGE = 'plant', s, height, area_heartwood, mass_heartwood)
 }
 
+tf24_offspring_production_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits) {
+    .Call('_plant_tf24_offspring_production_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits)
+}
+
 node_schedule_default__Parameters___TF24__TF24_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___TF24__TF24_Env', PACKAGE = 'plant', p)
 }
