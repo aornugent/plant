@@ -44,7 +44,8 @@ test_that("stand_gradient census metrics reconstruct + match a frozen-resident F
   # parameter vector, re-reduce over the SAME harvested schedule + resident light).
   h <- plant:::ff16_harvest(scm, 1L, NULL)
   val_at <- function(q) plant:::ff16_stand_gradient_impl(
-    q, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw, tr, mets, h$birth_rate)$values
+    q, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw, tr, mets, h$birth_rate,
+    "frozen", list(), list(), h$patch_area, -1, -1)$values
   fd_best <- function(trait, mm, rel_h) {
     fds <- vapply(rel_h, function(rh) {
       hh <- rh * abs(h$pp[[trait]]); q1 <- q2 <- h$pp
@@ -60,6 +61,48 @@ test_that("stand_gradient census metrics reconstruct + match a frozen-resident F
     expect_equal(g$jacobian[mm, "lma"], fd_best("lma", mm, c(1e-4, 1e-5)),
                  tolerance = 1e-3)
   }
+})
+
+test_that("feedback='resident' is the coupled total gradient (every trait feeds back)", {
+  p <- scm_base_parameters("FF16")
+  p <- add_strategies(p, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar,
+                      birth_rate = list(20))
+  p$node_schedule_times <- list(seq(0, 60, length.out = 11))
+  p$max_patch_lifetime <- 60
+  scm <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
+                 refine_schedule = FALSE)
+
+  mets <- c("LAI", "biomass", "size_moment")
+  tr   <- c("a_p1", "lma", "a_l1")
+  gr <- stand_gradient(scm, metrics = mets, traits = tr, feedback = "resident")
+  gf <- stand_gradient(scm, metrics = mets, traits = tr, feedback = "frozen")
+  expect_equal(dim(gr$jacobian), c(length(mets), length(tr)))
+
+  # The coupled feedback makes a_p1 and lma (NOT just the allometric a_l1) move the
+  # canopy -> the resident gradient differs materially from the frozen one.
+  expect_true(all(abs(gr$jacobian - gf$jacobian) > 0))
+
+  # AD vs a central FD over the SAME coupled reconstruction (frozen geometry). The
+  # reconstruction carries ~1e-8 value noise, so validate at the noise-optimal step.
+  h <- plant:::ff16_harvest(scm, 1L, NULL)
+  cval <- function(q) plant:::ff16_coupled_metrics_impl(
+    q, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw, mets, h$birth_rate,
+    h$nn_h, h$nn_c, h$patch_area)$values
+  for (trait in c("a_p1", "lma")) {
+    d <- 1e-4 * abs(h$pp[[trait]]); q1 <- q2 <- h$pp
+    q1[[trait]] <- q1[[trait]] + d; q2[[trait]] <- q2[[trait]] - d
+    fd <- (cval(q1) - cval(q2)) / (2 * d)
+    for (mm in mets)
+      expect_equal(unname(gr$jacobian[mm, trait]), unname(fd[[mm]]),
+                   tolerance = 5e-3)
+  }
+
+  # offspring_production stays the FROZEN invasion gradient even under "resident".
+  gro <- stand_gradient(scm, metrics = "offspring_production", traits = tr,
+                        feedback = "resident")
+  gfo <- stand_gradient(scm, metrics = "offspring_production", traits = tr,
+                        feedback = "frozen")
+  expect_equal(gro$jacobian, gfo$jacobian, tolerance = 1e-8)
 })
 
 test_that("stand_state_jacobian matches a frozen-resident FD per cohort", {

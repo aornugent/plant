@@ -107,11 +107,16 @@ ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
   # with environment_history. Empty unless the run cached them (older caches lack it).
   sh_h <- patch$stand_height_stage_history
   sh_c <- patch$stand_competition_stage_history
+  # Boundary new_node (height + competition effect) per RK stage: the trapezium tail
+  # term Species::compute_competition adds beyond `nodes`, needed by the COUPLED
+  # resident replay's per-stage canopy reconstruction at ground level.
+  nn_h <- patch$stand_newnode_height_stage_history
+  nn_c <- patch$stand_newnode_competition_stage_history
   patch_area <- scm$parameters$patch_area
 
   list(pp = pp, eh = eh, sh = sh, birth_step = birth_step, ppsurv = ppsurv,
        ppsab = ppsab, tw = tw, pdens = pdens, nt = nt, birth_rate = birth_rate,
-       sh_h = sh_h, sh_c = sh_c, patch_area = patch_area)
+       sh_h = sh_h, sh_c = sh_c, nn_h = nn_h, nn_c = nn_c, patch_area = patch_area)
 }
 
 ##' Reverse-mode trait gradient of an SCM's emergent stand metrics (#472 scope B,
@@ -145,13 +150,16 @@ ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
 ##'   default.
 ##' @param feedback How the resident light responds to the trait. \code{"frozen"}
 ##'   (default) holds the canopy fixed -- the rare-mutant / invasion-fitness gradient,
-##'   correct for \code{offspring_production}. \code{"resident"} makes the canopy light
-##'   an active function of the trait through every resident's leaf area (the resident
-##'   TOTAL gradient, the right quantity for LAI / biomass / size-moment as resident
-##'   ecosystem outcomes). Resident feedback is carried for the allometric traits
-##'   (\code{a_l1}, \code{a_l2}) under frozen geometry (#472 scope B, R0-R1); FF16 only
-##'   so far. The metric VALUES are identical between the two (value-anchored
-##'   reconstruction); only the gradient differs.
+##'   correct for \code{offspring_production}. \code{"resident"} is the resident TOTAL
+##'   gradient via the COUPLED whole-stand replay: all cohorts are re-evolved together
+##'   over the frozen schedule and the canopy light is reconstructed each RK stage from
+##'   the active stand (cohort heights AND densities respond to the trait, odelia #32
+##'   active-knot spline). So EVERY trait feeds back -- a trait that changes growth or
+##'   mortality moves the canopy everyone reads -- and the feedback routinely dominates
+##'   and flips the sign of the census metrics (LAI / biomass / size-moment) relative
+##'   to the frozen reading. Applies to the census metrics; \code{offspring_production}
+##'   stays \code{"frozen"} (the invasion gradient) even under \code{"resident"}. FF16
+##'   only so far (#472 scope B, R0-R1).
 ##' @return A list with \code{$jacobian} (a metrics x traits matrix) and
 ##'   \code{$values} (the reconstructed metric values, which should match the SCM's
 ##'   emergent outputs).
@@ -174,15 +182,50 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
   if (identical(strat, "FF16")) {
     if (is.null(traits)) traits <- ff16_default_traits()
     h <- ff16_harvest(scm, species, birth_rate)
-    if (is_resident && length(h$sh_h) < 1L) {
-      stop("feedback = 'resident' needs the per-RK-stage stand harvest; re-run the ",
-           "resident SCM on this plant version with control(save_RK45_cache = TRUE)")
+    if (feedback != "resident") {
+      # Frozen / the undocumented resident_noanchor validation mode -> the original
+      # (per-cohort, frozen-canopy / leaf-area graft) engine.
+      if (is_resident && length(h$sh_h) < 1L) {
+        stop("feedback = 'resident' needs the per-RK-stage stand harvest; re-run the ",
+             "resident SCM on this plant version with control(save_RK45_cache = TRUE)")
+      }
+      return(ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
+               h$ppsab, h$tw, traits, metrics, h$birth_rate, feedback,
+               if (is.null(h$sh_h)) list() else h$sh_h,
+               if (is.null(h$sh_c)) list() else h$sh_c, h$patch_area, -1, -1))
     }
-    ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
-                             traits, metrics, h$birth_rate, feedback,
-                             if (is.null(h$sh_h)) list() else h$sh_h,
-                             if (is.null(h$sh_c)) list() else h$sh_c, h$patch_area,
-                             -1, -1)
+    # feedback = "resident": the COUPLED whole-stand replay (every trait re-shades the
+    # canopy). Census metrics (LAI / biomass / size_moment) use the coupled total
+    # gradient; offspring_production stays the FROZEN invasion gradient (the canopy a
+    # rare mutant invades is the resident's, not co-moving with the mutant's trait).
+    if (length(h$nn_h) < 1L) {
+      stop("feedback = 'resident' needs the per-RK-stage stand + boundary-node ",
+           "harvest; re-run the resident SCM on this plant version with ",
+           "control(save_RK45_cache = TRUE)")
+    }
+    census_set <- c("LAI", "biomass", "size_moment")
+    bad <- setdiff(metrics, c(census_set, "offspring_production"))
+    if (length(bad)) stop("unknown stand metric: ", paste(bad, collapse = ", "))
+    census <- metrics[metrics %in% census_set]
+    offsp  <- metrics[metrics == "offspring_production"]
+    jac <- matrix(0, length(metrics), length(traits),
+                  dimnames = list(metrics, traits))
+    values <- stats::setNames(numeric(length(metrics)), metrics)
+    if (length(census)) {
+      gc <- ff16_coupled_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
+              h$ppsab, h$tw, traits, census, h$birth_rate, h$nn_h, h$nn_c,
+              h$patch_area)
+      jac[census, ] <- gc$jacobian[census, , drop = FALSE]
+      values[census] <- gc$values[census]
+    }
+    if (length(offsp)) {
+      go <- ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
+              h$ppsab, h$tw, traits, offsp, h$birth_rate, "frozen", list(), list(),
+              h$patch_area, -1, -1)
+      jac[offsp, ] <- go$jacobian[offsp, , drop = FALSE]
+      values[offsp] <- go$values[offsp]
+    }
+    list(jacobian = jac, values = values)
   } else if (identical(strat, "TF24")) {
     if (is_resident) {
       stop("feedback = 'resident' is implemented for FF16 only so far (R0-R1); ",
