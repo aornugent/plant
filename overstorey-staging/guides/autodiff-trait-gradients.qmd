@@ -514,11 +514,15 @@ differences. What remains:
   for downstream-defined metrics. It reproduces `offspring_production_gradient()` exactly
   as one symmetric entry; the census metrics reconstruct the SCM's own outputs (LAI ==
   `compute_competition(0)`) and validate against frozen-resident finite differences; all
-  covered by plain-R CI tests. Still to come: the **TF24 mirror** of the census metrics
-  (the offspring entry is already committed); the `ResidentHarvest` seam formalised for
-  multi-patch/stochastic variants; and the same pattern on `Leaf` and
-  `grow_individual_to_size`. Likelihoods/calibration/adaptive-dynamics stay downstream
-  (other packages).
+  covered by plain-R CI tests. **TF24 is mirrored** too: `stand_gradient()` and
+  `stand_state_jacobian()` dispatch on the strategy, with TF24's `offspring_production`
+  (validated bit-for-bit against `tf24_offspring_production_gradient()`) and the escape
+  hatch both available. Still to come: TF24's **census** metrics (their census number
+  density needs a leaf-optimisation cross-sensitivity — the SCM's growth-rate gradient
+  re-solves the leaf opt, which the linearised harvest does not differentiate
+  faithfully); the `ResidentHarvest` seam formalised for multi-patch/stochastic
+  variants; and the same pattern on `Leaf` and `grow_individual_to_size`.
+  Likelihoods/calibration/adaptive-dynamics stay downstream (other packages).
 - **Per-RK-stage resident-stand harvesting** for a bit-exact (rather than
   reconstruction-faithful) self-shading field; and the cross-species Jacobian
   `d(offspring_s)/d(θ_{s'})` (needs the resident canopy to reshape with the trait).
