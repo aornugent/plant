@@ -213,11 +213,17 @@ ff16_harvest_ms <- function(scm) {
 ##' @return A list with \code{$jacobian} (a metrics x traits matrix) and
 ##'   \code{$values} (the reconstructed metric values, which should match the SCM's
 ##'   emergent outputs).
-##' @details Works for both FF16 and TF24 residents (dispatched on the strategy). A
-##'   TF24 resident must have been run with \code{shading_model = "crown-centre"}.
-##'   FF16 supports all metrics; TF24 currently supports \code{"offspring_production"}
-##'   (its census metrics need a leaf-optimisation cross-sensitivity that is a
-##'   follow-up). \code{\link{stand_state_jacobian}} works for both.
+##' @details Works for FF16, TF24 and TF24f residents (dispatched on the strategy). A
+##'   TF24/TF24f resident must have been run with \code{shading_model = "crown-centre"}.
+##'   FF16 supports all metrics (frozen + resident). TF24 currently supports
+##'   \code{"offspring_production"} (its census metrics need a leaf-optimisation
+##'   cross-sensitivity that is a follow-up). TF24f -- the fast-acclimation variant
+##'   whose tracked-collar leaf eval is analytic -- supports the CENSUS metrics
+##'   (\code{"LAI"} / \code{"biomass"} / \code{"size_moment"}) under \code{feedback =
+##'   "frozen"} via the reverse-mode AD census tape (the collar is carried as a taped
+##'   state with a curvature-linearised gradient-ascent rate); its resident (coupled)
+##'   census gradient and an offspring tape are follow-ups. \code{\link{stand_state_jacobian}}
+##'   works for FF16 and TF24.
 ##' @seealso \code{\link{offspring_production_gradient}}.
 ##' @export
 stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
@@ -314,8 +320,31 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
     h <- tf24_harvest(scm, species, birth_rate)
     tf24_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
                              traits, metrics, h$birth_rate)
+  } else if (identical(strat, "TF24f")) {
+    # TF24f: the CENSUS metrics (LAI / biomass / size_moment) via the reverse-mode
+    # AD tape (#472 scope B, build-order step 2). The tracked-collar leaf eval is
+    # analytic, so -- unlike TF24 -- the census number-density gradient is available
+    # (the collar is carried as a taped state with a curvature-linearised rate; see
+    # tf24f_census_gradient_ad). FROZEN (rare-mutant / invasion) only so far:
+    # resident coupling is step 5 and a TF24f offspring tape is a separate follow-up.
+    if (is_resident) {
+      stop("feedback = 'resident' is implemented for FF16 only so far; the TF24f ",
+           "resident (coupled) census gradient is a follow-up (#472 scope B step 5). ",
+           "Use feedback = 'frozen' for the invasion census gradient.")
+    }
+    census_set <- c("LAI", "biomass", "size_moment")
+    bad <- setdiff(metrics, census_set)
+    if (length(bad)) {
+      stop("stand_gradient for TF24f supports the census metrics (",
+           paste(census_set, collapse = ", "), ") so far; offspring_production is a ",
+           "follow-up (it needs the TF24f offspring tape). Got: ",
+           paste(bad, collapse = ", "))
+    }
+    if (is.null(traits)) traits <- tf24_default_traits()
+    tf24f_census_gradient_ad(scm, metrics = metrics, traits = traits,
+                             species = species, birth_rate = birth_rate)
   } else {
-    stop("stand_gradient is implemented for the FF16 and TF24 strategies only")
+    stop("stand_gradient is implemented for the FF16, TF24 and TF24f strategies only")
   }
 }
 

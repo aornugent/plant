@@ -82,11 +82,17 @@ replay plus M sweeps, not M replays. This is the calibration core: \code{plant}
 returns the Jacobian; a downstream package composes likelihoods (data never
 enters here), which is what lets many likelihood terms share one stand baseline.
 
-Works for both FF16 and TF24 residents (dispatched on the strategy). A
-  TF24 resident must have been run with \code{shading_model = "crown-centre"}.
-  FF16 supports all metrics; TF24 currently supports \code{"offspring_production"}
-  (its census metrics need a leaf-optimisation cross-sensitivity that is a
-  follow-up). \code{\link{stand_state_jacobian}} works for both.
+Works for FF16, TF24 and TF24f residents (dispatched on the strategy). A
+  TF24/TF24f resident must have been run with \code{shading_model = "crown-centre"}.
+  FF16 supports all metrics (frozen + resident). TF24 currently supports
+  \code{"offspring_production"} (its census metrics need a leaf-optimisation
+  cross-sensitivity that is a follow-up). TF24f -- the fast-acclimation variant
+  whose tracked-collar leaf eval is analytic -- supports the CENSUS metrics
+  (\code{"LAI"} / \code{"biomass"} / \code{"size_moment"}) under \code{feedback =
+  "frozen"} via the reverse-mode AD census tape (the collar is carried as a taped
+  state with a curvature-linearised gradient-ascent rate); its resident (coupled)
+  census gradient and an offspring tape are follow-ups. \code{\link{stand_state_jacobian}}
+  works for FF16 and TF24.
 }
 \seealso{
 \code{\link{offspring_production_gradient}}.

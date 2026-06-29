@@ -116,6 +116,25 @@ test_that("tf24f_census_gradient_ad reproduces the frozen census FD gradient (R1
   expect_lt(max(rel), 0.02)
 })
 
+test_that("stand_gradient dispatches TF24f census to the AD tape", {
+  # The first-class API (build-order step 3): stand_gradient(strat = TF24f) routes the
+  # census metrics under feedback = "frozen" to the reverse-mode AD tape, and refuses the
+  # not-yet-built surfaces (resident coupling, offspring_production) with a clear message.
+  scm <- tf24f_small_scm()
+  tr <- c("vcmax_25", "lma", "a_l1", "K_s")
+  mt <- c("LAI", "biomass", "size_moment")
+  sg <- stand_gradient(scm, metrics = mt, traits = tr)
+  ad <- plant:::tf24f_census_gradient_ad(scm, metrics = mt, traits = tr)
+  expect_equal(sg$jacobian, ad$jacobian)
+  expect_equal(sg$values, ad$values)
+  expect_equal(unname(sg$values[["LAI"]]), scm$patch$compute_competition(0), tolerance = 1e-3)
+  # The unbuilt surfaces stop, not silently mislead.
+  expect_error(stand_gradient(scm, metrics = "LAI", traits = tr, feedback = "resident"),
+               "resident")
+  expect_error(stand_gradient(scm, metrics = "offspring_production", traits = tr),
+               "offspring_production")
+})
+
 test_that("tf24f resident census FD gradient is the total gradient (flips sign)", {
   # The resident (coupled) gradient is the TOTAL stand-level d(metric)/d(theta): the
   # canopy feedback routinely dominates and flips the sign relative to the frozen
