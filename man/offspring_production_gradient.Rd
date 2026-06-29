@@ -4,7 +4,12 @@
 \alias{offspring_production_gradient}
 \title{Reverse-mode gradient of emergent offspring_production (FF16)}
 \usage{
-offspring_production_gradient(scm, traits = NULL, birth_rate = NULL)
+offspring_production_gradient(
+  scm,
+  traits = NULL,
+  species = 1L,
+  birth_rate = NULL
+)
 }
 \arguments{
 \item{scm}{An \code{SCM} object that has been run with \code{save_RK45_cache =
@@ -14,6 +19,14 @@ patch; the SCM is not re-run.}
 \item{traits}{Character vector of FF16 trait (parameter) names to differentiate.
 \code{NULL} (default) uses all 28 production-relevant parameters.}
 
+\item{species}{Integer index of the species (cohort family) to differentiate, in
+a multi-species stand. Default \code{1}. \code{offspring_production} is a
+per-species emergent output; this returns \eqn{d(\mathrm{offspring\_production}_s)
+/ d(\theta_k)} for the traits of species \code{s}. The resident light is the
+shared frozen canopy of ALL species (so this is the rare-mutant / invasion
+gradient of species \code{s} against the fixed N-species canopy); a
+cross-species Jacobian would require a resident-reshaping (active-knot) treatment.}
+
 \item{birth_rate}{The (constant) birth-rate driver used in the run. By default it
 is recovered as \code{offspring_production / net_reproduction_ratio} (exact for
 a constant birth rate); pass it explicitly for a time-varying driver.}
@@ -21,7 +34,7 @@ a constant birth rate); pass it explicitly for a time-varying driver.}
 \value{
 A named numeric vector of trait derivatives, with attribute
   \code{"offspring_production"} (the value reconstructed by the replay, which
-  should match \code{scm$offspring_production}).
+  should match \code{scm$offspring_production[[species]]}).
 }
 \description{
 Reverse-mode trait gradient of an SCM's emergent \code{offspring_production}

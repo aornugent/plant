@@ -4,7 +4,12 @@
 \alias{tf24_offspring_production_gradient}
 \title{Reverse-mode gradient of emergent offspring_production (TF24)}
 \usage{
-tf24_offspring_production_gradient(scm, traits = NULL, birth_rate = NULL)
+tf24_offspring_production_gradient(
+  scm,
+  traits = NULL,
+  species = 1L,
+  birth_rate = NULL
+)
 }
 \arguments{
 \item{scm}{A TF24 \code{SCM} run with \code{control(shading_model = "crown-centre",
@@ -15,13 +20,19 @@ are read from its patch; the SCM is not re-run.}
 (default) uses all 27 net-production traits (10 leaf + 17 mass-cascade). The
 reverse sweep covers all 27 regardless; \code{traits} only selects the output.}
 
+\item{species}{Integer index of the species (cohort family) to differentiate, in
+a multi-species stand. Default \code{1}. \code{offspring_production} is a
+per-species emergent output; this returns \eqn{d(\mathrm{offspring\_production}_s)
+/ d(\theta_k)} for the traits of species \code{s} against the shared frozen
+canopy of ALL species (the rare-mutant / invasion gradient).}
+
 \item{birth_rate}{The (constant) birth-rate driver used in the run. By default it
 is recovered as \code{offspring_production / net_reproduction_ratio}.}
 }
 \value{
 A named numeric vector of trait derivatives, with attribute
   \code{"offspring_production"} (the value reconstructed by the replay, which should
-  match \code{scm$offspring_production}).
+  match \code{scm$offspring_production[[species]]}).
 }
 \description{
 Reverse-mode trait gradient of an SCM's emergent \code{offspring_production}

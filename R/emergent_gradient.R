@@ -23,32 +23,44 @@
 ##'   patch; the SCM is not re-run.
 ##' @param traits Character vector of FF16 trait (parameter) names to differentiate.
 ##'   \code{NULL} (default) uses all 28 production-relevant parameters.
+##' @param species Integer index of the species (cohort family) to differentiate, in
+##'   a multi-species stand. Default \code{1}. \code{offspring_production} is a
+##'   per-species emergent output; this returns \eqn{d(\mathrm{offspring\_production}_s)
+##'   / d(\theta_k)} for the traits of species \code{s}. The resident light is the
+##'   shared frozen canopy of ALL species (so this is the rare-mutant / invasion
+##'   gradient of species \code{s} against the fixed N-species canopy); a
+##'   cross-species Jacobian would require a resident-reshaping (active-knot) treatment.
 ##' @param birth_rate The (constant) birth-rate driver used in the run. By default it
 ##'   is recovered as \code{offspring_production / net_reproduction_ratio} (exact for
 ##'   a constant birth rate); pass it explicitly for a time-varying driver.
 ##' @return A named numeric vector of trait derivatives, with attribute
 ##'   \code{"offspring_production"} (the value reconstructed by the replay, which
-##'   should match \code{scm$offspring_production}).
+##'   should match \code{scm$offspring_production[[species]]}).
 ##' @export
-offspring_production_gradient <- function(scm, traits = NULL, birth_rate = NULL) {
+offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
+                                          birth_rate = NULL) {
   types <- extract_RcppR6_template_types(scm$parameters, "Parameters")
   if (!identical(types[[1]], "FF16")) {
     stop("offspring_production_gradient is implemented for the FF16 strategy only")
+  }
+  if (species < 1L || species > length(scm$patch$species)) {
+    stop("species index out of range: stand has ", length(scm$patch$species),
+         " species")
   }
   sh <- scm$patch$step_history
   eh <- scm$patch$environment_history
   if (length(eh) < 1L) {
     stop("No resident schedule cached: run the SCM with control(save_RK45_cache = TRUE)")
   }
-  sp <- scm$patch$species[[1]]
+  sp <- scm$patch$species[[species]]
   nt    <- sp$node_times
   pdens <- sp$patch_densities
   ppsab <- sp$pr_patch_survival_at_birth
-  pp    <- unlist(scm$parameters$strategies[[1]]$pars)
+  pp    <- unlist(scm$parameters$strategies[[species]]$pars)
 
   if (is.null(birth_rate)) {
     # Constant birth rate: offspring_production = birth_rate * net_reproduction_ratio.
-    birth_rate <- scm$offspring_production[[1]] / scm$net_reproduction_ratios[[1]]
+    birth_rate <- scm$offspring_production[[species]] / scm$net_reproduction_ratios[[species]]
   }
   if (is.null(traits)) {
     traits <- c("lma","rho","theta","a_b1","a_r1","eta_c","a_p1","a_p2","r_l","r_s",

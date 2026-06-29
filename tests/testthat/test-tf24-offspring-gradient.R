@@ -65,3 +65,27 @@ test_that("tf24_offspring_production_gradient reconstructs the SCM and matches F
   fd_lma <- (J_at(pp[["lma"]] + h) - J_at(pp[["lma"]] - h)) / (2 * h)
   expect_equal(g[["lma"]], fd_lma, tolerance = 3e-3)
 })
+
+test_that("tf24_offspring_production_gradient selects the right species in a 2-sp stand", {
+  # Two TF24 species sharing one canopy. The per-species harvest must select the
+  # correct cohort family + strategy: each species' replay reconstructs ITS OWN
+  # offspring_production[[s]]. (TF24 matures slowly, so at this small coarse stand the
+  # emergent output is tiny -- reconstruction is exact for any magnitude; the gradient
+  # FD is validated on a real stand in scripts/ad_tf24_emergent_all_traits.R.)
+  H <- 6L
+  p <- scm_base_parameters("TF24")
+  p$max_patch_lifetime <- H
+  p <- add_strategies(p, trait_matrix(c(0.1978791, 0.30), "lma"),
+                      hyperpar = TF24_hyperpar, birth_rate = list(20, 20))
+  p$node_schedule_times <- list(seq(0, H, length.out = 7), seq(0, H, length.out = 7))
+  ctlc <- control(shading_model = "crown-centre", GSS_tol_abs = 1e-9,
+                  ode_tol_rel = 1e-4, ode_tol_abs = 1e-4, save_RK45_cache = TRUE)
+  scm <- run_scm(p, Environment("TF24"), ctlc, refine_schedule = FALSE)
+  expect_length(scm$offspring_production, 2L)
+
+  for (s in 1:2) {
+    gs <- tf24_offspring_production_gradient(scm, traits = "lma", species = s)
+    expect_equal(attr(gs, "offspring_production"), scm$offspring_production[[s]],
+                 tolerance = 1e-4)
+  }
+})
