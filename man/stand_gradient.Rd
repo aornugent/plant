@@ -9,7 +9,8 @@ stand_gradient(
   metrics = "offspring_production",
   traits = NULL,
   species = 1L,
-  birth_rate = NULL
+  birth_rate = NULL,
+  feedback = c("frozen", "resident")
 )
 }
 \arguments{
@@ -30,6 +31,16 @@ all 28 production-relevant parameters.}
 
 \item{birth_rate}{The (constant) birth-rate driver; recovered from the run by
 default.}
+
+\item{feedback}{How the resident light responds to the trait. \code{"frozen"}
+(default) holds the canopy fixed -- the rare-mutant / invasion-fitness gradient,
+correct for \code{offspring_production}. \code{"resident"} makes the canopy light
+an active function of the trait through every resident's leaf area (the resident
+TOTAL gradient, the right quantity for LAI / biomass / size-moment as resident
+ecosystem outcomes). Resident feedback is carried for the allometric traits
+(\code{a_l1}, \code{a_l2}) under frozen geometry (#472 scope B, R0-R1); FF16 only
+so far. The metric VALUES are identical between the two (value-anchored
+reconstruction); only the gradient differs.}
 }
 \value{
 A list with \code{$jacobian} (a metrics x traits matrix) and

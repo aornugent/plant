@@ -102,8 +102,16 @@ ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
     ppsurv[k, s] <- patch$pr_survival(sh[k] + ah[s] * hN[k])
   }
 
+  # Per-RK-stage resident stand (species 0) for the RESIDENT feedback path (R0):
+  # [step][stage 0..5][cohort] heights + per-node competition effects, aligned 1:1
+  # with environment_history. Empty unless the run cached them (older caches lack it).
+  sh_h <- patch$stand_height_stage_history
+  sh_c <- patch$stand_competition_stage_history
+  patch_area <- scm$parameters$patch_area
+
   list(pp = pp, eh = eh, sh = sh, birth_step = birth_step, ppsurv = ppsurv,
-       ppsab = ppsab, tw = tw, pdens = pdens, nt = nt, birth_rate = birth_rate)
+       ppsab = ppsab, tw = tw, pdens = pdens, nt = nt, birth_rate = birth_rate,
+       sh_h = sh_h, sh_c = sh_c, patch_area = patch_area)
 }
 
 ##' Reverse-mode trait gradient of an SCM's emergent stand metrics (#472 scope B,
@@ -135,6 +143,15 @@ ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
 ##'   \code{\link{offspring_production_gradient}}. Default \code{1}.
 ##' @param birth_rate The (constant) birth-rate driver; recovered from the run by
 ##'   default.
+##' @param feedback How the resident light responds to the trait. \code{"frozen"}
+##'   (default) holds the canopy fixed -- the rare-mutant / invasion-fitness gradient,
+##'   correct for \code{offspring_production}. \code{"resident"} makes the canopy light
+##'   an active function of the trait through every resident's leaf area (the resident
+##'   TOTAL gradient, the right quantity for LAI / biomass / size-moment as resident
+##'   ecosystem outcomes). Resident feedback is carried for the allometric traits
+##'   (\code{a_l1}, \code{a_l2}) under frozen geometry (#472 scope B, R0-R1); FF16 only
+##'   so far. The metric VALUES are identical between the two (value-anchored
+##'   reconstruction); only the gradient differs.
 ##' @return A list with \code{$jacobian} (a metrics x traits matrix) and
 ##'   \code{$values} (the reconstructed metric values, which should match the SCM's
 ##'   emergent outputs).
@@ -146,14 +163,31 @@ ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
 ##' @seealso \code{\link{offspring_production_gradient}}.
 ##' @export
 stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
-                           species = 1L, birth_rate = NULL) {
+                           species = 1L, birth_rate = NULL,
+                           feedback = c("frozen", "resident")) {
+  # "resident_noanchor" is an undocumented validation mode (genuine recon value, for
+  # FD-checking R1); the public choices are "frozen"/"resident".
+  feedback <- if (length(feedback) > 1L) match.arg(feedback) else
+    match.arg(feedback, c("frozen", "resident", "resident_noanchor"))
+  is_resident <- feedback %in% c("resident", "resident_noanchor")
   strat <- extract_RcppR6_template_types(scm$parameters, "Parameters")[[1]]
   if (identical(strat, "FF16")) {
     if (is.null(traits)) traits <- ff16_default_traits()
     h <- ff16_harvest(scm, species, birth_rate)
+    if (is_resident && length(h$sh_h) < 1L) {
+      stop("feedback = 'resident' needs the per-RK-stage stand harvest; re-run the ",
+           "resident SCM on this plant version with control(save_RK45_cache = TRUE)")
+    }
     ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
-                             traits, metrics, h$birth_rate)
+                             traits, metrics, h$birth_rate, feedback,
+                             if (is.null(h$sh_h)) list() else h$sh_h,
+                             if (is.null(h$sh_c)) list() else h$sh_c, h$patch_area,
+                             -1, -1)
   } else if (identical(strat, "TF24")) {
+    if (is_resident) {
+      stop("feedback = 'resident' is implemented for FF16 only so far (R0-R1); ",
+           "TF24 resident light is R2")
+    }
     if (is.null(traits)) traits <- tf24_default_traits()
     h <- tf24_harvest(scm, species, birth_rate)
     tf24_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,

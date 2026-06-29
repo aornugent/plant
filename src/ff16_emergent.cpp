@@ -25,11 +25,13 @@
 
 using ad   = xad::adj<double>;
 using ad_t = ad::active_type;
+using fwd_t = xad::fwd<double>::active_type;   // forward (tangent) mode, header-only
 
 namespace {
 
 double as_double(double v)      { return v; }
 double as_double(const ad_t& v) { return xad::value(v); }
+double as_double(const fwd_t& v){ return xad::value(v); }
 
 plant::FF16_Strategy make_strategy(const Rcpp::NumericVector& pp) {
   plant::FF16_Strategy s; auto& q = s.pars;
@@ -67,6 +69,26 @@ struct Frozen {
   std::vector<int> birth;
   double eta, h0, a_d0;
   const plant::quadrature::QK* integ;
+
+  // RESIDENT total-gradient harvest (#472 scope B, R0). When `resident` is true the
+  // cohorts read a value-ANCHORED active light: the frozen env VALUE plus the
+  // theta-derivative of a trapezium reconstruction over the per-RK-stage frozen
+  // stand. st_h[n][s] / st_C[n][s] are the species-0 stand at step n, RK stage s,
+  // sorted by DESCENDING height; st_C is the frozen per-node weight
+  // C_i = ce_i / area_leaf(theta0, h_i) so that C_i * area_leaf(theta, h_i) flows
+  // the allometric trait while reproducing ce_i at theta0. `area` is the patch area
+  // (the Beer's-law competition is trapezium/area, matching Patch::compute_competition).
+  bool resident = false;
+  // anchor=true (the shipped resident path): cohorts read the frozen env VALUE with
+  // the recon theta-DERIVATIVE added (zero value) -> baseline metrics bit-identical
+  // to the frozen engine. anchor=false: cohorts read the genuine recon VALUE
+  // (theta-dependent, ~1e-4 off the frozen env) -- used only to FD-validate R1
+  // ("re-run the reconstruction, re-reduce"); AD and FD then differentiate the SAME
+  // function and agree tightly, and AD(anchored) ~ AD(noanchor) confirms anchoring
+  // is gradient-neutral while it nails the baseline value.
+  bool anchor = true;
+  double area = 1.0;
+  std::vector<std::vector<std::vector<double>>> st_h, st_C;
 };
 
 // Deep-crown net at `height` reading the frozen env `e` (moving-node GK integral).
@@ -79,6 +101,85 @@ S deep_net(const plant::FF16ProdPars<S>& pd, const plant::quadrature::QK* integ,
     double lv = e->get_environment_at_height(zv, canopy_top);
     double ld = e->get_environment_deriv_at_height(zv);
     S light = S(lv) + S(std::isfinite(ld)?ld:0.0) * (z - S(zv));
+    return plant::ff16_assimilation_leaf<S>(pd.a_p1, pd.a_p2, light) *
+           plant::ff16_canopy_q<S>(eta, z / height, z);
+  };
+  S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, height);
+  S assim = area_leaf * integ->integrate_ad<S>(integrand, S(0.0), height);
+  return plant::ff16_net_from_components(pd, height, area_leaf, assim);
+}
+
+// Resident competition at z reconstructed from a FROZEN per-RK-stage stand
+// (descending heights h, frozen weights C_i = ce_i/area_leaf(theta0,h_i)), ACTIVE
+// in the allometric trait through area_leaf(theta, h_i). This is the C-27/C-28
+// trapezium matching Species::compute_competition: comp(z) = (1/2) sum_adjacent
+// (h_i - h_{i+1})(g_i + g_{i+1}), g_i = C_i*area_leaf(theta,h_i)*Q(z/h_i), Q the
+// Yokozawa leaf-area-above (1-u^eta)^2. Returned UN-divided by area (caller divides).
+template <typename S>
+S recon_competition(S z, const plant::FF16ProdPars<S>& pd, double eta,
+                    const std::vector<double>& h, const std::vector<double>& C) {
+  using std::pow;
+  if (h.size() < 2) return S(0.0);               // <2 nodes: SCM trapezium is 0
+  auto g = [&](std::size_t i) -> S {
+    if (as_double(z) >= h[i]) return S(0.0);     // no leaf area above the crown
+    const S u = z / S(h[i]);                     // z may be active (focal-height channel)
+    const S om = S(1.0) - pow(u, S(eta));
+    return S(C[i]) * plant::ff16_area_leaf(pd.a_l1, pd.a_l2, S(h[i])) * (om * om);
+  };
+  S comp = S(0.0);
+  S gp = g(0); double hp = h[0];
+  for (std::size_t i = 1; i < h.size(); ++i) {
+    S gi = g(i);
+    comp = comp + S(hp - h[i]) * (gp + gi);
+    hp = h[i]; gp = gi;
+  }
+  return S(0.5) * comp;
+}
+
+// Value-ANCHORED resident light at zv: the exact frozen-env VALUE plus the
+// theta-derivative of the trapezium reconstruction (zero value). The baseline light
+// is therefore bit-identical to the frozen engine; only the resident feedback
+// channel theta->canopy->light is added. zv is a double (the GK integration point);
+// the focal-height->light channel is carried by deep_net's frozen z-linearisation.
+template <typename S>
+S resident_light_anchored(double zv, double lv, const plant::FF16ProdPars<S>& pd,
+                          double eta, const std::vector<double>& h,
+                          const std::vector<double>& C, double area) {
+  using std::exp;
+  // recon at the FROZEN point zv (constant): the focal-height->light channel is
+  // carried separately by deep_net's analytic frozen-env z-derivative, so here only
+  // the trait (a_l1/a_l2) feedback flows. Value-anchored to the frozen env light lv.
+  S comp  = recon_competition<S>(S(zv), pd, eta, h, C) * S(1.0 / area);
+  S recon = exp(-comp);
+  return S(lv) + (recon - S(as_double(recon)));
+}
+
+// Deep-crown net at `height` reading the value-anchored RESIDENT light at stage
+// (n,stage): the frozen env e + the active reconstruction over the matching frozen
+// per-RK-stage stand (sh heights, sC weights). Mirrors deep_net but with the light
+// active in the allometric trait through the canopy (the resident feedback term).
+template <typename S>
+S deep_net_resident(const plant::FF16ProdPars<S>& pd, const plant::quadrature::QK* integ,
+                    double eta, const plant::FF16_Environment* e, S height,
+                    const std::vector<double>& sh, const std::vector<double>& sC,
+                    double area, bool anchor) {
+  using std::exp;
+  const double canopy_top = e->max_environment_height();
+  auto integrand = [&](S z) -> S {
+    double zv = as_double(z);
+    double lv = e->get_environment_at_height(zv, canopy_top);
+    double ld = e->get_environment_deriv_at_height(zv);
+    S light;
+    if (anchor) {
+      light = S(lv) + S(std::isfinite(ld)?ld:0.0) * (z - S(zv));   // frozen value + z-lin
+      light = light + (resident_light_anchored<S>(zv, lv, pd, eta, sh, sC, area) - S(lv));
+    } else {
+      // genuine recon value with z ACTIVE -> carries BOTH the trait feedback and the
+      // focal-height->light channel (recon's own z-derivative). Self-consistent target
+      // for the R1 finite-difference (forward-AD == FD over this exact function).
+      S comp = recon_competition<S>(z, pd, eta, sh, sC) * S(1.0 / area);
+      light = exp(-comp);
+    }
     return plant::ff16_assimilation_leaf<S>(pd.a_p1, pd.a_p2, light) *
            plant::ff16_canopy_q<S>(eta, z / height, z);
   };
@@ -137,6 +238,45 @@ S deep_height_dt(const plant::FF16ProdPars<S>& pd, const plant::quadrature::QK* 
   S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, height);
   S net = deep_net<S>(pd, integ, eta, e, height);
   return plant::ff16_height_dt_from_net(pd, height, area_leaf, net);
+}
+
+// Resident counterpart of deep_height_dt: dheight/dt reading the value-anchored
+// resident light (used by the census log_density rate / its backward-FD gradient).
+template <typename S>
+S deep_height_dt_resident(const plant::FF16ProdPars<S>& pd,
+                          const plant::quadrature::QK* integ, double eta,
+                          const plant::FF16_Environment* e, S height,
+                          const std::vector<double>& sh, const std::vector<double>& sC,
+                          double area, bool anchor) {
+  S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, height);
+  S net = deep_net_resident<S>(pd, integ, eta, e, height, sh, sC, area, anchor);
+  return plant::ff16_height_dt_from_net(pd, height, area_leaf, net);
+}
+
+// Dispatch helpers: net production / height rate at replay (step n, RK stage), via
+// either the frozen env (mutant path) or the value-anchored resident reconstruction.
+// The (n, stage) -> env mapping mirrors the replay deriv rule; the matching stand is
+// looked up at the SAME (n, stage). Bit-identical to the direct deep_net call when
+// F.resident is false.
+template <typename S>
+const plant::FF16_Environment* stage_env(const Frozen& F, std::size_t n, int stage) {
+  return (stage == 0) ? ((n > 0) ? &F.eh[n-1][5] : &F.eh[0][0]) : &F.eh[n][stage-1];
+}
+template <typename S>
+S net_at(const plant::FF16ProdPars<S>& pd, const Frozen& F, std::size_t n, int stage, S h) {
+  const plant::FF16_Environment* e = stage_env<S>(F, n, stage);
+  if (!F.resident) return deep_net<S>(pd, F.integ, F.eta, e, h);
+  const auto& sh = (stage == 0) ? ((n > 0) ? F.st_h[n-1][5] : F.st_h[0][0]) : F.st_h[n][stage-1];
+  const auto& sC = (stage == 0) ? ((n > 0) ? F.st_C[n-1][5] : F.st_C[0][0]) : F.st_C[n][stage-1];
+  return deep_net_resident<S>(pd, F.integ, F.eta, e, h, sh, sC, F.area, F.anchor);
+}
+template <typename S>
+S height_dt_at(const plant::FF16ProdPars<S>& pd, const Frozen& F, std::size_t n, int stage, S h) {
+  const plant::FF16_Environment* e = stage_env<S>(F, n, stage);
+  if (!F.resident) return deep_height_dt<S>(pd, F.integ, F.eta, e, h);
+  const auto& sh = (stage == 0) ? ((n > 0) ? F.st_h[n-1][5] : F.st_h[0][0]) : F.st_h[n][stage-1];
+  const auto& sC = (stage == 0) ? ((n > 0) ? F.st_C[n-1][5] : F.st_C[0][0]) : F.st_C[n][stage-1];
+  return deep_height_dt_resident<S>(pd, F.integ, F.eta, e, h, sh, sC, F.area, F.anchor);
 }
 
 // Census-state replay: the 5 demographic states + log_density (the cohort's
@@ -207,26 +347,23 @@ FullState<S> replay_cohort_full(const plant::FF16ProdPars<S>& pd, const Frozen& 
   using std::exp; using std::log;
   const std::size_t b = (std::size_t)F.birth[i];
   const double ppsab = F.ppsab[i];
-  const plant::FF16_Environment* eb = (b > 0) ? &F.eh[b - 1][5] : &F.eh[0][0];
   const double GEPS = 1e-6;                              // Control::node_gradient_eps
   S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
-  S net0 = deep_net<S>(pd, F.integ, F.eta, eb, h0);
+  S net0 = net_at<S>(pd, F, b, 0, h0);
   S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
   S mort0 = -log(pr_estab);
-  S g0 = deep_height_dt<S>(pd, F.integ, F.eta, eb, h0);
+  S g0 = height_dt_at<S>(pd, F, b, 0, h0);
   S logd0 = log(S(birth_rate) * pr_estab / g0);
 
   auto deriv = [&](const FullState<S>& s, std::size_t n, int stage) -> FullState<S> {
-    const plant::FF16_Environment* e =
-      (stage==0)?((n>0)?&F.eh[n-1][5]:&F.eh[0][0]):&F.eh[n][stage-1];
     const S h = s.demog.height;
     S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h);
-    S net = deep_net<S>(pd, F.integ, F.eta, e, h);
+    S net = net_at<S>(pd, F, n, stage, h);
     plant::FF16Rates<S> r = plant::ff16_compute_rates_from_net(pd, h, area_leaf, net, true);
     S off_dt = r.fecundity_dt * exp(-s.demog.mortality) * S(F.ppsurv(n, stage) / ppsab);
     // log_density rate: -(growth_rate_gradient + mortality_dt); g' replicates the
     // SCM's backward FD (abs step GEPS), reusing r.height_dt as fx.
-    S g_back = deep_height_dt<S>(pd, F.integ, F.eta, e, h - S(GEPS));
+    S g_back = height_dt_at<S>(pd, F, n, stage, h - S(GEPS));
     S gprime = (r.height_dt - g_back) / S(GEPS);
     S log_density_dt = -gprime - r.mortality_dt;
     return FullState<S>{plant::FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
@@ -250,13 +387,15 @@ template <typename S>
 void new_node_census(const plant::FF16ProdPars<S>& pd, const Frozen& F, S h0,
                      double birth_rate, S& density_new) {
   using std::log; using std::exp;
-  const plant::FF16_Environment* ef = &F.eh.back()[5];   // final-time env
+  // Final-time env (eh.back()[5]) + matching final-stage stand: net_at(N, 0, .) maps
+  // stage 0 of the would-be next step N=eh.size() to eh[N-1][5] = eh.back()[5].
+  const std::size_t N = F.eh.size();
   S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
-  S net0 = deep_net<S>(pd, F.integ, F.eta, ef, h0);
+  S net0 = net_at<S>(pd, F, N, 0, h0);
   // The seed's establishment uses the run-end decay factor (last birth time slot).
   S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0,
                                                         F.decay.back());
-  S g0 = deep_height_dt<S>(pd, F.integ, F.eta, ef, h0);
+  S g0 = height_dt_at<S>(pd, F, N, 0, h0);
   density_new = S(birth_rate) * pr_estab / g0;           // = exp(log_density_new)
 }
 
@@ -290,6 +429,40 @@ Frozen build_frozen(const plant::FF16_Strategy& s, Rcpp::List eh_list,
   for (std::size_t i=0;i<birth.size();++i)
     F.decay[i] = std::exp(-s.pars.recruitment_decay * sh[(std::size_t)birth[i]]);
   return F;
+}
+
+// Populate the RESIDENT per-RK-stage stand harvest on F from the R-side nested lists
+// stand_height_stage_history / stand_competition_stage_history ([step][stage][cohort]).
+// Each (step, stage) cohort vector is sorted DESCENDING by height and the frozen
+// weight C_i = ce_i / area_leaf(theta0, h_i) is precomputed (so C_i*area_leaf(theta)
+// reproduces ce_i at theta0 and flows the allometric trait). a_l1_0/a_l2_0 are the
+// base (resident) allometry parameters.
+void attach_resident_stand(Frozen& F, Rcpp::List sh_h_list, Rcpp::List sh_c_list,
+                           double a_l1_0, double a_l2_0, double area, bool anchor) {
+  F.resident = true; F.area = area; F.anchor = anchor;
+  const std::size_t N = sh_h_list.size();
+  F.st_h.resize(N); F.st_C.resize(N);
+  for (std::size_t n = 0; n < N; ++n) {
+    Rcpp::List hn = sh_h_list[n], cn = sh_c_list[n];
+    const std::size_t ns = hn.size();
+    F.st_h[n].resize(ns); F.st_C[n].resize(ns);
+    for (std::size_t st = 0; st < ns; ++st) {
+      std::vector<double> hv = Rcpp::as<std::vector<double>>(hn[st]);
+      std::vector<double> cv = Rcpp::as<std::vector<double>>(cn[st]);
+      // descending-height order (matches Species::compute_competition's trapezium walk)
+      std::vector<std::size_t> ord(hv.size());
+      for (std::size_t i = 0; i < hv.size(); ++i) ord[i] = i;
+      std::sort(ord.begin(), ord.end(),
+                [&](std::size_t a, std::size_t b){ return hv[a] > hv[b]; });
+      F.st_h[n][st].resize(hv.size()); F.st_C[n][st].resize(hv.size());
+      for (std::size_t k = 0; k < ord.size(); ++k) {
+        const double hh = hv[ord[k]];
+        const double al = std::pow(hh / a_l1_0, 1.0 / a_l2_0);   // area_leaf(theta0, hh)
+        F.st_h[n][st][k] = hh;
+        F.st_C[n][st][k] = (al > 0.0) ? cv[ord[k]] / al : 0.0;
+      }
+    }
+  }
 }
 
 // Map requested trait names to FF16ProdPars field indices (errors on unknown).
@@ -364,6 +537,66 @@ std::vector<double> compute_dh0(const plant::FF16ProdPars<double>& pd, double h0
   return dh0;
 }
 
+// Templated stand-metric assembly: replay every cohort, then reduce each requested
+// metric to a scalar. Shared by (a) the FROZEN reverse sweep (S = ad_t, F.resident
+// false), (b) the RESIDENT forward sweep (S = fwd_t, F.resident true -- one trait
+// direction, NO tape, so the O(stand) recon per evaluation never builds a giant
+// adjoint graph), and (c) plain double value reconstruction. Census metrics are the
+// height-trapezium of density_i * psi(state_i) over the cohorts (descending height)
+// + the pending-seed tail; offspring_production is the frozen-weighted offspring sum.
+template <typename S>
+std::vector<S> assemble_metrics(const plant::FF16ProdPars<S>& pa, const Frozen& F,
+    const std::vector<std::string>& metrics, double birth_rate, double kI, S h0) {
+  using std::exp;
+  const std::size_t nC = F.birth.size(), M = metrics.size();
+  std::vector<FullState<S>> finals; finals.reserve(nC);
+  for (std::size_t i = 0; i < nC; ++i)
+    finals.push_back(replay_cohort_full<S>(pa, F, i, h0, birth_rate));
+  S dens_new; new_node_census<S>(pa, F, h0, birth_rate, dens_new);
+
+  std::vector<std::size_t> ord(nC);
+  for (std::size_t i = 0; i < nC; ++i) ord[i] = i;
+  std::sort(ord.begin(), ord.end(), [&](std::size_t a, std::size_t b) {
+    return as_double(finals[a].demog.height) > as_double(finals[b].demog.height); });
+
+  auto census_reduce = [&](auto psi) -> S {
+    std::vector<S> phi(nC);
+    for (std::size_t i = 0; i < nC; ++i)
+      phi[i] = psi(finals[i].demog.height, exp(finals[i].log_density),
+                   finals[i].demog.mass_heartwood);
+    S J = S(0.0);
+    for (std::size_t j = 0; j + 1 < nC; ++j) {
+      const std::size_t a = ord[j], b = ord[j + 1];
+      J = J + S(0.5) * (finals[a].demog.height - finals[b].demog.height) * (phi[a] + phi[b]);
+    }
+    if (nC > 0) {
+      const std::size_t last = ord[nC - 1];
+      S phi_new = psi(h0, dens_new, S(0.0));
+      J = J + S(0.5) * (finals[last].demog.height - h0) * (phi[last] + phi_new);
+    }
+    return J;
+  };
+
+  std::vector<S> J(M);
+  for (std::size_t m = 0; m < M; ++m) {
+    const std::string& nm = metrics[m];
+    if (nm == "offspring_production") {
+      S acc = S(0.0);
+      for (std::size_t i = 0; i < nC; ++i) acc = acc + S(F.tw[i]) * finals[i].offspring;
+      J[m] = acc;
+    } else if (nm == "LAI") {
+      J[m] = census_reduce([&](S h, S dens, S) -> S {
+        return dens * S(kI) * plant::ff16_area_leaf(pa.a_l1, pa.a_l2, h); });
+    } else if (nm == "biomass") {
+      J[m] = census_reduce([&](S h, S dens, S mhw) -> S {
+        return dens * (plant::ff16_mass_live_given_height(pa, h) + mhw); });
+    } else { // size_moment
+      J[m] = census_reduce([&](S h, S dens, S) -> S { return dens * h; });
+    }
+  }
+  return J;
+}
+
 } // namespace
 
 // Reverse-mode probe (CI smoke test of the tape-at-load): d(fecundity_dt)/d(a_p1)
@@ -425,15 +658,32 @@ Rcpp::List ff16_stand_gradient_impl(
     Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
     std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
     std::vector<double> tw, std::vector<std::string> traits,
-    std::vector<std::string> metrics, double birth_rate) {
+    std::vector<std::string> metrics, double birth_rate,
+    std::string feedback, Rcpp::List sh_h_list, Rcpp::List sh_c_list,
+    double patch_area, double al1_base, double al2_base) {
   auto s  = make_strategy(pp);
   auto pd = s.prod_pars();
   Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
+  // Weight basis: the per-node weight C_i = ce_i / area_leaf(al1_base, al2_base, h_i)
+  // is frozen at the RESIDENT's base allometry, independent of the differentiated
+  // a_l1/a_l2 in `pp` -- so that a FD that perturbs pp's allometry (the R1
+  // reconstruction-FD) actually moves the recon (C_i fixed, area_leaf active) instead
+  // of cancelling. Defaults (al1_base<0) to pp's own a_l1/a_l2 (the normal call).
+  const double alb1 = (al1_base > 0) ? al1_base : pd.a_l1;
+  const double alb2 = (al2_base > 0) ? al2_base : pd.a_l2;
+  if (feedback == "resident") {
+    attach_resident_stand(F, sh_h_list, sh_c_list, alb1, alb2, patch_area, true);
+  } else if (feedback == "resident_noanchor") {
+    attach_resident_stand(F, sh_h_list, sh_c_list, alb1, alb2, patch_area, false);
+  } else if (feedback != "frozen") {
+    Rcpp::stop("unknown feedback: " + feedback +
+               " (expected 'frozen', 'resident' or 'resident_noanchor')");
+  }
   std::vector<std::size_t> idx = resolve_traits(traits);
   const double h0v = s.initial_height();
   std::vector<double> dh0 = compute_dh0(pd, h0v, idx);
   const double kI = s.pars.k_I;
-  const std::size_t M = metrics.size(), nC = F.birth.size(), nT = idx.size();
+  const std::size_t M = metrics.size(), nT = idx.size();
   bool need_census = false;
   for (auto& nm : metrics) {
     if (nm != "offspring_production" && nm != "LAI" && nm != "biomass" &&
@@ -460,80 +710,61 @@ Rcpp::List ff16_stand_gradient_impl(
                               Rcpp::Named("values")   = values);
   }
 
-  // ONE forward recording: replay every cohort, then form each metric scalar.
-  ad::tape_type tape;
-  auto pa = lift<ad_t>(pd);
-  auto fp = field_ptrs<ad_t>(pa);
-  for (auto i : idx) tape.registerInput(*fp[i]);
-  tape.newRecording();
-  // h0 active via the IFT first-order injection (see compute_dh0).
-  ad_t h0 = h0v;
-  for (std::size_t k = 0; k < nT; ++k)
-    h0 = h0 + ad_t(dh0[k]) * (*fp[idx[k]] - ad_t(xad::value(*fp[idx[k]])));
-
-  std::vector<FullState<ad_t>> finals; finals.reserve(nC);
-  for (std::size_t i = 0; i < nC; ++i)
-    finals.push_back(replay_cohort_full<ad_t>(pa, F, i, h0, birth_rate));
-  ad_t dens_new; new_node_census<ad_t>(pa, F, h0, birth_rate, dens_new);
-
-  // Census order: cohorts sorted by census height DESCENDING (the order the SCM's
-  // compute_competition trapezium walks); the seed (h0) closes the tail interval.
-  std::vector<std::size_t> ord(nC);
-  for (std::size_t i = 0; i < nC; ++i) ord[i] = i;
-  std::sort(ord.begin(), ord.end(), [&](std::size_t a, std::size_t b) {
-    return xad::value(finals[a].demog.height) > xad::value(finals[b].demog.height);
-  });
-  // Height-trapezium of a per-node contribution psi(height, density, mass_heartwood),
-  // with the pending-seed tail (density_new at h0, heartwood 0).
-  auto census_reduce = [&](auto psi) -> ad_t {
-    using std::exp;
-    std::vector<ad_t> phi(nC);
-    for (std::size_t i = 0; i < nC; ++i)
-      phi[i] = psi(finals[i].demog.height, exp(finals[i].log_density),
-                   finals[i].demog.mass_heartwood);
-    ad_t J = ad_t(0.0);
-    for (std::size_t j = 0; j + 1 < nC; ++j) {
-      const std::size_t a = ord[j], b = ord[j + 1];
-      J = J + ad_t(0.5) * (finals[a].demog.height - finals[b].demog.height) *
-              (phi[a] + phi[b]);
-    }
-    if (nC > 0) {
-      const std::size_t last = ord[nC - 1];
-      ad_t phi_new = psi(h0, dens_new, ad_t(0.0));
-      J = J + ad_t(0.5) * (finals[last].demog.height - h0) * (phi[last] + phi_new);
-    }
-    return J;
-  };
-
-  std::vector<ad_t> J(M);
-  for (std::size_t m = 0; m < M; ++m) {
-    const std::string& nm = metrics[m];
-    if (nm == "offspring_production") {
-      ad_t acc = ad_t(0.0);
-      for (std::size_t i = 0; i < nC; ++i) acc = acc + ad_t(F.tw[i]) * finals[i].offspring;
-      J[m] = acc;
-    } else if (nm == "LAI") {
-      J[m] = census_reduce([&](ad_t h, ad_t dens, ad_t) -> ad_t {
-        return dens * ad_t(kI) * plant::ff16_area_leaf(pa.a_l1, pa.a_l2, h); });
-    } else if (nm == "biomass") {
-      J[m] = census_reduce([&](ad_t h, ad_t dens, ad_t mhw) -> ad_t {
-        return dens * (plant::ff16_mass_live_given_height(pa, h) + mhw); });
-    } else { // size_moment: first moment of the size distribution, integral n(h)*h dh
-      J[m] = census_reduce([&](ad_t h, ad_t dens, ad_t) -> ad_t { return dens * h; });
-    }
-    tape.registerOutput(J[m]);
-  }
-
-  // One cheap reverse sweep PER metric over the single recording (clear adjoints
-  // between, the XAD multi-output Jacobian pattern).
+  // --- FROZEN baseline (reverse mode): all traits, one tape, one sweep per metric.
+  // The resident feedback enters only through area_leaf (a_l1/a_l2), so the reverse
+  // baseline runs the FROZEN env (no O(stand) recon on the tape -> no blow-up); the
+  // a_l1/a_l2 columns get the resident TOTAL grafted on by forward mode below.
+  const bool want_resident = F.resident;
+  F.resident = false;
   Rcpp::NumericMatrix jac(M, nT);
   Rcpp::NumericVector values(M);
-  for (std::size_t m = 0; m < M; ++m) {
-    tape.clearDerivatives();
-    xad::derivative(J[m]) = 1.0;
-    tape.computeAdjoints();
-    for (std::size_t k = 0; k < nT; ++k) jac(m, k) = xad::derivative(*fp[idx[k]]);
-    values[m] = as_double(J[m]);
+  {
+    // Scope the reverse tape so it is DESTROYED before the forward pass runs below
+    // (keep the adj global-tape state strictly separate from the fwd pass).
+    ad::tape_type tape;
+    auto pa = lift<ad_t>(pd);
+    auto fp = field_ptrs<ad_t>(pa);
+    for (auto i : idx) tape.registerInput(*fp[i]);
+    tape.newRecording();
+    ad_t h0 = inject_h0(h0v, fp, idx, dh0);   // h0 active via the IFT first-order injection
+    std::vector<ad_t> J = assemble_metrics<ad_t>(pa, F, metrics, birth_rate, kI, h0);
+    for (std::size_t m = 0; m < M; ++m) tape.registerOutput(J[m]);
+
+    // One cheap reverse sweep PER metric over the single recording (clear adjoints
+    // between, the XAD multi-output Jacobian pattern).
+    for (std::size_t m = 0; m < M; ++m) {
+      tape.clearDerivatives();
+      xad::derivative(J[m]) = 1.0;
+      tape.computeAdjoints();
+      for (std::size_t k = 0; k < nT; ++k) jac(m, k) = xad::derivative(*fp[idx[k]]);
+      values[m] = as_double(J[m]);
+    }
+  }
+  F.resident = want_resident;
+
+  // --- RESIDENT feedback (forward mode): graft the resident TOTAL d(metric)/d(a_l1)
+  // and /d(a_l2) over the FROZEN baseline. Only these two traits flow through the
+  // self-shading recon; one forward pass per direction (no tape) gives the total for
+  // ALL metrics at once. Other traits have no resident feedback (resident == frozen).
+  if (want_resident) {
+    const auto names = field_names();
+    for (std::size_t k = 0; k < nT; ++k) {
+      const std::string& tn = names[idx[k]];
+      if (tn != "a_l1" && tn != "a_l2") continue;
+      auto pf  = lift<fwd_t>(pd);
+      auto fpf = field_ptrs<fwd_t>(pf);
+      xad::derivative(*fpf[idx[k]]) = 1.0;                 // seed this trait direction
+      fwd_t h0f = fwd_t(h0v); xad::derivative(h0f) = dh0[k];  // IFT seedling-size channel
+      std::vector<fwd_t> Jf = assemble_metrics<fwd_t>(pf, F, metrics, birth_rate, kI, h0f);
+      for (std::size_t m = 0; m < M; ++m) jac(m, k) = xad::derivative(Jf[m]);
+    }
+    // For feedback="resident_noanchor", report the genuine recon VALUES (theta-
+    // dependent, ~1e-4 off the SCM) so a finite-difference can validate the forward
+    // gradient; feedback="resident" keeps the exact (frozen) values.
+    if (!F.anchor) {
+      std::vector<double> Jd = assemble_metrics<double>(pd, F, metrics, birth_rate, kI, h0v);
+      for (std::size_t m = 0; m < M; ++m) values[m] = Jd[m];
+    }
   }
 
   jac.attr("dimnames") = Rcpp::List::create(Rcpp::wrap(metrics), Rcpp::wrap(traits));

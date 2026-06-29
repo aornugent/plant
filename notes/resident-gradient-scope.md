@@ -123,6 +123,41 @@ fixed-schedule stepper the earlier notes anticipated, now actually needed.)
    mutant replay's ~3e-14 standard), NOT the cheaper per-step C-28 reconstruction. New
    per-RK-stage harvest fields are part of R0.
 
+## R0 implementation decision — VALUE-ANCHORED reconstruction (2026-06-29, AD spike)
+
+Discovered while building R0: the baseline-consistency gate (#3, ~3e-14) and the
+coupled-tape worry both dissolve under a **value-anchored** reconstruction, the same
+trick `deep_net` already uses for the z-linearisation:
+
+```
+light_active(z) = light_frozen(z)            // exact harvested env VALUE (3e-14 by construction)
+                + [recon(z; θ) − value(recon(z; θ))]   // adds the θ-derivative, ZERO value
+```
+
+- `recon(z; θ)` = the C-27/C-28 trapezium `exp(−Σ_i C_i·area_leaf(θ,h_i)·Q(z/h_i))` over
+  the **frozen** per-RK-stage stand (heights h_i, weights C_i = ce_i/area_leaf(θ₀,h_i)
+  frozen), area_leaf active in the allometric trait.
+- The added term has VALUE 0, so every cohort reads **exactly** the frozen env — the
+  resident metric VALUES are bit-identical to the shipped frozen engine (the R0 gate is
+  automatic). Only the DERIVATIVE channel θ→canopy→light is new.
+- Consequence: cohorts stay **decoupled** given θ (each reads a light that depends on θ
+  through all residents' area_leaf, but not on the other cohorts' replayed states). No
+  coupled monolithic tape needed — the existing per-cohort / one-recording machinery is
+  reused unchanged. The "coupled tape" the scope feared is unnecessary for the
+  freeze-geometry design.
+- First-order correctness: the focal cohort's own height→light channel is already carried
+  by `deep_net`'s frozen z-linearisation `ld·(z−z₀)`; the recon term adds θ→light at frozen
+  z. The dropped cross term d²light/(dz dθ) is second order, so dM/dθ is first-order exact.
+- Which traits get a resident feedback: only those that change area_leaf-at-height, i.e.
+  **a_l1, a_l2** (the C-27 sign-flip traits). eta/k_I feedback (through Q and the weight)
+  is frozen for the first cut — noted for later. Geometry (resident heights, densities,
+  knot x-positions, schedule) is frozen, exactly the headline design.
+- R1 validates AD vs **FD over the same reconstruction** (perturb θ, recompute area_leaf,
+  re-reduce) — so the reconstruction form (trapezium) IS the definition of the committed
+  resident number; per scope decision #1's "census→resident".
+
+API: `feedback = c("frozen","resident")` on `stand_gradient` (frozen = shipped path).
+
 ## R0 starting points (next session)
 
 - New harvest: per-RK-stage stand state. `environment_history` already stores the env at

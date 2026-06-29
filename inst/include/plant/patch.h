@@ -164,6 +164,22 @@ public:
   std::vector<std::vector<double>> stand_height_history;
   std::vector<std::vector<double>> stand_competition_history;
 
+  // Per-RK-STAGE resident stand state for species 0, captured alongside the 6
+  // per-stage environments in environment_history (one inner vector per Cash-Karp
+  // stage, mirroring environment_cache exactly). This is the faithful-to-the-SCM
+  // harvest the RESIDENT total-gradient build (#472 scope B, R0) needs: at each
+  // RK stage the active light is reconstructed from the stand that PRODUCED that
+  // stage's frozen env (heights h_i, per-node competition effect ce_i), so the
+  // resident feedback derivative tracks the SCM stage-by-stage rather than holding
+  // a step-start census across stages (the cheaper per-step C-28 reconstruction).
+  // [step][stage 0..5][cohort]. Single-species for now (the FF16 light demo).
+  std::vector<std::vector<std::vector<double>>> stand_height_stage_history;
+  std::vector<std::vector<std::vector<double>>> stand_competition_stage_history;
+  // Per-step working caches (6 stages), filled by cache_RK45_step and flushed to
+  // the *_stage_history by cache_ode_step, exactly as environment_cache is.
+  std::vector<std::vector<double>> stand_height_stage_cache;
+  std::vector<std::vector<double>> stand_competition_stage_cache;
+
   void cache_ode_step();
   void cache_RK45_step(int step);
   void load_ode_step();
@@ -675,6 +691,9 @@ void Patch<T,E,S>::cache_ode_step() {
       stand_height_history.push_back(species[0].r_heights());
       stand_competition_history.push_back(species[0].r_compute_competition_effect_by_nodes());
     }
+    // Flush the per-RK-stage stand caches accumulated over this step's 6 stages.
+    stand_height_stage_history.push_back(stand_height_stage_cache);
+    stand_competition_stage_history.push_back(stand_competition_stage_cache);
   }
 }
 
@@ -682,11 +701,23 @@ void Patch<T,E,S>::cache_ode_step() {
 // saves environment at each RK45 step to the environment cache
 template <typename T, typename E, typename S>
 void Patch<T,E,S>::cache_RK45_step(int step) {
-  if(save_RK45_cache) {  
+  if(save_RK45_cache) {
     if(step == 0) {
       environment_cache.clear();
+      stand_height_stage_cache.clear();
+      stand_competition_stage_cache.clear();
     }
     environment_cache.push_back(environment);
+    // Capture the species-0 stand that produced THIS stage's environment (the ODE
+    // state was just set to the stage trial point and compute_environment ran in
+    // derivs, immediately before this cache call), aligned 1:1 with environment_cache.
+    if (!species.empty()) {
+      stand_height_stage_cache.push_back(species[0].r_heights());
+      stand_competition_stage_cache.push_back(species[0].r_compute_competition_effect_by_nodes());
+    } else {
+      stand_height_stage_cache.emplace_back();
+      stand_competition_stage_cache.emplace_back();
+    }
   }
 }
 

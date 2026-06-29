@@ -700,6 +700,11 @@ Patch:
     # reconstruction: node heights and per-node competition effects per step.
     stand_height_history: {type: "std::vector<std::vector<double> >", access: field}
     stand_competition_history: {type: "std::vector<std::vector<double> >", access: field}
+    # Per-RK-STAGE resident stand (species 0): [step][stage 0..5][cohort], aligned
+    # 1:1 with environment_history's 6 per-stage environments. Faithful harvest for
+    # the RESIDENT total-gradient reconstruction (#472 scope B, R0).
+    stand_height_stage_history: {type: "std::vector<std::vector<std::vector<double> > >", access: field}
+    stand_competition_stage_history: {type: "std::vector<std::vector<std::vector<double> > >", access: field}
   methods:
     introduce_new_node:
       return_type: void
