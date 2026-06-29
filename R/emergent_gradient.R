@@ -140,3 +140,34 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
   ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
                            traits, metrics)
 }
+
+##' Per-cohort state x trait Jacobian of a resident SCM (#472 scope B, the
+##' calibration-facing engine's escape hatch, FF16).
+##'
+##' The escape hatch for emergent metrics that are NOT a simple weighted reduction
+##' (quantiles, ratios, bespoke statistics): rather than register a \code{(w, f)}
+##' metric, this exposes \eqn{d(\mathrm{state}_{i,c})/d(\theta_k)} -- the derivative
+##' of each replayed cohort's final demographic state component
+##' \code{c} \eqn{\in} \{height, mortality, fecundity, area_heartwood,
+##' mass_heartwood, offspring\} w.r.t. each trait. ANY smooth downstream metric over
+##' the cohort states then has its gradient by the chain rule, with \code{plant}
+##' never needing to know the metric -- the same boundary as "likelihoods live
+##' downstream". Each cohort's final state is independent, so this tapes one cohort
+##' at a time (one reverse sweep per state component).
+##'
+##' @title Per-cohort state x trait Jacobian (FF16)
+##' @param scm An \code{SCM} run with \code{save_RK45_cache = TRUE} (FF16 strategy).
+##' @param traits Character vector of FF16 trait names; \code{NULL} uses all 28.
+##' @param species Integer species index (see \code{\link{stand_gradient}}).
+##' @param birth_rate The (constant) birth-rate driver; recovered by default.
+##' @return A list with \code{$states} (a cohort x component matrix of final-state
+##'   values) and \code{$jacobian} (a cohort x component x trait array).
+##' @seealso \code{\link{stand_gradient}}.
+##' @export
+stand_state_jacobian <- function(scm, traits = NULL, species = 1L,
+                                 birth_rate = NULL) {
+  if (is.null(traits)) traits <- ff16_default_traits()
+  h <- ff16_harvest(scm, species, birth_rate)
+  ff16_state_jacobian_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
+                           traits)
+}

@@ -350,3 +350,69 @@ Rcpp::List ff16_stand_gradient_impl(
   return Rcpp::List::create(Rcpp::Named("jacobian") = jac,
                             Rcpp::Named("values")   = values);
 }
+
+// Escape hatch (#472 scope B, build-order step 1): the per-cohort state x trait
+// Jacobian. For ANY emergent metric that is NOT a simple reduction -- quantiles,
+// ratios, bespoke statistics a downstream package invents -- expose d(state_i,c)/
+// d(theta_k) for every cohort i, every final-state component c, and let the metric
+// gradient compose downstream by chain rule (the same boundary as "likelihoods
+// live downstream"). Each cohort's final state is INDEPENDENT (it depends only on
+// its own replay), so we tape ONE cohort at a time and take one reverse sweep per
+// state component -- nC small sweeps, not one giant tape. Returns the cohort final
+// states + the [cohort, component, trait] Jacobian.
+// [[Rcpp::export]]
+Rcpp::List ff16_state_jacobian_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, std::vector<std::string> traits) {
+  auto s  = make_strategy(pp);
+  auto pd = s.prod_pars();
+  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
+  std::vector<std::size_t> idx = resolve_traits(traits);
+  const double h0v = s.initial_height();
+  std::vector<double> dh0 = compute_dh0(pd, h0v, idx);
+  const std::size_t nC = F.birth.size(), nT = idx.size();
+
+  const std::vector<std::string> comp =
+    {"height","mortality","fecundity","area_heartwood","mass_heartwood","offspring"};
+  const std::size_t nS = comp.size();
+
+  Rcpp::NumericMatrix states(nC, nS);
+  // 3D Jacobian, R column-major dim [nC, nS, nT].
+  Rcpp::NumericVector jac(nC * nS * nT);
+  auto JAC = [&](std::size_t i, std::size_t c, std::size_t k) -> double& {
+    return jac[i + nC * (c + nS * k)];
+  };
+
+  for (std::size_t i = 0; i < nC; ++i) {
+    ad::tape_type tape;
+    auto pa = lift<ad_t>(pd);
+    auto fp = field_ptrs<ad_t>(pa);
+    for (auto j : idx) tape.registerInput(*fp[j]);
+    tape.newRecording();
+    ad_t h0 = h0v;
+    for (std::size_t k = 0; k < nT; ++k)
+      h0 = h0 + ad_t(dh0[k]) * (*fp[idx[k]] - ad_t(xad::value(*fp[idx[k]])));
+
+    plant::FF16LifeState<ad_t> y = replay_cohort_final<ad_t>(pa, F, i, h0);
+    ad_t out[6] = {y.demog.height, y.demog.mortality, y.demog.fecundity,
+                   y.demog.area_heartwood, y.demog.mass_heartwood, y.offspring};
+    for (std::size_t c = 0; c < nS; ++c) {
+      states(i, c) = as_double(out[c]);
+      tape.registerOutput(out[c]);
+    }
+    for (std::size_t c = 0; c < nS; ++c) {
+      tape.clearDerivatives();
+      xad::derivative(out[c]) = 1.0;
+      tape.computeAdjoints();
+      for (std::size_t k = 0; k < nT; ++k) JAC(i, c, k) = xad::derivative(*fp[idx[k]]);
+    }
+  }
+
+  states.attr("dimnames") = Rcpp::List::create(R_NilValue, Rcpp::wrap(comp));
+  jac.attr("dim") = Rcpp::IntegerVector::create((int)nC, (int)nS, (int)nT);
+  jac.attr("dimnames") = Rcpp::List::create(R_NilValue, Rcpp::wrap(comp),
+                                            Rcpp::wrap(traits));
+  return Rcpp::List::create(Rcpp::Named("states") = states,
+                            Rcpp::Named("jacobian") = jac);
+}
