@@ -348,8 +348,12 @@ limit of the well-behaved FD steps (1e-4/1e-5) and removes the step sensitivity 
 1e-6 degrades (LAI/lma 13.20 vs AD 13.55) from the leaf-solve noise floor amplified by the
 small step. Full plant suite green (FAIL 0, PASS 2582).
 
-**Remaining (the seed's later steps).** Step 3: wire `stand_gradient(…, strat="TF24f")`
-census path (first-class R API). Step 4: individual grow-to-size AD tape (same collar
+**Step 3 (first-class API) DONE.** `stand_gradient(scm, …)` now dispatches the TF24f
+strategy: the census metrics under `feedback = "frozen"` route to `tf24f_census_gradient_ad`;
+`feedback = "resident"` and `offspring_production` stop with a clear "follow-up" message.
+Test in `test-tf24f-census-gradient.R`; commit `fcbfc60d`.
+
+**Remaining (the seed's later steps).** Step 4: individual grow-to-size AD tape (same collar
 curvature harvest, no canopy/density; validate vs `tf24f_grow_individual_to_size_gradient_fd`).
 Step 5: resident/coupled AD (swap the FF16 coupled per-cohort rate for the TF24f
 harvested-leaf-at-tracked-collar eval; fixed schedule; validate vs
