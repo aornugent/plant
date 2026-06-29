@@ -314,6 +314,48 @@ based height trajectory (heights match ~1e-6) but not for the slope-sensitive `g
 (bit-faithful). For R1, prefer driving the replay from native envs (or accept the gate's
 ≤4 horizon); the gradient itself is AD-exact for the density the SCM computes.
 
+## 10. Progress — the frozen-census R1 AD tape (build-order step 2) DONE
+
+The refine step the seed (`notes/tf24f-census-tape-seed.md`) calls for is implemented and
+green: the per-trait FD census gradient is replaced by ONE reverse-mode AD sweep per
+metric over the 7-state replay.
+
+- **`src/tf24f_emergent.cpp` — `tf24f_census_gradient_ad_impl`** + R entry
+  `tf24f_census_gradient_ad` (`R/tf24f_emergent_gradient.R`). A double DISCOVERY pass
+  harvests, per cohort per RK stage, the trait-independent leaf operating point at the
+  tracked collar — at BOTH the forward height `h` and the backward `h−GEPS` the SCM's `g'`
+  reads — then a second pass replays a leaf-opt-free, fully tapeable 7-state expression
+  {5 demog, collar, log_density} and takes one adjoint sweep per metric. The census
+  trapezium couples cohorts, so all cohorts share one tape; one reverse sweep per metric.
+- **The collar curvature harvest (the one hard ingredient).** The tracked collar is a
+  taped STATE with rate `k_acclim·dprofit_dpsi`, linearised with the FD-harvested second
+  derivatives `d²profit/dpsi²`, `d²profit/dpsi dh`, `d²profit/dpsi dθ_k`; profit itself
+  is linearised in (h, collar, θ) — the `dprofit_dpsi0·(collar−collar0)` term the offspring
+  tape omits is added (collar is taped). The collar's birth seed (= optimum) is injected
+  by IFT `d(collar0)/dθ = −(d²p/dpsi dθ)/(d²p/dpsi²)`. The per-trait sensitivities (`inj`,
+  `d²p/dpsi dθ`) are FD over independently-built ±θ-perturbed strategies, matching the FD
+  gate (which perturbs the same `pars` vector). Prototype trait subset, not all 27.
+- **`g'` reproduces the SCM's backward-FD scheme** by differencing the two tapeable
+  `height_dt` expressions at `h` and `h−GEPS` (as `ff16_emergent.cpp`'s census tape does) —
+  no `d²profit/dh²` harvest needed. (The `node_gradient_exact_ad` `g'` path is a follow-up;
+  the gate stand uses FD `g'`, which this matches.)
+
+**Validation (`test-tf24f-census-gradient.R`, R1 tape test, lifetime-4 gate stand).** AD
+values match the recon/SCM bit-for-bit (linearisation exact at θ0). AD Jacobian matches
+`tf24f_census_gradient_fd` to **≤0.8%** (within the recon noise floor) over
+{LAI, biomass, size_moment} × {vcmax_25, lma, a_l1, K_s}. The AD sits at the convergent
+limit of the well-behaved FD steps (1e-4/1e-5) and removes the step sensitivity — FD at
+1e-6 degrades (LAI/lma 13.20 vs AD 13.55) from the leaf-solve noise floor amplified by the
+small step. Full plant suite green (FAIL 0, PASS 2582).
+
+**Remaining (the seed's later steps).** Step 3: wire `stand_gradient(…, strat="TF24f")`
+census path (first-class R API). Step 4: individual grow-to-size AD tape (same collar
+curvature harvest, no canopy/density; validate vs `tf24f_grow_individual_to_size_gradient_fd`).
+Step 5: resident/coupled AD (swap the FF16 coupled per-cohort rate for the TF24f
+harvested-leaf-at-tracked-collar eval; fixed schedule; validate vs
+`tf24f_resident_census_gradient_fd`). The C++-native-env migration
+(memory `move-gradient-machinery-to-cpp`) still gates lifetime >4 fidelity.
+
 ## Bottom line for Dan
 
 Reverse-mode AD is **not** a loss for TF24 — it already ships for the offspring metric,

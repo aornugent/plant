@@ -32,6 +32,7 @@
 #include <string>
 #include <algorithm>
 #include <cmath>
+#include <XAD/XAD.hpp>             // reverse-mode adjoint tape (the R1 census gradient)
 #include <plant.h>                 // RcppR6 as<>/wrap for TF24_Environment
 #include <plant/models/tf24f_strategy.h>
 #include <plant/models/tf24_production_kernel.h>
@@ -273,4 +274,460 @@ Rcpp::List tf24f_census_recon_impl(
     Rcpp::Named("collar") = collar,
     Rcpp::Named("log_density") = log_density,
     Rcpp::Named("density_new") = dens_new);
+}
+
+
+// ===========================================================================
+// TF24f frozen-census reverse-mode AD trait gradient (#472 scope B, build-order
+// step 2 -- the R1 tape, the "refine" step). One reverse sweep over the 7-state
+// replay {5 demog, tracked collar, log_density} per metric, replacing the
+// per-trait FD over the recon (tf24f_census_gradient_fd) it must reproduce.
+//
+// The structure extends the TF24 OFFSPRING tape (src/tf24_emergent.cpp): a
+// double DISCOVERY pass runs the real TF24f leaf at the tracked collar along the
+// frozen-schedule trajectory and HARVESTS the trait-independent operating point
+// per RK stage; a second pass replays a leaf-opt-free, fully tapeable expression.
+//
+// The one ingredient beyond the offspring tape (notes/tf24f-census-tape-seed.md):
+// TF24f's tracked collar is a strongly theta-dependent STATE that at k_acclim=1
+// LAGS the optimum, so the envelope theorem does NOT zero its contribution. We
+// therefore (a) carry the collar as a TAPED state whose gradient-ascent rate
+// k_acclim*dprofit_dpsi is linearised with a CURVATURE harvest (the second
+// derivatives d2profit/dpsi2, d2profit/dpsi dh, d2profit/dpsi dtheta_k), and
+// (b) linearise profit itself in (h, collar, theta) -- the collar term
+// dprofit_dpsi0*(collar-collar0) is what the offspring tape omits. The census
+// number density's g' = d(height_dt)/d(height) reproduces the SCM's backward-FD
+// scheme by harvesting a SECOND operating point at h-GEPS and differencing the
+// two tapeable height_dt expressions (as ff16_emergent.cpp's census tape does).
+//
+// All harvested derivatives are taken by finite difference in the double pass
+// (no leaf templating): profit/dprofit_dpsi are differenced w.r.t. collar, height
+// and -- via independently-built perturbed strategies -- each requested trait.
+// The trait set is a prototype subset (the seed: validate a few traits, not all
+// 27); every requested trait must name a strategy `pars` entry (matching the FD
+// gate, which perturbs the same parameter vector).
+// ===========================================================================
+
+namespace {
+
+using ad   = xad::adj<double>;
+using ad_t = ad::active_type;
+
+double as_dbl(const ad_t& v)  { return xad::value(v); }
+
+// Evaluate the real TF24f leaf at a GIVEN (height, tracked collar) in env e,
+// returning the leaf profit and (out) the analytic dprofit/dpsi the acclimation
+// rate uses. Drives the same path as net_at_tracked / the recon, but exposes
+// leaf.profit_ (the quantity the tape linearises and feeds to the kernel).
+void eval_leaf(plant::TF24f_Strategy& s, const plant::TF24_Environment& e,
+               double h, double collar, double& profit, double& dpsi) {
+  s.tracked_root_psi_ = collar;
+  s.net_mass_production_dt(e, h, s.area_leaf(h), 1.0 / h);
+  profit = s.leaf.profit_;
+  dpsi   = s.dprofit_dpsi_;
+}
+
+// Trait-independent leaf-operating-point harvest at one (h, collar) point: the
+// profit value, its first derivatives w.r.t. height (collar held) and collar, the
+// per-trait profit sensitivity inj_k (the leaf channel theta -> profit, the TF24
+// `inj` term done by FD over a perturbed strategy), and the curvature the collar
+// gradient-ascent rate needs: d(dprofit_dpsi)/d{collar, height, theta_k}.
+struct LH {
+  double h, collar;                 // the harvested operating point
+  double profit, dprofit_dh, dprofit_dpsi;
+  double d2p_dpsi2, d2p_dpsidh;     // collar-rate curvature (collar / height)
+  std::vector<double> inj;          // d(profit)/d(theta_k)            [per trait]
+  std::vector<double> d2p_dpsidth;  // d(dprofit_dpsi)/d(theta_k)      [per trait]
+};
+
+// Harvest at (h, collar) in env e. s is the base strategy; sp[k]/sm[k] are the
+// +/- trait-perturbed strategies (built once) and dk[k] the matching abs steps.
+LH harvest_point(plant::TF24f_Strategy& s,
+                 std::vector<plant::TF24f_Strategy>& sp,
+                 std::vector<plant::TF24f_Strategy>& sm,
+                 const std::vector<double>& dk,
+                 const plant::TF24_Environment& e, double h, double collar) {
+  const std::size_t T = sp.size();
+  LH H; H.h = h; H.collar = collar; H.inj.resize(T); H.d2p_dpsidth.resize(T);
+  double dpsi0;
+  eval_leaf(s, e, h, collar, H.profit, dpsi0);
+  H.dprofit_dpsi = dpsi0;
+
+  // height channel (collar held): central FD of profit + dprofit_dpsi.
+  const double dh = 1e-5 * h;
+  double pph, dph, pmh, dmh;
+  eval_leaf(s, e, h + dh, collar, pph, dph);
+  eval_leaf(s, e, h - dh, collar, pmh, dmh);
+  H.dprofit_dh = (pph - pmh) / (2.0 * dh);
+  H.d2p_dpsidh = (dph - dmh) / (2.0 * dh);
+
+  // collar channel (height held): d2profit/dpsi2 from FD of dprofit_dpsi.
+  const double dc = 1e-5 * std::abs(collar) + 1e-8;
+  double ppc, dpc, pmc, dmc;
+  eval_leaf(s, e, h, collar + dc, ppc, dpc);
+  eval_leaf(s, e, h, collar - dc, pmc, dmc);
+  H.d2p_dpsi2 = (dpc - dmc) / (2.0 * dc);
+
+  // trait channels: inj_k = d(profit)/d(theta_k); d2p_dpsidth_k = d(dpsi)/d(theta_k),
+  // both at the SAME (h, collar) via the prebuilt perturbed strategies.
+  for (std::size_t k = 0; k < T; ++k) {
+    double pp_, dpp, pm_, dpm;
+    eval_leaf(sp[k], e, h, collar, pp_, dpp);
+    eval_leaf(sm[k], e, h, collar, pm_, dpm);
+    H.inj[k]         = (pp_ - pm_) / (2.0 * dk[k]);
+    H.d2p_dpsidth[k] = (dpp - dpm) / (2.0 * dk[k]);
+  }
+  return H;
+}
+
+// Per-stage harvest: the forward operating point (h, collar) and the backward
+// point (h - GEPS, collar) the census g' (backward FD of height_dt) reads.
+struct StageH { LH fwd, back; };
+
+// Linearised leaf profit at (active height h, active collar) about a harvested
+// point Hp, with the requested traits active: profit0 + dprofit_dh*(h - h0)
+// + dprofit_dpsi*(collar - collar0) + sum_k inj_k*(theta_k - theta_k0). The
+// collar term is the offspring tape's omission (collar is a taped state here).
+// h is the active evaluation height; Hp.h the height the point was harvested at
+// (for the backward point both already carry the -GEPS offset, so the difference
+// h - Hp.h is the active displacement from the harvested trajectory either way).
+ad_t profit_lin(const LH& Hp, ad_t h, ad_t collar,
+                const std::vector<ad_t>& tr, const std::vector<double>& tr0) {
+  ad_t p = ad_t(Hp.profit) + ad_t(Hp.dprofit_dh) * (h - ad_t(Hp.h))
+         + ad_t(Hp.dprofit_dpsi) * (collar - ad_t(Hp.collar));
+  for (std::size_t k = 0; k < tr.size(); ++k)
+    if (Hp.inj[k] != 0.0) p += ad_t(Hp.inj[k]) * (tr[k] - ad_t(tr0[k]));
+  return p;
+}
+
+// Linearised dprofit_dpsi (the gradient-ascent rate driver) about Hp:
+// dpsi0 + d2p_dpsi2*(collar - collar0) + d2p_dpsidh*(h - h0)
+//       + sum_k d2p_dpsidth_k*(theta_k - theta_k0).
+ad_t dpsi_lin(const LH& Hp, ad_t h, ad_t collar,
+              const std::vector<ad_t>& tr, const std::vector<double>& tr0) {
+  ad_t d = ad_t(Hp.dprofit_dpsi) + ad_t(Hp.d2p_dpsi2) * (collar - ad_t(Hp.collar))
+         + ad_t(Hp.d2p_dpsidh) * (h - ad_t(Hp.h));
+  for (std::size_t k = 0; k < tr.size(); ++k)
+    if (Hp.d2p_dpsidth[k] != 0.0) d += ad_t(Hp.d2p_dpsidth[k]) * (tr[k] - ad_t(tr0[k]));
+  return d;
+}
+
+// Build TF24ProdPars<ad_t> from base doubles pd, overwriting any requested trait
+// that names a kernel (cascade / area / allometry) field with its active scalar.
+// Leaf-only traits (vcmax_25, K_s, b, c, ...) have no kernel field -- they enter
+// solely through the harvested profit channel (inj), so they are skipped here.
+void set_kernel_trait(plant::TF24ProdPars<ad_t>& p, const std::string& t, const ad_t& v) {
+  if      (t=="lma")  p.lma=v;  else if (t=="rho")  p.rho=v;  else if (t=="theta") p.theta=v;
+  else if (t=="a_b1") p.a_b1=v; else if (t=="a_r1") p.a_r1=v; else if (t=="r_l")   p.r_l=v;
+  else if (t=="r_s")  p.r_s=v;  else if (t=="r_b")  p.r_b=v;  else if (t=="r_r")   p.r_r=v;
+  else if (t=="k_l")  p.k_l=v;  else if (t=="k_b")  p.k_b=v;  else if (t=="k_s")   p.k_s=v;
+  else if (t=="k_r")  p.k_r=v;  else if (t=="a_bio")p.a_bio=v;else if (t=="a_y")   p.a_y=v;
+  else if (t=="a_l1") p.a_l1=v; else if (t=="a_l2") p.a_l2=v; else if (t=="a_f1")  p.a_f1=v;
+  else if (t=="a_f2") p.a_f2=v; else if (t=="hmat") p.hmat=v; else if (t=="omega") p.omega=v;
+  else if (t=="a_f3") p.a_f3=v; else if (t=="d_I")  p.d_I=v;  else if (t=="a_dG1") p.a_dG1=v;
+  else if (t=="a_dG2")p.a_dG2=v;
+  // (else: leaf-only trait -> profit channel only)
+}
+
+plant::TF24ProdPars<ad_t> pf_active(const plant::TF24ProdPars<double>& pd,
+    const std::vector<std::string>& traits, const std::vector<ad_t>& tr) {
+  plant::TF24ProdPars<ad_t> p;
+  p.lma=pd.lma;p.rho=pd.rho;p.theta=pd.theta;p.a_b1=pd.a_b1;p.a_r1=pd.a_r1;p.eta_c=pd.eta_c;
+  p.r_l=pd.r_l;p.r_s=pd.r_s;p.r_b=pd.r_b;p.r_r=pd.r_r;p.k_l=pd.k_l;p.k_b=pd.k_b;p.k_s=pd.k_s;
+  p.k_r=pd.k_r;p.a_bio=pd.a_bio;p.a_y=pd.a_y;p.a_l1=pd.a_l1;p.a_l2=pd.a_l2;p.a_f1=pd.a_f1;
+  p.a_f2=pd.a_f2;p.hmat=pd.hmat;p.omega=pd.omega;p.a_f3=pd.a_f3;p.d_I=pd.d_I;
+  p.a_dG1=pd.a_dG1;p.a_dG2=pd.a_dG2;
+  for (std::size_t k = 0; k < traits.size(); ++k) set_kernel_trait(p, traits[k], tr[k]);
+  return p;
+}
+
+// The 7-state cohort on the tape: 5 demog + collar + log_density.
+template <typename S> struct St7ad { plant::FF16State<S> demog; S collar; S log_density; };
+
+} // namespace
+
+
+// Compiled core of tf24f_census_gradient_ad(). Returns {jacobian = metrics x
+// traits, values}. Harvests every cohort's per-stage leaf operating point (fwd +
+// backward-for-g') in a double pass, then replays the 7-state system onto ONE
+// tape per cohort and takes one reverse sweep per metric. The census metrics
+// couple cohorts through the height-trapezium, so the reduction is taped over all
+// cohorts' final states together (one tape spanning the stand, sweeping per
+// metric). FROZEN resident light (the rare-mutant / invasion census gradient).
+// [[Rcpp::export]]
+Rcpp::List tf24f_census_gradient_ad_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, double birth_rate, double k_acclim, bool use_ad_gradient,
+    std::vector<std::string> traits, std::vector<std::string> metrics,
+    double trait_rel_step) {
+  using std::exp; using std::log;
+  for (auto& nm : metrics)
+    if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
+      Rcpp::stop("unknown TF24f census metric: " + nm);
+
+  plant::TF24f_Strategy s = make_tf24f(pp, k_acclim, use_ad_gradient);
+  plant::TF24ProdPars<double> pd = s.prod_pars();
+  const double h0v = s.initial_height(), a_d0 = s.pars.a_d0;
+  const double kI = s.pars.k_I, recruitment_decay = s.pars.recruitment_decay;
+  const double GEPS = 1e-6;
+  const std::size_t T = traits.size(), M = metrics.size();
+
+  // Base trait values + per-trait FD steps; build the +/- perturbed strategies once
+  // (reused across every stage harvest) and the IFT injection d(h0)/d(theta_k) and
+  // d(collar0)/d(theta_k) (the latter taken at the seed operating point below).
+  Rcpp::CharacterVector ppn = pp.names();
+  std::vector<double> tr0(T), dk(T), dh0(T, 0.0);
+  std::vector<plant::TF24f_Strategy> sp; sp.reserve(T);
+  std::vector<plant::TF24f_Strategy> sm; sm.reserve(T);
+  for (std::size_t k = 0; k < T; ++k) {
+    bool found = false;
+    for (R_xlen_t j = 0; j < ppn.size(); ++j)
+      if (std::string(ppn[j]) == traits[k]) { found = true; break; }
+    if (!found) Rcpp::stop("unknown TF24f trait (not in strategy pars): " + traits[k]);
+    tr0[k] = pp[traits[k]];
+    dk[k]  = trait_rel_step * std::max(std::abs(tr0[k]), 1e-8);
+    Rcpp::NumericVector q1 = Rcpp::clone(pp); q1[traits[k]] = tr0[k] + dk[k];
+    Rcpp::NumericVector q2 = Rcpp::clone(pp); q2[traits[k]] = tr0[k] - dk[k];
+    sp.push_back(make_tf24f(q1, k_acclim, use_ad_gradient));
+    sm.push_back(make_tf24f(q2, k_acclim, use_ad_gradient));
+    dh0[k] = (sp[k].initial_height() - sm[k].initial_height()) / (2.0 * dk[k]);
+  }
+
+  const std::size_t N = eh_list.size(), nC = birth.size();
+  std::vector<std::vector<plant::TF24_Environment>> EH(N);
+  for (std::size_t n = 0; n < N; ++n) {
+    Rcpp::List st = eh_list[n];
+    for (R_xlen_t k = 0; k < st.size(); ++k)
+      EH[n].push_back(Rcpp::as<plant::TF24_Environment>(st[k]));
+  }
+  std::vector<double> step_h(N);
+  for (std::size_t n = 0; n < N; ++n) step_h[n] = sh[n + 1] - sh[n];
+
+  auto env_at = [&](std::size_t n, int stage) -> const plant::TF24_Environment& {
+    return (stage == 0) ? ((n > 0) ? EH[n - 1][5] : EH[0][0]) : EH[n][stage - 1];
+  };
+
+  // --- Per-cohort harvest of the double trajectory (mirrors tf24f_census_recon_impl's
+  // replay, recording the per-stage operating point + the seed). ----------------
+  struct CohortH {
+    std::size_t b; double collar0; LH seed;            // birth seed (h0, collar0)
+    std::vector<StageH> stages;                        // per RK stage
+  };
+  auto harvest_cohort = [&](std::size_t i) -> CohortH {
+    CohortH C; const std::size_t b = (std::size_t)birth[i]; C.b = b;
+    const plant::TF24_Environment& eb = (b > 0) ? EH[b - 1][5] : EH[0][0];
+    // collar0 = optimum at birth (the base optimiser run once).
+    s.initializing_ = true;
+    s.net_mass_production_dt(eb, h0v, s.area_leaf(h0v), 1.0 / h0v);
+    C.collar0 = -s.leaf.root_collar_psi_;
+    s.initializing_ = false;
+    C.seed = harvest_point(s, sp, sm, dk, eb, h0v, C.collar0);
+
+    // Re-evolve the 7-state trajectory in double, harvesting per stage. We need only
+    // the (h, collar) sequence the recon visits; reuse its deriv/axpy structure.
+    auto deriv = [&](const St7& y, std::size_t n, int stage) -> St7 {
+      const plant::TF24_Environment& e = env_at(n, stage);
+      const double h = y.demog.height, collar = y.collar;
+      C.stages.push_back(StageH{
+        harvest_point(s, sp, sm, dk, e, h, collar),
+        harvest_point(s, sp, sm, dk, e, h - GEPS, collar)});
+      double dpsi = 0.0;
+      const double net = net_at_tracked(s, e, h, collar, dpsi);
+      const double al = plant::tf24_area_leaf<double>(pd.a_l1, pd.a_l2, h);
+      plant::TF24Rates<double> r = plant::tf24_compute_rates_from_net<double>(pd, h, al, net, true);
+      const double collar_dt = k_acclim * dpsi;
+      double dpsi_b = 0.0;
+      const double net_b = net_at_tracked(s, e, h - GEPS, collar, dpsi_b);
+      const double al_b = plant::tf24_area_leaf<double>(pd.a_l1, pd.a_l2, h - GEPS);
+      const double g_back = plant::tf24_height_dt_from_net<double>(pd, h - GEPS, al_b, net_b);
+      const double gprime = (r.height_dt - g_back) / GEPS;
+      const double log_density_dt = -gprime - r.mortality_dt;
+      return St7{plant::FF16State<double>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+        r.area_heartwood_dt, r.mass_heartwood_dt}, collar_dt, log_density_dt};
+    };
+    auto axpy = [](const St7& a, double c, const St7& k) -> St7 {
+      return St7{plant::FF16State<double>{
+        a.demog.height+c*k.demog.height, a.demog.mortality+c*k.demog.mortality,
+        a.demog.fecundity+c*k.demog.fecundity, a.demog.area_heartwood+c*k.demog.area_heartwood,
+        a.demog.mass_heartwood+c*k.demog.mass_heartwood}, a.collar+c*k.collar,
+        a.log_density+c*k.log_density};
+    };
+    // Seed the same way the recon does (so the harvested trajectory matches).
+    const double decay = std::exp(-recruitment_decay * sh[b]);
+    double dpsi0 = 0.0;
+    const double area0 = plant::tf24_area_leaf<double>(pd.a_l1, pd.a_l2, h0v);
+    const double net0 = net_at_tracked(s, eb, h0v, C.collar0, dpsi0);
+    double pr_estab = 0.0;
+    if (net0 > 0.0) { const double uu = a_d0 * area0 / net0; pr_estab = decay / (uu * uu + 1.0); }
+    const double mort0 = (pr_estab > 0.0) ? -log(pr_estab)
+                                          : std::numeric_limits<double>::infinity();
+    const double g0 = plant::tf24_height_dt_from_net<double>(pd, h0v, area0, net0);
+    const double logd0 = (g0 > 0.0 && pr_estab > 0.0) ? log(birth_rate * pr_estab / g0)
+                                          : -std::numeric_limits<double>::infinity();
+    St7 y{plant::FF16State<double>{h0v, mort0, 0.0, 0.0, 0.0}, C.collar0, logd0};
+    plant::ff16_cashkarp_replay(y, step_h, b, deriv, axpy);
+    return C;
+  };
+
+  std::vector<CohortH> CH(nC);
+  for (std::size_t i = 0; i < nC; ++i) CH[i] = harvest_cohort(i);
+
+  // Pending-seed (new_node) tail: seed harvested in the FINAL-time env.
+  const plant::TF24_Environment& ef = EH[N - 1][5];
+  double collar0_new;
+  { s.initializing_ = true; s.net_mass_production_dt(ef, h0v, s.area_leaf(h0v), 1.0 / h0v);
+    collar0_new = -s.leaf.root_collar_psi_; s.initializing_ = false; }
+  LH seed_new = harvest_point(s, sp, sm, dk, ef, h0v, collar0_new);
+  const double decay_new = std::exp(-recruitment_decay * sh[N]);
+
+  // --- Tape: replay the 7-state system for cohort i with active traits, returning
+  // the final (height, log_density, mass_heartwood) the census reduction needs. ----
+  auto replay_ad = [&](std::size_t i, const std::vector<ad_t>& tr,
+                       const plant::TF24ProdPars<ad_t>& pf,
+                       ad_t& H_out, ad_t& logd_out, ad_t& mhw_out) {
+    const CohortH& C = CH[i];
+    const std::size_t b = C.b;
+    // Active h0 (IFT) and collar0 (= optimum: d(collar0)/dtheta = -d2p_dpsidth/d2p_dpsi2).
+    ad_t h0 = ad_t(h0v);
+    for (std::size_t k = 0; k < T; ++k) if (dh0[k] != 0.0) h0 += ad_t(dh0[k]) * (tr[k] - ad_t(tr0[k]));
+    ad_t collar0 = ad_t(C.collar0);
+    const double inv_c2 = (C.seed.d2p_dpsi2 != 0.0) ? 1.0 / C.seed.d2p_dpsi2 : 0.0;
+    for (std::size_t k = 0; k < T; ++k) {
+      const double dcollar0 = -C.seed.d2p_dpsidth[k] * inv_c2;
+      if (dcollar0 != 0.0) collar0 += ad_t(dcollar0) * (tr[k] - ad_t(tr0[k]));
+    }
+    // Establishment + seedling growth -> initial mortality, log_density.
+    ad_t area0 = plant::tf24_area_leaf<ad_t>(pf.a_l1, pf.a_l2, h0);
+    ad_t profit0 = profit_lin(C.seed, h0, collar0, tr, tr0);
+    ad_t net0 = plant::tf24_net_mass_production<ad_t>(pf, h0, area0, profit0);
+    ad_t uu = ad_t(a_d0) * area0 / net0;
+    const double decay = std::exp(-recruitment_decay * sh[b]);
+    ad_t pr_estab = ad_t(decay) / (uu * uu + ad_t(1.0));
+    ad_t mort0 = -log(pr_estab);
+    ad_t g0 = plant::tf24_height_dt_from_net<ad_t>(pf, h0, area0, net0);
+    ad_t logd0 = log(ad_t(birth_rate) * pr_estab / g0);
+
+    std::size_t idx = 0;
+    auto deriv = [&](const St7ad<ad_t>& y, std::size_t n, int stage) -> St7ad<ad_t> {
+      const StageH& S = C.stages[idx++];
+      ad_t h = y.demog.height, collar = y.collar;
+      ad_t profit = profit_lin(S.fwd, h, collar, tr, tr0);
+      ad_t al = plant::tf24_area_leaf<ad_t>(pf.a_l1, pf.a_l2, h);
+      ad_t net = plant::tf24_net_mass_production<ad_t>(pf, h, al, profit);
+      plant::TF24Rates<ad_t> r = plant::tf24_compute_rates_from_net<ad_t>(pf, h, al, net, true);
+      ad_t collar_dt = ad_t(k_acclim) * dpsi_lin(S.fwd, h, collar, tr, tr0);
+      // g' = backward FD of height_dt (collar held), the SCM's scheme: the backward
+      // profit is linearised about S.back (harvested at h-GEPS), height shift -GEPS.
+      ad_t profit_b = profit_lin(S.back, h - ad_t(GEPS), collar, tr, tr0);
+      ad_t al_b = plant::tf24_area_leaf<ad_t>(pf.a_l1, pf.a_l2, h - ad_t(GEPS));
+      ad_t net_b = plant::tf24_net_mass_production<ad_t>(pf, h - ad_t(GEPS), al_b, profit_b);
+      ad_t g_back = plant::tf24_height_dt_from_net<ad_t>(pf, h - ad_t(GEPS), al_b, net_b);
+      ad_t gprime = (r.height_dt - g_back) / ad_t(GEPS);
+      ad_t log_density_dt = -gprime - r.mortality_dt;
+      return St7ad<ad_t>{plant::FF16State<ad_t>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+        r.area_heartwood_dt, r.mass_heartwood_dt}, collar_dt, log_density_dt};
+    };
+    auto axpy = [](const St7ad<ad_t>& a, double c, const St7ad<ad_t>& k) -> St7ad<ad_t> {
+      return St7ad<ad_t>{plant::FF16State<ad_t>{
+        a.demog.height+c*k.demog.height, a.demog.mortality+c*k.demog.mortality,
+        a.demog.fecundity+c*k.demog.fecundity, a.demog.area_heartwood+c*k.demog.area_heartwood,
+        a.demog.mass_heartwood+c*k.demog.mass_heartwood}, a.collar+c*k.collar,
+        a.log_density+c*k.log_density};
+    };
+    St7ad<ad_t> y{plant::FF16State<ad_t>{h0, mort0, ad_t(0), ad_t(0), ad_t(0)}, collar0, logd0};
+    St7ad<ad_t> f = plant::ff16_cashkarp_replay(y, step_h, b, deriv, axpy);
+    H_out = f.demog.height; logd_out = f.log_density; mhw_out = f.demog.mass_heartwood;
+  };
+
+  // Active pending-seed density at the final env (the trapezium tail term).
+  auto dens_new_ad = [&](const std::vector<ad_t>& tr,
+                         const plant::TF24ProdPars<ad_t>& pf) -> ad_t {
+    ad_t h0 = ad_t(h0v);
+    for (std::size_t k = 0; k < T; ++k) if (dh0[k] != 0.0) h0 += ad_t(dh0[k]) * (tr[k] - ad_t(tr0[k]));
+    ad_t collar0 = ad_t(collar0_new);
+    const double inv_c2 = (seed_new.d2p_dpsi2 != 0.0) ? 1.0 / seed_new.d2p_dpsi2 : 0.0;
+    for (std::size_t k = 0; k < T; ++k) {
+      const double dc0 = -seed_new.d2p_dpsidth[k] * inv_c2;
+      if (dc0 != 0.0) collar0 += ad_t(dc0) * (tr[k] - ad_t(tr0[k]));
+    }
+    ad_t area0 = plant::tf24_area_leaf<ad_t>(pf.a_l1, pf.a_l2, h0);
+    ad_t profit0 = profit_lin(seed_new, h0, collar0, tr, tr0);
+    ad_t net0 = plant::tf24_net_mass_production<ad_t>(pf, h0, area0, profit0);
+    ad_t uu = ad_t(a_d0) * area0 / net0;
+    ad_t pr_estab = ad_t(decay_new) / (uu * uu + ad_t(1.0));
+    ad_t g0 = plant::tf24_height_dt_from_net<ad_t>(pf, h0, area0, net0);
+    return ad_t(birth_rate) * pr_estab / g0;
+  };
+
+  // ONE tape over all cohorts (census couples them via the trapezium); one reverse
+  // sweep per metric. Record the forward replay, then reduce each metric.
+  ad::tape_type tape;
+  std::vector<ad_t> tr(T);
+  for (std::size_t k = 0; k < T; ++k) tr[k] = tr0[k];
+  for (auto& x : tr) tape.registerInput(x);
+  tape.newRecording();
+  plant::TF24ProdPars<ad_t> pf = pf_active(pd, traits, tr);
+
+  std::vector<ad_t> Hf(nC), Lf(nC), Mf(nC);
+  for (std::size_t i = 0; i < nC; ++i) replay_ad(i, tr, pf, Hf[i], Lf[i], Mf[i]);
+  ad_t h0a = ad_t(h0v);
+  for (std::size_t k = 0; k < T; ++k) if (dh0[k] != 0.0) h0a += ad_t(dh0[k]) * (tr[k] - ad_t(tr0[k]));
+  ad_t dens_new = dens_new_ad(tr, pf);
+
+  // Descending-height order (frozen, on the double values) for the trapezium walk.
+  std::vector<std::size_t> ord(nC);
+  for (std::size_t i = 0; i < nC; ++i) ord[i] = i;
+  std::sort(ord.begin(), ord.end(),
+            [&](std::size_t a, std::size_t b){ return as_dbl(Hf[a]) > as_dbl(Hf[b]); });
+
+  auto census_reduce = [&](auto psi) -> ad_t {
+    std::vector<ad_t> phi(nC);
+    for (std::size_t i = 0; i < nC; ++i) phi[i] = psi(Hf[i], exp(Lf[i]), Mf[i]);
+    ad_t J = ad_t(0.0);
+    for (std::size_t j = 0; j + 1 < nC; ++j) {
+      const std::size_t a = ord[j], b = ord[j + 1];
+      J += ad_t(0.5) * (Hf[a] - Hf[b]) * (phi[a] + phi[b]);
+    }
+    if (nC > 0) {
+      const std::size_t last = ord[nC - 1];
+      ad_t phi_new = psi(h0a, dens_new, ad_t(0.0));
+      J += ad_t(0.5) * (Hf[last] - h0a) * (phi[last] + phi_new);
+    }
+    return J;
+  };
+
+  std::vector<ad_t> J(M);
+  for (std::size_t m = 0; m < M; ++m) {
+    const std::string& nm = metrics[m];
+    if (nm == "LAI") {
+      J[m] = census_reduce([&](ad_t h, ad_t dens, ad_t) -> ad_t {
+        return dens * ad_t(kI) * plant::tf24_area_leaf<ad_t>(pf.a_l1, pf.a_l2, h); });
+    } else if (nm == "biomass") {
+      J[m] = census_reduce([&](ad_t h, ad_t dens, ad_t mhw) -> ad_t {
+        ad_t al = plant::tf24_area_leaf<ad_t>(pf.a_l1, pf.a_l2, h);
+        ad_t mass_leaf    = al * pf.lma;
+        ad_t area_sapwood = al * pf.theta;
+        ad_t mass_sapwood = area_sapwood * h * pf.eta_c * pf.rho;
+        ad_t area_bark    = pf.a_b1 * al * pf.theta;
+        ad_t mass_bark    = area_bark * h * pf.eta_c * pf.rho;
+        ad_t mass_root    = pf.a_r1 * al;
+        return dens * (mass_leaf + mass_sapwood + mass_bark + mass_root + mhw); });
+    } else { // size_moment
+      J[m] = census_reduce([&](ad_t h, ad_t dens, ad_t) -> ad_t { return dens * h; });
+    }
+  }
+
+  // Reduce each metric: register, seed, sweep (clearing derivatives between metrics).
+  Rcpp::NumericMatrix jac(M, T);
+  Rcpp::NumericVector values(M);
+  for (std::size_t m = 0; m < M; ++m) { values[m] = as_dbl(J[m]); tape.registerOutput(J[m]); }
+  for (std::size_t m = 0; m < M; ++m) {
+    tape.clearDerivatives();
+    xad::derivative(J[m]) = 1.0;
+    tape.computeAdjoints();
+    for (std::size_t k = 0; k < T; ++k) jac(m, k) = xad::derivative(tr[k]);
+  }
+  jac.attr("dimnames") = Rcpp::List::create(Rcpp::wrap(metrics), Rcpp::wrap(traits));
+  values.attr("names") = Rcpp::wrap(metrics);
+  return Rcpp::List::create(Rcpp::Named("jacobian") = jac, Rcpp::Named("values") = values);
 }

@@ -94,6 +94,28 @@ tf24f_census_gradient_fd <- function(scm, metrics = c("LAI", "biomass", "size_mo
   list(jacobian = jac, values = values)
 }
 
+# TF24f frozen census trait gradient by reverse-mode AD (#472 scope B, build-order
+# step 2 -- the R1 tape, the refine of tf24f_census_gradient_fd). One reverse sweep over
+# the 7-state replay {5 demog, tracked collar, log_density} per metric, replacing the
+# per-trait finite difference over the census reconstruction. The hard ingredient (the
+# tracked collar is a strongly theta-dependent STATE that lags the optimum, so the
+# envelope theorem does not zero it) is handled by a CURVATURE harvest: the collar is
+# carried as a taped state with rate k_acclim * dprofit_dpsi, linearised with the second
+# derivatives d2profit/dpsi2, d2profit/dpsi dh, d2profit/dpsi dtheta_k (all FD-harvested
+# in the double discovery pass). The census g' = d(height_dt)/d(height) reproduces the
+# SCM's backward-FD scheme by harvesting a second operating point at h - GEPS. Resident
+# light is FROZEN (the rare-mutant / invasion gradient). Validated to ~1% (the recon
+# noise floor) against tf24f_census_gradient_fd; see test-tf24f-census-gradient.R.
+tf24f_census_gradient_ad <- function(scm, metrics = c("LAI", "biomass", "size_moment"),
+                                     traits = NULL, species = 1L, birth_rate = NULL,
+                                     trait_rel_step = 1e-5) {
+  if (is.null(traits)) traits <- tf24_default_traits()
+  h <- tf24f_harvest(scm, species, birth_rate)
+  tf24f_census_gradient_ad_impl(h$pp, h$eh, h$sh, h$birth_step, h$birth_rate,
+                                h$k_acclim, h$use_ad_gradient, traits, metrics,
+                                trait_rel_step)
+}
+
 # TF24f individual grow-to-size trait gradient (#472 scope B, the "individuals" surface
 # -- prototype). d(t*)/d(theta) and d(state at t*)/d(theta) for a single plant grown in a
 # FIXED environment to target size(s), by central finite difference over

@@ -4756,6 +4756,10 @@ tf24f_census_recon_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acclim
     .Call('_plant_tf24f_census_recon_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime)
 }
 
+tf24f_census_gradient_ad_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, trait_rel_step) {
+    .Call('_plant_tf24f_census_gradient_ad_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, trait_rel_step)
+}
+
 node_schedule_default__Parameters___TF24f__TF24_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___TF24f__TF24_Env', PACKAGE = 'plant', p)
 }

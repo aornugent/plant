@@ -89,6 +89,33 @@ test_that("tf24f_census_gradient_fd: finite frozen census Jacobian (R1 gate)", {
                tolerance = 2e-2)
 })
 
+test_that("tf24f_census_gradient_ad reproduces the frozen census FD gradient (R1 tape)", {
+  # The reverse-mode AD census tape (build-order step 2) is the REFINE of the per-trait
+  # FD over the recon: ONE reverse sweep over the 7-state replay {5 demog, tracked collar,
+  # log_density} per metric. The collar is carried as a taped state with a curvature-
+  # linearised gradient-ascent rate (the envelope theorem does NOT zero its theta-
+  # contribution -- it lags the optimum at k_acclim = 1), and the census g' reproduces the
+  # SCM's backward-FD scheme via a second harvested operating point at h - GEPS. It must
+  # match tf24f_census_gradient_fd to ~1% (the recon noise floor); the AD removes the FD
+  # step-size sensitivity, so it is the more accurate of the two.
+  scm <- tf24f_small_scm()
+  tr <- c("vcmax_25", "lma", "a_l1", "K_s")
+  mt <- c("LAI", "biomass", "size_moment")
+  ad <- plant:::tf24f_census_gradient_ad(scm, metrics = mt, traits = tr)
+  fd <- plant:::tf24f_census_gradient_fd(scm, metrics = mt, traits = tr)
+
+  expect_equal(dim(ad$jacobian), c(length(mt), length(tr)))
+  expect_true(all(is.finite(ad$jacobian)))
+  # The reconstructed metric VALUES are the recon's (the linearisation is exact at theta0),
+  # so they match the SCM census and the FD gate bit-for-bit.
+  expect_equal(unname(ad$values[["LAI"]]), scm$patch$compute_competition(0), tolerance = 1e-3)
+  expect_equal(unname(ad$values), unname(fd$values), tolerance = 1e-8)
+  # Gradient agreement: AD vs FD within the recon noise floor (~1%); use a relative
+  # comparison so the comparison is not dominated by the large-magnitude entries.
+  rel <- abs(ad$jacobian - fd$jacobian) / pmax(abs(fd$jacobian), 1e-8)
+  expect_lt(max(rel), 0.02)
+})
+
 test_that("tf24f resident census FD gradient is the total gradient (flips sign)", {
   # The resident (coupled) gradient is the TOTAL stand-level d(metric)/d(theta): the
   # canopy feedback routinely dominates and flips the sign relative to the frozen
