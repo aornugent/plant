@@ -412,6 +412,14 @@ injected. FF16's only real advantage is that its closed-form net needs no harves
   forward pass;
 - `ad_tf24_emergent_reverse.R` — the same 27-vector by **one reverse sweep per cohort**.
 
+And, as for FF16, the reverse-per-cohort path is compiled into `plant.so` behind a
+first-class R call, `tf24_offspring_production_gradient(scm)` — given a crown-centre
+`save_RK45_cache` SCM it returns the named 27-trait gradient (plus the reconstructed
+`offspring_production`) with no on-the-fly compilation, covered by a plain-R CI test.
+Because TF24 is stiff (every rate evaluation re-solves the leaf optimisation), the CI
+test runs on a deliberately small stand; the exhaustive 27-trait FD validation lives in
+the script above.
+
 ## Lessons, distilled
 
 Three principles recur across both strategies and are the real transferable content:
