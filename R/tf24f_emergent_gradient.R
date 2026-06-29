@@ -93,3 +93,49 @@ tf24f_census_gradient_fd <- function(scm, metrics = c("LAI", "biomass", "size_mo
   }
   list(jacobian = jac, values = values)
 }
+
+# TF24f individual grow-to-size trait gradient (#472 scope B, the "individuals" surface
+# -- prototype). d(t*)/d(theta) and d(state at t*)/d(theta) for a single plant grown in a
+# FIXED environment to target size(s), by central finite difference over
+# grow_individual_to_size. No resident feedback (the env is given) and no canopy/density,
+# so this is the lightest gradient surface; for TF24f the tracked collar is re-evolved
+# inside each grow (it is one of the ODE states), so the FD captures the collar's response
+# automatically -- which is exactly why an exact AD version is the heavier follow-up (the
+# tracked collar is strongly theta-dependent; see notes/tf24-stand-gradient-scope.md). The
+# FD here is the prototype + the reference that AD version must reproduce. Traits are
+# perturbed on the (post-hyperpar) strategy parameters directly, matching the census FD.
+tf24f_grow_individual_to_size_gradient_fd <- function(individual, sizes, size_name, env,
+                                                      traits = NULL, time_max = Inf,
+                                                      warn = FALSE, rel_step = 1e-5) {
+  if (!grepl("^TF24f", individual$strategy_name))
+    stop("tf24f_grow_individual_to_size_gradient_fd is for the TF24f strategy only")
+  if (is.null(traits)) traits <- tf24_default_traits()
+
+  grow <- function(ind) {
+    r <- grow_individual_to_size(ind, sizes, size_name, env, time_max, warn)
+    list(time = r$time, state = r$state)
+  }
+  perturb <- function(tr, delta) {
+    s <- individual$strategy
+    pars <- s$pars
+    if (!tr %in% names(pars)) stop("unknown TF24f trait: ", tr)
+    pars[[tr]] <- pars[[tr]] + delta
+    s$pars <- pars
+    grow(TF24f_Individual(s))
+  }
+
+  base <- grow(individual)
+  nS <- length(sizes); comp <- colnames(base$state); nC <- length(comp)
+  d_time <- matrix(0, nS, length(traits), dimnames = list(NULL, traits))
+  d_state <- array(0, c(nS, nC, length(traits)), dimnames = list(NULL, comp, traits))
+  s0 <- individual$strategy$pars
+  for (j in seq_along(traits)) {
+    tr <- traits[j]
+    d <- rel_step * max(abs(s0[[tr]]), 1e-8)
+    rp <- perturb(tr, d); rm <- perturb(tr, -d)
+    d_time[, j] <- (rp$time - rm$time) / (2 * d)
+    d_state[, , j] <- (rp$state - rm$state) / (2 * d)
+  }
+  list(sizes = sizes, time = base$time, state = base$state,
+       d_time = d_time, d_state = d_state)
+}
