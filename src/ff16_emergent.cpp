@@ -1119,6 +1119,61 @@ Rcpp::List ff16_coupled_metrics_impl(
                             Rcpp::Named("env_err_z") = env_err_z);
 }
 
+// R1 of the COUPLED resident replay (#472 scope B): the resident TOTAL trait gradient
+// of the emergent census metrics, one reverse sweep per metric over the coupled
+// whole-stand re-evolution. Unlike the frozen-geometry graft (a_l1/a_l2 only), EVERY
+// trait feeds back here -- a trait that changes growth/mortality moves the cohorts'
+// heights/densities, which re-shade the active canopy every cohort reads. One forward
+// replay onto a single adjoint tape, then a cheap reverse sweep per metric gives the
+// full metrics x traits Jacobian. Validate vs an FD over ff16_coupled_metrics_impl
+// (the SAME coupled reconstruction, frozen geometry) -- AD and FD differentiate one
+// function. nn_h_list/nn_c_list: boundary new_node height/effect per cached stage.
+// [[Rcpp::export]]
+Rcpp::List ff16_coupled_gradient_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, std::vector<std::string> traits,
+    std::vector<std::string> metrics, double birth_rate,
+    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area) {
+  auto s  = make_strategy(pp);
+  auto pd = s.prod_pars();
+  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
+  attach_coupled(F, s.pars.k_I, patch_area, nn_h_list, nn_c_list);
+  for (auto& nm : metrics)
+    if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
+      Rcpp::stop("coupled gradient: expected LAI / biomass / size_moment, got " + nm);
+  std::vector<std::size_t> idx = resolve_traits(traits);
+  const double h0v = s.initial_height();
+  std::vector<double> dh0 = compute_dh0(pd, h0v, idx);
+  const std::size_t M = metrics.size(), nT = idx.size();
+
+  Rcpp::NumericMatrix jac(M, nT);
+  Rcpp::NumericVector values(M);
+  {
+    // One coupled tape, scoped so it is destroyed before returning. Reverse mode:
+    // many traits in, few metrics out -> one recording, one sweep per metric.
+    ad::tape_type tape;
+    auto pa = lift<ad_t>(pd);
+    auto fp = field_ptrs<ad_t>(pa);
+    for (auto i : idx) tape.registerInput(*fp[i]);
+    tape.newRecording();
+    ad_t h0 = inject_h0(h0v, fp, idx, dh0);            // IFT seedling-size channel
+    std::vector<ad_t> J = assemble_metrics_coupled<ad_t>(pa, F, metrics, birth_rate, h0);
+    for (std::size_t m = 0; m < M; ++m) tape.registerOutput(J[m]);
+    for (std::size_t m = 0; m < M; ++m) {
+      tape.clearDerivatives();
+      xad::derivative(J[m]) = 1.0;
+      tape.computeAdjoints();
+      for (std::size_t k = 0; k < nT; ++k) jac(m, k) = xad::derivative(*fp[idx[k]]);
+      values[m] = as_double(J[m]);
+    }
+  }
+  jac.attr("dimnames") = Rcpp::List::create(Rcpp::wrap(metrics), Rcpp::wrap(traits));
+  values.attr("names") = Rcpp::wrap(metrics);
+  return Rcpp::List::create(Rcpp::Named("jacobian") = jac,
+                            Rcpp::Named("values")   = values);
+}
+
 // De-risk accessor: reconstruct each cohort's census height + log_density (double
 // replay, no AD) to validate the census-density replay against the SCM's stored
 // per-node state before differentiating it.

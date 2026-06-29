@@ -4485,6 +4485,10 @@ ff16_coupled_metrics_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw,
     .Call('_plant_ff16_coupled_metrics_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, metrics, birth_rate, nn_h_list, nn_c_list, patch_area)
 }
 
+ff16_coupled_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate, nn_h_list, nn_c_list, patch_area) {
+    .Call('_plant_ff16_coupled_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate, nn_h_list, nn_c_list, patch_area)
+}
+
 ff16_census_reconstruct_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, birth_rate) {
     .Call('_plant_ff16_census_reconstruct_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, birth_rate)
 }
