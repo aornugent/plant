@@ -18,6 +18,7 @@
 #include <string>
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <XAD/XAD.hpp>
 #include <plant.h>                 // RcppR6 as<>/wrap for FF16_Environment etc.
 #include <plant/models/ff16_production_kernel.h>
@@ -86,47 +87,137 @@ S deep_net(const plant::FF16ProdPars<S>& pd, const plant::quadrature::QK* integ,
   return plant::ff16_net_from_components(pd, height, area_leaf, assim);
 }
 
+// Replay ONE cohort (index i) over the frozen schedule, returning its FINAL
+// FF16LifeState<S> (the 5 demographic states + survival-weighted offspring
+// accumulator at the end of the run, i.e. at the final census). Establishment is
+// differentiated via the seedling net production -> mortality_0 = -log(pr_estab);
+// h0 carries its own d/d(trait) via the IFT injection done by the caller. This is
+// the single per-cohort replay that the generic reduction engine sums over: every
+// emergent metric is a weighted reduction over these final cohort states, so the
+// replay is recorded ONCE and reused for every metric (one tape, one reverse sweep
+// per metric).
+template <typename S>
+plant::FF16LifeState<S> replay_cohort_final(const plant::FF16ProdPars<S>& pd,
+                                            const Frozen& F, std::size_t i, S h0) {
+  using std::exp; using std::log;
+  const std::size_t b = (std::size_t)F.birth[i];
+  const double ppsab = F.ppsab[i];
+  const plant::FF16_Environment* eb = (b > 0) ? &F.eh[b - 1][5] : &F.eh[0][0];
+  S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
+  S net0 = deep_net<S>(pd, F.integ, F.eta, eb, h0);
+  S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
+  S mort0 = -log(pr_estab);
+  auto deriv = [&](const plant::FF16LifeState<S>& s, std::size_t n, int stage)
+      -> plant::FF16LifeState<S> {
+    const plant::FF16_Environment* e =
+      (stage==0)?((n>0)?&F.eh[n-1][5]:&F.eh[0][0]):&F.eh[n][stage-1];
+    S net = deep_net<S>(pd, F.integ, F.eta, e, s.demog.height);
+    S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, s.demog.height);
+    plant::FF16Rates<S> r = plant::ff16_compute_rates_from_net(pd, s.demog.height, area_leaf, net, true);
+    S off_dt = r.fecundity_dt * exp(-s.demog.mortality) * S(F.ppsurv(n, stage) / ppsab);
+    return plant::FF16LifeState<S>{plant::FF16State<S>{r.height_dt, r.mortality_dt,
+      r.fecundity_dt, r.area_heartwood_dt, r.mass_heartwood_dt}, off_dt};
+  };
+  auto axpy = [](const plant::FF16LifeState<S>& a, double c, const plant::FF16LifeState<S>& k)
+      -> plant::FF16LifeState<S> {
+    return plant::FF16LifeState<S>{plant::FF16State<S>{
+      a.demog.height+c*k.demog.height, a.demog.mortality+c*k.demog.mortality,
+      a.demog.fecundity+c*k.demog.fecundity, a.demog.area_heartwood+c*k.demog.area_heartwood,
+      a.demog.mass_heartwood+c*k.demog.mass_heartwood}, a.offspring+c*k.offspring};
+  };
+  plant::FF16LifeState<S> y{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, S(0)};
+  return plant::ff16_cashkarp_replay(y, F.step_h, b, deriv, axpy);
+}
+
 // Emergent offspring_production = sum_i tw_i * offspring_weighted_i (deep-crown
-// 6-state replay through ff16_cashkarp_replay); establishment frozen via mort0.
+// 6-state replay); establishment frozen via mort0. Kept as the dedicated routine
+// behind offspring_production_gradient(); the generic engine below reproduces it
+// as one symmetric (w, f) registry entry.
 template <typename S>
 S stand_offspring(const plant::FF16ProdPars<S>& pd, const Frozen& F, S h0) {
-  using std::exp; using std::log;
   S J = S(0.0);
-  for (std::size_t i = 0; i < F.birth.size(); ++i) {
-    const std::size_t b = (std::size_t)F.birth[i];
-    const double ppsab = F.ppsab[i];
-    // Establishment (recruitment filter), DIFFERENTIATED: mortality_0 =
-    // -log(pr_estab), pr_estab from the seedling net production (deep-crown) in the
-    // frozen birth env -> the trait flows through net0 and area_leaf_0. h0 (seedling
-    // height) carries its own d/d(trait) via the IFT injection (see the caller).
-    const plant::FF16_Environment* eb = (b > 0) ? &F.eh[b - 1][5] : &F.eh[0][0];
-    S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
-    S net0 = deep_net<S>(pd, F.integ, F.eta, eb, h0);
-    S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
-    S mort0 = -log(pr_estab);
-    auto deriv = [&](const plant::FF16LifeState<S>& s, std::size_t n, int stage)
-        -> plant::FF16LifeState<S> {
-      const plant::FF16_Environment* e =
-        (stage==0)?((n>0)?&F.eh[n-1][5]:&F.eh[0][0]):&F.eh[n][stage-1];
-      S net = deep_net<S>(pd, F.integ, F.eta, e, s.demog.height);
-      S area_leaf = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, s.demog.height);
-      plant::FF16Rates<S> r = plant::ff16_compute_rates_from_net(pd, s.demog.height, area_leaf, net, true);
-      S off_dt = r.fecundity_dt * exp(-s.demog.mortality) * S(F.ppsurv(n, stage) / ppsab);
-      return plant::FF16LifeState<S>{plant::FF16State<S>{r.height_dt, r.mortality_dt,
-        r.fecundity_dt, r.area_heartwood_dt, r.mass_heartwood_dt}, off_dt};
-    };
-    auto axpy = [](const plant::FF16LifeState<S>& a, double c, const plant::FF16LifeState<S>& k)
-        -> plant::FF16LifeState<S> {
-      return plant::FF16LifeState<S>{plant::FF16State<S>{
-        a.demog.height+c*k.demog.height, a.demog.mortality+c*k.demog.mortality,
-        a.demog.fecundity+c*k.demog.fecundity, a.demog.area_heartwood+c*k.demog.area_heartwood,
-        a.demog.mass_heartwood+c*k.demog.mass_heartwood}, a.offspring+c*k.offspring};
-    };
-    plant::FF16LifeState<S> y{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, S(0)};
-    y = plant::ff16_cashkarp_replay(y, F.step_h, b, deriv, axpy);
-    J += S(F.tw[i]) * y.offspring;
-  }
+  for (std::size_t i = 0; i < F.birth.size(); ++i)
+    J += S(F.tw[i]) * replay_cohort_final<S>(pd, F, i, h0).offspring;
   return J;
+}
+
+// ---------------------------------------------------------------------------
+// Generic (w, f) reduction engine (#472 scope B, build-order step 1). A stand
+// metric is a weighted reduction over the replayed cohort final states,
+//   metric = sum_i w_i * f(state_i),
+// where w_i is a frozen per-cohort weight (from pass 1) and f maps a cohort's
+// final FF16LifeState to a scalar contribution. offspring_production, LAI, biomass
+// and size-distribution moments are all symmetric instantiations -- NONE privileged.
+// The engine records ONE forward replay of every cohort onto a single tape, then
+// takes one cheap reverse (adjoint) sweep PER metric, so M metrics cost
+// replay + M*sweep, not M replays. This is the calibration-facing core: a
+// metrics x traits Jacobian + the metric values, out of one resident baseline.
+// ---------------------------------------------------------------------------
+
+// A registered metric: its frozen per-cohort weight w_i and the contribution
+// functor f(state) -> S. Census-time per-cohort number density (for LAI/biomass/
+// size moments) is supplied to f as `density`, evolved as a replayed state.
+template <typename S>
+struct Metric {
+  std::string name;
+  std::vector<double> w;                                 // frozen per-cohort weight
+  std::function<S(const plant::FF16LifeState<S>&)> f;    // contribution from state
+};
+
+// Assemble the Frozen harvest (resident schedule + per-RK-stage env + per-cohort
+// survival/weights/decay) from the R-side arrays. Shared by every entry point.
+Frozen build_frozen(const plant::FF16_Strategy& s, Rcpp::List eh_list,
+                    const std::vector<double>& sh, std::vector<int> birth,
+                    Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+                    std::vector<double> tw) {
+  Frozen F; F.eta = s.pars.eta; F.h0 = s.initial_height(); F.birth = birth;
+  F.ppsab = ppsab; F.tw = tw; F.ppsurv = ppsurv; F.integ = &s.function_integrator;
+  F.a_d0 = s.pars.a_d0;
+  const std::size_t N = eh_list.size(); F.eh.resize(N); F.step_h.resize(N);
+  for (std::size_t n=0;n<N;++n){Rcpp::List st=eh_list[n]; for(R_xlen_t k=0;k<st.size();++k) F.eh[n].push_back(Rcpp::as<plant::FF16_Environment>(st[k]));}
+  for (std::size_t n=0;n<N;++n) F.step_h[n]=sh[n+1]-sh[n];
+  // Per-cohort establishment decay exp(-recruitment_decay * birth_time).
+  F.decay.resize(birth.size());
+  for (std::size_t i=0;i<birth.size();++i)
+    F.decay[i] = std::exp(-s.pars.recruitment_decay * sh[(std::size_t)birth[i]]);
+  return F;
+}
+
+// Map requested trait names to FF16ProdPars field indices (errors on unknown).
+std::vector<std::size_t> resolve_traits(const std::vector<std::string>& traits) {
+  auto names = field_names();
+  std::vector<std::size_t> idx;
+  for (auto& t : traits) {
+    auto it = std::find(names.begin(), names.end(), t);
+    if (it == names.end()) Rcpp::stop("unknown FF16 trait: " + t);
+    idx.push_back(std::distance(names.begin(), it));
+  }
+  return idx;
+}
+
+// d(height_0)/d(trait_k) by the implicit function theorem at the height_seed root
+// (mass_live_given_height(h0) == omega), in a SCOPED reverse sweep of mass_live at
+// h0 (the #539 seedling-size pattern). Returns the per-requested-trait dh0.
+std::vector<double> compute_dh0(const plant::FF16ProdPars<double>& pd, double h0v,
+                                const std::vector<std::size_t>& idx) {
+  std::vector<double> dh0(idx.size(), 0.0);
+  ad::tape_type tape0;
+  auto pm = lift<ad_t>(pd);
+  auto fm = field_ptrs<ad_t>(pm);
+  ad_t hin = h0v;
+  for (auto i : idx) tape0.registerInput(*fm[i]);
+  tape0.registerInput(hin);
+  tape0.newRecording();
+  ad_t m = plant::ff16_mass_live_given_height<ad_t>(pm, hin);
+  tape0.registerOutput(m); xad::derivative(m) = 1.0; tape0.computeAdjoints();
+  const double dm_dh = xad::derivative(hin);
+  auto names_o = field_names();
+  for (std::size_t k = 0; k < idx.size(); ++k) {
+    double dm_dtheta = xad::derivative(*fm[idx[k]]);
+    double dF_dtheta = dm_dtheta - (names_o[idx[k]] == "omega" ? 1.0 : 0.0);
+    dh0[k] = (dm_dh != 0.0) ? -dF_dtheta / dm_dh : 0.0;
+  }
+  return dh0;
 }
 
 } // namespace
@@ -157,55 +248,10 @@ Rcpp::NumericVector ff16_offspring_production_gradient_impl(
     std::vector<double> tw, std::vector<std::string> traits) {
   auto s = make_strategy(pp);
   auto pd = s.prod_pars();
-  Frozen F; F.eta = s.pars.eta; F.h0 = s.initial_height(); F.birth = birth;
-  F.ppsab = ppsab; F.tw = tw; F.ppsurv = ppsurv; F.integ = &s.function_integrator;
-  F.a_d0 = s.pars.a_d0;
-  const std::size_t N = eh_list.size(); F.eh.resize(N); F.step_h.resize(N);
-  for (std::size_t n=0;n<N;++n){Rcpp::List st=eh_list[n]; for(R_xlen_t k=0;k<st.size();++k) F.eh[n].push_back(Rcpp::as<plant::FF16_Environment>(st[k]));}
-  for (std::size_t n=0;n<N;++n) F.step_h[n]=sh[n+1]-sh[n];
-
-  // Per-cohort establishment decay factor exp(-recruitment_decay * birth_time);
-  // birth_time = step_history at the birth step. recruitment_decay / a_d0 are not
-  // among the differentiated traits, so they fold to doubles; the establishment
-  // gradient flows through the (active) seedling net production inside stand_offspring.
-  F.decay.resize(birth.size());
-  for (std::size_t i=0;i<birth.size();++i)
-    F.decay[i] = std::exp(-s.pars.recruitment_decay * sh[(std::size_t)birth[i]]);
-
-  // Map requested trait names to FF16ProdPars field indices.
-  auto names = field_names();
-  std::vector<std::size_t> idx;
-  for (auto& t : traits) {
-    auto it = std::find(names.begin(), names.end(), t);
-    if (it == names.end()) Rcpp::stop("unknown FF16 trait: " + t);
-    idx.push_back(std::distance(names.begin(), it));
-  }
-
-  // d(height_0)/d(trait) by the implicit function theorem at the height_seed root
-  // (mass_live_given_height(h0) == omega). A separate reverse sweep of mass_live at
-  // h0 gives d(mass_live)/d(theta_k) and d(mass_live)/d(height); IFT then gives
-  // d(h0)/d(theta_k) (the seedling-size response, the #539 pattern). Scoped in its
-  // own block so its tape is torn down before the main recording.
+  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
+  std::vector<std::size_t> idx = resolve_traits(traits);
   const double h0v = s.initial_height();
-  std::vector<double> dh0(idx.size(), 0.0);
-  {
-    ad::tape_type tape0;
-    auto pm = lift<ad_t>(pd);
-    auto fm = field_ptrs<ad_t>(pm);
-    ad_t hin = h0v;
-    for (auto i : idx) tape0.registerInput(*fm[i]);
-    tape0.registerInput(hin);
-    tape0.newRecording();
-    ad_t m = plant::ff16_mass_live_given_height<ad_t>(pm, hin);
-    tape0.registerOutput(m); xad::derivative(m) = 1.0; tape0.computeAdjoints();
-    const double dm_dh = xad::derivative(hin);
-    auto names_o = field_names();
-    for (std::size_t k = 0; k < idx.size(); ++k) {
-      double dm_dtheta = xad::derivative(*fm[idx[k]]);
-      double dF_dtheta = dm_dtheta - (names_o[idx[k]] == "omega" ? 1.0 : 0.0);
-      dh0[k] = (dm_dh != 0.0) ? -dF_dtheta / dm_dh : 0.0;
-    }
-  }
+  std::vector<double> dh0 = compute_dh0(pd, h0v, idx);
 
   // ONE reverse sweep over the requested traits.
   ad::tape_type tape;
@@ -226,4 +272,81 @@ Rcpp::NumericVector ff16_offspring_production_gradient_impl(
   grad.attr("names") = Rcpp::wrap(traits);
   grad.attr("offspring_production") = as_double(J);
   return grad;
+}
+
+// Compiled core of the generic stand-gradient engine (#472 scope B, build-order
+// step 1). Records ONE forward replay of every cohort's final state onto a single
+// adjoint tape, then for EACH requested metric m = sum_i w_i * f_m(state_i) takes
+// one reverse sweep, giving the metrics x traits Jacobian (+ the metric values) out
+// of one resident baseline. No metric is privileged: offspring_production is just
+// one registered (w, f) entry. Census metrics (LAI/biomass/size moments, which need
+// the per-cohort census number density) are added in a later increment; this first
+// increment carries offspring_production to prove the engine reproduces the
+// dedicated routine as one symmetric entry.
+// [[Rcpp::export]]
+Rcpp::List ff16_stand_gradient_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, std::vector<std::string> traits,
+    std::vector<std::string> metrics) {
+  auto s  = make_strategy(pp);
+  auto pd = s.prod_pars();
+  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
+  std::vector<std::size_t> idx = resolve_traits(traits);
+  const double h0v = s.initial_height();
+  std::vector<double> dh0 = compute_dh0(pd, h0v, idx);
+  const std::size_t M = metrics.size(), nC = F.birth.size(), nT = idx.size();
+
+  // Build the requested metrics as (w, f) reductions. offspring_production:
+  // w_i = tw_i (the node-spacing trapezoid * patch_density * S_D * birth_rate from
+  // pass 1), f = the survival-weighted offspring accumulator at the final census.
+  std::vector<Metric<ad_t>> mets; mets.reserve(M);
+  for (auto& nm : metrics) {
+    if (nm == "offspring_production") {
+      mets.push_back({nm, F.tw,
+        [](const plant::FF16LifeState<ad_t>& st) -> ad_t { return st.offspring; }});
+    } else {
+      Rcpp::stop("unknown stand metric: " + nm);
+    }
+  }
+
+  // ONE forward recording: replay every cohort, then form each metric scalar.
+  ad::tape_type tape;
+  auto pa = lift<ad_t>(pd);
+  auto fp = field_ptrs<ad_t>(pa);
+  for (auto i : idx) tape.registerInput(*fp[i]);
+  tape.newRecording();
+  // h0 active via the IFT first-order injection (see compute_dh0).
+  ad_t h0 = h0v;
+  for (std::size_t k = 0; k < nT; ++k)
+    h0 = h0 + ad_t(dh0[k]) * (*fp[idx[k]] - ad_t(xad::value(*fp[idx[k]])));
+
+  std::vector<plant::FF16LifeState<ad_t>> finals; finals.reserve(nC);
+  for (std::size_t i = 0; i < nC; ++i)
+    finals.push_back(replay_cohort_final<ad_t>(pa, F, i, h0));
+
+  std::vector<ad_t> J(M);
+  for (std::size_t m = 0; m < M; ++m) {
+    ad_t acc = ad_t(0.0);
+    for (std::size_t i = 0; i < nC; ++i) acc = acc + ad_t(mets[m].w[i]) * mets[m].f(finals[i]);
+    J[m] = acc;
+    tape.registerOutput(J[m]);
+  }
+
+  // One cheap reverse sweep PER metric over the single recording (clear adjoints
+  // between, the XAD multi-output Jacobian pattern).
+  Rcpp::NumericMatrix jac(M, nT);
+  Rcpp::NumericVector values(M);
+  for (std::size_t m = 0; m < M; ++m) {
+    tape.clearDerivatives();
+    xad::derivative(J[m]) = 1.0;
+    tape.computeAdjoints();
+    for (std::size_t k = 0; k < nT; ++k) jac(m, k) = xad::derivative(*fp[idx[k]]);
+    values[m] = as_double(J[m]);
+  }
+
+  jac.attr("dimnames") = Rcpp::List::create(Rcpp::wrap(metrics), Rcpp::wrap(traits));
+  values.attr("names") = Rcpp::wrap(metrics);
+  return Rcpp::List::create(Rcpp::Named("jacobian") = jac,
+                            Rcpp::Named("values")   = values);
 }

@@ -39,9 +39,29 @@
 ##' @export
 offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
                                           birth_rate = NULL) {
+  if (is.null(traits)) traits <- ff16_default_traits()
+  h <- ff16_harvest(scm, species, birth_rate)
+  ff16_offspring_production_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
+                                          h$ppsab, h$tw, traits)
+}
+
+# The 28 production-relevant FF16 trait (parameter) names the emergent gradients
+# differentiate by default.
+ff16_default_traits <- function() {
+  c("lma","rho","theta","a_b1","a_r1","eta_c","a_p1","a_p2","r_l","r_s",
+    "r_b","r_r","k_l","k_b","k_s","k_r","a_bio","a_y","a_l1","a_l2",
+    "a_f1","a_f2","hmat","omega","a_f3","d_I","a_dG1","a_dG2")
+}
+
+# Harvest a run-with-cache FF16 SCM into the frozen pieces the two-pass replay
+# consumes (the ResidentHarvest seam): the step schedule, the per-RK-stage resident
+# environment, and species `species`'s cohort family (birth steps, node-spacing
+# trapezoid weights, per-stage patch survival, survival-at-birth). Shared by every
+# FF16 stand-gradient entry point so a new SCM variant only has to emit these.
+ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
   types <- extract_RcppR6_template_types(scm$parameters, "Parameters")
   if (!identical(types[[1]], "FF16")) {
-    stop("offspring_production_gradient is implemented for the FF16 strategy only")
+    stop("FF16 stand gradients are implemented for the FF16 strategy only")
   }
   if (species < 1L || species > length(scm$patch$species)) {
     stop("species index out of range: stand has ", length(scm$patch$species),
@@ -52,7 +72,7 @@ offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
   if (length(eh) < 1L) {
     stop("No resident schedule cached: run the SCM with control(save_RK45_cache = TRUE)")
   }
-  sp <- scm$patch$species[[species]]
+  sp    <- scm$patch$species[[species]]
   nt    <- sp$node_times
   pdens <- sp$patch_densities
   ppsab <- sp$pr_patch_survival_at_birth
@@ -61,11 +81,6 @@ offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
   if (is.null(birth_rate)) {
     # Constant birth rate: offspring_production = birth_rate * net_reproduction_ratio.
     birth_rate <- scm$offspring_production[[species]] / scm$net_reproduction_ratios[[species]]
-  }
-  if (is.null(traits)) {
-    traits <- c("lma","rho","theta","a_b1","a_r1","eta_c","a_p1","a_p2","r_l","r_s",
-                "r_b","r_r","k_l","k_b","k_s","k_r","a_bio","a_y","a_l1","a_l2",
-                "a_f1","a_f2","hmat","omega","a_f3","d_I","a_dG1","a_dG2")
   }
 
   # Cohort birth steps (introductions land exactly on step times).
@@ -83,6 +98,45 @@ offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
     ppsurv[k, s] <- scm$patch$pr_survival(sh[k] + ah[s] * hN[k])
   }
 
-  ff16_offspring_production_gradient_impl(pp, eh, sh, birth_step, ppsurv, ppsab, tw,
-                                          traits)
+  list(pp = pp, eh = eh, sh = sh, birth_step = birth_step, ppsurv = ppsurv,
+       ppsab = ppsab, tw = tw, pdens = pdens, nt = nt, birth_rate = birth_rate)
+}
+
+##' Reverse-mode trait gradient of an SCM's emergent stand metrics (#472 scope B,
+##' the calibration-facing generic engine, FF16).
+##'
+##' The generic counterpart of \code{\link{offspring_production_gradient}}: given a
+##' resident \code{SCM} run with \code{control(save_RK45_cache = TRUE)}, it returns a
+##' \strong{metrics x traits Jacobian} \eqn{d(\mathrm{metric}_m)/d(\theta_k)} for a
+##' set of emergent stand metrics, computed from ONE resident baseline. Every metric
+##' is a weighted reduction over the replayed cohorts, \eqn{\mathrm{metric} = \sum_i
+##' w_i\, f(\mathrm{state}_i)}; \code{offspring_production} is just one such entry --
+##' none is privileged. The engine records one forward replay onto a single adjoint
+##' tape and takes one cheap reverse sweep \emph{per metric}, so M metrics cost a
+##' replay plus M sweeps, not M replays. This is the calibration core: \code{plant}
+##' returns the Jacobian; a downstream package composes likelihoods (data never
+##' enters here), which is what lets many likelihood terms share one stand baseline.
+##'
+##' @title Reverse-mode Jacobian of emergent stand metrics (FF16)
+##' @param scm An \code{SCM} run with \code{save_RK45_cache = TRUE} (FF16 strategy).
+##' @param metrics Character vector of stand-metric names. Currently
+##'   \code{"offspring_production"} (more -- LAI, biomass, size-distribution moments
+##'   -- are being added on the same symmetric footing).
+##' @param traits Character vector of FF16 trait names. \code{NULL} (default) uses
+##'   all 28 production-relevant parameters.
+##' @param species Integer index of the species (cohort family); see
+##'   \code{\link{offspring_production_gradient}}. Default \code{1}.
+##' @param birth_rate The (constant) birth-rate driver; recovered from the run by
+##'   default.
+##' @return A list with \code{$jacobian} (a metrics x traits matrix) and
+##'   \code{$values} (the reconstructed metric values, which should match the SCM's
+##'   emergent outputs).
+##' @seealso \code{\link{offspring_production_gradient}}.
+##' @export
+stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
+                           species = 1L, birth_rate = NULL) {
+  if (is.null(traits)) traits <- ff16_default_traits()
+  h <- ff16_harvest(scm, species, birth_rate)
+  ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
+                           traits, metrics)
 }
