@@ -743,9 +743,12 @@ Rcpp::List ff16_stand_gradient_impl(
   F.resident = want_resident;
 
   // --- RESIDENT feedback (forward mode): graft the resident TOTAL d(metric)/d(a_l1)
-  // and /d(a_l2) over the FROZEN baseline. Only these two traits flow through the
-  // self-shading recon; one forward pass per direction (no tape) gives the total for
-  // ALL metrics at once. Other traits have no resident feedback (resident == frozen).
+  // and /d(a_l2) over the FROZEN baseline. At frozen geometry the canopy-light formula
+  // Sum density*k_I*area_leaf(a_l1,a_l2,h)*Q(eta) contains, of the 28 DIFFERENTIABLE
+  // traits, ONLY a_l1/a_l2 (k_I and raw eta are strategy constants, not in the trait
+  // vector) -- so this graft is COMPLETE for the differentiable set; the other 26 do
+  // not enter the light at fixed geometry, hence resident == frozen for them exactly.
+  // One forward pass per direction (no tape) gives the total for all metrics at once.
   if (want_resident) {
     const auto names = field_names();
     for (std::size_t k = 0; k < nT; ++k) {

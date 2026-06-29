@@ -148,10 +148,18 @@ light_active(z) = light_frozen(z)            // exact harvested env VALUE (3e-14
 - First-order correctness: the focal cohort's own height→light channel is already carried
   by `deep_net`'s frozen z-linearisation `ld·(z−z₀)`; the recon term adds θ→light at frozen
   z. The dropped cross term d²light/(dz dθ) is second order, so dM/dθ is first-order exact.
-- Which traits get a resident feedback: only those that change area_leaf-at-height, i.e.
-  **a_l1, a_l2** (the C-27 sign-flip traits). eta/k_I feedback (through Q and the weight)
-  is frozen for the first cut — noted for later. Geometry (resident heights, densities,
-  knot x-positions, schedule) is frozen, exactly the headline design.
+- Which traits get a resident feedback: the canopy-light formula at FROZEN geometry is
+  `competition(z) = Σ_i density_i·k_I·area_leaf(a_l1,a_l2,h_i)·Q(z/h_i; eta)`. Of the **28
+  differentiable traits** (lma…a_dG2 — see `field_names()`), only **a_l1, a_l2** appear in
+  it (via area_leaf). `k_I` and raw `eta` DO appear but are strategy-level CONSTANTS, not
+  in the trait vector — so there is nothing to graft for them. ⇒ under freeze-geometry the
+  graft of a_l1/a_l2 is **complete** for the differentiable set; the other 26 traits do
+  not enter the light at fixed geometry, so resident == frozen for them *exactly* (not an
+  approximation). (Correction to the R0-R1 commit message, which wrongly listed k_I/eta as
+  a next step — they are not traits.)
+- The genuinely all-28-with-feedback resident — where lma, a_p1, … also shift the canopy
+  by reshaping heights/densities over time — requires the GEOMETRY to respond, i.e. the
+  coupled re-evolving replay (deferred, R3+). Freeze-geometry deliberately drops it.
 - R1 validates AD vs **FD over the same reconstruction** (perturb θ, recompute area_leaf,
   re-reduce) — so the reconstruction form (trapezium) IS the definition of the committed
   resident number; per scope decision #1's "census→resident".
