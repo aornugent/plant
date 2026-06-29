@@ -67,6 +67,28 @@ test_that("tf24f_census_recon LAI reduction matches compute_competition(0)", {
   expect_true(all(is.finite(rec2$values)) && all(rec2$values > 0))
 })
 
+test_that("tf24f_census_gradient_fd: finite frozen census Jacobian (R1 gate)", {
+  # The reverse-mode census trait gradient (R1) must reproduce a two-pass FD over the
+  # SAME frozen-env replay; this builds that FD reference and checks it is well-formed
+  # and self-consistent (a usable prototype gradient pending the AD tape).
+  scm <- tf24f_small_scm()
+  tr <- c("vcmax_25", "lma", "a_l1", "K_s")
+  g <- plant:::tf24f_census_gradient_fd(scm, metrics = c("LAI", "biomass", "size_moment"),
+                                        traits = tr)
+  expect_equal(dim(g$jacobian), c(3L, length(tr)))
+  expect_true(all(is.finite(g$jacobian)))
+  # The reconstructed metric values match the recon (and so the SCM census).
+  expect_equal(g$values[["LAI"]], scm$patch$compute_competition(0), tolerance = 1e-3)
+  # Self-consistency: a column recomputed at a 10x coarser FD step agrees to ~1% -- the
+  # precision of any FD over the recon, capped by the leaf optimiser/root-find noise
+  # floor (~5e-7) amplified by the step. This is the tolerance band the reverse-mode AD
+  # tape will be validated within (the AD removes this FD-step sensitivity).
+  g2 <- plant:::tf24f_census_gradient_fd(scm, metrics = "LAI", traits = "lma",
+                                         rel_step = 1e-4)
+  expect_equal(unname(g$jacobian["LAI", "lma"]), unname(g2$jacobian["LAI", "lma"]),
+               tolerance = 2e-2)
+})
+
 test_that("tf24f census recon is strategy-guarded", {
   # A TF24 (non-f) resident has no tracked-collar state; the harvest must reject it.
   p <- scm_base_parameters("TF24"); p$max_patch_lifetime <- 4L

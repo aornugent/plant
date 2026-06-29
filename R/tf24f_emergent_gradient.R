@@ -60,3 +60,36 @@ tf24f_census_recon <- function(scm, metrics = c("LAI", "biomass", "size_moment")
   tf24f_census_recon_impl(h$pp, h$eh, h$sh, h$birth_step, h$birth_rate, h$k_acclim,
                           h$use_ad_gradient, metrics, exact_ad)
 }
+
+# TF24f frozen census trait gradient (#472 scope B, build-order step 2 -- R1 GATE).
+# d(census metric)/d(theta) for the FROZEN (rare-mutant / invasion) resident light, by a
+# central finite difference over the R0 census reconstruction: for each trait, perturb the
+# parameter vector by +/- a relative step, re-run the double-precision collar-state replay
+# against the SAME frozen resident environment, and difference the metric. The resident
+# schedule + per-RK-stage light are held fixed (the invasion gradient), so this is the
+# faithful finite-difference reference the reverse-mode AD tape (the actual R1) must
+# reproduce -- and a usable prototype gradient in its own right. Returns a metrics x traits
+# Jacobian and the reconstructed metric values. (The AD tape will replace the per-trait
+# replays with one reverse sweep; this gate fixes the target it must hit.)
+tf24f_census_gradient_fd <- function(scm, metrics = c("LAI", "biomass", "size_moment"),
+                                     traits = NULL, species = 1L, birth_rate = NULL,
+                                     rel_step = 1e-5) {
+  if (is.null(traits)) traits <- tf24_default_traits()
+  h <- tf24f_harvest(scm, species, birth_rate)
+  exact_ad <- isTRUE(scm$parameters$strategies[[species]]$control$node_gradient_exact_ad)
+  recon <- function(pp) tf24f_census_recon_impl(pp, h$eh, h$sh, h$birth_step,
+    h$birth_rate, h$k_acclim, h$use_ad_gradient, metrics, exact_ad)$values
+
+  values <- recon(h$pp)
+  jac <- matrix(0, length(metrics), length(traits),
+                dimnames = list(metrics, traits))
+  for (j in seq_along(traits)) {
+    tr <- traits[j]
+    if (!tr %in% names(h$pp)) stop("unknown TF24f trait: ", tr)
+    d <- rel_step * max(abs(h$pp[[tr]]), 1e-8)
+    pp_p <- h$pp; pp_p[[tr]] <- pp_p[[tr]] + d
+    pp_m <- h$pp; pp_m[[tr]] <- pp_m[[tr]] - d
+    jac[, j] <- (recon(pp_p) - recon(pp_m)) / (2 * d)
+  }
+  list(jacobian = jac, values = values)
+}
