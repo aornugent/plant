@@ -349,6 +349,7 @@ Control:
     - node_gradient_direction: int
     - node_gradient_richardson: bool
     - node_gradient_richardson_depth: size_t
+    - node_gradient_exact_ad: bool
     - ode_step_size_initial: double
     - ode_step_size_min: double
     - ode_step_size_max: double

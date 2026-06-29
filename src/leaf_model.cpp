@@ -47,7 +47,7 @@ T assim_colimited_full(T ci, T vcmax, T et, T gstar_Pa, T km, T R_d, T curv) {
 // transport curvature. Mirrors Leaf::electron_transport exactly. PPFD is a fixed
 // driver (not a trait). Used by the photosynthesis leaf-trait gradients.
 template <typename T>
-T electron_transport_full(double PPFD, T a, T jmax, T curv_elec) {
+T electron_transport_full(T PPFD, T a, T jmax, T curv_elec) {
   T x = a * PPFD + jmax;
   return (x - sqrt(x * x - 4.0 * curv_elec * a * PPFD * jmax)) / (2.0 * curv_elec);
 }
@@ -1273,11 +1273,16 @@ double Leaf::dprofit_dphoto(double opt_root_psi, int which) {
     } else if (which == 1) { // a (quantum yield)
       AD a_ad = a; xad::derivative(a_ad) = 1.0;
       det_dt = xad::derivative(electron_transport_full<AD>(
-                   PPFD_, a_ad, AD(jmax_), AD(curv_fact_elec_trans)));
-    } else {                 // curv_fact_elec_trans
+                   AD(PPFD_), a_ad, AD(jmax_), AD(curv_fact_elec_trans)));
+    } else if (which == 2) { // curv_fact_elec_trans
       AD cv = curv_fact_elec_trans; xad::derivative(cv) = 1.0;
       det_dt = xad::derivative(electron_transport_full<AD>(
-                   PPFD_, AD(a), AD(jmax_), cv));
+                   AD(PPFD_), AD(a), AD(jmax_), cv));
+    } else {                 // which == 4: absorbed radiation PPFD (the light
+      // channel of d(profit)/d(height) -- height moves the crown-centre light).
+      AD ppfd_ad = PPFD_; xad::derivative(ppfd_ad) = 1.0;
+      det_dt = xad::derivative(electron_transport_full<AD>(
+                   ppfd_ad, AD(a), AD(jmax_), AD(curv_fact_elec_trans)));
     }
     A_t = A_et * det_dt;
   }
@@ -1294,6 +1299,11 @@ double Leaf::dprofit_djmax25(double o)     { return dprofit_dphoto(o, 0); }
 double Leaf::dprofit_da(double o)          { return dprofit_dphoto(o, 1); }
 double Leaf::dprofit_dcurv_elec(double o)  { return dprofit_dphoto(o, 2); }
 double Leaf::dprofit_dcurv_colim(double o) { return dprofit_dphoto(o, 3); }
+// d(profit)/d(absorbed radiation PPFD), holding the collar -- the dominant
+// channel of d(profit)/d(height) (height moves the crown-centre light through
+// the resident canopy). PPFD enters only via electron_transport_full, so this is
+// the photosynthesis-chain derivative with PPFD seeded (which == 4).
+double Leaf::dprofit_dPPFD(double o)       { return dprofit_dphoto(o, 4); }
 
 // Analytic d(E_up_)/d(P_x_r): the signed-collar-potential derivative of the
 // soil->root-collar uptake, mirroring the general branch of

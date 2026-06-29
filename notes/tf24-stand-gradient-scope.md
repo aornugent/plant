@@ -212,6 +212,108 @@ in the rates+density — manageable for TF24 (curvature harvest), **clean for TF
   realistic stand that is many solves in the (double) discovery pass. TF24F (no optimiser)
   is ~3-4× cheaper per eval than TF24. Benchmark before committing to the resident path.
 
+## 8. Progress — step 1 (TF24F frozen census R0 gate) DONE
+
+Built on `spike-ff16-scm-emergent`. The R0 gate from §6 step 1 is implemented and green:
+
+- **`src/tf24f_emergent.cpp` — `tf24f_census_recon_impl`** (double only, no XAD): a
+  per-cohort replay of the **7-state** system {5 demog, tracked collar
+  `opt_root_psi_state`, `log_density`} over the SCM's frozen Cash-Karp schedule. It
+  drives the **real** TF24F leaf at the tracked collar (set `tracked_root_psi_`, call the
+  inherited `net_mass_production_dt` → `solve_leaf` evaluates, not optimises — crown-centre
+  = one analytic leaf solve/stage). Seeds each cohort as `Node::compute_initial_conditions`
+  does (collar₀ from the one birth-time optimiser run via `initializing_`; establishment
+  pr_estab at the tracked collar₀; logd₀ = log(birth_rate·pr_estab/g₀)). `g'` replicates
+  the SCM's own scheme exactly: backward FD of `height_dt`, abs step
+  `node_gradient_eps = 1e-6`, collar held, height → h−eps (defaults: dir −1, exact_ad off).
+  Census reduction = the height-trapezium of `density·kI·area_leaf` (+ pending-seed tail),
+  identical geometry to FF16 / `Species::compute_competition`.
+- **`R/tf24f_emergent_gradient.R`** — `tf24f_harvest` (TF24f-guarded; returns the frozen
+  env+schedule, birth steps, params, `k_acclim`/`use_ad_gradient`) and the internal
+  `tf24f_census_recon` validation entry.
+- **`tests/testthat/test-tf24f-census-gradient.R`** — the gate (6 checks, plain R/CI).
+
+**Result (the §7 risk-1 check: is the collar-state replay faithful? — YES).** On the gate
+stand (lifetime 4, 9 nodes, crown-centre, `k_acclim=1`), the recon reproduces the SCM's
+stored stand essentially bit-exactly: heights/collar to ~1e-6 (8 of 9 cohorts to ~1e-14),
+`log_density` to ~1e-6, **LAI vs `compute_competition(0)` to 6e-7**. The collar trajectory
+is tracked faithfully, confirming the 6-state replay before any AD.
+
+**[CORRECTED — see §9] Fidelity-floor measurements (§7 risk-2).** Scaling the patch
+(tallest cohort in parens):
+
+| lifetime | max │dH/H│ | max │d log_density│ | LAI reldiff |
+|---|---|---|---|
+| 3 (5.8 m) | 3.3e-7 | 1.9e-6 | 2.0e-7 |
+| 4 (7.2 m) | 8.2e-7 | 3.9e-6 | 6.3e-7 |
+| 5 (8.4 m) | 1.5e-6 | **6.1e-3** | **−4.0e-3** |
+
+At lifetime 5 the oldest cohort's `log_density` jumps to 6e-3 (LAI 0.4%) while heights
+stay ~1e-6. At **lifetime 8 the run aborts** ("Extrapolation disabled…"): the tracked
+collar drifts outside the leaf transport spline domain. So R0/R1 work should stay at
+lifetime ≤ 4–5; longer horizons need the collar drift bounded first (clamp/spline-domain
+guard), independent of the gradient work.
+
+## 9. The `g'` finite difference, and what using AD for it actually showed
+
+Dan asked: shouldn't the census `g' = d(height_dt)/d(height)` use AD, not the SCM's
+1e-6 backward FD — and that FD is in **every** `run_scm`, not just the gradient. Both are
+true; the FD lives in `Node::growth_rate_gradient` (all strategies) and is the default
+because `control.node_gradient_exact_ad` defaults off. The exact-AD hook
+(`Strategy::growth_rate_gradient_height_ad`, #537 A1) is implemented only by **FF16**;
+**TF24/TF24f/K93 inherit the base `NA`** and silently fall back to FD even with the flag
+on. (Two separate things: the R1 *trait* gradient already uses AD — it differentiates
+*through* whatever `g'` expression the SCM used, no θ-FD. The FD here is purely the
+*height* derivative defining `log_density`.)
+
+**Built this session.** `TF24f_Strategy::growth_rate_gradient_height_ad` — analytic
+`d(height_dt)/d(height)` at the fixed tracked collar: forward-AD of the demographic growth
+kernel with `profit` carrying its height derivative summed over the leaf channels height
+moves. A channel decomposition showed `d(profit)/d(height)` is dominated by the crown-
+centre **light** channel (~110% of the total), with **kmax** (`∝1/h`) a ~−10% correction
+and the feared **E_up / root-network** term negligible (exactly 0 above the 1.5 m rooting
+clamp, ≤1.6% for seedlings — so no root-network derivative is needed). New leaf sensitivity
+`Leaf::dprofit_dPPFD` (the light channel; a `which==4` case of `dprofit_dphoto` through
+`electron_transport`). **Exposed `node_gradient_exact_ad` in the R `Control` interface**
+(it was C++-only since #537 A1) — so `run_scm` can now switch on the exact gradient for
+FF16 **and** TF24f for the first time.
+
+**What it showed, and how the two follow-ups (Dan: "do 1 and 2") resolved.**
+1. **Correct in smooth / fixed light** — matches a fine FD of the live growth rate to
+   ~1e-6 (`test-tf24f-growth-gradient-ad.R`).
+2. **(2) Real-env `g'` — RESOLVED (it was correct all along).** An *in-`run_scm`*
+   (native-env) check found the analytic `dprofit_dh` matches a native profit-FD to
+   ~1e-4 and the AD `g'` matches a native height_dt-FD to ~1e-5 **even for the tallest
+   cohort** (h=8.4: AD 0.61761 vs FD 0.61759). The earlier "~18% off" was an **artifact
+   of validating through an `Rcpp::as<>`-round-tripped environment** (my removed
+   `decomp`/`gpcheck` probes and the R-side `Individual` check all passed the env through
+   `as<>`, which is NOT faithful for the crown-sampled light above cohort heights — it
+   gave a different growth rate than the native env, 0.617 vs 0.442). Lesson: validate
+   env-dependent gradients **inside the run**, never through an R→C++ env round-trip.
+3. **(1) Lifetime-≥8 abort — FIXED (a real #527 bug).** Plain TF24 runs to lifetime 12;
+   only TF24f aborted ("Extrapolation disabled"), and only with the **AD** acclimation
+   gradient (`use_ad_gradient = TRUE`; the FD gradient ran fine to lifetime 12). Cause:
+   under drought, `Leaf::prepare_collar_solve` returns false and sets the **shutdown**
+   operating point (collar = −`psi_crit`); the FD branch of `TF24f::solve_leaf` gates on
+   that and returns 0, but the **AD branch did not** — it called
+   `Leaf::dprofit_droot_collar_psi` at the shutdown collar, where the non-extrapolating
+   transport spline's *derivative* is out of domain → hard abort. Fix:
+   `solve_leaf`'s AD branch now gates on `prepare_collar_solve` exactly like the FD
+   branch (shutdown → `dprofit_dpsi_ = 0`). TF24f now runs with the default exact
+   gradient to **lifetime 16** (`test-tf24f-growth-gradient-ad.R`, drought-robustness
+   case). NB this was **not** collar "runaway": TF24's optimiser also reaches collar
+   magnitudes ~2.6 under stress — the deep collar is physical; only the AD gradient's
+   spline-edge handling was missing.
+
+**Remaining census-floor note (separate from both).** The lifetime-5 census *recon*
+floor (LAI ~0.4%) is **not** the `g'` method and **not** the collar trajectory — both
+are now sound. It is the `tf24f_census_recon` engine reading the resident light through
+the same unfaithful `Rcpp::as<>` round-trip (point 2): faithful enough for the value-
+based height trajectory (heights match ~1e-6) but not for the slope-sensitive `g'`/
+`log_density` of the tallest cohort at long horizons. The R0 gate stays at lifetime ≤ 4
+(bit-faithful). For R1, prefer driving the replay from native envs (or accept the gate's
+≤4 horizon); the gradient itself is AD-exact for the density the SCM computes.
+
 ## Bottom line for Dan
 
 Reverse-mode AD is **not** a loss for TF24 — it already ships for the offspring metric,

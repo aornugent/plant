@@ -4752,6 +4752,10 @@ tf24_fecundity_dt_grad_vcmax <- function(height, light_E) {
     .Call('_plant_tf24_fecundity_dt_grad_vcmax', PACKAGE = 'plant', height, light_E)
 }
 
+tf24f_census_recon_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime) {
+    .Call('_plant_tf24f_census_recon_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime)
+}
+
 node_schedule_default__Parameters___TF24f__TF24_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___TF24f__TF24_Env', PACKAGE = 'plant', p)
 }

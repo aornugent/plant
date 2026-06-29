@@ -1,0 +1,62 @@
+# TF24f stand-metric gradients (#472 scope B, build-order step 1). TF24f is the
+# fast-acclimation TF24 variant whose optimal root-collar potential is a 6th ODE state
+# tracked by gradient ascent (no per-step golden-section optimiser). Per
+# notes/tf24-stand-gradient-scope.md, TF24f -- not TF24 -- is the right target for the
+# stand CENSUS gradients: its leaf evaluation at the tracked collar is analytic / IFT-able,
+# so the census number density's growth-rate-gradient term needs no curvature harvest. The
+# R0 GATE below is the first deliverable: a double-precision census reconstruction that
+# proves the collar-state replay is faithful (the prerequisite §7 flags) before the
+# reverse-mode tape (R1) is built.
+
+# Harvest a run-with-cache TF24f SCM into the pieces the census replay consumes (the
+# TF24f mirror of tf24_harvest). Unlike TF24, no per-stage leaf-opt harvest is needed --
+# the replay evaluates the analytic leaf at the tracked collar live -- so this returns
+# only the frozen schedule + env, the cohort birth steps, the parameter vector and the
+# acclimation knobs (k_acclim / use_ad_gradient). Requires shading_model = "crown-centre".
+tf24f_harvest <- function(scm, species = 1L, birth_rate = NULL) {
+  types <- extract_RcppR6_template_types(scm$parameters, "Parameters")
+  if (!identical(types[[1]], "TF24f")) {
+    stop("TF24f census gradients are implemented for the TF24f strategy only")
+  }
+  if (species < 1L || species > length(scm$patch$species)) {
+    stop("species index out of range: stand has ", length(scm$patch$species),
+         " species")
+  }
+  patch <- scm$patch
+  sh <- patch$step_history
+  eh <- patch$environment_history
+  if (length(eh) < 1L) {
+    stop("No resident schedule cached: run the SCM with control(save_RK45_cache = TRUE)")
+  }
+  sp    <- patch$species[[species]]
+  nt    <- sp$node_times
+  strat <- scm$parameters$strategies[[species]]
+  pp    <- unlist(strat$pars)
+
+  if (is.null(birth_rate)) {
+    birth_rate <- scm$offspring_production[[species]] / scm$net_reproduction_ratios[[species]]
+  }
+  # Cohort birth steps (introductions land on step times).
+  birth_step <- vapply(nt, function(t) which.min(abs(sh - t)) - 1L, integer(1))
+
+  list(pp = pp, eh = eh, sh = sh, birth_step = birth_step, birth_rate = birth_rate,
+       k_acclim = strat$k_acclim, use_ad_gradient = strat$use_ad_gradient, nt = nt)
+}
+
+# R0 gate (internal): double-precision census reconstruction of a TF24f resident stand.
+# Re-evolves every cohort's {5 demog, tracked collar, log_density} over the frozen
+# schedule and returns the reconstructed per-cohort heights / collar / log-densities and
+# the census metric values. Used to confirm the collar-state replay reproduces the SCM's
+# stored stand (heights / log_densities / opt_root_psi_state) and that the LAI reduction
+# matches compute_competition(0), before the reverse-mode tape (R1) is added. Not yet a
+# public gradient entry point -- it returns the recon, not d(metric)/d(theta).
+tf24f_census_recon <- function(scm, metrics = c("LAI", "biomass", "size_moment"),
+                               species = 1L, birth_rate = NULL) {
+  h <- tf24f_harvest(scm, species, birth_rate)
+  # The reconstruction's growth-rate gradient g' must match whatever the resident
+  # SCM used (Node::growth_rate_gradient): the exact-AD path when the run set
+  # control(node_gradient_exact_ad = TRUE), else the backward finite difference.
+  exact_ad <- isTRUE(scm$parameters$strategies[[species]]$control$node_gradient_exact_ad)
+  tf24f_census_recon_impl(h$pp, h$eh, h$sh, h$birth_step, h$birth_rate, h$k_acclim,
+                          h$use_ad_gradient, metrics, exact_ad)
+}

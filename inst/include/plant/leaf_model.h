@@ -366,11 +366,15 @@ public:
   // d(profit*)/d(photosynthesis trait): jmax_25, a (quantum yield) and the two
   // curvature factors affect only assimilation (vcmax-like), so the envelope +
   // IFT pattern of dprofit_dvcmax25 applies. dprofit_dphoto(.., which) is the
-  // shared core (which: 0=jmax_25, 1=a, 2=curv_elec, 3=curv_colim).
+  // shared core (which: 0=jmax_25, 1=a, 2=curv_elec, 3=curv_colim, 4=PPFD).
   double dprofit_djmax25(double opt_root_psi);
   double dprofit_da(double opt_root_psi);
   double dprofit_dcurv_elec(double opt_root_psi);
   double dprofit_dcurv_colim(double opt_root_psi);
+  // d(profit*)/d(absorbed radiation PPFD) -- the light channel of d(profit)/
+  // d(height) for the exact-AD growth-rate gradient (#472 scope B). PPFD enters
+  // only through electron_transport, so it reuses the dprofit_dphoto core.
+  double dprofit_dPPFD(double opt_root_psi);
   double dprofit_dphoto(double opt_root_psi, int which);
   // Analytic d(E_up_)/d(collar potential) for the soil->root-collar uptake
   // (kg H2O m^-2 s^-1 per MPa of signed collar potential P_x_r), mirroring the
