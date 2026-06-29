@@ -134,14 +134,29 @@ ff16_harvest <- function(scm, species = 1L, birth_rate = NULL) {
 ##' @return A list with \code{$jacobian} (a metrics x traits matrix) and
 ##'   \code{$values} (the reconstructed metric values, which should match the SCM's
 ##'   emergent outputs).
+##' @details Works for both FF16 and TF24 residents (dispatched on the strategy). A
+##'   TF24 resident must have been run with \code{shading_model = "crown-centre"}.
+##'   FF16 supports all metrics; TF24 currently supports \code{"offspring_production"}
+##'   (its census metrics need a leaf-optimisation cross-sensitivity that is a
+##'   follow-up). \code{\link{stand_state_jacobian}} works for both.
 ##' @seealso \code{\link{offspring_production_gradient}}.
 ##' @export
 stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
                            species = 1L, birth_rate = NULL) {
-  if (is.null(traits)) traits <- ff16_default_traits()
-  h <- ff16_harvest(scm, species, birth_rate)
-  ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
-                           traits, metrics, h$birth_rate)
+  strat <- extract_RcppR6_template_types(scm$parameters, "Parameters")[[1]]
+  if (identical(strat, "FF16")) {
+    if (is.null(traits)) traits <- ff16_default_traits()
+    h <- ff16_harvest(scm, species, birth_rate)
+    ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
+                             traits, metrics, h$birth_rate)
+  } else if (identical(strat, "TF24")) {
+    if (is.null(traits)) traits <- tf24_default_traits()
+    h <- tf24_harvest(scm, species, birth_rate)
+    tf24_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
+                             traits, metrics, h$birth_rate)
+  } else {
+    stop("stand_gradient is implemented for the FF16 and TF24 strategies only")
+  }
 }
 
 ##' Per-cohort state x trait Jacobian of a resident SCM (#472 scope B, the
@@ -165,12 +180,24 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
 ##' @param birth_rate The (constant) birth-rate driver; recovered by default.
 ##' @return A list with \code{$states} (a cohort x component matrix of final-state
 ##'   values) and \code{$jacobian} (a cohort x component x trait array).
+##' @details Works for both FF16 and TF24 residents (dispatched on the strategy). A
+##'   TF24 resident must have been run with \code{shading_model = "crown-centre"}.
 ##' @seealso \code{\link{stand_gradient}}.
 ##' @export
 stand_state_jacobian <- function(scm, traits = NULL, species = 1L,
                                  birth_rate = NULL) {
-  if (is.null(traits)) traits <- ff16_default_traits()
-  h <- ff16_harvest(scm, species, birth_rate)
-  ff16_state_jacobian_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
-                           traits)
+  strat <- extract_RcppR6_template_types(scm$parameters, "Parameters")[[1]]
+  if (identical(strat, "FF16")) {
+    if (is.null(traits)) traits <- ff16_default_traits()
+    h <- ff16_harvest(scm, species, birth_rate)
+    ff16_state_jacobian_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
+                             traits)
+  } else if (identical(strat, "TF24")) {
+    if (is.null(traits)) traits <- tf24_default_traits()
+    h <- tf24_harvest(scm, species, birth_rate)
+    tf24_state_jacobian_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
+                             traits, h$birth_rate)
+  } else {
+    stop("stand_state_jacobian is implemented for the FF16 and TF24 strategies only")
+  }
 }

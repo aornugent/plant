@@ -4452,6 +4452,14 @@ tf24_offspring_production_gradient_impl <- function(pp, eh_list, sh, birth, ppsu
     .Call('_plant_tf24_offspring_production_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits)
 }
 
+tf24_stand_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate) {
+    .Call('_plant_tf24_stand_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate)
+}
+
+tf24_state_jacobian_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, birth_rate) {
+    .Call('_plant_tf24_state_jacobian_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, birth_rate)
+}
+
 node_schedule_default__Parameters___TF24__TF24_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___TF24__TF24_Env', PACKAGE = 'plant', p)
 }

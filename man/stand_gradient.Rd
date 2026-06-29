@@ -52,6 +52,12 @@ tape and takes one cheap reverse sweep \emph{per metric}, so M metrics cost a
 replay plus M sweeps, not M replays. This is the calibration core: \code{plant}
 returns the Jacobian; a downstream package composes likelihoods (data never
 enters here), which is what lets many likelihood terms share one stand baseline.
+
+Works for both FF16 and TF24 residents (dispatched on the strategy). A
+  TF24 resident must have been run with \code{shading_model = "crown-centre"}.
+  FF16 supports all metrics; TF24 currently supports \code{"offspring_production"}
+  (its census metrics need a leaf-optimisation cross-sensitivity that is a
+  follow-up). \code{\link{stand_state_jacobian}} works for both.
 }
 \seealso{
 \code{\link{offspring_production_gradient}}.

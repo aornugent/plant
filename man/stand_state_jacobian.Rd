@@ -34,6 +34,9 @@ the cohort states then has its gradient by the chain rule, with \code{plant}
 never needing to know the metric -- the same boundary as "likelihoods live
 downstream". Each cohort's final state is independent, so this tapes one cohort
 at a time (one reverse sweep per state component).
+
+Works for both FF16 and TF24 residents (dispatched on the strategy). A
+  TF24 resident must have been run with \code{shading_model = "crown-centre"}.
 }
 \seealso{
 \code{\link{stand_gradient}}.

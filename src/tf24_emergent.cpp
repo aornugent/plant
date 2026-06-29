@@ -196,6 +196,63 @@ ad_t offspring_ad(const std::vector<ad_t>& tr, const plant::TF24ProdPars<double>
   return plant::ff16_cashkarp_replay(y,step_h,birth,deriv,axpy).offspring;
 }
 
+// ---------------------------------------------------------------------------
+// Generic stand-gradient engine for TF24 (#472 scope B, build-order step 1 -- the
+// TF24 mirror of ff16_emergent.cpp's engine). Same metric-symmetric design: a stand
+// metric is a weighted reduction over the replayed cohort final states. TF24's net
+// production has no adjoint tape (the hydraulic leaf optimisation), so the per-stage
+// leaf OPERATING POINT is harvested in pass 1 and the trajectory replayed as a
+// leaf-opt-free, profit-injected expression (as in offspring_ad). Unlike the
+// offspring-only routine (which sweeps one tape per cohort), the census metrics
+// (LAI/biomass/size_moment) couple cohorts through the height-trapezium, so the
+// engine replays EVERY cohort onto ONE tape, then takes one reverse sweep per metric.
+// ---------------------------------------------------------------------------
+
+// Unified cohort state: 5 demog + offspring accumulator. (Census metrics would add
+// log_density here, but TF24's census number density needs the SECOND-order leaf-opt
+// sensitivity d(growth-rate-gradient)/d(trait): its growth gradient g' = d(height_dt)/
+// d(height) is formed from the linearised leaf-opt harvest, which has no faithful
+// d(g')/d(trait) -- so census metrics are deferred to a TF24 follow-up. The escape
+// hatch (the 6 demographic components, all leaf-opt-free once harvested) is exact.)
+template <typename S> struct Full { plant::FF16State<S> demog; S offspring; };
+
+// Replay one cohort's Full state over its harvested operating points. profit_fn(h, hh)
+// -> S supplies the leaf-opt-free profit at height h for stage harvest hh -- the TF24
+// analogue of FF16's replay_cohort_full (offspring path).
+template <typename S, typename ProfitFn>
+Full<S> tf24_replay_full(const plant::TF24ProdPars<S>& pf, const std::vector<H>& rec,
+    const H& Hs, double decay, double a_d0, double ppsab, std::size_t birth,
+    const std::vector<double>& step_h, S h0_init, const Rcpp::NumericMatrix& ppsurv,
+    double birth_rate, ProfitFn profit_fn) {
+  using std::exp; using std::log;
+  // Establishment (recruitment filter) -> initial mortality.
+  S area0 = plant::tf24_area_leaf<S>(pf.a_l1, pf.a_l2, h0_init);
+  S profit0 = profit_fn(h0_init, Hs);
+  S net0 = plant::tf24_net_mass_production<S>(pf, h0_init, area0, profit0);
+  S uu = a_d0 * area0 / net0;
+  S mort0 = -log(decay / (uu * uu + 1.0));
+
+  std::size_t idx = 0;
+  auto deriv = [&](const Full<S>& y, std::size_t n, int stage) -> Full<S> {
+    const H& hh = rec[idx++]; S h = y.demog.height;
+    S profit = profit_fn(h, hh);
+    S al = plant::tf24_area_leaf<S>(pf.a_l1, pf.a_l2, h);
+    S net = plant::tf24_net_mass_production<S>(pf, h, al, profit);
+    plant::TF24Rates<S> r = plant::tf24_compute_rates_from_net<S>(pf, h, al, net, true);
+    S off_dt = r.fecundity_dt * exp(-y.demog.mortality) * S(ppsurv(n, stage) / ppsab);
+    return Full<S>{plant::FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+      r.area_heartwood_dt, r.mass_heartwood_dt}, off_dt};
+  };
+  auto axpy = [](const Full<S>& a, double c, const Full<S>& k) -> Full<S> {
+    return Full<S>{plant::FF16State<S>{
+      a.demog.height+c*k.demog.height, a.demog.mortality+c*k.demog.mortality,
+      a.demog.fecundity+c*k.demog.fecundity, a.demog.area_heartwood+c*k.demog.area_heartwood,
+      a.demog.mass_heartwood+c*k.demog.mass_heartwood}, a.offspring+c*k.offspring};
+  };
+  Full<S> y{plant::FF16State<S>{h0_init, mort0, S(0), S(0), S(0)}, S(0)};
+  return plant::ff16_cashkarp_replay(y, step_h, birth, deriv, axpy);
+}
+
 } // namespace
 
 // Compiled core of tf24_offspring_production_gradient(). Takes the harvested resident
@@ -262,4 +319,161 @@ Rcpp::NumericVector tf24_offspring_production_gradient_impl(
   out.attr("names")=Rcpp::wrap(traits);
   out.attr("offspring_production")=offspring;
   return out;
+}
+
+namespace {
+// Shared pass-1: harvest every cohort's per-stage leaf operating points + seedling
+// harvests (the establishment initial condition). Fills recs/Hs/decay.
+struct TF24Harvest {
+  std::vector<std::vector<H>> recs; std::vector<H> Hs; std::vector<double> decay;
+};
+TF24Harvest tf24_pass1(plant::TF24_Strategy& s0, const plant::TF24ProdPars<double>& pd,
+    std::vector<std::vector<plant::TF24_Environment>>& EH, const std::vector<int>& birth,
+    const std::vector<double>& sh, const std::vector<double>& step_h, double h0v) {
+  TF24Harvest H1; const std::size_t nC = birth.size();
+  H1.recs.resize(nC); H1.Hs.resize(nC); H1.decay.resize(nC);
+  for (std::size_t i = 0; i < nC; ++i) {
+    const std::size_t b = (std::size_t)birth[i];
+    plant::TF24_Environment& eb = (b > 0) ? EH[b-1][5] : EH[0][0];
+    harvest_cohort(s0, pd, EH, b, step_h, h0v, H1.recs[i]);
+    H1.Hs[i] = harvest_at(s0, eb, h0v);
+    H1.decay[i] = std::exp(-s0.pars.recruitment_decay * sh[b]);
+  }
+  return H1;
+}
+} // namespace
+
+// Compiled core of the generic TF24 stand-gradient engine (the TF24 mirror of
+// ff16_stand_gradient_impl). Returns {jacobian = metrics x traits, values}. Currently
+// offspring_production only: TF24 census metrics (LAI/biomass/size_moment) need the
+// census number density (log_density), whose growth-rate-gradient term has no faithful
+// trait derivative under the linearised leaf-opt harvest (see the Full<S> note) -- a
+// TF24 follow-up. The reverse sweep covers all 27 traits; `traits` selects columns.
+// [[Rcpp::export]]
+Rcpp::List tf24_stand_gradient_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, std::vector<std::string> traits,
+    std::vector<std::string> metrics, double birth_rate) {
+  const std::size_t M = metrics.size();
+  for (auto& nm : metrics) {
+    if (nm == "LAI" || nm == "biomass" || nm == "size_moment")
+      Rcpp::stop("TF24 census metrics (LAI/biomass/size_moment) are a follow-up: they "
+                 "need the leaf-opt cross-sensitivity for the census density gradient. "
+                 "offspring_production and stand_state_jacobian are available.");
+    if (nm != "offspring_production") Rcpp::stop("unknown stand metric: " + nm);
+  }
+
+  plant::TF24_Strategy s0 = make_strategy(pp);
+  plant::TF24ProdPars<double> pd = s0.prod_pars();
+  const double h0v = s0.initial_height(), a_d0 = s0.pars.a_d0;
+  const std::size_t N = eh_list.size(), nC = birth.size(), T = TRAITS.size();
+  std::vector<std::vector<plant::TF24_Environment>> EH(N);
+  for (std::size_t n=0;n<N;++n){Rcpp::List st=eh_list[n];
+    for(R_xlen_t k=0;k<st.size();++k) EH[n].push_back(Rcpp::as<plant::TF24_Environment>(st[k]));}
+  std::vector<double> step_h(N); for(std::size_t n=0;n<N;++n) step_h[n]=sh[n+1]-sh[n];
+
+  std::vector<double> v0(T); for(std::size_t k=0;k<T;++k) v0[k]=trait_value(s0,TRAITS[k]);
+  std::vector<double> dh0(T,0.0);
+  for(std::size_t k=0;k<T;++k){ double dd=1e-4*std::abs(v0[k]);
+    dh0[k]=(make_strategy(pp,TRAITS[k],v0[k]+dd).initial_height()
+           -make_strategy(pp,TRAITS[k],v0[k]-dd).initial_height())/(2*dd); }
+
+  TF24Harvest H1 = tf24_pass1(s0, pd, EH, birth, sh, step_h, h0v);
+
+  // ONE tape over all cohorts (offspring_production is linear in the per-cohort
+  // offspring, so one reverse sweep gives d(sum_i tw_i offspring_i)/d(theta)).
+  ad::tape_type tape;
+  std::vector<ad_t> tr(T); for(std::size_t k=0;k<T;++k) tr[k]=v0[k];
+  for(auto& x:tr) tape.registerInput(x);
+  tape.newRecording();
+  plant::TF24ProdPars<ad_t> pf = pf_from<ad_t>(tr, pd);
+  ad_t h0_init = ad_t(h0v);
+  for(std::size_t k=0;k<T;++k) if(dh0[k]!=0.0) h0_init += dh0[k]*(tr[k]-v0[k]);
+  auto profit_ad = [&](ad_t h, const H& hh) -> ad_t {
+    ad_t p = ad_t(hh.profit) + ad_t(hh.dprofit_dh)*(h - ad_t(hh.h0_stage));
+    for(std::size_t k=0;k<T;++k){ double c=inj(k,hh,s0.pars);
+      if(c!=0.0) p += ad_t(c)*(tr[k]-ad_t(xad::value(tr[k]))); }
+    return p;
+  };
+
+  ad_t acc = ad_t(0.0);
+  for (std::size_t i=0;i<nC;++i)
+    acc += ad_t(tw[i]) * tf24_replay_full<ad_t>(pf, H1.recs[i], H1.Hs[i], H1.decay[i],
+      a_d0, ppsab[i], (std::size_t)birth[i], step_h, h0_init, ppsurv, birth_rate,
+      profit_ad).offspring;
+  tape.registerOutput(acc); xad::derivative(acc)=1.0; tape.computeAdjoints();
+
+  Rcpp::NumericMatrix jac(M, traits.size());
+  Rcpp::NumericVector values(M);
+  for(std::size_t j=0;j<traits.size();++j){ std::size_t k=IX(traits[j]);
+    if(k==(std::size_t)-1) Rcpp::stop("unknown TF24 trait: "+traits[j]);
+    jac(0,j)=xad::derivative(tr[k]); }
+  values[0]=xad::value(acc);
+  jac.attr("dimnames")=Rcpp::List::create(Rcpp::wrap(metrics), Rcpp::wrap(traits));
+  values.attr("names")=Rcpp::wrap(metrics);
+  return Rcpp::List::create(Rcpp::Named("jacobian")=jac, Rcpp::Named("values")=values);
+}
+
+// Escape hatch (TF24 mirror of ff16_state_jacobian_impl): per-cohort state x trait
+// Jacobian. Each cohort is independent, so tape ONE cohort at a time, one reverse
+// sweep per state component. Returns the cohort final states + the [cohort, component,
+// trait] array.
+// [[Rcpp::export]]
+Rcpp::List tf24_state_jacobian_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, std::vector<std::string> traits, double birth_rate) {
+  plant::TF24_Strategy s0 = make_strategy(pp);
+  plant::TF24ProdPars<double> pd = s0.prod_pars();
+  const double h0v = s0.initial_height(), a_d0 = s0.pars.a_d0;
+  const std::size_t N = eh_list.size(), nC = birth.size(), T = TRAITS.size();
+  std::vector<std::vector<plant::TF24_Environment>> EH(N);
+  for (std::size_t n=0;n<N;++n){Rcpp::List st=eh_list[n];
+    for(R_xlen_t k=0;k<st.size();++k) EH[n].push_back(Rcpp::as<plant::TF24_Environment>(st[k]));}
+  std::vector<double> step_h(N); for(std::size_t n=0;n<N;++n) step_h[n]=sh[n+1]-sh[n];
+  std::vector<double> v0(T); for(std::size_t k=0;k<T;++k) v0[k]=trait_value(s0,TRAITS[k]);
+  std::vector<double> dh0(T,0.0);
+  for(std::size_t k=0;k<T;++k){ double dd=1e-4*std::abs(v0[k]);
+    dh0[k]=(make_strategy(pp,TRAITS[k],v0[k]+dd).initial_height()
+           -make_strategy(pp,TRAITS[k],v0[k]-dd).initial_height())/(2*dd); }
+  TF24Harvest H1 = tf24_pass1(s0, pd, EH, birth, sh, step_h, h0v);
+
+  // Map requested traits to indices.
+  std::vector<std::size_t> col(traits.size());
+  for(std::size_t j=0;j<traits.size();++j){ col[j]=IX(traits[j]);
+    if(col[j]==(std::size_t)-1) Rcpp::stop("unknown TF24 trait: "+traits[j]); }
+  const std::vector<std::string> comp =
+    {"height","mortality","fecundity","area_heartwood","mass_heartwood","offspring"};
+  const std::size_t nS = comp.size(), nT = traits.size();
+  Rcpp::NumericMatrix states(nC, nS);
+  Rcpp::NumericVector jac(nC*nS*nT);
+  auto JAC=[&](std::size_t i,std::size_t c,std::size_t k)->double&{ return jac[i+nC*(c+nS*k)]; };
+
+  for (std::size_t i=0;i<nC;++i){
+    ad::tape_type tape;
+    std::vector<ad_t> tr(T); for(std::size_t k=0;k<T;++k) tr[k]=v0[k];
+    for(auto& x:tr) tape.registerInput(x);
+    tape.newRecording();
+    plant::TF24ProdPars<ad_t> pf = pf_from<ad_t>(tr, pd);
+    ad_t h0_init = ad_t(h0v);
+    for(std::size_t k=0;k<T;++k) if(dh0[k]!=0.0) h0_init += dh0[k]*(tr[k]-v0[k]);
+    auto profit_ad = [&](ad_t h, const H& hh) -> ad_t {
+      ad_t p = ad_t(hh.profit) + ad_t(hh.dprofit_dh)*(h - ad_t(hh.h0_stage));
+      for(std::size_t k=0;k<T;++k){ double c=inj(k,hh,s0.pars);
+        if(c!=0.0) p += ad_t(c)*(tr[k]-ad_t(xad::value(tr[k]))); }
+      return p; };
+    Full<ad_t> y = tf24_replay_full<ad_t>(pf, H1.recs[i], H1.Hs[i], H1.decay[i], a_d0,
+      ppsab[i], (std::size_t)birth[i], step_h, h0_init, ppsurv, birth_rate, profit_ad);
+    ad_t out[6] = {y.demog.height, y.demog.mortality, y.demog.fecundity,
+                   y.demog.area_heartwood, y.demog.mass_heartwood, y.offspring};
+    for(std::size_t c=0;c<nS;++c){ states(i,c)=xad::value(out[c]); tape.registerOutput(out[c]); }
+    for(std::size_t c=0;c<nS;++c){ tape.clearDerivatives(); xad::derivative(out[c])=1.0;
+      tape.computeAdjoints();
+      for(std::size_t j=0;j<nT;++j) JAC(i,c,j)=xad::derivative(tr[col[j]]); }
+  }
+  states.attr("dimnames")=Rcpp::List::create(R_NilValue, Rcpp::wrap(comp));
+  jac.attr("dim")=Rcpp::IntegerVector::create((int)nC,(int)nS,(int)nT);
+  jac.attr("dimnames")=Rcpp::List::create(R_NilValue, Rcpp::wrap(comp), Rcpp::wrap(traits));
+  return Rcpp::List::create(Rcpp::Named("states")=states, Rcpp::Named("jacobian")=jac);
 }

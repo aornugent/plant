@@ -42,9 +42,28 @@
 ##' @export
 tf24_offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
                                                birth_rate = NULL) {
+  if (is.null(traits)) traits <- tf24_default_traits()
+  h <- tf24_harvest(scm, species, birth_rate)
+  tf24_offspring_production_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
+                                          h$ppsab, h$tw, traits)
+}
+
+# The 27 net-production TF24 trait names (10 leaf + 17 mass-cascade) the emergent
+# gradients differentiate by default.
+tf24_default_traits <- function() {
+  c("vcmax_25","g1_TF24","beta2","K_s","b","c","jmax_25","a","curv_elec",
+    "curv_colim","lma","rho","a_b1","r_l","r_b","r_s","r_r","k_l","k_b",
+    "k_s","k_r","a_bio","a_y","a_l1","a_l2","theta","a_r1")
+}
+
+# Harvest a run-with-cache TF24 SCM into the frozen pieces the two-pass replay
+# consumes (the ResidentHarvest seam, TF24 mirror of ff16_harvest). Requires the
+# resident to have been run with shading_model = "crown-centre" (the replay re-solves
+# the crown-centre leaf optimisation).
+tf24_harvest <- function(scm, species = 1L, birth_rate = NULL) {
   types <- extract_RcppR6_template_types(scm$parameters, "Parameters")
   if (!identical(types[[1]], "TF24")) {
-    stop("tf24_offspring_production_gradient is for the TF24 strategy only")
+    stop("TF24 stand gradients are implemented for the TF24 strategy only")
   }
   if (species < 1L || species > length(scm$patch$species)) {
     stop("species index out of range: stand has ", length(scm$patch$species),
@@ -64,11 +83,6 @@ tf24_offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
   if (is.null(birth_rate)) {
     birth_rate <- scm$offspring_production[[species]] / scm$net_reproduction_ratios[[species]]
   }
-  if (is.null(traits)) {
-    traits <- c("vcmax_25","g1_TF24","beta2","K_s","b","c","jmax_25","a","curv_elec",
-                "curv_colim","lma","rho","a_b1","r_l","r_b","r_s","r_r","k_l","k_b",
-                "k_s","k_r","a_bio","a_y","a_l1","a_l2","theta","a_r1")
-  }
 
   # Cohort birth steps (introductions land on step times).
   birth_step <- vapply(nt, function(t) which.min(abs(sh - t)) - 1L, integer(1))
@@ -85,6 +99,6 @@ tf24_offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
     ppsurv[k, s] <- scm$patch$pr_survival(sh[k] + ah[s] * hN[k])
   }
 
-  tf24_offspring_production_gradient_impl(pp, eh, sh, birth_step, ppsurv, ppsab, tw,
-                                          traits)
+  list(pp = pp, eh = eh, sh = sh, birth_step = birth_step, ppsurv = ppsurv,
+       ppsab = ppsab, tw = tw, pdens = pdens, nt = nt, birth_rate = birth_rate)
 }
