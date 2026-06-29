@@ -246,24 +246,52 @@ canopy of all species (the rare-mutant / invasion reading; each species' cohorts
 the same frozen field). It is validated per species against finite differences for
 both strategies.
 
-::: {.callout-note}
-## This single-output call is being generalised
+## The generic stand-gradient engine
 
-`offspring_production_gradient()` differentiates one privileged output. The agreed
-calibration-facing design (see `notes/scm-gradient-architecture.md` in the `plant`
-repo) replaces it with a generic, metric-*symmetric* engine that lives **outside** the
-SCM object: it consumes a `ResidentHarvest` that any SCM variant (single-patch,
-multi-patch, stochastic, …) can emit, differentiates a *supplied* set of weighted
-reductions `metric = Σ_i w_i·f(state_i)` over one replay — `offspring_production`,
-`LAI`, `biomass`, a size-distribution moment are all equal entries, none privileged —
-and returns a metrics × traits **Jacobian** from one baseline (one forward replay, a
-cheap reverse sweep per metric). Likelihoods compose *downstream* (data never enters
-`plant`), which is what lets many likelihood terms share one stand. The same "gradient
-as an optional output of the call you already make" pattern then extends to `Leaf`
-(standalone leaf calibration) and `grow_individual_to_size` (growth-rate optimisation).
-This guide will gain runnable calibration/optimisation *setup* demonstrations once that
-engine lands.
-:::
+`offspring_production_gradient()` differentiates one output. The calibration-facing
+design (see `notes/scm-gradient-architecture.md`) generalises it to a metric-*symmetric*
+engine that lives **outside** the SCM object: it consumes a `ResidentHarvest` that any
+SCM variant (single-patch, multi-patch, stochastic, …) can emit, and differentiates a
+*supplied* set of stand metrics over **one** replay — `offspring_production`, `LAI`,
+`biomass`, a size-distribution moment are all equal entries, **none privileged**. It
+returns a metrics × traits **Jacobian** from one resident baseline: one forward replay
+records a single adjoint tape, then a *cheap reverse sweep per metric*, so M metrics
+cost a replay plus M sweeps, not M replays.
+
+```r
+g <- stand_gradient(scm,
+                    metrics = c("offspring_production", "LAI", "biomass", "size_moment"))
+g$values     # reconstructed stand metrics (LAI == scm$patch$compute_competition(0))
+g$jacobian   # a metrics x traits matrix: d(metric_m)/d(theta_k)
+```
+
+Each metric is a weighted reduction over the replayed cohorts. `offspring_production`
+is the seed-rain integral `Σ_i w_i·offspring_i` (frozen birth weights). `LAI`,
+`biomass` and `size_moment` are size-distribution integrals at the final census — the
+height-trapezium of `density_i·f(state_i)`, matching the SCM's own `compute_competition`
+arithmetic (down to the pending-seed tail term). The per-cohort census number density
+is the replayed `log_density`, evolved with the SCM's own growth-rate-gradient scheme,
+so the reconstruction reproduces the SCM's stored density and AD differentiates it
+exactly (validated against frozen-resident finite differences).
+
+For a metric that is **not** a simple reduction — a quantile, a ratio, a bespoke
+statistic a downstream package invents — there is an escape hatch: the per-cohort
+**state × trait Jacobian**.
+
+```r
+J <- stand_state_jacobian(scm)
+J$states     # cohort x {height, mortality, fecundity, area_heartwood, mass_heartwood, offspring}
+J$jacobian   # cohort x component x trait: d(state_i,c)/d(theta_k)
+```
+
+Any smooth metric over the cohort states then has its gradient by the chain rule, with
+`plant` never needing to know the metric — the same boundary as "likelihoods live
+downstream" (data never enters `plant`, which is what lets many likelihood terms share
+one stand baseline). The same "gradient as an optional output of the call you already
+make" pattern then extends to `Leaf` (standalone leaf calibration) and
+`grow_individual_to_size` (growth-rate optimisation), and the engine mirrors onto TF24
+(the offspring entry is `tf24_offspring_production_gradient()`; the census metrics are
+the TF24 follow-up).
 
 ## Trying the kernels directly
 
@@ -478,14 +506,19 @@ supported: both APIs take a `species` index and return the per-species invasion
 gradient against the shared frozen canopy, validated per species against finite
 differences. What remains:
 
-- **The calibration-facing generalisation** (agreed design,
-  `notes/scm-gradient-architecture.md`): a generic, metric-symmetric stand-gradient
-  engine *outside* the SCM object, consuming a `ResidentHarvest` any SCM variant emits,
-  differentiating a supplied set of `(w, f)` reductions over one replay → a metrics ×
-  traits Jacobian, with a state-Jacobian escape hatch for downstream-defined metrics;
-  likelihoods compose downstream. The same pattern extends gradient capability to
-  `Leaf` and `grow_individual_to_size`. This supersedes the single-output
-  `offspring_production_gradient()` and is the next build.
+- **The calibration-facing generalisation has landed for FF16** (design in
+  `notes/scm-gradient-architecture.md`): the generic, metric-symmetric `stand_gradient()`
+  engine *outside* the SCM object, differentiating a supplied set of stand metrics
+  (`offspring_production`, `LAI`, `biomass`, `size_moment` — none privileged) over one
+  replay → a metrics × traits Jacobian, plus the `stand_state_jacobian()` escape hatch
+  for downstream-defined metrics. It reproduces `offspring_production_gradient()` exactly
+  as one symmetric entry; the census metrics reconstruct the SCM's own outputs (LAI ==
+  `compute_competition(0)`) and validate against frozen-resident finite differences; all
+  covered by plain-R CI tests. Still to come: the **TF24 mirror** of the census metrics
+  (the offspring entry is already committed); the `ResidentHarvest` seam formalised for
+  multi-patch/stochastic variants; and the same pattern on `Leaf` and
+  `grow_individual_to_size`. Likelihoods/calibration/adaptive-dynamics stay downstream
+  (other packages).
 - **Per-RK-stage resident-stand harvesting** for a bit-exact (rather than
   reconstruction-faithful) self-shading field; and the cross-species Jacobian
   `d(offspring_s)/d(θ_{s'})` (needs the resident canopy to reshape with the trait).
