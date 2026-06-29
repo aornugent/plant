@@ -293,6 +293,94 @@ make" pattern then extends to `Leaf` (standalone leaf calibration) and
 (the offspring entry is `tf24_offspring_production_gradient()`; the census metrics are
 the TF24 follow-up).
 
+## The resident total gradient: the coupled replay (FF16)
+
+The engine above holds the canopy **frozen** — the rare-mutant / invasion gradient,
+the right object for `offspring_production`. But for `LAI` / `biomass` / `size_moment`
+as *resident ecosystem outcomes*, the canopy co-varies with the trait: change a trait
+and every resident grows and dies differently, re-shading the whole stand.
+`stand_gradient(scm, feedback = "resident")` now computes that **resident total**
+gradient for the census metrics via a **coupled whole-stand replay**.
+
+```r
+gr <- stand_gradient(scm, metrics = c("LAI", "biomass", "size_moment"),
+                     feedback = "resident")           # every trait re-shades the canopy
+gf <- stand_gradient(scm, metrics = c("LAI", "biomass", "size_moment"),
+                     feedback = "frozen")             # the rare-mutant reading
+```
+
+The mechanism is "freeze the **grid**, not the stand": the ODE step schedule, the
+cohort-introduction schedule, and the light spline's **knot x-positions** are frozen
+from the resident run, but the stand state is **re-evolved** — all alive cohorts
+stepped together over the frozen schedule, and at each Cash-Karp stage the canopy
+light is reconstructed from the *current active stand* (cohort heights **and**
+log-densities responding to the trait) by refilling an odelia `basic_interpolator<S>`
+at the frozen knots (the active-knot differentiable spline). The interpolator is built
+**once per stage** and shared across cohorts, so the coupled adjoint tape is
+~`O(N·steps·stages)` — comparable to the monolithic offspring tape, not the
+`O(N²)` per-GK-point trap. One recording, one reverse sweep per metric.
+
+**The result the frozen reading misses.** Under frozen geometry only the two
+allometric traits (`a_l1`, `a_l2`) touch the canopy. Under the coupled replay
+**27 of 28 traits carry a resident feedback**, and it routinely *dominates and flips
+the sign* of the census reading:
+
+| `d(LAI)/dθ` | frozen (mutant) | resident (total) |
+|---|---|---|
+| `theta` | −2.3 × 10⁵ | −351 |
+| `lma`   | −2.7 × 10³ | −14.9 |
+| `a_p1`  | +2.6        | +0.013 |
+
+(`d(biomass)/d(lma)`: −2.07 × 10⁴ → −348; `d(size_moment)/d(lma)` flips sign.)
+`offspring_production` stays the frozen invasion gradient even under `"resident"` —
+the canopy a rare mutant invades is the resident's, not its own.
+
+**Validation (the two-pass story).** A static check confirmed the env-from-stand map
+is **bit-exact**: reconstructing competition from the harvested per-stage stand at the
+frozen knots reproduces the SCM's stored light spline to **4.4 × 10⁻¹⁶** across all
+~145k knots — once the boundary `new_node` is harvested per stage (it is the trapezium
+tail term `compute_competition` adds beyond the `nodes` loop) and snapshotted *inside*
+`compute_environment`, before `compute_rates` mutates it. R0: the double-precision
+coupled re-evolution reproduces the SCM emergent metrics to **1e-8…1e-10** (matching
+the frozen per-cohort engine's own SCM fidelity), with the per-stage env reconstructed
+to ~7e-6 worst-knot (at z = 0, the most sensitive ground level). R1: AD matches a
+central FD over the *same coupled reconstruction* to **~1e-4** at the noise-optimal
+step — the reconstruction carries ~1e-8 value noise (cohort-height-crossing sort
+discontinuities + the re-evolution drift), so a too-small FD step is noise-dominated;
+AD is the exact derivative, FD the noise-limited reference.
+
+**Cost — why reverse-mode AD, not finite differences.** All 28 traits × 3 metrics come
+from **one** resident run plus a single coupled tape (3 reverse sweeps) in **~3.9 s** on
+a representative FF16 stand (~290 steps, ~160 cohorts). A finite-difference Jacobian of
+the same quantities re-runs the whole SCM *per trait* (`run_scm` ≈ 0.20 s/run on the
+frozen schedule, 0.65 s/run with schedule refinement):
+
+| Method (28 traits × 3 metrics) | Cost | Scales with #traits? | Exact? |
+|---|---|---|---|
+| **Coupled reverse sweep** | **~3.9 s** | **no** (replay + 1 sweep/metric) | yes |
+| FD, forward, frozen schedule (29 runs) | ~6 s | yes | no (step-tuned) |
+| FD, central, frozen schedule (56 runs) | ~11 s | yes | no |
+| FD, central, with refinement (56 runs) | ~36 s | yes | no |
+
+The reverse sweep's cost is independent of the trait count (it is per-*metric*), so the
+advantage compounds: comparable here at 28 traits, decisive at 100+, and exact either
+way (no step-size lottery, no per-metric noise floor).
+
+**Honest scope: it is the frozen-*geometry* resident total.** The coupled gradient
+freezes the grid (step schedule, knot positions, cohort-introduction schedule) and the
+seedling establishment env, recomputing only the stand state and the active light.
+Against a *full* `run_scm` finite difference (which lets the adaptive step sizes and
+the birth canopy re-respond too) the coupled `d(LAI)/dθ` differs by ~**20–33 % for
+geometry traits** (`lma` 33 %, `a_l1` 20 %) but only ~2 % for `a_p1` — i.e. the
+grid-freezing approximation is material for traits that strongly reshape *where* the
+solver places its grid, and small for rate-only traits. Decomposing that gap (frozen
+step sizes vs frozen knots vs frozen birth-env establishment) and turning the birth-env
+channel active (reconstruct it from the already-alive cohorts — exact at θ₀,
+non-circular) are the next refinements. The reproducing scripts are
+`scripts/recon_static_check.R` (R0 static, 4.4e-16), `scripts/coupled_r0_check.R` (R0
+metrics + env drift) and `scripts/coupled_r1_check.R` (R1 AD-vs-FD + the feedback
+table).
+
 ## Trying the kernels directly
 
 The lower-level kernels all live in
