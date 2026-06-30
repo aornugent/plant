@@ -440,11 +440,11 @@ rather than the biology) and **half to the birth-env + boundary channels**. Turn
 birth-env active (`scripts/coupled_birthenv_channel.R`) closes the birth-env part —
 `lma` 33→29 %, `a_l1` 20→16 %; the **boundary new_node** is the lowest, ground-level
 node (~0.4 % of the canopy, derivative channel far smaller) and is left frozen as
-negligible. The remaining gap is the grid response. The reproducing scripts are
-`scripts/recon_static_check.R` (R0 static, 4.4e-16), `scripts/coupled_r0_check.R` (R0
-metrics + env drift), `scripts/coupled_r1_check.R` (R1 AD-vs-FD + the feedback table),
-`scripts/coupled_gap_decompose.R` (the grid-vs-birth-env decomposition) and
-`scripts/coupled_birthenv_channel.R` (the birth-env channel).
+negligible. The remaining gap is the grid response. The coupled R0 reconstruction and
+R1 AD-vs-FD checks are now CI tests in
+`tests/testthat/test-ff16-stand-gradient.R` (single- and multi-species coupled
+cases); the development decomposition scripts that produced the grid-vs-birth-env
+breakdown have been retired now that the behaviour is pinned by those tests.
 
 **Multi-species: the cross-species total gradient (working).** On a stand with more
 than one species, `feedback = "resident"` returns the cross-species total
@@ -470,10 +470,10 @@ species' cohorts are lifted to one adjoint tape; only the differentiated species
 the cross-species column. It is exposed through the same `stand_gradient()` call (the
 implementation harvests every species via the all-species per-RK-stage history
 `stand_*_stage_history_all`, RcppR6-exposed). Validation: the all-species harvest
-reconstructs the joint canopy to ~1e-6 (`scripts/coupled_multispp_r0_static.R`,
-`coupled_multispp_r0.R`) and AD matches a finite difference over the same reconstruction
-(`scripts/coupled_multispp_r1.R`), with the mass/size-weighted metrics noise-limited
-exactly as in the single-species case.
+reconstructs the joint canopy to ~1e-6 and AD matches a finite difference over the same
+reconstruction (the multi-species coupled R0/R1 cases in
+`tests/testthat/test-ff16-stand-gradient.R`), with the mass/size-weighted metrics
+noise-limited exactly as in the single-species case.
 
 **The instability, and why it is a replay artifact (not a model behaviour).** On a
 **fixed** node schedule the joint re-evolution is well-conditioned (env drift ≤1e-4). On
