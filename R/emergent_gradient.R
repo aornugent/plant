@@ -164,6 +164,13 @@ ff16_harvest_ms <- function(scm) {
 ##' birth_rate is registered as the sole input on the same coupled whole-stand replay the
 ##' resident trait gradient uses (one reverse sweep per metric).
 ##'
+##' On a \strong{multi-species} stand this returns the CROSS-SPECIES total
+##' \eqn{\partial(\mathrm{total\text{-}stand\ metric})/\partial b_s} for the chosen
+##' \code{species} \eqn{s}: species \eqn{s}'s recruitment density re-shades the joint
+##' canopy every species reads (the cross term the frozen reading sets to zero). It is
+##' well-conditioned on a fixed node schedule and gated (with a clear error) for the stiff
+##' refined-schedule case, like the cross-species trait gradient.
+##'
 ##' FF16 only so far (its closed-form net keeps the coupled replay robust to long
 ##' horizons); TF24f's coupled replay is stiffness-gated (see
 ##' \code{stand_gradient(feedback = "resident")}).
@@ -173,11 +180,13 @@ ff16_harvest_ms <- function(scm) {
 ##' @param metrics Character vector of census metrics, any of \code{"LAI"},
 ##'   \code{"biomass"}, \code{"size_moment"}. (\code{offspring_production} is excluded --
 ##'   its birth-rate derivative is the trivial frozen identity above.)
-##' @param species Integer species index. Default \code{1}.
+##' @param species Integer species index; on a multi-species stand this selects which
+##'   species' birth-rate driver to differentiate (the cross-species total). Default \code{1}.
 ##' @param birth_rate The birth-rate driver to differentiate at; recovered from the run
-##'   by default.
+##'   by default (single-species only; the multi-species path recovers per species).
 ##' @return A list with \code{d_birth_rate} (named \code{d(metric)/d(birth_rate)}) and the
-##'   reconstructed \code{values}.
+##'   reconstructed \code{values} (plus \code{env_err}, the joint-canopy drift gauge, on a
+##'   multi-species stand).
 ##' @seealso \code{\link{stand_gradient}}, \code{\link{offspring_production_gradient}}.
 ##' @export
 birth_rate_gradient <- function(scm, metrics = c("LAI", "biomass", "size_moment"),
@@ -191,9 +200,30 @@ birth_rate_gradient <- function(scm, metrics = c("LAI", "biomass", "size_moment"
     stop("birth_rate_gradient supports the census metrics (LAI, biomass, size_moment); ",
          "offspring_production's birth-rate derivative is the trivial frozen identity ",
          "offspring_production / birth_rate. Got: ", paste(bad, collapse = ", "))
-  pp <- unlist(scm$parameters$strategies[[species]]$pars)
-  ff16_birth_rate_gradient_native(scm, pp, as.integer(species - 1L), metrics,
-    if (is.null(birth_rate)) -1 else birth_rate, scm$parameters$patch_area)
+  nsp <- length(scm$parameters$strategies)
+  if (species < 1L || species > nsp) stop("species index out of range")
+  patch_area <- scm$parameters$patch_area
+  if (nsp == 1L) {
+    pp <- unlist(scm$parameters$strategies[[species]]$pars)
+    return(ff16_birth_rate_gradient_native(scm, pp, as.integer(species - 1L), metrics,
+      if (is.null(birth_rate)) -1 else birth_rate, patch_area))
+  }
+  # Multi-species: the CROSS-SPECIES total d(total-stand metric)/d(birth_rate of `species`)
+  # -- the joint canopy re-evolved from every species' cohorts, only the target species'
+  # birth_rate active (the cross term the frozen reading sets to zero). Well-conditioned on
+  # a fixed node schedule; gated for the stiff refined-schedule case like the MS trait path.
+  pp_list <- lapply(seq_len(nsp), function(s) unlist(scm$parameters$strategies[[s]]$pars))
+  br_vec <- vapply(seq_len(nsp), function(s)
+    scm$offspring_production[[s]] / scm$net_reproduction_ratios[[s]], numeric(1))
+  g <- ff16_birth_rate_gradient_ms_native(scm, pp_list, metrics, br_vec, patch_area,
+                                          as.integer(species))
+  if (!all(is.finite(g$d_birth_rate)) || g$env_err > 1e-2) {
+    stop("the multi-species coupled resident re-evolution diverged on this node schedule ",
+         "(joint env drift = ", signif(g$env_err, 3), "); the cross-species birth_rate ",
+         "gradient needs a well-conditioned (fixed/uniform) node schedule -- re-run the ",
+         "resident SCM with refine_schedule = FALSE.")
+  }
+  g
 }
 
 ##' Reverse-mode trait gradient of an SCM's emergent stand metrics (#472 scope B,

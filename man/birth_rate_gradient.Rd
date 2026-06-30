@@ -18,14 +18,16 @@ birth_rate_gradient(
 \code{"biomass"}, \code{"size_moment"}. (\code{offspring_production} is excluded --
 its birth-rate derivative is the trivial frozen identity above.)}
 
-\item{species}{Integer species index. Default \code{1}.}
+\item{species}{Integer species index; on a multi-species stand this selects which
+species' birth-rate driver to differentiate (the cross-species total). Default \code{1}.}
 
 \item{birth_rate}{The birth-rate driver to differentiate at; recovered from the run
-by default.}
+by default (single-species only; the multi-species path recovers per species).}
 }
 \value{
 A list with \code{d_birth_rate} (named \code{d(metric)/d(birth_rate)}) and the
-  reconstructed \code{values}.
+  reconstructed \code{values} (plus \code{env_err}, the joint-canopy drift gauge, on a
+  multi-species stand).
 }
 \description{
 Reverse-mode derivative of an SCM's emergent census metrics w.r.t. the per-species
@@ -47,6 +49,13 @@ under resident feedback -- the canopy a rare mutant invades is the resident's). 
 this returns the resident TOTAL \eqn{\partial(\mathrm{census\ metric})/\partial b}:
 birth_rate is registered as the sole input on the same coupled whole-stand replay the
 resident trait gradient uses (one reverse sweep per metric).
+
+On a \strong{multi-species} stand this returns the CROSS-SPECIES total
+\eqn{\partial(\mathrm{total\text{-}stand\ metric})/\partial b_s} for the chosen
+\code{species} \eqn{s}: species \eqn{s}'s recruitment density re-shades the joint
+canopy every species reads (the cross term the frozen reading sets to zero). It is
+well-conditioned on a fixed node schedule and gated (with a clear error) for the stiff
+refined-schedule case, like the cross-species trait gradient.
 
 FF16 only so far (its closed-form net keeps the coupled replay robust to long
 horizons); TF24f's coupled replay is stiffness-gated (see

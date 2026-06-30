@@ -1024,12 +1024,18 @@ template <typename S>
 std::vector<S> assemble_metrics_coupled_ms(const std::vector<plant::FF16ProdPars<S>>& pds,
     const FrozenMS& F, const std::vector<std::string>& metrics,
     const std::vector<S>& h0s, double birth_rate_unused = 0.0,
-    double* env_err = nullptr, double* env_err_z = nullptr) {
+    double* env_err = nullptr, double* env_err_z = nullptr,
+    const std::vector<S>* br_active = nullptr) {
   using std::exp; using std::log;
   using interp_t = odelia::interpolator::basic_interpolator<S>;
   const std::size_t nS = F.nS, N = F.eh.size();
   const double GEPS = 1e-6;                          // Control::node_gradient_eps
   (void)birth_rate_unused;
+  // Per-species birth-rate driver: the harvested constant, or -- for the birth-rate
+  // gradient -- an active scalar (one species registered as the tape input).
+  auto BR = [&](std::size_t s) -> S {
+    return br_active ? (*br_active)[s] : S(F.birth_rate[s]);
+  };
 
   // Flatten cohorts across species into a global list (species, local, birth step).
   std::vector<std::size_t> gspec, glocal;
@@ -1149,7 +1155,7 @@ std::vector<S> assemble_metrics_coupled_ms(const std::vector<plant::FF16ProdPars
         S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0[s],
                        F.decay[s][glocal[g]]);
         S mort0 = -log(pr_estab);
-        S logd0 = log(S(F.birth_rate[s]) * pr_estab / g0);
+        S logd0 = log(BR(s) * pr_estab / g0);
         stand[g] = CensusState<S>{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, logd0};
         alive[g] = 1;
       }
@@ -1170,7 +1176,7 @@ std::vector<S> assemble_metrics_coupled_ms(const std::vector<plant::FF16ProdPars
     S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0[s],
                    F.decay[s][glocal[g]]);
     stand[g] = CensusState<S>{plant::FF16State<S>{h0, -log(pr_estab), S(0), S(0), S(0)},
-                              log(S(F.birth_rate[s]) * pr_estab / g0)};
+                              log(BR(s) * pr_estab / g0)};
     alive[g] = 1;
   }
 
@@ -1192,7 +1198,7 @@ std::vector<S> assemble_metrics_coupled_ms(const std::vector<plant::FF16ProdPars
     S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0[s],
                    F.decay[s].back());
     S g0 = deep_height_dt<S>(pds[s], F.integ, F.eta[s], &F.eh.back()[5], h0);
-    S dens_new = S(F.birth_rate[s]) * pr_estab / g0;
+    S dens_new = BR(s) * pr_estab / g0;
 
     auto census_reduce = [&](auto psi) -> S {
       std::vector<S> phi(nc);
@@ -1803,6 +1809,83 @@ Rcpp::List ff16_birth_rate_gradient_native(
                         patch.stand_newnode_height_stage_history,
                         patch.stand_newnode_competition_stage_history, active_birthenv);
   return ff16_birth_rate_gradient_core(F, s, metrics, br);
+}
+
+// Cross-species resident birth_rate gradient core: d(TOTAL-stand census metric)/
+// d(birth_rate of species `target`). The joint canopy is re-evolved from EVERY species'
+// cohorts; only the target species' birth_rate is registered as the tape input, so the
+// reverse sweep captures the genuinely new CROSS term -- the target's recruitment density
+// re-shades the canopy every species reads (the frozen reading is the diagonal identity
+// metric_s/birth_rate_s with zero cross term). One reverse sweep per metric; returns the
+// gradient + reconstructed values + env_err (the caller gates the stiff-schedule case).
+Rcpp::List ff16_birth_rate_gradient_ms_core(FrozenMS& F, std::vector<std::string> metrics,
+    int target) {
+  for (auto& nm : metrics)
+    if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
+      Rcpp::stop("birth_rate MS gradient: expected LAI / biomass / size_moment, got " + nm);
+  const std::size_t tgt = (std::size_t)(target - 1);
+  if (tgt >= F.nS) Rcpp::stop("target species out of range");
+  const std::size_t M = metrics.size(), nS = F.nS;
+
+  // R0 double pass for env_err (the joint re-evolution must reproduce the resident stand).
+  double env_err = 0.0, env_err_z = -1.0;
+  (void)assemble_metrics_coupled_ms<double>(F.pd, F, metrics, F.h0, 0.0,
+                                            &env_err, &env_err_z);
+
+  Rcpp::NumericVector dbr(M), values(M);
+  {
+    ad::tape_type tape;
+    ad_t br_t = F.birth_rate[tgt];
+    tape.registerInput(br_t);
+    tape.newRecording();
+    std::vector<plant::FF16ProdPars<ad_t>> pas(nS);
+    for (std::size_t s = 0; s < nS; ++s) pas[s] = lift<ad_t>(F.pd[s]);
+    std::vector<ad_t> h0s(nS), bra(nS);
+    for (std::size_t s = 0; s < nS; ++s) {
+      h0s[s] = ad_t(F.h0[s]); bra[s] = ad_t(F.birth_rate[s]);
+    }
+    bra[tgt] = br_t;                                   // only the target's birth_rate active
+    std::vector<ad_t> J = assemble_metrics_coupled_ms<ad_t>(pas, F, metrics, h0s, 0.0,
+                            nullptr, nullptr, &bra);
+    for (std::size_t m = 0; m < M; ++m) tape.registerOutput(J[m]);
+    for (std::size_t m = 0; m < M; ++m) {
+      tape.clearDerivatives();
+      xad::derivative(J[m]) = 1.0;
+      tape.computeAdjoints();
+      dbr[m] = xad::derivative(br_t);
+      values[m] = as_double(J[m]);
+    }
+  }
+  dbr.attr("names") = Rcpp::wrap(metrics);
+  values.attr("names") = Rcpp::wrap(metrics);
+  return Rcpp::List::create(Rcpp::Named("d_birth_rate") = dbr,
+                            Rcpp::Named("values")       = values,
+                            Rcpp::Named("env_err")      = env_err);
+}
+
+// FULLY native cross-species resident birth_rate gradient (mirror of
+// ff16_coupled_gradient_ms_native): joint env + schedule + birth steps + all-species
+// boundary harvest from the live Patch. birth_rate the per-species driver vector; target
+// 1-based. Returns d(total-stand metric)/d(birth_rate_target) + values + env_err.
+// [[Rcpp::export]]
+Rcpp::List ff16_birth_rate_gradient_ms_native(
+    SEXP scm_, Rcpp::List pp_list, std::vector<std::string> metrics,
+    std::vector<double> birth_rate, double patch_area, int target,
+    bool active_birthenv = true) {
+  auto scm = Rcpp::as<plant::RcppR6::RcppR6<
+    plant::SCM<plant::FF16_Strategy, plant::FF16_Environment>>>(scm_);
+  const auto& patch = scm->r_patch();
+  if (patch.stand_newnode_height_stage_history_all.size() < 1)
+    Rcpp::stop("the multi-species resident birth_rate gradient needs the all-species "
+               "per-RK-stage harvest; re-run the resident SCM with "
+               "control(save_RK45_cache = TRUE)");
+  FrozenMS F = build_frozen_ms_scm(pp_list, patch, birth_rate, patch_area, active_birthenv);
+  const std::size_t tgt = (std::size_t)(target - 1);
+  if (tgt >= F.nS) Rcpp::stop("target species out of range");
+  Rcpp::NumericVector pp0 = pp_list[(R_xlen_t)tgt];
+  plant::FF16_Strategy s0 = make_strategy(pp0);   // owns the GK integrator
+  F.integ = &s0.function_integrator;
+  return ff16_birth_rate_gradient_ms_core(F, metrics, target);
 }
 
 // R0 gate for the MULTI-SPECIES coupled replay (#472 scope B, R2): a double-precision

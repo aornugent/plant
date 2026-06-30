@@ -13035,6 +13035,23 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ff16_birth_rate_gradient_ms_native
+Rcpp::List ff16_birth_rate_gradient_ms_native(SEXP scm_, Rcpp::List pp_list, std::vector<std::string> metrics, std::vector<double> birth_rate, double patch_area, int target, bool active_birthenv);
+RcppExport SEXP _plant_ff16_birth_rate_gradient_ms_native(SEXP scm_SEXP, SEXP pp_listSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP patch_areaSEXP, SEXP targetSEXP, SEXP active_birthenvSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type scm_(scm_SEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type pp_list(pp_listSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type metrics(metricsSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type birth_rate(birth_rateSEXP);
+    Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
+    Rcpp::traits::input_parameter< int >::type target(targetSEXP);
+    Rcpp::traits::input_parameter< bool >::type active_birthenv(active_birthenvSEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_birth_rate_gradient_ms_native(scm_, pp_list, metrics, birth_rate, patch_area, target, active_birthenv));
+    return rcpp_result_gen;
+END_RCPP
+}
 // ff16_coupled_metrics_ms_impl
 Rcpp::List ff16_coupled_metrics_ms_impl(Rcpp::List pp_list, Rcpp::List eh_list, std::vector<double> sh, Rcpp::List birth_list, std::vector<std::string> metrics, std::vector<double> birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, bool active_birthenv);
 RcppExport SEXP _plant_ff16_coupled_metrics_ms_impl(SEXP pp_listSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birth_listSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP nn_h_listSEXP, SEXP nn_c_listSEXP, SEXP patch_areaSEXP, SEXP active_birthenvSEXP) {
@@ -14894,6 +14911,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ff16_coupled_metrics_impl", (DL_FUNC) &_plant_ff16_coupled_metrics_impl, 13},
     {"_plant_ff16_coupled_gradient_native", (DL_FUNC) &_plant_ff16_coupled_gradient_native, 8},
     {"_plant_ff16_birth_rate_gradient_native", (DL_FUNC) &_plant_ff16_birth_rate_gradient_native, 7},
+    {"_plant_ff16_birth_rate_gradient_ms_native", (DL_FUNC) &_plant_ff16_birth_rate_gradient_ms_native, 7},
     {"_plant_ff16_coupled_metrics_ms_impl", (DL_FUNC) &_plant_ff16_coupled_metrics_ms_impl, 10},
     {"_plant_ff16_coupled_gradient_ms_impl", (DL_FUNC) &_plant_ff16_coupled_gradient_ms_impl, 12},
     {"_plant_ff16_coupled_gradient_ms_native", (DL_FUNC) &_plant_ff16_coupled_gradient_ms_native, 8},

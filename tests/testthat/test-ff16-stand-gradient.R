@@ -255,6 +255,32 @@ test_that("multi-species cross-species gradient: AD == coupled-recon FD, cross t
   expect_true(all(abs(g$jacobian[, tr] - gf$jacobian[, tr]) > 0))
 })
 
+test_that("birth_rate_gradient cross-species: AD == coupled-recon FD (species 1 driver)", {
+  # The cross-species birth-rate axis: d(TOTAL-stand metric)/d(birth_rate of species 1) on
+  # a 2-species fixed-schedule stand. Species 1's recruitment density re-shades the joint
+  # canopy every species reads -- the genuinely new cross term (the frozen reading is the
+  # diagonal identity with zero cross term). Validated AD == FD over the SAME coupled recon.
+  p <- scm_base_parameters("FF16")
+  p <- add_strategies(p, trait_matrix(c(0.0825, 0.2), "lma"), hyperpar = FF16_hyperpar,
+                      birth_rate = list(20, 20))
+  p$node_schedule_times <- list(seq(0, 70, length.out = 16), seq(0, 70, length.out = 16))
+  p$max_patch_lifetime <- 70
+  scm <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
+                 refine_schedule = FALSE)
+  mets <- c("LAI", "size_moment")
+  g <- birth_rate_gradient(scm, metrics = mets, species = 1L)
+  expect_true(all(is.finite(g$d_birth_rate)))
+  expect_equal(unname(g$values[["LAI"]]), scm$patch$compute_competition(0), tolerance = 1e-3)
+
+  h <- ms_harvest(scm)
+  cval <- function(brv) plant:::ff16_coupled_metrics_ms_impl(h$pp_list, h$eh, h$sh,
+    h$birth_list, mets, brv, h$nn_h, h$nn_c, h$area)$values
+  br0 <- h$birth_rate; d <- 1e-5 * br0[1]
+  brp <- brm <- br0; brp[1] <- brp[1] + d; brm[1] <- brm[1] - d
+  fd <- (cval(brp) - cval(brm)) / (2 * d)
+  expect_equal(unname(g$d_birth_rate[["LAI"]]), unname(fd[["LAI"]]), tolerance = 2e-2)
+})
+
 test_that("coupled resident gradient is finite for the FULL default trait set (a_l2 NaN fix)", {
   # Regression: a cohort whose introduction time lands on the final step (birth step == N)
   # was never established in the coupled re-evolution, so its census height stayed at the

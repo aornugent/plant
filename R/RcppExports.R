@@ -4621,6 +4621,10 @@ ff16_birth_rate_gradient_native <- function(scm_, pp, species, metrics, birth_ra
     .Call('_plant_ff16_birth_rate_gradient_native', PACKAGE = 'plant', scm_, pp, species, metrics, birth_rate, patch_area, active_birthenv)
 }
 
+ff16_birth_rate_gradient_ms_native <- function(scm_, pp_list, metrics, birth_rate, patch_area, target, active_birthenv = TRUE) {
+    .Call('_plant_ff16_birth_rate_gradient_ms_native', PACKAGE = 'plant', scm_, pp_list, metrics, birth_rate, patch_area, target, active_birthenv)
+}
+
 ff16_coupled_metrics_ms_impl <- function(pp_list, eh_list, sh, birth_list, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv = TRUE) {
     .Call('_plant_ff16_coupled_metrics_ms_impl', PACKAGE = 'plant', pp_list, eh_list, sh, birth_list, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv)
 }
