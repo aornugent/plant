@@ -82,8 +82,11 @@ tf24f_census_recon <- function(scm, metrics = c("LAI", "biomass", "size_moment")
   # SCM used (Node::growth_rate_gradient): the exact-AD path when the run set
   # control(node_gradient_exact_ad = TRUE), else the backward finite difference.
   exact_ad <- isTRUE(scm$parameters$strategies[[species]]$control$node_gradient_exact_ad)
-  tf24f_census_recon_impl(h$pp, h$eh, h$sh, h$birth_step, h$birth_rate, h$k_acclim,
-                          h$use_ad_gradient, metrics, exact_ad)
+  # Native entry: faithful per-RK-stage env read directly from the live SCM's Patch
+  # (no Rcpp::as<> round-trip -- the crown-sampled light is exact, lifting the
+  # long-horizon census-recon fidelity floor; see notes/ad-refactor-optimize-roadmap.md).
+  tf24f_census_recon_native(scm, h$pp, h$birth_step, h$birth_rate, h$k_acclim,
+                            h$use_ad_gradient, metrics, exact_ad)
 }
 
 # TF24f frozen census trait gradient (#472 scope B, build-order step 2 -- R1 GATE).
@@ -102,7 +105,9 @@ tf24f_census_gradient_fd <- function(scm, metrics = c("LAI", "biomass", "size_mo
   if (is.null(traits)) traits <- tf24_default_traits()
   h <- tf24f_harvest(scm, species, birth_rate)
   exact_ad <- isTRUE(scm$parameters$strategies[[species]]$control$node_gradient_exact_ad)
-  recon <- function(pp) tf24f_census_recon_impl(pp, h$eh, h$sh, h$birth_step,
+  # Native recon so the FD reference differentiates the SAME function the native AD
+  # tape does (faithful crown-sampled light, no Rcpp::as<> round-trip).
+  recon <- function(pp) tf24f_census_recon_native(scm, pp, h$birth_step,
     h$birth_rate, h$k_acclim, h$use_ad_gradient, metrics, exact_ad)$values
 
   values <- recon(h$pp)
@@ -136,9 +141,10 @@ tf24f_census_gradient_ad <- function(scm, metrics = c("LAI", "biomass", "size_mo
                                      trait_rel_step = 1e-5) {
   if (is.null(traits)) traits <- tf24_default_traits()
   h <- tf24f_harvest(scm, species, birth_rate)
-  tf24f_census_gradient_ad_impl(h$pp, h$eh, h$sh, h$birth_step, h$birth_rate,
-                                h$k_acclim, h$use_ad_gradient, traits, metrics,
-                                trait_rel_step)
+  # Native entry: faithful per-RK-stage env from the live Patch (no Rcpp::as<>).
+  tf24f_census_gradient_ad_native(scm, h$pp, h$birth_step, h$birth_rate,
+                                  h$k_acclim, h$use_ad_gradient, traits, metrics,
+                                  trait_rel_step)
 }
 
 # TF24f individual grow-to-size trait gradient by reverse-mode AD (#472 scope B,

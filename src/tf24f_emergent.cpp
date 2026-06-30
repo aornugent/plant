@@ -94,11 +94,16 @@ double net_at_tracked(plant::TF24f_Strategy& s, const plant::TF24_Environment& e
 // tracked collar in double precision. Returns the reconstructed per-cohort final heights
 // / collar states / log-densities and the census metric values (the height-trapezium of
 // density*kI*area_leaf etc., matching Patch::compute_competition / FF16's census reduce).
-// [[Rcpp::export]]
-Rcpp::List tf24f_census_recon_impl(
-    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
-    std::vector<int> birth, double birth_rate, double k_acclim,
-    bool use_ad_gradient, std::vector<std::string> metrics, bool exact_ad_gprime) {
+// Shared core: takes the per-RK-stage env as a NATIVE vector (EH) so the R-list
+// (`_impl`) and live-SCM (`_native`) entries differ only in how EH is sourced
+// (lossy Rcpp::as<> vs faithful native copy). EH[n][s] is the TF24_Environment at
+// step n, Cash-Karp stage s; sh the step times.
+Rcpp::List tf24f_census_recon_core(
+    Rcpp::NumericVector pp,
+    const std::vector<std::vector<plant::TF24_Environment>>& EH,
+    std::vector<double> sh, std::vector<int> birth, double birth_rate,
+    double k_acclim, bool use_ad_gradient, std::vector<std::string> metrics,
+    bool exact_ad_gprime) {
   plant::TF24f_Strategy s = make_tf24f(pp, k_acclim, use_ad_gradient);
   plant::TF24ProdPars<double> pd = s.prod_pars();
   const double h0v = s.initial_height(), a_d0 = s.pars.a_d0;
@@ -111,13 +116,7 @@ Rcpp::List tf24f_census_recon_impl(
       Rcpp::stop("unknown TF24f census metric: " + nm +
                  " (LAI / biomass / size_moment)");
 
-  const std::size_t N = eh_list.size(), nC = birth.size();
-  std::vector<std::vector<plant::TF24_Environment>> EH(N);
-  for (std::size_t n = 0; n < N; ++n) {
-    Rcpp::List st = eh_list[n];
-    for (R_xlen_t k = 0; k < st.size(); ++k)
-      EH[n].push_back(Rcpp::as<plant::TF24_Environment>(st[k]));
-  }
+  const std::size_t N = EH.size(), nC = birth.size();
   std::vector<double> step_h(N);
   for (std::size_t n = 0; n < N; ++n) step_h[n] = sh[n + 1] - sh[n];
 
@@ -277,6 +276,47 @@ Rcpp::List tf24f_census_recon_impl(
     Rcpp::Named("collar") = collar,
     Rcpp::Named("log_density") = log_density,
     Rcpp::Named("density_new") = dens_new);
+}
+
+namespace {
+// Lossy: rebuild the per-RK-stage env from an R list (Rcpp::as<TF24_Environment>
+// reconstructs each light spline from its serialized knots via r_init_interpolators
+// -- NOT faithful for the crown-sampled light, the TF24f long-horizon census floor).
+std::vector<std::vector<plant::TF24_Environment>> eh_from_list(Rcpp::List eh_list) {
+  const std::size_t N = eh_list.size();
+  std::vector<std::vector<plant::TF24_Environment>> EH(N);
+  for (std::size_t n = 0; n < N; ++n) {
+    Rcpp::List st = eh_list[n];
+    for (R_xlen_t k = 0; k < st.size(); ++k)
+      EH[n].push_back(Rcpp::as<plant::TF24_Environment>(st[k]));
+  }
+  return EH;
+}
+} // namespace
+
+// [[Rcpp::export]]
+Rcpp::List tf24f_census_recon_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, double birth_rate, double k_acclim,
+    bool use_ad_gradient, std::vector<std::string> metrics, bool exact_ad_gprime) {
+  return tf24f_census_recon_core(pp, eh_from_list(eh_list), sh, birth, birth_rate,
+                                 k_acclim, use_ad_gradient, metrics, exact_ad_gprime);
+}
+
+// Native-SCM recon: faithful per-RK-stage env read directly from the live Patch.
+// scm_ is the RcppR6 SCM<TF24f,TF24_Env>; the wrapper + patch ref stay alive for the
+// (synchronous) core call, so the borrowed env history never dangles.
+// [[Rcpp::export]]
+Rcpp::List tf24f_census_recon_native(
+    SEXP scm_, Rcpp::NumericVector pp, std::vector<int> birth, double birth_rate,
+    double k_acclim, bool use_ad_gradient, std::vector<std::string> metrics,
+    bool exact_ad_gprime) {
+  auto scm = Rcpp::as<plant::RcppR6::RcppR6<
+    plant::SCM<plant::TF24f_Strategy, plant::TF24_Environment>>>(scm_);
+  const auto& patch = scm->r_patch();
+  return tf24f_census_recon_core(pp, patch.environment_history, patch.step_history,
+                                 birth, birth_rate, k_acclim, use_ad_gradient,
+                                 metrics, exact_ad_gprime);
 }
 
 
@@ -457,12 +497,14 @@ template <typename S> struct St7ad { plant::FF16State<S> demog; S collar; S log_
 // couple cohorts through the height-trapezium, so the reduction is taped over all
 // cohorts' final states together (one tape spanning the stand, sweeping per
 // metric). FROZEN resident light (the rare-mutant / invasion census gradient).
-// [[Rcpp::export]]
-Rcpp::List tf24f_census_gradient_ad_impl(
-    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
-    std::vector<int> birth, double birth_rate, double k_acclim, bool use_ad_gradient,
-    std::vector<std::string> traits, std::vector<std::string> metrics,
-    double trait_rel_step) {
+// Shared core (native EH; see tf24f_census_recon_core). The R-list (`_impl`) and
+// live-SCM (`_native`) entries below differ only in how EH is sourced.
+Rcpp::List tf24f_census_gradient_ad_core(
+    Rcpp::NumericVector pp,
+    const std::vector<std::vector<plant::TF24_Environment>>& EH,
+    std::vector<double> sh, std::vector<int> birth, double birth_rate,
+    double k_acclim, bool use_ad_gradient, std::vector<std::string> traits,
+    std::vector<std::string> metrics, double trait_rel_step) {
   using std::exp; using std::log;
   for (auto& nm : metrics)
     if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
@@ -496,13 +538,7 @@ Rcpp::List tf24f_census_gradient_ad_impl(
     dh0[k] = (sp[k].initial_height() - sm[k].initial_height()) / (2.0 * dk[k]);
   }
 
-  const std::size_t N = eh_list.size(), nC = birth.size();
-  std::vector<std::vector<plant::TF24_Environment>> EH(N);
-  for (std::size_t n = 0; n < N; ++n) {
-    Rcpp::List st = eh_list[n];
-    for (R_xlen_t k = 0; k < st.size(); ++k)
-      EH[n].push_back(Rcpp::as<plant::TF24_Environment>(st[k]));
-  }
+  const std::size_t N = EH.size(), nC = birth.size();
   std::vector<double> step_h(N);
   for (std::size_t n = 0; n < N; ++n) step_h[n] = sh[n + 1] - sh[n];
 
@@ -733,6 +769,30 @@ Rcpp::List tf24f_census_gradient_ad_impl(
   jac.attr("dimnames") = Rcpp::List::create(Rcpp::wrap(metrics), Rcpp::wrap(traits));
   values.attr("names") = Rcpp::wrap(metrics);
   return Rcpp::List::create(Rcpp::Named("jacobian") = jac, Rcpp::Named("values") = values);
+}
+
+// [[Rcpp::export]]
+Rcpp::List tf24f_census_gradient_ad_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, double birth_rate, double k_acclim, bool use_ad_gradient,
+    std::vector<std::string> traits, std::vector<std::string> metrics,
+    double trait_rel_step) {
+  return tf24f_census_gradient_ad_core(pp, eh_from_list(eh_list), sh, birth, birth_rate,
+    k_acclim, use_ad_gradient, traits, metrics, trait_rel_step);
+}
+
+// Native-SCM census gradient: faithful per-RK-stage env read from the live Patch.
+// [[Rcpp::export]]
+Rcpp::List tf24f_census_gradient_ad_native(
+    SEXP scm_, Rcpp::NumericVector pp, std::vector<int> birth, double birth_rate,
+    double k_acclim, bool use_ad_gradient, std::vector<std::string> traits,
+    std::vector<std::string> metrics, double trait_rel_step) {
+  auto scm = Rcpp::as<plant::RcppR6::RcppR6<
+    plant::SCM<plant::TF24f_Strategy, plant::TF24_Environment>>>(scm_);
+  const auto& patch = scm->r_patch();
+  return tf24f_census_gradient_ad_core(pp, patch.environment_history,
+    patch.step_history, birth, birth_rate, k_acclim, use_ad_gradient, traits,
+    metrics, trait_rel_step);
 }
 
 
