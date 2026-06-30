@@ -294,15 +294,6 @@ std::vector<int> tf24f_birth_steps(
 }
 } // namespace
 
-// [[Rcpp::export]]
-Rcpp::List tf24f_census_recon_impl(
-    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
-    std::vector<int> birth, double birth_rate, double k_acclim,
-    bool use_ad_gradient, std::vector<std::string> metrics, bool exact_ad_gprime) {
-  return tf24f_census_recon_core(pp, eh_from_list(eh_list), sh, birth, birth_rate,
-                                 k_acclim, use_ad_gradient, metrics, exact_ad_gprime);
-}
-
 // Native-SCM recon: faithful per-RK-stage env read directly from the live Patch.
 // scm_ is the RcppR6 SCM<TF24f,TF24_Env>; the wrapper + patch ref stay alive for the
 // (synchronous) core call, so the borrowed env history never dangles.
@@ -548,7 +539,7 @@ Rcpp::List tf24f_census_gradient_ad_core(
     return (stage == 0) ? ((n > 0) ? EH[n - 1][5] : EH[0][0]) : EH[n][stage - 1];
   };
 
-  // --- Per-cohort harvest of the double trajectory (mirrors tf24f_census_recon_impl's
+  // --- Per-cohort harvest of the double trajectory (mirrors tf24f_census_recon_core's
   // replay, recording the per-stage operating point + the seed). ----------------
   struct CohortH {
     std::size_t b; double collar0; LH seed;            // birth seed (h0, collar0)
@@ -771,16 +762,6 @@ Rcpp::List tf24f_census_gradient_ad_core(
   jac.attr("dimnames") = Rcpp::List::create(Rcpp::wrap(metrics), Rcpp::wrap(traits));
   values.attr("names") = Rcpp::wrap(metrics);
   return Rcpp::List::create(Rcpp::Named("jacobian") = jac, Rcpp::Named("values") = values);
-}
-
-// [[Rcpp::export]]
-Rcpp::List tf24f_census_gradient_ad_impl(
-    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
-    std::vector<int> birth, double birth_rate, double k_acclim, bool use_ad_gradient,
-    std::vector<std::string> traits, std::vector<std::string> metrics,
-    double trait_rel_step) {
-  return tf24f_census_gradient_ad_core(pp, eh_from_list(eh_list), sh, birth, birth_rate,
-    k_acclim, use_ad_gradient, traits, metrics, trait_rel_step);
 }
 
 // Native-SCM census gradient: faithful per-RK-stage env + birth steps from the live
@@ -1655,17 +1636,6 @@ std::vector<std::vector<double>> nn_from_list(Rcpp::List l) {
   return v;
 }
 } // namespace
-
-// [[Rcpp::export]]
-Rcpp::List tf24f_coupled_gradient_impl(
-    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
-    std::vector<int> birth, double birth_rate, double k_acclim, bool use_ad_gradient,
-    std::vector<std::string> traits, std::vector<std::string> metrics,
-    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, double trait_rel_step) {
-  return tf24f_coupled_gradient_core(pp, eh_from_list(eh_list), sh, birth, birth_rate,
-    k_acclim, use_ad_gradient, traits, metrics, nn_from_list(nn_h_list),
-    nn_from_list(nn_c_list), patch_area, trait_rel_step);
-}
 
 // Fully native TF24f coupled (resident) census gradient: env + birth steps + boundary
 // new_node history from the live Patch (no tf24f_harvest, no Rcpp::as<> env). species

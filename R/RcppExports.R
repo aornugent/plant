@@ -4597,10 +4597,6 @@ TF24f_Strategy__ctor <- function() {
     .Call('_plant_TF24f_Strategy__ctor', PACKAGE = 'plant')
 }
 
-ff16_reverse_tape_probe <- function(height, light_E) {
-    .Call('_plant_ff16_reverse_tape_probe', PACKAGE = 'plant', height, light_E)
-}
-
 ff16_offspring_production_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits) {
     .Call('_plant_ff16_offspring_production_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits)
 }
@@ -4617,10 +4613,6 @@ ff16_coupled_metrics_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw,
     .Call('_plant_ff16_coupled_metrics_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv)
 }
 
-ff16_coupled_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv = TRUE) {
-    .Call('_plant_ff16_coupled_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv)
-}
-
 ff16_coupled_gradient_native <- function(scm_, pp, species, traits, metrics, birth_rate, patch_area, active_birthenv = TRUE) {
     .Call('_plant_ff16_coupled_gradient_native', PACKAGE = 'plant', scm_, pp, species, traits, metrics, birth_rate, patch_area, active_birthenv)
 }
@@ -4631,10 +4623,6 @@ ff16_coupled_metrics_ms_impl <- function(pp_list, eh_list, sh, birth_list, metri
 
 ff16_coupled_gradient_ms_impl <- function(pp_list, eh_list, sh, birth_list, traits, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, target, active_birthenv = TRUE) {
     .Call('_plant_ff16_coupled_gradient_ms_impl', PACKAGE = 'plant', pp_list, eh_list, sh, birth_list, traits, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, target, active_birthenv)
-}
-
-ff16_census_reconstruct_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, birth_rate) {
-    .Call('_plant_ff16_census_reconstruct_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, birth_rate)
 }
 
 ff16_state_jacobian_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits) {
@@ -4740,10 +4728,6 @@ tf24_offspring_production_gradient_native <- function(scm_, pp, species, birth_r
     .Call('_plant_tf24_offspring_production_gradient_native', PACKAGE = 'plant', scm_, pp, species, birth_rate, traits)
 }
 
-tf24_stand_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate) {
-    .Call('_plant_tf24_stand_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate)
-}
-
 tf24_state_jacobian_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, birth_rate) {
     .Call('_plant_tf24_state_jacobian_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, birth_rate)
 }
@@ -4764,16 +4748,8 @@ tf24_fecundity_dt_grad_vcmax <- function(height, light_E) {
     .Call('_plant_tf24_fecundity_dt_grad_vcmax', PACKAGE = 'plant', height, light_E)
 }
 
-tf24f_census_recon_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime) {
-    .Call('_plant_tf24f_census_recon_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime)
-}
-
 tf24f_census_recon_native <- function(scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime) {
     .Call('_plant_tf24f_census_recon_native', PACKAGE = 'plant', scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime)
-}
-
-tf24f_census_gradient_ad_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, trait_rel_step) {
-    .Call('_plant_tf24f_census_gradient_ad_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, trait_rel_step)
 }
 
 tf24f_census_gradient_ad_native <- function(scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, traits, metrics, trait_rel_step) {
@@ -4790,10 +4766,6 @@ tf24f_coupled_metrics_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acc
 
 tf24f_coupled_gradient_core <- function(pp, EH, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, NNH, NNC, patch_area, trait_rel_step) {
     .Call('_plant_tf24f_coupled_gradient_core', PACKAGE = 'plant', pp, EH, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, NNH, NNC, patch_area, trait_rel_step)
-}
-
-tf24f_coupled_gradient_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, nn_h_list, nn_c_list, patch_area, trait_rel_step) {
-    .Call('_plant_tf24f_coupled_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, nn_h_list, nn_c_list, patch_area, trait_rel_step)
 }
 
 tf24f_coupled_gradient_native <- function(scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, traits, metrics, patch_area, trait_rel_step) {

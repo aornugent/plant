@@ -1374,21 +1374,6 @@ void grow_discover(const plant::FF16ProdPars<double>& pd, const plant::quadratur
 
 } // namespace
 
-// Reverse-mode probe (CI smoke test of the tape-at-load): d(fecundity_dt)/d(a_p1)
-// of a crown-top plant of the given height/light, via one backward sweep.
-// [[Rcpp::export]]
-double ff16_reverse_tape_probe(double height, double light_E) {
-  plant::FF16_Strategy s; s.control.shading_model = "crown-centre"; s.prepare_strategy();
-  auto pd = s.prod_pars();
-  double d_ap1;
-  { ad::tape_type tape; ad_t a_p1 = pd.a_p1; tape.registerInput(a_p1); tape.newRecording();
-    auto p = lift<ad_t>(pd); p.a_p1 = a_p1;
-    ad_t f = plant::ff16_compute_rates_crown_top<ad_t>(p, ad_t(height), ad_t(light_E), true).fecundity_dt;
-    tape.registerOutput(f); xad::derivative(f) = 1.0; tape.computeAdjoints();
-    d_ap1 = xad::derivative(a_p1); }
-  return d_ap1;
-}
-
 // Compiled core of offspring_production_gradient(). Takes the harvested resident
 // schedule (env per RK stage, step sizes), the per-cohort birth steps / weights /
 // survival, and the trait names to differentiate. Returns d(offspring_production)/
@@ -1670,20 +1655,6 @@ Rcpp::List ff16_coupled_gradient_core(
                             Rcpp::Named("values")   = values);
 }
 
-// [[Rcpp::export]]
-Rcpp::List ff16_coupled_gradient_impl(
-    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
-    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
-    std::vector<double> tw, std::vector<std::string> traits,
-    std::vector<std::string> metrics, double birth_rate,
-    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area,
-    bool active_birthenv = true) {
-  auto s = make_strategy(pp);
-  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
-  attach_coupled(F, s.pars.k_I, patch_area, nn_h_list, nn_c_list, active_birthenv);
-  return ff16_coupled_gradient_core(F, s, traits, metrics, birth_rate);
-}
-
 // FULLY native coupled gradient: the whole harvest + boundary new_node history come
 // from the live Patch (no R ff16_harvest, no Rcpp::as<> env). `species` 0-based;
 // birth_rate<0 recovers natively. This is the resident TOTAL trait gradient (every
@@ -1799,28 +1770,6 @@ Rcpp::List ff16_coupled_gradient_ms_impl(
   values.attr("names") = Rcpp::wrap(metrics);
   return Rcpp::List::create(Rcpp::Named("jacobian") = jac,
                             Rcpp::Named("values")   = values);
-}
-
-// De-risk accessor: reconstruct each cohort's census height + log_density (double
-// replay, no AD) to validate the census-density replay against the SCM's stored
-// per-node state before differentiating it.
-// [[Rcpp::export]]
-Rcpp::List ff16_census_reconstruct_impl(
-    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
-    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
-    std::vector<double> tw, double birth_rate) {
-  auto s  = make_strategy(pp);
-  auto pd = s.prod_pars();
-  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
-  const std::size_t nC = F.birth.size();
-  const double h0 = s.initial_height();
-  Rcpp::NumericVector height(nC), logd(nC);
-  for (std::size_t i = 0; i < nC; ++i) {
-    CensusState<double> y = replay_cohort_census<double>(pd, F, i, h0, birth_rate);
-    height[i] = y.demog.height; logd[i] = y.log_density;
-  }
-  return Rcpp::List::create(Rcpp::Named("height") = height,
-                            Rcpp::Named("log_density") = logd);
 }
 
 // Escape hatch (#472 scope B, build-order step 1): the per-cohort state x trait

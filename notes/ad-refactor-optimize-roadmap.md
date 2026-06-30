@@ -390,6 +390,41 @@ mirroring the SCM's `check_initial_density_rates`, and add `> 2`-species test co
 
 ### 2. Dead-code audit — flag anything not used by the core interface
 
+> **AUDIT DONE 2026-06-30 (caller-grep over every `[[Rcpp::export]]` in the 3 emergent
+> TUs, against `R/` non-generated + `tests/` + `scripts/` + C++ internal callers). The
+> handoff's "orphaned `_impl`, no callers" framing is only partly right — 3 of the 6
+> prime candidates are LIVE in the bench harness, and the `_impl` entries are the
+> perturbable-by-`pp` FD-reference surface the validation tests need (the `_native` twins
+> read a live Patch and can't be re-evaluated at a perturbed trait on the frozen harvest).
+> Verdict:**
+> - **REMOVED (commit follows this note): 7 entries** — the 4 truly-dead
+>   (`ff16_census_reconstruct_impl`, `tf24_stand_gradient_impl`, `tf24f_census_recon_impl`,
+>   `ff16_reverse_tape_probe`) + the 3 that were used **only** by `bench_gradient.R`'s
+>   `impl_ms` timing path (`ff16_coupled_gradient_impl`, `tf24f_census_gradient_ad_impl`,
+>   `tf24f_coupled_gradient_impl`). The bench was **reframed to call the public (native)
+>   entries only** (`public_ms` + the `val` regression digest; the migration-era
+>   `harvest_ms`/`impl_ms` split is gone — native fuses the harvest into the C++ call, so
+>   there is no separable R harvest left to time). `compileAttributes()` + `make compile`
+>   regenerated the bindings; fixture all PASS, suite FAIL=0 ERROR=0 SKIP=9 PASS=2587.
+> - **KEPT — the multi-species resident path's SOLE implementation (NOT legacy — never
+>   natived):** `ff16_coupled_gradient_ms_impl`, `ff16_coupled_metrics_ms_impl`,
+>   `tf24f_coupled_gradient_ms_impl` (the public `stand_gradient(feedback="resident")` MS
+>   path calls these directly). Removing them removes the MS gradient; eliminating their
+>   R harvest needs a native MS entry (a real follow-up, the migration single-species got).
+> - **KEPT — FD-reference surface in tests** (perturb `pp` on a frozen harvest, the
+>   "AD == FD over the SAME reconstruction" checks): `tf24f_offspring_gradient_impl`
+>   (`test-tf24f-census-gradient.R:153`), `ff16_state_jacobian_impl`,
+>   `tf24_state_jacobian_impl`, `ff16_coupled_metrics_impl`, `tf24f_coupled_metrics_impl`,
+>   `ff16_coupled_metrics_ms_impl`, `tf24_offspring_production_gradient_impl`.
+> - **`_core` (C++-internal, exported but R=0 by design):** `tf24f_coupled_gradient_core`,
+>   `tf24f_offspring_gradient_core` — called by their `_impl` + `_native`; keep (could
+>   drop the `[[Rcpp::export]]` to de-register the unused R binding, a minor follow-up).
+>
+> So the "collapse `_impl`/`_native`/`_core` triples" is NOT a clean win: the `_impl`
+> (raw-`pp`) and `_native` (live-Patch) entries serve genuinely different callers (FD
+> validation + benchmarking vs the fast public path). Recommended action: remove only the
+> 4 truly-dead entries; keep the rest as the deliberate test/bench surface.
+
 The native-harvest migration left a layer of `_impl` (R-list, `Rcpp::as<>`-env)
 back-compat entries that the public R API no longer calls (the API now routes to the
 `_native` entries). Audit all the new AD code and flag for likely removal. Concrete
