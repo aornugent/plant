@@ -246,10 +246,11 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
                metrics, if (is.null(birth_rate)) -1 else birth_rate, "frozen",
                list(), list(), scm$parameters$patch_area, -1, -1))
     }
-    h <- ff16_harvest(scm, species, birth_rate)
     if (feedback != "resident") {
       # The undocumented resident_noanchor validation mode -> the per-cohort frozen-
-      # canopy / leaf-area graft engine (needs the per-RK-stage stand harvest).
+      # canopy / leaf-area graft engine (needs the per-RK-stage stand harvest, so this
+      # rare path still uses the R harvest).
+      h <- ff16_harvest(scm, species, birth_rate)
       if (is_resident && length(h$sh_h) < 1L) {
         stop("feedback = 'resident' needs the per-RK-stage stand harvest; re-run the ",
              "resident SCM on this plant version with control(save_RK45_cache = TRUE)")
@@ -263,11 +264,11 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
     # canopy). Census metrics (LAI / biomass / size_moment) use the coupled total
     # gradient; offspring_production stays the FROZEN invasion gradient (the canopy a
     # rare mutant invades is the resident's, not co-moving with the mutant's trait).
-    if (length(h$nn_h) < 1L) {
-      stop("feedback = 'resident' needs the per-RK-stage stand + boundary-node ",
-           "harvest; re-run the resident SCM on this plant version with ",
-           "control(save_RK45_cache = TRUE)")
-    }
+    # Fully native for single-species: cheap params from $parameters (no scm$patch
+    # rebuild, no ff16_harvest); the boundary-node guard lives in the C++ entry.
+    pp <- unlist(scm$parameters$strategies[[species]]$pars)
+    patch_area <- scm$parameters$patch_area
+    br <- if (is.null(birth_rate)) -1 else birth_rate
     census_set <- c("LAI", "biomass", "size_moment")
     bad <- setdiff(metrics, c(census_set, "offspring_production"))
     if (length(bad)) stop("unknown stand metric: ", paste(bad, collapse = ", "))
@@ -276,13 +277,13 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
     jac <- matrix(0, length(metrics), length(traits),
                   dimnames = list(metrics, traits))
     values <- stats::setNames(numeric(length(metrics)), metrics)
-    nsp <- length(scm$patch$species)
+    nsp <- length(scm$parameters$strategies)
     if (length(census)) {
       if (nsp == 1L) {
         # Single-species coupled total gradient (canopy = this species' re-evolved stand).
-        gc <- ff16_coupled_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
-                h$ppsab, h$tw, traits, census, h$birth_rate, h$nn_h, h$nn_c,
-                h$patch_area)
+        # Fully native: env + harvest + boundary-node history from the live Patch.
+        gc <- ff16_coupled_gradient_native(scm, pp, as.integer(species - 1L),
+                traits, census, br, patch_area)
       } else {
         # Multi-species CROSS-SPECIES coupled Jacobian: the joint canopy is rebuilt from
         # ALL species' re-evolved cohorts and the census metrics are TOTAL-stand sums, so
@@ -314,8 +315,8 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
     }
     if (length(offsp)) {
       # offspring stays the FROZEN invasion gradient (fully native, like the frozen path).
-      go <- ff16_stand_gradient_native(scm, h$pp, as.integer(species - 1L), traits,
-              offsp, h$birth_rate, "frozen", list(), list(), h$patch_area, -1, -1)
+      go <- ff16_stand_gradient_native(scm, pp, as.integer(species - 1L), traits,
+              offsp, br, "frozen", list(), list(), patch_area, -1, -1)
       jac[offsp, ] <- go$jacobian[offsp, , drop = FALSE]
       values[offsp] <- go$values[offsp]
     }

@@ -1000,6 +1000,30 @@ void attach_coupled(Frozen& F, double kI, double area,
   }
 }
 
+// Native variant: the boundary new_node height/effect per RK stage come directly from
+// the live Patch's stand_newnode_*_stage_history (native [step][stage] doubles), so the
+// coupled path needs no R harvest at all. knot_x/knot_y0 are read from F.eh as above.
+void attach_coupled_native(Frozen& F, double kI, double area,
+                           const std::vector<std::vector<double>>& nn_h,
+                           const std::vector<std::vector<double>>& nn_c,
+                           bool active_birthenv = true) {
+  F.coupled = true; F.kI = kI; F.area = area;
+  F.coupled_active_birthenv = active_birthenv;
+  const std::size_t N = F.eh.size();
+  F.knot_x.resize(N); F.knot_y0.resize(N);
+  F.nn_h.resize(N); F.nn_c.resize(N);
+  for (std::size_t n = 0; n < N; ++n) {
+    const std::size_t ns = F.eh[n].size();
+    F.knot_x[n].resize(ns); F.knot_y0[n].resize(ns);
+    for (std::size_t s = 0; s < ns; ++s) {
+      F.knot_x[n][s]  = F.eh[n][s].light_availability.spline.get_x();
+      F.knot_y0[n][s] = F.eh[n][s].light_availability.spline.get_y();
+    }
+    F.nn_h[n] = nn_h[n];
+    F.nn_c[n] = nn_c[n];
+  }
+}
+
 // ===========================================================================
 // MULTI-SPECIES COUPLED replay (#472 scope B, R2 -- the cross-species resident
 // Jacobian). All species' cohorts are re-evolved TOGETHER over the frozen schedule;
@@ -1636,18 +1660,13 @@ Rcpp::List ff16_coupled_metrics_impl(
 // full metrics x traits Jacobian. Validate vs an FD over ff16_coupled_metrics_impl
 // (the SAME coupled reconstruction, frozen geometry) -- AD and FD differentiate one
 // function. nn_h_list/nn_c_list: boundary new_node height/effect per cached stage.
-// [[Rcpp::export]]
-Rcpp::List ff16_coupled_gradient_impl(
-    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
-    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
-    std::vector<double> tw, std::vector<std::string> traits,
-    std::vector<std::string> metrics, double birth_rate,
-    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area,
-    bool active_birthenv = true) {
-  auto s  = make_strategy(pp);
+// Shared core of the coupled-gradient entries: F already has the coupled canopy
+// attached. The R-list (`_impl`) and native-SCM (`_native`) entries differ only in
+// how F is built (lossy eh_list + R harvest vs faithful native Patch read).
+Rcpp::List ff16_coupled_gradient_core(
+    Frozen& F, const plant::FF16_Strategy& s, std::vector<std::string> traits,
+    std::vector<std::string> metrics, double birth_rate) {
   auto pd = s.prod_pars();
-  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
-  attach_coupled(F, s.pars.k_I, patch_area, nn_h_list, nn_c_list, active_birthenv);
   for (auto& nm : metrics)
     if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
       Rcpp::stop("coupled gradient: expected LAI / biomass / size_moment, got " + nm);
@@ -1681,6 +1700,49 @@ Rcpp::List ff16_coupled_gradient_impl(
   values.attr("names") = Rcpp::wrap(metrics);
   return Rcpp::List::create(Rcpp::Named("jacobian") = jac,
                             Rcpp::Named("values")   = values);
+}
+
+// [[Rcpp::export]]
+Rcpp::List ff16_coupled_gradient_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, std::vector<std::string> traits,
+    std::vector<std::string> metrics, double birth_rate,
+    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area,
+    bool active_birthenv = true) {
+  auto s = make_strategy(pp);
+  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
+  attach_coupled(F, s.pars.k_I, patch_area, nn_h_list, nn_c_list, active_birthenv);
+  return ff16_coupled_gradient_core(F, s, traits, metrics, birth_rate);
+}
+
+// FULLY native coupled gradient: the whole harvest + boundary new_node history come
+// from the live Patch (no R ff16_harvest, no Rcpp::as<> env). `species` 0-based;
+// birth_rate<0 recovers natively. This is the resident TOTAL trait gradient (every
+// trait re-shades the canopy) -- the selection-gradient path.
+// [[Rcpp::export]]
+Rcpp::List ff16_coupled_gradient_native(
+    SEXP scm_, Rcpp::NumericVector pp, int species, std::vector<std::string> traits,
+    std::vector<std::string> metrics, double birth_rate, double patch_area,
+    bool active_birthenv = true) {
+  auto scm = Rcpp::as<plant::RcppR6::RcppR6<
+    plant::SCM<plant::FF16_Strategy, plant::FF16_Environment>>>(scm_);
+  const auto& patch = scm->r_patch();
+  if (patch.stand_newnode_height_stage_history.size() < 1)
+    Rcpp::stop("feedback = 'resident' needs the per-RK-stage boundary-node harvest; "
+               "re-run the resident SCM with control(save_RK45_cache = TRUE)");
+  auto s = make_strategy(pp);
+  double br = birth_rate;
+  if (br < 0.0) {
+    const auto op = scm->offspring_production();
+    const auto nrr = scm->net_reproduction_ratios();
+    br = op[(std::size_t)species] / nrr[(std::size_t)species];
+  }
+  Frozen F = build_frozen_scm(s, patch, (std::size_t)species, br);
+  attach_coupled_native(F, s.pars.k_I, patch_area,
+                        patch.stand_newnode_height_stage_history,
+                        patch.stand_newnode_competition_stage_history, active_birthenv);
+  return ff16_coupled_gradient_core(F, s, traits, metrics, br);
 }
 
 // R0 gate for the MULTI-SPECIES coupled replay (#472 scope B, R2): a double-precision
