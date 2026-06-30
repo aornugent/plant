@@ -257,10 +257,15 @@ tf24f_grow_individual_to_size_gradient_fd <- function(individual, sizes, size_na
 # vector + the reconstructed value.
 tf24f_offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
                                                 birth_rate = NULL, trait_rel_step = 1e-5) {
+  tf24f_require_strategy(scm)
   if (is.null(traits)) traits <- tf24_default_traits()
-  h <- tf24f_harvest(scm, species, birth_rate)
-  tf24f_offspring_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab,
-                                h$tw, h$k_acclim, h$use_ad_gradient, traits, trait_rel_step)
+  # Fully native (mirrors FF16's offspring path): env + offspring harvest from the
+  # live Patch; tf24f_harvest skipped. birth_rate < 0 recovers natively.
+  strat <- scm$parameters$strategies[[species]]
+  tf24f_offspring_gradient_native(scm, unlist(strat$pars), as.integer(species - 1L),
+                                  if (is.null(birth_rate)) -1 else birth_rate,
+                                  strat$k_acclim, strat$use_ad_gradient, traits,
+                                  trait_rel_step)
 }
 
 # TF24f COUPLED census reconstruction -- the resident R0 gate (#472 scope B step 5,

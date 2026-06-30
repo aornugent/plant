@@ -42,10 +42,16 @@
 ##' @export
 tf24_offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
                                                birth_rate = NULL) {
+  types <- extract_RcppR6_template_types(scm$parameters, "Parameters")
+  if (!identical(types[[1]], "TF24"))
+    stop("TF24 stand gradients are implemented for the TF24 strategy only")
   if (is.null(traits)) traits <- tf24_default_traits()
-  h <- tf24_harvest(scm, species, birth_rate)
-  tf24_offspring_production_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
-                                          h$ppsab, h$tw, traits)
+  # Fully native (mirrors FF16's offspring path): env + offspring harvest from the
+  # live Patch; tf24_harvest skipped. birth_rate < 0 recovers natively.
+  pp <- unlist(scm$parameters$strategies[[species]]$pars)
+  tf24_offspring_production_gradient_native(scm, pp, as.integer(species - 1L),
+                                            if (is.null(birth_rate)) -1 else birth_rate,
+                                            traits)
 }
 
 # The 27 net-production TF24 trait names (10 leaf + 17 mass-cascade) the emergent

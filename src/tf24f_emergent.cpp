@@ -1711,11 +1711,12 @@ St7off<S> st7off_axpy(const St7off<S>& a, double c, const St7off<S>& k) {
 // tw-weighted offspring sum. The tracked collar is carried as a taped state (the lag the
 // envelope theorem does not zero), seeded at the birth optimum (IFT-injected).
 // [[Rcpp::export]]
-Rcpp::List tf24f_offspring_gradient_impl(
-    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
-    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
-    std::vector<double> tw, double k_acclim, bool use_ad_gradient,
-    std::vector<std::string> traits, double trait_rel_step) {
+Rcpp::List tf24f_offspring_gradient_core(
+    Rcpp::NumericVector pp,
+    const std::vector<std::vector<plant::TF24_Environment>>& EH,
+    std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv,
+    std::vector<double> ppsab, std::vector<double> tw, double k_acclim,
+    bool use_ad_gradient, std::vector<std::string> traits, double trait_rel_step) {
   using std::exp; using std::log;
   plant::TF24f_Strategy s = make_tf24f(pp, k_acclim, use_ad_gradient);
   plant::TF24ProdPars<double> pd = s.prod_pars();
@@ -1741,13 +1742,7 @@ Rcpp::List tf24f_offspring_gradient_impl(
     dh0[k] = (sp[k].initial_height() - sm[k].initial_height()) / (2.0 * dk[k]);
   }
 
-  const std::size_t N = eh_list.size(), nC = birth.size();
-  std::vector<std::vector<plant::TF24_Environment>> EH(N);
-  for (std::size_t n = 0; n < N; ++n) {
-    Rcpp::List st = eh_list[n];
-    for (R_xlen_t k = 0; k < st.size(); ++k)
-      EH[n].push_back(Rcpp::as<plant::TF24_Environment>(st[k]));
-  }
+  const std::size_t N = EH.size(), nC = birth.size();
   std::vector<double> step_h(N);
   for (std::size_t n = 0; n < N; ++n) step_h[n] = sh[n + 1] - sh[n];
   auto env_at = [&](std::size_t n, int stage) -> const plant::TF24_Environment& {
@@ -1840,6 +1835,36 @@ Rcpp::List tf24f_offspring_gradient_impl(
   out.attr("offspring_production") = as_dbl(acc);
   return Rcpp::List::create(Rcpp::Named("gradient") = out,
                             Rcpp::Named("value") = as_dbl(acc));
+}
+
+// [[Rcpp::export]]
+Rcpp::List tf24f_offspring_gradient_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, double k_acclim, bool use_ad_gradient,
+    std::vector<std::string> traits, double trait_rel_step) {
+  return tf24f_offspring_gradient_core(pp, eh_from_list(eh_list), sh, birth, ppsurv,
+    ppsab, tw, k_acclim, use_ad_gradient, traits, trait_rel_step);
+}
+
+// Fully native TF24f offspring (invasion/selection) gradient: env + the offspring
+// harvest (birth steps, trapezoid weights, per-RK-stage + at-birth survival) built
+// from the live Patch -- no tf24f_harvest, mirroring FF16's offspring path.
+// [[Rcpp::export]]
+Rcpp::List tf24f_offspring_gradient_native(
+    SEXP scm_, Rcpp::NumericVector pp, int species, double birth_rate, double k_acclim,
+    bool use_ad_gradient, std::vector<std::string> traits, double trait_rel_step) {
+  auto scm = Rcpp::as<plant::RcppR6::RcppR6<
+    plant::SCM<plant::TF24f_Strategy, plant::TF24_Environment>>>(scm_);
+  const auto& patch = scm->r_patch();
+  double br = plant::gradient::recover_birth_rate(scm, (std::size_t)species, birth_rate);
+  auto w = plant::gradient::offspring_weights(patch, (std::size_t)species,
+                                              pp["S_D"], br);
+  Rcpp::NumericMatrix ppsurv((int)w.N, 6);
+  for (std::size_t k = 0; k < w.N; ++k)
+    for (int st = 0; st < 6; ++st) ppsurv((int)k, st) = w.ppsurv[k * 6 + (std::size_t)st];
+  return tf24f_offspring_gradient_core(pp, patch.environment_history, patch.step_history,
+    w.birth, ppsurv, w.ppsab, w.tw, k_acclim, use_ad_gradient, traits, trait_rel_step);
 }
 
 

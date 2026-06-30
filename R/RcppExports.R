@@ -4736,6 +4736,10 @@ tf24_offspring_production_gradient_impl <- function(pp, eh_list, sh, birth, ppsu
     .Call('_plant_tf24_offspring_production_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits)
 }
 
+tf24_offspring_production_gradient_native <- function(scm_, pp, species, birth_rate, traits) {
+    .Call('_plant_tf24_offspring_production_gradient_native', PACKAGE = 'plant', scm_, pp, species, birth_rate, traits)
+}
+
 tf24_stand_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate) {
     .Call('_plant_tf24_stand_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate)
 }
@@ -4796,8 +4800,16 @@ tf24f_coupled_gradient_native <- function(scm_, pp, species, birth_rate, k_accli
     .Call('_plant_tf24f_coupled_gradient_native', PACKAGE = 'plant', scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, traits, metrics, patch_area, trait_rel_step)
 }
 
+tf24f_offspring_gradient_core <- function(pp, EH, sh, birth, ppsurv, ppsab, tw, k_acclim, use_ad_gradient, traits, trait_rel_step) {
+    .Call('_plant_tf24f_offspring_gradient_core', PACKAGE = 'plant', pp, EH, sh, birth, ppsurv, ppsab, tw, k_acclim, use_ad_gradient, traits, trait_rel_step)
+}
+
 tf24f_offspring_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, k_acclim, use_ad_gradient, traits, trait_rel_step) {
     .Call('_plant_tf24f_offspring_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, k_acclim, use_ad_gradient, traits, trait_rel_step)
+}
+
+tf24f_offspring_gradient_native <- function(scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, traits, trait_rel_step) {
+    .Call('_plant_tf24f_offspring_gradient_native', PACKAGE = 'plant', scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, traits, trait_rel_step)
 }
 
 tf24f_coupled_gradient_ms_impl <- function(pp_list, eh_list, sh, birth_list, birth_rate, k_acclim, use_ad_gradient, traits, metrics, nn_h_list, nn_c_list, patch_area, target, trait_rel_step, gate_only) {

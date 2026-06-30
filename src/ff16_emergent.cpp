@@ -478,36 +478,17 @@ Frozen build_frozen_scm(
   F.step_h.resize(N);
   for (std::size_t n = 0; n < N; ++n) F.step_h[n] = sh[n + 1] - sh[n];
 
-  const auto& sp = patch.at_species(species);
-  const std::vector<double> nt    = sp.node_times();
-  const std::vector<double> pdens = sp.r_patch_densities();
-  F.ppsab = sp.r_pr_patch_survival_at_birth();
-  const std::size_t nC = nt.size();
-
-  // Cohort birth steps: the step time nearest each node introduction time (0-based).
-  F.birth = plant::gradient::birth_steps(patch, species);
+  // Birth steps / trapezoid weights / per-RK-stage + at-birth survival: the shared
+  // native offspring harvest (identical computation across FF16 / TF24 / TF24f).
+  auto w = plant::gradient::offspring_weights(patch, species, s.pars.S_D, birth_rate);
+  F.birth = w.birth; F.ppsab = w.ppsab; F.tw = w.tw;
+  const std::size_t nC = F.birth.size();
   F.decay.resize(nC);
   for (std::size_t i = 0; i < nC; ++i)
     F.decay[i] = std::exp(-s.pars.recruitment_decay * sh[(std::size_t)F.birth[i]]);
-
-  // Node-spacing trapezoid weights so offspring_production = sum_i tw_i * offspring_i.
-  std::vector<double> tcoef(nC, 0.0);
-  if (nC >= 2) {
-    tcoef[0] = 0.5 * (nt[1] - nt[0]);
-    tcoef[nC - 1] = 0.5 * (nt[nC - 1] - nt[nC - 2]);
-    for (std::size_t i = 1; i + 1 < nC; ++i) tcoef[i] = 0.5 * (nt[i + 1] - nt[i - 1]);
-  }
-  const double S_D = s.pars.S_D;
-  F.tw.resize(nC);
-  for (std::size_t i = 0; i < nC; ++i) F.tw[i] = tcoef[i] * pdens[i] * S_D * birth_rate;
-
-  // pr_patch_survival at the exact Cash-Karp stage times sh[k] + ah[s]*h.
-  const double ah[6] = {0.0, 0.2, 0.3, 0.6, 1.0, 0.875};
   Rcpp::NumericMatrix ppsurv((int)N, 6);
-  for (std::size_t k = 0; k < N; ++k) {
-    const double hN = sh[k + 1] - sh[k];
-    for (int st = 0; st < 6; ++st) ppsurv((int)k, st) = patch.r_pr_survival(sh[k] + ah[st] * hN);
-  }
+  for (std::size_t k = 0; k < N; ++k)
+    for (int st = 0; st < 6; ++st) ppsurv((int)k, st) = w.ppsurv[k * 6 + (std::size_t)st];
   F.ppsurv = ppsurv;
   return F;
 }

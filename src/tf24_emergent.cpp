@@ -31,6 +31,7 @@
 #include <plant/models/tf24_strategy.h>
 #include <plant/models/tf24_production_kernel.h>
 #include <plant/models/ff16_production_kernel.h>   // ff16_cashkarp_replay, FF16(Life)State
+#include <plant/gradient/scm_harvest.h>            // shared native offspring harvest
 
 using ad   = xad::adj<double>;
 using ad_t = ad::active_type;
@@ -261,19 +262,16 @@ Full<S> tf24_replay_full(const plant::TF24ProdPars<S>& pf, const std::vector<H>&
 // d(offspring_production)/d(trait) (named) with attr "offspring_production" (the value
 // reconstructed by the replay). Reverse mode, per cohort; establishment + height_0
 // differentiated; resident light frozen.
-// [[Rcpp::export]]
-Rcpp::NumericVector tf24_offspring_production_gradient_impl(
-    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
-    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
-    std::vector<double> tw, std::vector<std::string> traits) {
+Rcpp::NumericVector tf24_offspring_production_gradient_core(
+    Rcpp::NumericVector pp,
+    std::vector<std::vector<plant::TF24_Environment>> EH,   // by value: harvest_cohort needs a mutable stand
+    std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv,
+    std::vector<double> ppsab, std::vector<double> tw, std::vector<std::string> traits) {
   plant::TF24_Strategy s0 = make_strategy(pp);
   plant::TF24ProdPars<double> pd = s0.prod_pars();
   const double h0v = s0.initial_height(), a_d0 = s0.pars.a_d0;
 
-  const std::size_t N = eh_list.size();
-  std::vector<std::vector<plant::TF24_Environment>> EH(N);
-  for (std::size_t n=0;n<N;++n){Rcpp::List st=eh_list[n];
-    for(R_xlen_t k=0;k<st.size();++k) EH[n].push_back(Rcpp::as<plant::TF24_Environment>(st[k]));}
+  const std::size_t N = EH.size();
   std::vector<double> step_h(N); for(std::size_t n=0;n<N;++n) step_h[n]=sh[n+1]-sh[n];
 
   const std::size_t T = TRAITS.size();
@@ -319,6 +317,37 @@ Rcpp::NumericVector tf24_offspring_production_gradient_impl(
   out.attr("names")=Rcpp::wrap(traits);
   out.attr("offspring_production")=offspring;
   return out;
+}
+
+// [[Rcpp::export]]
+Rcpp::NumericVector tf24_offspring_production_gradient_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, std::vector<std::string> traits) {
+  const std::size_t N = eh_list.size();
+  std::vector<std::vector<plant::TF24_Environment>> EH(N);
+  for (std::size_t n=0;n<N;++n){Rcpp::List st=eh_list[n];
+    for(R_xlen_t k=0;k<st.size();++k) EH[n].push_back(Rcpp::as<plant::TF24_Environment>(st[k]));}
+  return tf24_offspring_production_gradient_core(pp, EH, sh, birth, ppsurv, ppsab, tw, traits);
+}
+
+// Fully native TF24 offspring (invasion/selection) gradient: env + the offspring
+// harvest (birth steps, trapezoid weights, per-RK-stage + at-birth survival) built
+// from the live Patch -- no R harvest, mirroring FF16's offspring path.
+// [[Rcpp::export]]
+Rcpp::NumericVector tf24_offspring_production_gradient_native(
+    SEXP scm_, Rcpp::NumericVector pp, int species, double birth_rate,
+    std::vector<std::string> traits) {
+  auto scm = Rcpp::as<plant::RcppR6::RcppR6<
+    plant::SCM<plant::TF24_Strategy, plant::TF24_Environment>>>(scm_);
+  const auto& patch = scm->r_patch();
+  double br = plant::gradient::recover_birth_rate(scm, (std::size_t)species, birth_rate);
+  auto w = plant::gradient::offspring_weights(patch, (std::size_t)species, pp["S_D"], br);
+  Rcpp::NumericMatrix ppsurv((int)w.N, 6);
+  for (std::size_t k = 0; k < w.N; ++k)
+    for (int st = 0; st < 6; ++st) ppsurv((int)k, st) = w.ppsurv[k * 6 + (std::size_t)st];
+  return tf24_offspring_production_gradient_core(pp, patch.environment_history,
+    patch.step_history, w.birth, ppsurv, w.ppsab, w.tw, traits);
 }
 
 namespace {
