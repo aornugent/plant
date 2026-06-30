@@ -322,3 +322,72 @@ Each PR carries its slice of the timing-history table and its fixture verdict.
 - New: `scripts/bench_gradient.R`, `tests/testthat/fixtures/gradient-baseline.rds`,
   `tests/testthat/test-gradient-regression.R`, `notes/profile-gradient-2026-06-30.md`;
   extend `scripts/profile-benchmarks.R`.
+
+---
+
+## Jobs for next session (handoff 2026-06-30)
+
+Recorded at the end of the refactor/optimize + API-consolidation session. Phases 1–4
+are done and committed; the suite is green (FAIL=0 ERROR=0 SKIP=9 PASS=2350) and the
+AD-vs-AD fixture is bit-identical. Two follow-ups remain:
+
+### 1. Multi-species coupled resident gradient — make it reliable
+
+`stand_gradient(feedback = "resident")` on a multi-species stand (the cross-species
+total `d(total-stand metric)/d(θ_s)`) is **not fully functional**:
+
+- It works for a **small trait set** on a 2-species **fixed** node schedule (validated
+  with `traits = c("lma", "a_p1")` in `test-ff16-stand-gradient.R` and the guide's
+  multi-species chunk), but the **default 28-trait** sweep drives some cross-species
+  feedbacks to **NaN** — so it is currently pinned to a hand-picked trait subset.
+- **> 2 species is untested.**
+- On an adaptively-**refined** schedule it can go stiff (a cohort's `log_density` runs
+  away); the public path gates this with a clear error (see the "instability" section
+  of the guide), so it is fixed-schedule-only.
+
+Goal: get it running reliably **for all traits** and **for > 2 species**. Likely work:
+diagnose which traits NaN and why (the `log_density` runaway / `g'` near-cancellation in
+the joint re-evolution is the prime suspect), consider the `log_density`-rate cap
+mirroring the SCM's `check_initial_density_rates`, and add `> 2`-species test coverage.
+
+### 2. Dead-code audit — flag anything not used by the core interface
+
+The native-harvest migration left a layer of `_impl` (R-list, `Rcpp::as<>`-env)
+back-compat entries that the public R API no longer calls (the API now routes to the
+`_native` entries). Audit all the new AD code and flag for likely removal. Concrete
+starting points (each "no R/test caller" per a `grep` of `R/` + `tests/` — **verify**
+before deleting, some are still used by FD-reference tests):
+
+- Orphaned exported `*_impl` C++ entries (prime candidates):
+  `tf24_stand_gradient_impl` (TF24 offspring now routes to `*_native`),
+  `ff16_coupled_gradient_impl`, `ff16_census_reconstruct_impl`,
+  `tf24f_census_gradient_ad_impl`, `tf24f_census_recon_impl`,
+  `tf24f_coupled_gradient_impl`. (Keep the `_native` + the `_core` they share; remove
+  the dead `_impl` wrappers + their RcppR6 exports.)
+- The `_impl` / `_native` / `_core` triplication generally: once an `_impl` has no
+  caller, collapse to `_core` + `_native`.
+- `scripts/ad_*.R` (≈21 sourceCpp prototypes) + the kept demo scripts: superseded by the
+  compiled paths + the guide. **Decision (Dan):** scripts/examples may be **kept for the
+  commit onto `develop`** (so they are in history) and **deleted in a follow-up** if we
+  judge the history value worth it — i.e. don't delete pre-merge; revisit post-merge.
+- The 7 FF16 sourceCpp AD test files that `skip()` under load_all/CI ("AD tape symbols
+  unavailable") — decide: convert to exercise the compiled path, or retire (the compiled
+  path is already covered by `test-ff16-stand-gradient` + the regression fixture).
+
+Method: a `grep`-for-callers pass over every `[[Rcpp::export]]` and new R function;
+anything reachable only from removed/▾dead paths is a removal candidate. The Phase-1
+fixture + full suite gate every deletion (must stay FAIL=0, bit-identical).
+
+### 3. Derivative w.r.t. birth_rate of all species (new capability)
+
+A new gradient *axis* (not a trait): `d(emergent metric)/d(birth_rate_s)` for every
+species' birth-rate driver. **Use case (Dan):** evolving the community toward
+**demographic equilibrium** — birth_rate enters the offspring weighting (`tw ∝
+birth_rate`) and the establishment initial condition, so its derivative gives the
+Newton/gradient step that drives the stand to self-replacement (e.g.
+`net_reproduction_ratio → 1`, or a target `offspring_production`). Additive to the
+existing tape: register the per-species `birth_rate` as an AD input alongside (or
+instead of) the traits in the reverse sweep — the harvest already carries it as a
+scalar. Likely a `birth_rate = TRUE`-style option on `stand_gradient` returning the
+metrics × species birth-rate sensitivities (and the cross-species block for the
+multi-species coupled path).
