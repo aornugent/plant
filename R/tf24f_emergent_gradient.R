@@ -304,13 +304,39 @@ tf24f_resident_census_gradient_ad <- function(scm, metrics = c("LAI", "size_mome
                                               birth_rate = NULL, trait_rel_step = 1e-5) {
   tf24f_require_strategy(scm)
   if (is.null(traits)) traits <- tf24_default_traits()
-  # Fully native: env + birth steps + boundary-node history from the live Patch (no
-  # tf24f_harvest, no Rcpp::as<> env). The boundary-node guard lives in the C++ entry.
+  # R0 gate (mirrors the multi-species path and FF16's coupled gate). The coupled double
+  # re-evolution must reproduce the resident stand before the linearised sensitivity tape
+  # is trusted. Past a short horizon the frozen-step replay drifts (joint env_err jumps
+  # ~1e-6 -> 1e-2 beyond patch lifetime ~4) and the coupled log_density<->canopy
+  # sensitivity runs away: TF24f's deeply-shaded leaf has a LARGE dprofit_dL, so the
+  # high-density shaded cohorts strongly amplify the canopy-reshaping feedback -- a
+  # stiffness the live SCM only tames by stepping ADAPTIVELY through it. The replay reuses
+  # the SCM's frozen step sizes, so the linearised sensitivity diverges (finite-but-
+  # astronomical, then NaN) with horizon. (FF16 stays robust to long horizons because its
+  # closed-form net has a bounded light response -- no leaf-solve light amplification.)
+  # Gate with a clear error rather than return NaN / garbage. feedback = "frozen" (the
+  # invasion gradient) is robust at all horizons.
+  diverged <- function(ee)
+    stop("the TF24f coupled (resident) census re-evolution is too stiff on this node ",
+         "schedule (joint env drift = ", signif(ee, 3), "). The single-species resident ",
+         "census gradient is reliable only on a short, finely-resolved FIXED schedule ",
+         "(patch lifetime ~4); use a shorter max_patch_lifetime or a finer fixed node ",
+         "schedule, or use feedback = 'frozen' (the invasion gradient, robust at all ",
+         "horizons).")
+  r0 <- tf24f_coupled_metrics(scm, metrics = metrics, species = species,
+                              birth_rate = birth_rate)
+  if (!all(is.finite(r0$values)) || r0$env_err > 1e-2) diverged(r0$env_err)
+  # Fully native gradient: env + birth steps + boundary-node history from the live Patch
+  # (no tf24f_harvest, no Rcpp::as<> env). The boundary-node guard lives in the C++ entry.
   strat <- scm$parameters$strategies[[species]]
-  tf24f_coupled_gradient_native(scm, unlist(strat$pars), as.integer(species - 1L),
-                                if (is.null(birth_rate)) -1 else birth_rate,
-                                strat$k_acclim, strat$use_ad_gradient, traits, metrics,
-                                scm$parameters$patch_area, trait_rel_step)
+  g <- tf24f_coupled_gradient_native(scm, unlist(strat$pars), as.integer(species - 1L),
+                                     if (is.null(birth_rate)) -1 else birth_rate,
+                                     strat$k_acclim, strat$use_ad_gradient, traits, metrics,
+                                     scm$parameters$patch_area, trait_rel_step)
+  # Post-sweep guard: the linearised tape can still blow up (finite but astronomically
+  # large) where the gate passes but the sensitivity is stiff; reject rather than mislead.
+  if (!all(is.finite(g$jacobian)) || max(abs(g$jacobian)) > 1e12) diverged(r0$env_err)
+  g
 }
 
 # Harvest a multi-species TF24f SCM into the all-species arrays the cross-species coupled

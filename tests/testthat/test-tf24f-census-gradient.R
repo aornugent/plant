@@ -345,3 +345,31 @@ test_that("tf24f census recon is strategy-guarded", {
   scm <- run_scm(p, Environment("TF24"), ctlc, refine_schedule = FALSE)
   expect_error(plant:::tf24f_census_recon(scm), "TF24f strategy only")
 })
+
+test_that("tf24f single-species coupled gradient gates the long-horizon stiff replay", {
+  # The coupled (resident) census gradient re-evolves the whole stand over the SCM's
+  # FROZEN step schedule. Past a short horizon (~patch lifetime 4) that frozen-step
+  # replay drifts and the coupled log_density<->canopy sensitivity runs away -- TF24f's
+  # deeply-shaded leaf has a large dprofit_dL, so high-density shaded cohorts amplify a
+  # canopy-reshaping feedback the live SCM only tames by stepping ADAPTIVELY. The
+  # linearised sensitivity then diverges (finite-but-astronomical -> NaN) with horizon.
+  # The path must GATE that with a clear error (mirroring the multi-species path and
+  # FF16's coupled gate), not return NaN / garbage.
+  scm4 <- tf24f_small_scm(H = 4L)
+  g <- plant:::tf24f_resident_census_gradient_ad(scm4, metrics = c("LAI", "size_moment"),
+                                                 traits = c("vcmax_25", "lma"))
+  expect_true(all(is.finite(g$jacobian)))          # short horizon: still reliable
+  # A long horizon is rejected with an actionable message, NOT a NaN/astronomical Jacobian.
+  scm6 <- tf24f_small_scm(H = 6L)
+  expect_error(
+    plant:::tf24f_resident_census_gradient_ad(scm6, metrics = c("LAI", "size_moment"),
+                                              traits = c("vcmax_25", "lma")),
+    "too stiff")
+  # The public entry gates identically.
+  expect_error(stand_gradient(scm6, metrics = "LAI", traits = "lma", feedback = "resident"),
+               "too stiff")
+  # The FROZEN (invasion) gradient stays robust at the same long horizon.
+  gf <- plant:::tf24f_census_gradient_ad(scm6, metrics = c("LAI", "size_moment"),
+                                         traits = c("vcmax_25", "lma"))
+  expect_true(all(is.finite(gf$jacobian)))
+})
