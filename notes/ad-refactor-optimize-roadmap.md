@@ -333,6 +333,44 @@ AD-vs-AD fixture is bit-identical. Two follow-ups remain:
 
 ### 1. Multi-species coupled resident gradient — make it reliable
 
+> **DONE 2026-06-30 (FF16 fully; TF24f boundary-cohort fixed, one TF24f follow-up left).**
+> Root cause of the default-28-trait NaN was **not** a `log_density` runaway — it was a
+> single trait, **`a_l2`**, on LAI/biomass: a cohort whose introduction time lands on the
+> final step (`birth_step == N`, which always happens for the last node at
+> `max_patch_lifetime`) was **never established** by the coupled re-evolution loop
+> (`for rn < N`), so its census height stayed at the zero-initialised value. The frozen
+> engine's per-cohort `replay_cohort_full` establishes such a cohort at `h0` then runs zero
+> Cash-Karp steps, so it never had a zero-height cohort — that asymmetry was the bug. With
+> a zero height, `area_leaf = (h/a_l1)^(1/a_l2)` is differentiated at `h=0`, giving
+> `0*log(0) = NaN` in the `a_l2` column (FF16 localised it there; TF24f's shared census
+> tape was poisoned to all-NaN). The zero-height cohort also **biased the census VALUE**
+> (the coupled total only matched the frozen-summed reference to ~5e-3 before; ~1e-7 after).
+> **Fix:** after the `rn < N` loop, establish any still-unborn cohort (`birth >= N`) at `h0`
+> in the frozen final birth env, never stepped — mirrors the frozen engine exactly.
+> Applied to FF16 (`assemble_metrics_coupled`, `assemble_metrics_coupled_ms`) and TF24f
+> (all four coupled loops: `tf24f_coupled_metrics_impl`, `tf24f_coupled_gradient_core`, and
+> the two MS loops in `tf24f_coupled_gradient_ms_impl`). Validated: all 28 FF16 traits
+> finite single + multi-species; **> 2 species** works (3-species, every target, R0 value
+> == frozen-summed to ~1e-8); `a_l2` AD == FD-of-recon to ~1e-3. New regression tests in
+> `test-ff16-stand-gradient.R` (all-traits-finite + >2-species) and
+> `test-tf24f-census-gradient.R` (boundary-cohort). Re-snapshotted `ff16_resident`,
+> `ff16_resident_ms`, `tf24f_resident` (the old snapshots had the corrupted-value bug).
+> Full suite FAIL=0 ERROR=0 SKIP=9 PASS=2587; fixture all PASS. FF16 robust to long stands
+> (lifetime 140). **Refined-schedule stiffness gate unchanged** (still fixed-schedule-only).
+>
+> **REMAINING TF24f follow-up (separate, deeper, NOT the boundary cohort):** TF24f's
+> *single-species* coupled (resident) census **gradient** still goes all-NaN on **longer
+> horizons** (H≥6; H=4 fixture works — it has `birth==N` too and is fine, proving this is
+> not the boundary cohort). The frozen census recon is clean at H8 (`log_density` well-
+> behaved, heights all > 0), so the NaN lives in the **coupled AD tape** specifically — a
+> derivative-only NaN (the VALUE is finite) that scales with horizon. Prime suspects: the
+> `g' = (height_dt - g_back)/GEPS` backward-FD near-cancellation accumulated over more
+> stages, or a `pow`/`anchor`/interpolator-derivative singularity in `build_canopy` at a
+> knot for the taller H8 stand. This is the TF24f equivalent of the numerically-delicate
+> coupled tape the Phase-3 note flagged; needs its own diagnosis (instrument the AD core to
+> find the poisoning op). The FF16 coupled tape does **not** have this (robust to lifetime
+> 140), so it is TF24f-leaf-solve-specific.
+
 `stand_gradient(feedback = "resident")` on a multi-species stand (the cross-species
 total `d(total-stand metric)/d(θ_s)`) is **not fully functional**:
 

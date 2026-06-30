@@ -1273,29 +1273,36 @@ Rcpp::List tf24f_coupled_metrics_impl(
   auto axpy = [](const std::vector<St7ad<double>>& a, double c,
                  const std::vector<St7ad<double>>& k){ return stand_axpy<double>(a, c, k); };
 
+  // Establish cohort i in its frozen birth env at step index `bstep` (clamped to the
+  // last step for a final-boundary cohort, birth == N).
+  auto establish = [&](std::size_t i, std::size_t bstep) {
+    const std::size_t en = (bstep > 0) ? std::min(bstep, N) - 1 : 0;
+    const plant::TF24_Environment& eb = (bstep > 0) ? EH[en][5] : EH[0][0];
+    s.initializing_ = true;
+    s.net_mass_production_dt(eb, h0v, s.area_leaf(h0v), 1.0 / h0v);
+    const double collar0 = -s.leaf.root_collar_psi_;
+    s.initializing_ = false;
+    const double decay = std::exp(-recruitment_decay * sh[bstep]);
+    double dpsi0; const double area0 = plant::tf24_area_leaf<double>(pd.a_l1, pd.a_l2, h0v);
+    const double net0 = net_at_tracked(s, eb, h0v, collar0, dpsi0);
+    double pr_estab = 0.0;
+    if (net0 > 0.0) { const double uu = a_d0 * area0 / net0; pr_estab = decay / (uu * uu + 1.0); }
+    const double mort0 = (pr_estab > 0.0) ? -log(pr_estab)
+                                          : std::numeric_limits<double>::infinity();
+    const double g0 = plant::tf24_height_dt_from_net<double>(pd, h0v, area0, net0);
+    const double logd0 = (g0 > 0.0 && pr_estab > 0.0) ? log(birth_rate * pr_estab / g0)
+                                          : -std::numeric_limits<double>::infinity();
+    stand[i] = St7ad<double>{plant::FF16State<double>{h0v, mort0, 0, 0, 0}, collar0, logd0};
+    alive[i] = 1;
+  };
   // March: introduce cohorts born at rn (frozen birth env seed), then step the stand.
   for (std::size_t rn = 0; rn < N; ++rn) {
-    for (std::size_t i = 0; i < nC; ++i) if ((std::size_t)birth[i] == rn) {
-      const plant::TF24_Environment& eb = (rn > 0) ? EH[rn - 1][5] : EH[0][0];
-      s.initializing_ = true;
-      s.net_mass_production_dt(eb, h0v, s.area_leaf(h0v), 1.0 / h0v);
-      const double collar0 = -s.leaf.root_collar_psi_;
-      s.initializing_ = false;
-      const double decay = std::exp(-recruitment_decay * sh[rn]);
-      double dpsi0; const double area0 = plant::tf24_area_leaf<double>(pd.a_l1, pd.a_l2, h0v);
-      const double net0 = net_at_tracked(s, eb, h0v, collar0, dpsi0);
-      double pr_estab = 0.0;
-      if (net0 > 0.0) { const double uu = a_d0 * area0 / net0; pr_estab = decay / (uu * uu + 1.0); }
-      const double mort0 = (pr_estab > 0.0) ? -log(pr_estab)
-                                            : std::numeric_limits<double>::infinity();
-      const double g0 = plant::tf24_height_dt_from_net<double>(pd, h0v, area0, net0);
-      const double logd0 = (g0 > 0.0 && pr_estab > 0.0) ? log(birth_rate * pr_estab / g0)
-                                            : -std::numeric_limits<double>::infinity();
-      stand[i] = St7ad<double>{plant::FF16State<double>{h0v, mort0, 0, 0, 0}, collar0, logd0};
-      alive[i] = 1;
-    }
+    for (std::size_t i = 0; i < nC; ++i) if ((std::size_t)birth[i] == rn) establish(i, rn);
     stand = rkck_one_step_tf(stand, step_h[rn], rn, deriv, axpy);
   }
+  // Final-boundary cohorts (birth >= N): established at h0, never stepped (see the AD
+  // core note) -- else the zero-initialised height feeds tf24_area_leaf as 0*log(0)=NaN.
+  for (std::size_t i = 0; i < nC; ++i) if (!alive[i]) establish(i, (std::size_t)birth[i]);
 
   // Pending-seed density at the final env (frozen tail), then census reduction.
   double dens_new = 0.0;
@@ -1534,30 +1541,40 @@ Rcpp::List tf24f_coupled_gradient_core(
   auto axpy = [](const std::vector<St7ad<ad_t>>& a, double c,
                  const std::vector<St7ad<ad_t>>& k){ return stand_axpy<ad_t>(a, c, k); };
 
-  for (std::size_t rn = 0; rn < N; ++rn) {
-    for (std::size_t i = 0; i < nC; ++i) if (CH[i].b == rn) {
-      const CohortH& C = CH[i];
-      ad_t h0 = seed_h0();
-      ad_t collar0 = ad_t(C.collar0);
-      const double inv_c2 = (C.seed.base.d2p_dpsi2 != 0.0) ? 1.0 / C.seed.base.d2p_dpsi2 : 0.0;
-      for (std::size_t k = 0; k < T; ++k) {
-        const double dc0 = -C.seed.base.d2p_dpsidth[k] * inv_c2;
-        if (dc0 != 0.0) collar0 += ad_t(dc0) * (tr[k] - ad_t(tr0[k]));
-      }
-      ad_t area0 = plant::tf24_area_leaf<ad_t>(pf.a_l1, pf.a_l2, h0);
-      ad_t profit0 = profit_lin(C.seed.base, h0, collar0, tr, tr0);   // frozen birth env (no light)
-      ad_t net0 = plant::tf24_net_mass_production<ad_t>(pf, h0, area0, profit0);
-      ad_t uu = ad_t(a_d0) * area0 / net0;
-      const double decay = std::exp(-recruitment_decay * sh[rn]);
-      ad_t pr_estab = ad_t(decay) / (uu * uu + ad_t(1.0));
-      ad_t mort0 = -log(pr_estab);
-      ad_t g0 = plant::tf24_height_dt_from_net<ad_t>(pf, h0, area0, net0);
-      ad_t logd0 = log(ad_t(birth_rate) * pr_estab / g0);
-      stand[i] = St7ad<ad_t>{plant::FF16State<ad_t>{h0, mort0, ad_t(0), ad_t(0), ad_t(0)}, collar0, logd0};
-      alive[i] = 1;
+  // Establish cohort i at its birth env (frozen, baked into seed.base). `bstep` is the
+  // step time index for the establishment decay; for a final-boundary cohort (CH[i].b
+  // == N) it is N, whose sh[] entry is the final time.
+  auto establish = [&](std::size_t i, std::size_t bstep) {
+    const CohortH& C = CH[i];
+    ad_t h0 = seed_h0();
+    ad_t collar0 = ad_t(C.collar0);
+    const double inv_c2 = (C.seed.base.d2p_dpsi2 != 0.0) ? 1.0 / C.seed.base.d2p_dpsi2 : 0.0;
+    for (std::size_t k = 0; k < T; ++k) {
+      const double dc0 = -C.seed.base.d2p_dpsidth[k] * inv_c2;
+      if (dc0 != 0.0) collar0 += ad_t(dc0) * (tr[k] - ad_t(tr0[k]));
     }
+    ad_t area0 = plant::tf24_area_leaf<ad_t>(pf.a_l1, pf.a_l2, h0);
+    ad_t profit0 = profit_lin(C.seed.base, h0, collar0, tr, tr0);   // frozen birth env (no light)
+    ad_t net0 = plant::tf24_net_mass_production<ad_t>(pf, h0, area0, profit0);
+    ad_t uu = ad_t(a_d0) * area0 / net0;
+    const double decay = std::exp(-recruitment_decay * sh[bstep]);
+    ad_t pr_estab = ad_t(decay) / (uu * uu + ad_t(1.0));
+    ad_t mort0 = -log(pr_estab);
+    ad_t g0 = plant::tf24_height_dt_from_net<ad_t>(pf, h0, area0, net0);
+    ad_t logd0 = log(ad_t(birth_rate) * pr_estab / g0);
+    stand[i] = St7ad<ad_t>{plant::FF16State<ad_t>{h0, mort0, ad_t(0), ad_t(0), ad_t(0)}, collar0, logd0};
+    alive[i] = 1;
+  };
+  for (std::size_t rn = 0; rn < N; ++rn) {
+    for (std::size_t i = 0; i < nC; ++i) if (CH[i].b == rn) establish(i, rn);
     stand = rkck_one_step_tf(stand, step_h[rn], rn, deriv, axpy);
   }
+  // Final-boundary cohorts (CH[i].b >= N): introduced at the last node time but never
+  // stepped (the discovery replay runs zero steps for them), so they sit at h0. Without
+  // this they keep the zero-initialised height and tf24_area_leaf's a_l2 channel hits
+  // 0*log(0)=NaN, which then poisons the whole shared census tape. Mirrors FF16's
+  // assemble_metrics_coupled final-boundary establishment.
+  for (std::size_t i = 0; i < nC; ++i) if (!alive[i]) establish(i, CH[i].b);
 
   // Pending-seed density at the final env (frozen tail; collar0 IFT injected).
   ad_t h0a = seed_h0();
@@ -2096,28 +2113,33 @@ Rcpp::List tf24f_coupled_gradient_ms_impl(
     };
     auto axpy = [](const std::vector<St7ad<double>>& a, double c,
                    const std::vector<St7ad<double>>& k){ return stand_axpy<double>(a, c, k); };
+    auto establish = [&](std::size_t g, std::size_t bstep) {
+      const std::size_t s = gspec[g];
+      const std::size_t en = (bstep > 0) ? std::min(bstep, N) - 1 : 0;
+      const plant::TF24_Environment& eb = (bstep > 0) ? EH[en][5] : EH[0][0];
+      S_[s].initializing_ = true;
+      S_[s].net_mass_production_dt(eb, h0[s], S_[s].area_leaf(h0[s]), 1.0 / h0[s]);
+      const double collar0 = -S_[s].leaf.root_collar_psi_;
+      S_[s].initializing_ = false;
+      const double decay = std::exp(-rdecay[s] * sh[bstep]);
+      double dpsi0; const double area0 = plant::tf24_area_leaf<double>(pd[s].a_l1, pd[s].a_l2, h0[s]);
+      const double net0 = net_at_tracked(S_[s], eb, h0[s], collar0, dpsi0);
+      double pr_estab = 0.0;
+      if (net0 > 0.0) { const double uu = a_d0[s] * area0 / net0; pr_estab = decay / (uu * uu + 1.0); }
+      const double mort0 = (pr_estab > 0.0) ? -log(pr_estab) : std::numeric_limits<double>::infinity();
+      const double g0 = plant::tf24_height_dt_from_net<double>(pd[s], h0[s], area0, net0);
+      const double logd0 = (g0 > 0.0 && pr_estab > 0.0) ? log(birth_rate[s] * pr_estab / g0)
+                                            : -std::numeric_limits<double>::infinity();
+      stand[g] = St7ad<double>{plant::FF16State<double>{h0[s], mort0, 0, 0, 0}, collar0, logd0};
+      alive[g] = 1;
+    };
     for (std::size_t rn = 0; rn < N; ++rn) {
-      for (std::size_t g = 0; g < nG; ++g) if ((std::size_t)gbirth[g] == rn) {
-        const std::size_t s = gspec[g];
-        const plant::TF24_Environment& eb = (rn > 0) ? EH[rn - 1][5] : EH[0][0];
-        S_[s].initializing_ = true;
-        S_[s].net_mass_production_dt(eb, h0[s], S_[s].area_leaf(h0[s]), 1.0 / h0[s]);
-        const double collar0 = -S_[s].leaf.root_collar_psi_;
-        S_[s].initializing_ = false;
-        const double decay = std::exp(-rdecay[s] * sh[rn]);
-        double dpsi0; const double area0 = plant::tf24_area_leaf<double>(pd[s].a_l1, pd[s].a_l2, h0[s]);
-        const double net0 = net_at_tracked(S_[s], eb, h0[s], collar0, dpsi0);
-        double pr_estab = 0.0;
-        if (net0 > 0.0) { const double uu = a_d0[s] * area0 / net0; pr_estab = decay / (uu * uu + 1.0); }
-        const double mort0 = (pr_estab > 0.0) ? -log(pr_estab) : std::numeric_limits<double>::infinity();
-        const double g0 = plant::tf24_height_dt_from_net<double>(pd[s], h0[s], area0, net0);
-        const double logd0 = (g0 > 0.0 && pr_estab > 0.0) ? log(birth_rate[s] * pr_estab / g0)
-                                              : -std::numeric_limits<double>::infinity();
-        stand[g] = St7ad<double>{plant::FF16State<double>{h0[s], mort0, 0, 0, 0}, collar0, logd0};
-        alive[g] = 1;
-      }
+      for (std::size_t g = 0; g < nG; ++g) if ((std::size_t)gbirth[g] == rn) establish(g, rn);
       stand = rkck_one_step_tf(stand, step_h[rn], rn, deriv, axpy);
     }
+    // Final-boundary cohorts (birth >= N): established at h0, never stepped (see the
+    // single-species note) -- prevents the a_l2 0*log(0)=NaN from a zero census height.
+    for (std::size_t g = 0; g < nG; ++g) if (!alive[g]) establish(g, (std::size_t)gbirth[g]);
     // Total-stand reduction: sum over species of that species' trapezium + tail.
     Rcpp::NumericVector values(M);
     for (std::size_t s = 0; s < nS; ++s) {
@@ -2278,30 +2300,34 @@ Rcpp::List tf24f_coupled_gradient_ms_impl(
   auto axpy = [](const std::vector<St7ad<ad_t>>& a, double c,
                  const std::vector<St7ad<ad_t>>& k){ return stand_axpy<ad_t>(a, c, k); };
 
-  for (std::size_t rn = 0; rn < N; ++rn) {
-    for (std::size_t g = 0; g < nG; ++g) if (CH[g].b == rn) {
-      const std::size_t s = gspec[g]; const CohortHms& C = CH[g];
-      ad_t hh0 = h0a[s];
-      ad_t collar0 = ad_t(C.collar0);
-      const double inv_c2 = (C.seed.base.d2p_dpsi2 != 0.0) ? 1.0 / C.seed.base.d2p_dpsi2 : 0.0;
-      for (std::size_t k = 0; k < T; ++k) {
-        const double dc0 = -C.seed.base.d2p_dpsidth[k] * inv_c2;
-        if (dc0 != 0.0) collar0 += ad_t(dc0) * (tr[k] - ad_t(tr0[k]));
-      }
-      ad_t area0 = plant::tf24_area_leaf<ad_t>(pf[s].a_l1, pf[s].a_l2, hh0);
-      ad_t profit0 = profit_lin(C.seed.base, hh0, collar0, tr, tr0);
-      ad_t net0 = plant::tf24_net_mass_production<ad_t>(pf[s], hh0, area0, profit0);
-      ad_t uu = ad_t(a_d0[s]) * area0 / net0;
-      const double decay = std::exp(-rdecay[s] * sh[rn]);
-      ad_t pr_estab = ad_t(decay) / (uu * uu + ad_t(1.0));
-      ad_t mort0 = -log(pr_estab);
-      ad_t g0 = plant::tf24_height_dt_from_net<ad_t>(pf[s], hh0, area0, net0);
-      ad_t logd0 = log(ad_t(birth_rate[s]) * pr_estab / g0);
-      stand[g] = St7ad<ad_t>{plant::FF16State<ad_t>{hh0, mort0, ad_t(0), ad_t(0), ad_t(0)}, collar0, logd0};
-      alive[g] = 1;
+  auto establish = [&](std::size_t g, std::size_t bstep) {
+    const std::size_t s = gspec[g]; const CohortHms& C = CH[g];
+    ad_t hh0 = h0a[s];
+    ad_t collar0 = ad_t(C.collar0);
+    const double inv_c2 = (C.seed.base.d2p_dpsi2 != 0.0) ? 1.0 / C.seed.base.d2p_dpsi2 : 0.0;
+    for (std::size_t k = 0; k < T; ++k) {
+      const double dc0 = -C.seed.base.d2p_dpsidth[k] * inv_c2;
+      if (dc0 != 0.0) collar0 += ad_t(dc0) * (tr[k] - ad_t(tr0[k]));
     }
+    ad_t area0 = plant::tf24_area_leaf<ad_t>(pf[s].a_l1, pf[s].a_l2, hh0);
+    ad_t profit0 = profit_lin(C.seed.base, hh0, collar0, tr, tr0);
+    ad_t net0 = plant::tf24_net_mass_production<ad_t>(pf[s], hh0, area0, profit0);
+    ad_t uu = ad_t(a_d0[s]) * area0 / net0;
+    const double decay = std::exp(-rdecay[s] * sh[bstep]);
+    ad_t pr_estab = ad_t(decay) / (uu * uu + ad_t(1.0));
+    ad_t mort0 = -log(pr_estab);
+    ad_t g0 = plant::tf24_height_dt_from_net<ad_t>(pf[s], hh0, area0, net0);
+    ad_t logd0 = log(ad_t(birth_rate[s]) * pr_estab / g0);
+    stand[g] = St7ad<ad_t>{plant::FF16State<ad_t>{hh0, mort0, ad_t(0), ad_t(0), ad_t(0)}, collar0, logd0};
+    alive[g] = 1;
+  };
+  for (std::size_t rn = 0; rn < N; ++rn) {
+    for (std::size_t g = 0; g < nG; ++g) if (CH[g].b == rn) establish(g, rn);
     stand = rkck_one_step_tf(stand, step_h[rn], rn, deriv, axpy);
   }
+  // Final-boundary cohorts (birth >= N): established at h0, never stepped (see the AD
+  // core note) -- else the zero census height poisons the shared tape via 0*log(0).
+  for (std::size_t g = 0; g < nG; ++g) if (!alive[g]) establish(g, CH[g].b);
 
   // Total-stand reduction: sum over species of its trapezium + pending-seed tail.
   std::vector<ad_t> J(M, ad_t(0.0));

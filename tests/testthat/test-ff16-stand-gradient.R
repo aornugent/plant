@@ -208,6 +208,61 @@ test_that("multi-species cross-species gradient: AD == coupled-recon FD, cross t
   expect_true(all(abs(g$jacobian[, tr] - gf$jacobian[, tr]) > 0))
 })
 
+test_that("coupled resident gradient is finite for the FULL default trait set (a_l2 NaN fix)", {
+  # Regression: a cohort whose introduction time lands on the final step (birth step == N)
+  # was never established in the coupled re-evolution, so its census height stayed at the
+  # zero-initialised value and the a_l2 channel of area_leaf = (h/a_l1)^(1/a_l2) hit
+  # 0*log(0) = NaN (and the corrupted zero-height cohort also biased the census VALUE).
+  # Single- and multi-species, all 28 default traits must now be finite.
+  p <- scm_base_parameters("FF16")
+  p <- add_strategies(p, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar,
+                      birth_rate = list(20))
+  p$node_schedule_times <- list(seq(0, 70, length.out = 16)); p$max_patch_lifetime <- 70
+  scm1 <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
+                  refine_schedule = FALSE)
+  g1 <- stand_gradient(scm1, metrics = c("LAI", "biomass", "size_moment"),
+                       traits = ff16_default_traits(), feedback = "resident")
+  expect_true(all(is.finite(g1$jacobian)))
+  expect_true(is.finite(g1$jacobian["LAI", "a_l2"]) && g1$jacobian["LAI", "a_l2"] != 0)
+
+  p2 <- scm_base_parameters("FF16")
+  p2 <- add_strategies(p2, trait_matrix(c(0.0825, 0.2), "lma"), hyperpar = FF16_hyperpar,
+                       birth_rate = list(20, 20))
+  p2$node_schedule_times <- list(seq(0, 70, length.out = 16), seq(0, 70, length.out = 16))
+  p2$max_patch_lifetime <- 70
+  scm2 <- run_scm(p2, Environment("FF16"), control(save_RK45_cache = TRUE),
+                  refine_schedule = FALSE)
+  g2 <- stand_gradient(scm2, metrics = c("LAI", "size_moment"),
+                       traits = ff16_default_traits(), species = 1L, feedback = "resident")
+  expect_true(all(is.finite(g2$jacobian)))
+})
+
+test_that("multi-species (> 2 species) coupled resident: finite, all targets, total == frozen-summed", {
+  p <- scm_base_parameters("FF16")
+  p <- add_strategies(p, trait_matrix(c(0.0825, 0.15, 0.25), "lma"), hyperpar = FF16_hyperpar,
+                      birth_rate = list(20, 20, 20))
+  p$node_schedule_times <- rep(list(seq(0, 70, length.out = 14)), 3)
+  p$max_patch_lifetime <- 70
+  scm <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
+                 refine_schedule = FALSE)
+  expect_equal(length(scm$parameters$strategies), 3L)
+  mets <- c("LAI", "biomass", "size_moment")
+  # Every target species' cross-species total gradient is finite for all 28 traits.
+  for (tgt in 1:3) {
+    g <- stand_gradient(scm, metrics = mets, traits = ff16_default_traits(),
+                        species = tgt, feedback = "resident")
+    expect_true(all(is.finite(g$jacobian)))
+  }
+  # R0: the coupled TOTAL-stand value reconstructs the frozen-engine sum over species.
+  h <- ms_harvest(scm)
+  ms <- plant:::ff16_coupled_metrics_ms_impl(h$pp_list, h$eh, h$sh, h$birth_list, mets,
+          h$birth_rate, h$nn_h, h$nn_c, h$area)
+  frz <- c(LAI = 0, biomass = 0, size_moment = 0)
+  for (s in 1:3) frz <- frz + stand_gradient(scm, metrics = mets, species = s,
+                                             feedback = "frozen")$values
+  expect_equal(unname(ms$values), unname(frz[mets]), tolerance = 5e-3)
+})
+
 test_that("stand_state_jacobian matches a frozen-resident FD per cohort", {
   p <- scm_base_parameters("FF16")
   p <- add_strategies(p, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar,

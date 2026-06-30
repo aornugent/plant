@@ -868,6 +868,22 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
     stand = rkck_one_step(stand, F.step_h[rn], rn, deriv, axpy);
   }
 
+  // Cohorts whose birth step lands on the final boundary (birth >= N) are introduced
+  // at the last node time but never stepped: mirror replay_cohort_full (b >= N runs
+  // zero Cash-Karp steps, so the cohort sits at h0). Establish them at h0 in the frozen
+  // final birth env -- otherwise they keep the zero-initialised height and the a_l2
+  // channel of area_leaf = (h/a_l1)^(1/a_l2) is differentiated at h=0 (0*log(0)=NaN).
+  for (std::size_t i = 0; i < nC; ++i) {
+    if (alive[i]) continue;
+    S area_leaf_0 = plant::ff16_area_leaf(pd.a_l1, pd.a_l2, h0);
+    S net0 = deep_net<S>(pd, F.integ, F.eta, &F.eh.back()[5], h0);
+    S g0   = deep_height_dt<S>(pd, F.integ, F.eta, &F.eh.back()[5], h0);
+    S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
+    stand[i] = CensusState<S>{plant::FF16State<S>{h0, -log(pr_estab), S(0), S(0), S(0)},
+                              log(S(birth_rate) * pr_estab / g0)};
+    alive[i] = 1;
+  }
+
   // Final-census reduction: the size-distribution integral = the height-trapezium of
   // density_i * psi(state_i) over the cohorts (descending height) + the pending-seed
   // tail. Mirrors assemble_metrics' census_reduce (the boundary seed via the FINAL
@@ -1139,6 +1155,23 @@ std::vector<S> assemble_metrics_coupled_ms(const std::vector<plant::FF16ProdPars
       }
     }
     stand = rkck_one_step(stand, F.step_h[rn], rn, deriv, axpy);
+  }
+
+  // Establish final-boundary cohorts (birth >= N) at h0 (see the single-species note in
+  // assemble_metrics_coupled): never stepped, mirrors the frozen per-cohort replay;
+  // prevents the a_l2 0*log(0)=NaN from a zero-initialised census height.
+  for (std::size_t g = 0; g < nG; ++g) {
+    if (alive[g]) continue;
+    const std::size_t s = gspec[g];
+    S h0 = h0s[s];
+    S area_leaf_0 = plant::ff16_area_leaf(pds[s].a_l1, pds[s].a_l2, h0);
+    S net0 = deep_net<S>(pds[s], F.integ, F.eta[s], &F.eh.back()[5], h0);
+    S g0   = deep_height_dt<S>(pds[s], F.integ, F.eta[s], &F.eh.back()[5], h0);
+    S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0[s],
+                   F.decay[s][glocal[g]]);
+    stand[g] = CensusState<S>{plant::FF16State<S>{h0, -log(pr_estab), S(0), S(0), S(0)},
+                              log(S(F.birth_rate[s]) * pr_estab / g0)};
+    alive[g] = 1;
   }
 
   // Total-stand reduction: sum over species of that species' size-distribution

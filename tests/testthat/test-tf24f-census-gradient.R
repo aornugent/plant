@@ -228,6 +228,26 @@ test_that("tf24f coupled census R0 reconstructs the resident stand (step 5 gate)
   expect_true(all(is.finite(r0$values)) && all(r0$values > 0))
 })
 
+test_that("tf24f coupled census establishes the final-boundary cohort (a_l2 NaN fix)", {
+  # Regression (mirrors the FF16 fix): the last node's introduction time lands on the
+  # final step (birth step == N), and the coupled re-evolution loop (rn < N) never
+  # established it -- so its census height stayed zero-initialised, biasing the value
+  # and making the a_l2 channel of tf24_area_leaf hit 0*log(0) = NaN (which poisons the
+  # whole shared census tape). The boundary cohort must now be established at h0.
+  scm <- tf24f_small_scm()
+  # The coupled VALUE reconstructs the frozen-engine value (both include the boundary
+  # cohort at h0) and stays a sane positive census.
+  cm <- plant:::tf24f_coupled_metrics(scm, metrics = c("LAI", "biomass", "size_moment"))
+  expect_true(all(is.finite(cm$values)) && all(cm$values > 0))
+  # The resident gradient is finite for a trait set INCLUDING a_l2 (the allometry
+  # exponent that triggered the 0*log(0) NaN through area_leaf = (h/a_l1)^(1/a_l2)).
+  tr <- c("vcmax_25", "lma", "a_l1", "a_l2", "K_s", "theta")
+  g <- plant:::tf24f_resident_census_gradient_ad(
+    scm, metrics = c("LAI", "biomass", "size_moment"), traits = tr)
+  expect_true(all(is.finite(g$jacobian)))
+  expect_true(is.finite(g$jacobian["LAI", "a_l2"]))
+})
+
 test_that("tf24f resident coupled AD == FD over the same coupled reconstruction (step 5)", {
   # The coupled AD tape (build-order step 5) must exactly differentiate the coupled
   # whole-stand reconstruction it replays. Mirroring the FF16 coupled test, the rigorous
