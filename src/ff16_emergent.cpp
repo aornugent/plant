@@ -1293,6 +1293,66 @@ FrozenMS build_frozen_ms(Rcpp::List pp_list, Rcpp::List eh_list,
   return F;
 }
 
+// Native-SCM multi-species frozen harvest: the joint env, step schedule, per-species
+// birth steps and the all-species boundary harvest are read DIRECTLY from the live
+// Patch (no R ff16_harvest_ms, no Rcpp::as<> env round-trip) -- the multi-species
+// counterpart of build_frozen_scm. pp_list (cheap, from $parameters$strategies) gives
+// each species' prod_pars / scalars; birth_rate is the per-species constant driver
+// (recovered cheaply in R from offspring_production / net_reproduction_ratios).
+// Bit-identical to build_frozen_ms (same arithmetic, faithful native data).
+FrozenMS build_frozen_ms_scm(
+    Rcpp::List pp_list,
+    const plant::Patch<plant::FF16_Strategy, plant::FF16_Environment>& patch,
+    std::vector<double> birth_rate, double patch_area, bool active_birthenv) {
+  FrozenMS F;
+  F.area = patch_area; F.active_birthenv = active_birthenv;
+  const std::size_t nS = pp_list.size(); F.nS = nS;
+  const auto& EH = patch.environment_history;
+  const auto& sh = patch.step_history;
+  const std::size_t N = EH.size();
+  F.eh = EH;                                          // faithful copy (no Rcpp::as<>)
+  F.step_h.resize(N);
+  for (std::size_t n = 0; n < N; ++n) F.step_h[n] = sh[n + 1] - sh[n];
+  // Joint env spline knots (shared canopy), straight off the native env splines.
+  F.knot_x.resize(N); F.knot_y0.resize(N);
+  for (std::size_t n = 0; n < N; ++n) {
+    const std::size_t ns = F.eh[n].size();
+    F.knot_x[n].resize(ns); F.knot_y0[n].resize(ns);
+    for (std::size_t s = 0; s < ns; ++s) {
+      F.knot_x[n][s]  = F.eh[n][s].light_availability.spline.get_x();
+      F.knot_y0[n][s] = F.eh[n][s].light_availability.spline.get_y();
+    }
+  }
+  F.pd.resize(nS); F.eta.resize(nS); F.kI.resize(nS); F.a_d0.resize(nS);
+  F.h0.resize(nS); F.birth_rate.resize(nS); F.birth.resize(nS); F.decay.resize(nS);
+  F.nn_h.resize(nS); F.nn_c.resize(nS);
+  F.integ = nullptr;
+  const auto& NNH = patch.stand_newnode_height_stage_history_all;       // [step][stage][species]
+  const auto& NNC = patch.stand_newnode_competition_stage_history_all;
+  for (std::size_t s = 0; s < nS; ++s) {
+    Rcpp::NumericVector pp = pp_list[s];
+    plant::FF16_Strategy st = make_strategy(pp);
+    F.pd[s] = st.prod_pars();
+    F.eta[s] = st.pars.eta; F.kI[s] = st.pars.k_I; F.a_d0[s] = st.pars.a_d0;
+    F.h0[s] = st.initial_height(); F.birth_rate[s] = birth_rate[s];
+    F.birth[s] = plant::gradient::birth_steps(patch, s);                // native birth steps
+    F.decay[s].resize(F.birth[s].size());
+    for (std::size_t i = 0; i < F.birth[s].size(); ++i)
+      F.decay[s][i] = std::exp(-st.pars.recruitment_decay * sh[(std::size_t)F.birth[s][i]]);
+    // All-species boundary harvest [step][stage][species] -> [species][step][stage].
+    F.nn_h[s].resize(N); F.nn_c[s].resize(N);
+    for (std::size_t n = 0; n < N; ++n) {
+      const std::size_t ns = NNH[n].size();
+      F.nn_h[s][n].resize(ns); F.nn_c[s][n].resize(ns);
+      for (std::size_t k = 0; k < ns; ++k) {
+        F.nn_h[s][n][k] = (s < NNH[n][k].size()) ? NNH[n][k][s] : 0.0;
+        F.nn_c[s][n][k] = (s < NNC[n][k].size()) ? NNC[n][k][s] : 0.0;
+      }
+    }
+  }
+  return F;
+}
+
 // ===========================================================================
 // grow_individual_to_size trait gradient (#472 scope B, the last FF16 surface).
 // A single plant grown in a FIXED environment to a target size, differentiated
@@ -1719,27 +1779,28 @@ Rcpp::List ff16_coupled_metrics_ms_impl(
 // d(total metric)/d(theta of the target species) -- including the cross term whereby the
 // target's traits re-shade the joint canopy that every species reads. nn_h_list/nn_c_list:
 // the all-species boundary harvest [step][stage][species].
-// [[Rcpp::export]]
-Rcpp::List ff16_coupled_gradient_ms_impl(
-    Rcpp::List pp_list, Rcpp::List eh_list, std::vector<double> sh,
-    Rcpp::List birth_list, std::vector<std::string> traits,
-    std::vector<std::string> metrics, std::vector<double> birth_rate,
-    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, int target,
-    bool active_birthenv = true) {
+// Shared core of the MS coupled-gradient entries: F already carries the joint harvest +
+// integrator. Runs the R0 double pass for the env-drift gate (env_err = worst joint-knot
+// light drift -- a stiff schedule diverges and the gradient is meaningless), then the AD
+// tape for the cross-species gradient. The R-list (`_impl`) and native-SCM (`_native`)
+// entries differ only in how F is built (lossy eh_list + R harvest vs faithful Patch read).
+Rcpp::List ff16_coupled_gradient_ms_core(FrozenMS& F, std::vector<std::string> traits,
+    std::vector<std::string> metrics, int target) {
   for (auto& nm : metrics)
     if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
       Rcpp::stop("coupled MS gradient: expected LAI / biomass / size_moment, got " + nm);
-  FrozenMS F = build_frozen_ms(pp_list, eh_list, sh, birth_list, birth_rate,
-                               nn_h_list, nn_c_list, patch_area, active_birthenv);
   const std::size_t tgt = (std::size_t)(target - 1);
   if (tgt >= F.nS) Rcpp::stop("target species out of range");
-  Rcpp::NumericVector pp0 = pp_list[(R_xlen_t)tgt];
-  plant::FF16_Strategy s0 = make_strategy(pp0);   // owns the GK integrator
-  F.integ = &s0.function_integrator;
   std::vector<std::size_t> idx = resolve_traits(traits);
   const double h0v = F.h0[tgt];
   std::vector<double> dh0 = compute_dh0(F.pd[tgt], h0v, idx);
   const std::size_t M = metrics.size(), nT = idx.size(), nS = F.nS;
+
+  // R0 double pass: the joint re-evolution must reproduce the resident stand (env_err
+  // small) before the gradient is trusted; the caller gates on it.
+  double env_err = 0.0, env_err_z = -1.0;
+  (void)assemble_metrics_coupled_ms<double>(F.pd, F, metrics, F.h0, 0.0,
+                                            &env_err, &env_err_z);
 
   Rcpp::NumericMatrix jac(M, nT);
   Rcpp::NumericVector values(M);
@@ -1769,7 +1830,51 @@ Rcpp::List ff16_coupled_gradient_ms_impl(
   jac.attr("dimnames") = Rcpp::List::create(Rcpp::wrap(metrics), Rcpp::wrap(traits));
   values.attr("names") = Rcpp::wrap(metrics);
   return Rcpp::List::create(Rcpp::Named("jacobian") = jac,
-                            Rcpp::Named("values")   = values);
+                            Rcpp::Named("values")   = values,
+                            Rcpp::Named("env_err")  = env_err);
+}
+
+// [[Rcpp::export]]
+Rcpp::List ff16_coupled_gradient_ms_impl(
+    Rcpp::List pp_list, Rcpp::List eh_list, std::vector<double> sh,
+    Rcpp::List birth_list, std::vector<std::string> traits,
+    std::vector<std::string> metrics, std::vector<double> birth_rate,
+    Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, int target,
+    bool active_birthenv = true) {
+  FrozenMS F = build_frozen_ms(pp_list, eh_list, sh, birth_list, birth_rate,
+                               nn_h_list, nn_c_list, patch_area, active_birthenv);
+  const std::size_t tgt = (std::size_t)(target - 1);
+  if (tgt >= F.nS) Rcpp::stop("target species out of range");
+  Rcpp::NumericVector pp0 = pp_list[(R_xlen_t)tgt];
+  plant::FF16_Strategy s0 = make_strategy(pp0);   // owns the GK integrator
+  F.integ = &s0.function_integrator;
+  return ff16_coupled_gradient_ms_core(F, traits, metrics, target);
+}
+
+// FULLY native multi-species coupled cross-species gradient: the joint env + schedule +
+// birth steps + all-species boundary harvest come from the live Patch (no R
+// ff16_harvest_ms, no Rcpp::as<> env). pp_list is cheap ($parameters$strategies);
+// birth_rate the per-species constant driver; target 1-based. Returns the cross-species
+// Jacobian + values + env_err (the caller gates the stiff-schedule case on env_err).
+// [[Rcpp::export]]
+Rcpp::List ff16_coupled_gradient_ms_native(
+    SEXP scm_, Rcpp::List pp_list, std::vector<std::string> traits,
+    std::vector<std::string> metrics, std::vector<double> birth_rate,
+    double patch_area, int target, bool active_birthenv = true) {
+  auto scm = Rcpp::as<plant::RcppR6::RcppR6<
+    plant::SCM<plant::FF16_Strategy, plant::FF16_Environment>>>(scm_);
+  const auto& patch = scm->r_patch();
+  if (patch.stand_newnode_height_stage_history_all.size() < 1)
+    Rcpp::stop("feedback = 'resident' on a multi-species stand needs the all-species "
+               "per-RK-stage harvest; re-run the resident SCM with "
+               "control(save_RK45_cache = TRUE)");
+  FrozenMS F = build_frozen_ms_scm(pp_list, patch, birth_rate, patch_area, active_birthenv);
+  const std::size_t tgt = (std::size_t)(target - 1);
+  if (tgt >= F.nS) Rcpp::stop("target species out of range");
+  Rcpp::NumericVector pp0 = pp_list[(R_xlen_t)tgt];
+  plant::FF16_Strategy s0 = make_strategy(pp0);   // owns the GK integrator
+  F.integ = &s0.function_integrator;
+  return ff16_coupled_gradient_ms_core(F, traits, metrics, target);
 }
 
 // Escape hatch (#472 scope B, build-order step 1): the per-cohort state x trait

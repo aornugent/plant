@@ -282,24 +282,26 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
         # the cross term whereby the differentiated species re-shades the canopy every
         # species reads. The joint re-evolution is well-conditioned on a fixed node
         # schedule but can go stiff (one cohort's log-density runs away) on a strongly
-        # clustered ADAPTIVELY-REFINED schedule; a cheap double R0 pass gates it and
-        # raises a clear error (rather than returning NaN) so the caller can re-run the
-        # resident SCM with a fixed/uniform node schedule.
-        hm <- ff16_harvest_ms(scm)
-        r0 <- ff16_coupled_metrics_ms_impl(hm$pp_list, hm$eh, hm$sh, hm$birth_list,
-                census, hm$birth_rate, hm$nn_h, hm$nn_c, hm$patch_area)
-        if (!all(is.finite(r0$values)) || r0$env_err > 1e-2) {
+        # clustered ADAPTIVELY-REFINED schedule; the native entry runs a cheap double R0
+        # pass and returns env_err, which gates the result with a clear error (rather than
+        # a diverged Jacobian). Fully native: the joint env + schedule + birth steps +
+        # all-species boundary harvest come from the live Patch (cheap per-species pp +
+        # recovered birth rates from $parameters; no scm$patch rebuild, no Rcpp::as<> env).
+        pp_list <- lapply(seq_len(nsp), function(s)
+          unlist(scm$parameters$strategies[[s]]$pars))
+        br_vec <- vapply(seq_len(nsp), function(s)
+          scm$offspring_production[[s]] / scm$net_reproduction_ratios[[s]], numeric(1))
+        gc <- ff16_coupled_gradient_ms_native(scm, pp_list, traits, census, br_vec,
+                patch_area, as.integer(species))
+        if (!all(is.finite(gc$values)) || gc$env_err > 1e-2) {
           stop("the multi-species coupled resident re-evolution diverged on this node ",
-               "schedule (joint env drift = ", signif(r0$env_err, 3), "). The ",
+               "schedule (joint env drift = ", signif(gc$env_err, 3), "). The ",
                "cross-species coupled gradient needs a well-conditioned node schedule; ",
                "re-run the resident SCM with a fixed/uniform schedule (e.g. ",
                "p$node_schedule_times <- list(seq(0, T, length.out = n), ...); ",
                "run_scm(p, ..., refine_schedule = FALSE)) rather than an adaptively ",
                "refined one.")
         }
-        gc <- ff16_coupled_gradient_ms_impl(hm$pp_list, hm$eh, hm$sh, hm$birth_list,
-                traits, census, hm$birth_rate, hm$nn_h, hm$nn_c, hm$patch_area,
-                as.integer(species))
       }
       jac[census, ] <- gc$jacobian[census, , drop = FALSE]
       values[census] <- gc$values[census]

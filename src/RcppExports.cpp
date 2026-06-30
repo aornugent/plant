@@ -13060,6 +13060,24 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ff16_coupled_gradient_ms_native
+Rcpp::List ff16_coupled_gradient_ms_native(SEXP scm_, Rcpp::List pp_list, std::vector<std::string> traits, std::vector<std::string> metrics, std::vector<double> birth_rate, double patch_area, int target, bool active_birthenv);
+RcppExport SEXP _plant_ff16_coupled_gradient_ms_native(SEXP scm_SEXP, SEXP pp_listSEXP, SEXP traitsSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP patch_areaSEXP, SEXP targetSEXP, SEXP active_birthenvSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type scm_(scm_SEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type pp_list(pp_listSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type traits(traitsSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type metrics(metricsSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type birth_rate(birth_rateSEXP);
+    Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
+    Rcpp::traits::input_parameter< int >::type target(targetSEXP);
+    Rcpp::traits::input_parameter< bool >::type active_birthenv(active_birthenvSEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_coupled_gradient_ms_native(scm_, pp_list, traits, metrics, birth_rate, patch_area, target, active_birthenv));
+    return rcpp_result_gen;
+END_RCPP
+}
 // ff16_state_jacobian_impl
 Rcpp::List ff16_state_jacobian_impl(Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw, std::vector<std::string> traits);
 RcppExport SEXP _plant_ff16_state_jacobian_impl(SEXP ppSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP ppsurvSEXP, SEXP ppsabSEXP, SEXP twSEXP, SEXP traitsSEXP) {
@@ -14839,6 +14857,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ff16_coupled_gradient_native", (DL_FUNC) &_plant_ff16_coupled_gradient_native, 8},
     {"_plant_ff16_coupled_metrics_ms_impl", (DL_FUNC) &_plant_ff16_coupled_metrics_ms_impl, 10},
     {"_plant_ff16_coupled_gradient_ms_impl", (DL_FUNC) &_plant_ff16_coupled_gradient_ms_impl, 12},
+    {"_plant_ff16_coupled_gradient_ms_native", (DL_FUNC) &_plant_ff16_coupled_gradient_ms_native, 8},
     {"_plant_ff16_state_jacobian_impl", (DL_FUNC) &_plant_ff16_state_jacobian_impl, 8},
     {"_plant_ff16_grow_to_size_gradient_impl", (DL_FUNC) &_plant_ff16_grow_to_size_gradient_impl, 8},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
