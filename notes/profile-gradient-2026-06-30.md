@@ -73,8 +73,32 @@ Rscript --no-init-file scripts/gradient_fixture.R check          # correctness g
   old `harvest_frac` on each case. If it does not drop, the native sample confirms the
   time was never in the R harvest — a falsifiable check.
 
+## Finding: the env round-trip is faithful (Phase 2 is a refactor, not a fidelity fix)
+
+A lossy-vs-native A/B of the TF24f census recon (`tf24f_census_recon_impl` via the R
+env list vs `tf24f_census_recon_native` reading `patch.environment_history` directly):
+
+| H | SCM LAI | lossy recon (rel err) | native recon (rel err) |
+|---|---|---|---|
+| 4 | 1.61802617 | 6.26e-7 | 6.26e-7 (identical) |
+| 5 | 1.59417777 | 3.98e-3 | 3.98e-3 (identical) |
+| 8 | 1.65127320 | 1.19e-2 | 1.19e-2 (identical), no abort |
+
+`native == lossy` bit-for-bit at every horizon ⇒ the `Rcpp::as<>` env round-trip is
+**faithful** for the census path and is **not** the lifetime>4 floor. The floor is the
+g' backward-FD near-cancellation + frozen-schedule replay. Phase 2a/2b are therefore
+**bit-identical refactors** (remove a real round-trip + the env-validation hazard,
+unlock perf headroom) — not a fidelity fix. Lifting the census floor = exact-AD g' /
+refined-schedule replay (separate item). See memory `ad-env-roundtrip-faithful-for-census`.
+
+Note: Phase 2a/2b nativized only the ENV extraction; the O(stand) `ppsurv` loop + `tw`
+still run in R, so the `harvest_frac` perf win is **not yet realized** — that needs the
+full native harvest (move `ppsurv`/`tw`/birth into C++), a follow-up.
+
 ## Refactor steps
 
 | date | step (sha) | case | harvest_ms | impl_ms | public_ms | harvest_frac | cum × | incr × | sample | fixture |
 |---|---|---|---:|---:|---:|---:|---:|---:|---|---|
 | 2026-06-30 | baseline (b3b4e188) | — | see table above | | | | 1.00 | — | off | PASS |
+| 2026-06-30 | 2a FF16 native-env (d69014b4) | ff16_frozen | (env only) | — | — | — | — | — | off | bit-identical |
+| 2026-06-30 | 2b TF24f native-env (735d02c8) | tf24f_census | (env only) | — | — | — | — | — | off | bit-identical |
