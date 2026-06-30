@@ -341,6 +341,33 @@ suite FAIL=0 ERROR=0 SKIP=9 **PASS=2587**, fixture all PASS):
   test FD-reference; bit-identical, `_impl`/`_native` share `ff16_coupled_gradient_ms_core`).
 - `b6830bbe` — **notes/ pruned to just this roadmap**; all `see notes/X` pointers trimmed.
 
+> **SESSION 3 DONE (2026-06-30).** Tasks A and B below are both complete; 3 commits on
+> `49a163a1` (suite FAIL=0 SKIP=9 **PASS=2591**, fixture all PASS).
+> - **A done (`e82841f2`):** TF24f MS coupled gradient natived. Extracted
+>   `tf24f_coupled_gradient_ms_core` (C++ structures) from the monolith; `_impl` (R-list,
+>   the FD-reference) is a thin wrapper; new `tf24f_coupled_gradient_ms_native` reads the
+>   live Patch; wired `tf24f_resident_census_gradient_ms_ad` to it. native == impl
+>   bit-for-bit (diff 0.0). Cosmetic/perf, no result change.
+> - **B done (`47e24bad`):** single-species coupled long-horizon NaN root-caused + gated.
+>   Both handoff suspects RULED OUT by probe (collar curvature k_acclim*d2p_dpsi2 ~ -9.9,
+>   stably decaying; g' light channel — freezing it doesn't help, breaks H4). Real cause:
+>   the coupled **log_density<->canopy sensitivity feedback** goes unstable — deeply-shaded
+>   TF24f cohorts carry a LARGE leaf `dprofit_dL` (7->24) + high density, amplifying the
+>   canopy-reshaping feedback; step-cap bisection localises ignition to a single step
+>   (jac -2.1 -> +4e9, compounding to 1e+237/NaN with horizon). The SCM tames it via ADAPTIVE
+>   stepping; the frozen-step replay cannot (double env_err ~1e-6@H4 -> ~2e-2@H5+). FF16
+>   robust (closed-form net, bounded light response). Fix: the single-species path had NO
+>   gate; added the double R0 (env_err) gate + post-sweep finiteness/magnitude guard -> clear
+>   error for stiff horizons. H<=4 unchanged. True horizon extension = adaptive sub-stepping
+>   in the replay (future hardening).
+> - **C (birth_rate deriv) scoped, deferred:** frozen case is trivially analytic
+>   (`d(metric)/d(birth_rate)=metric/birth_rate`, verified op/br=0.86; cross-species zero).
+>   Valuable case = resident-coupled (demographic-equilibrium Newton): needs birth_rate as a
+>   COUPLED-tape input + a DESIGN decision (offspring_production "resident" mode is documented
+>   to STAY the frozen invasion gradient, so birth_rate's demographic-equilibrium semantics
+>   must be chosen) + full-SCM-re-run FD validation. Best first slice: FF16 resident (robust)
+>   birth_rate-as-tape-input on `assemble_metrics_coupled`. Multi-hour, design fork -> awaits Dan.
+
 **Two tasks chosen for the next session (Dan, 2026-06-30):**
 
 ### A. Native the TF24f multi-species coupled gradient (mirror `bef2503e`)
