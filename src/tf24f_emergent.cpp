@@ -37,6 +37,7 @@
 #include <plant/models/tf24f_strategy.h>
 #include <plant/models/tf24_production_kernel.h>
 #include <plant/models/ff16_production_kernel.h>   // ff16_cashkarp_replay, FF16State
+#include <plant/gradient/scm_harvest.h>            // shared birth_steps / recover_birth_rate / census_trapezium
 #include <odelia/interpolator.hpp>                 // basic_interpolator<S> (coupled canopy)
 
 namespace {
@@ -223,21 +224,10 @@ Rcpp::List tf24f_census_recon_core(
             [&](std::size_t a, std::size_t b){ return finals[a].demog.height > finals[b].demog.height; });
 
   auto census_reduce = [&](auto psi) -> double {
-    std::vector<double> phi(nC);
-    for (std::size_t i = 0; i < nC; ++i)
-      phi[i] = psi(finals[i].demog.height, std::exp(finals[i].log_density),
-                   finals[i].demog.mass_heartwood);
-    double J = 0.0;
-    for (std::size_t j = 0; j + 1 < nC; ++j) {
-      const std::size_t a = ord[j], b = ord[j + 1];
-      J += 0.5 * (finals[a].demog.height - finals[b].demog.height) * (phi[a] + phi[b]);
-    }
-    if (nC > 0) {
-      const std::size_t last = ord[nC - 1];
-      const double phi_new = psi(h0v, dens_new, 0.0);
-      J += 0.5 * (finals[last].demog.height - h0v) * (phi[last] + phi_new);
-    }
-    return J;
+    return plant::gradient::census_trapezium<double>(nC, ord, h0v, dens_new,
+      [&](std::size_t i) -> double { return finals[i].demog.height; },
+      [&](std::size_t i) -> double { return std::exp(finals[i].log_density); },
+      [&](std::size_t i) -> double { return finals[i].demog.mass_heartwood; }, psi);
   };
 
   Rcpp::NumericVector values(metrics.size());
@@ -299,18 +289,7 @@ std::vector<std::vector<plant::TF24_Environment>> eh_from_list(Rcpp::List eh_lis
 std::vector<int> tf24f_birth_steps(
     const plant::Patch<plant::TF24f_Strategy, plant::TF24_Environment>& patch,
     std::size_t species) {
-  const auto& sh = patch.step_history;
-  const std::vector<double> nt = patch.at_species(species).node_times();
-  std::vector<int> birth(nt.size());
-  for (std::size_t i = 0; i < nt.size(); ++i) {
-    std::size_t best = 0; double bd = std::abs(sh[0] - nt[i]);
-    for (std::size_t k = 1; k < sh.size(); ++k) {
-      const double d = std::abs(sh[k] - nt[i]);
-      if (d < bd) { bd = d; best = k; }
-    }
-    birth[i] = (int)best;
-  }
-  return birth;
+  return plant::gradient::birth_steps(patch, species);
 }
 } // namespace
 
@@ -334,12 +313,7 @@ Rcpp::List tf24f_census_recon_native(
   auto scm = Rcpp::as<plant::RcppR6::RcppR6<
     plant::SCM<plant::TF24f_Strategy, plant::TF24_Environment>>>(scm_);
   const auto& patch = scm->r_patch();
-  double br = birth_rate;
-  if (br < 0.0) {
-    const auto op = scm->offspring_production();
-    const auto nrr = scm->net_reproduction_ratios();
-    br = op[(std::size_t)species] / nrr[(std::size_t)species];
-  }
+  double br = plant::gradient::recover_birth_rate(scm, (std::size_t)species, birth_rate);
   const std::vector<int> birth = tf24f_birth_steps(patch, (std::size_t)species);
   return tf24f_census_recon_core(pp, patch.environment_history, patch.step_history,
                                  birth, br, k_acclim, use_ad_gradient,
@@ -819,12 +793,7 @@ Rcpp::List tf24f_census_gradient_ad_native(
   auto scm = Rcpp::as<plant::RcppR6::RcppR6<
     plant::SCM<plant::TF24f_Strategy, plant::TF24_Environment>>>(scm_);
   const auto& patch = scm->r_patch();
-  double br = birth_rate;
-  if (br < 0.0) {
-    const auto op = scm->offspring_production();
-    const auto nrr = scm->net_reproduction_ratios();
-    br = op[(std::size_t)species] / nrr[(std::size_t)species];
-  }
+  double br = plant::gradient::recover_birth_rate(scm, (std::size_t)species, birth_rate);
   const std::vector<int> birth = tf24f_birth_steps(patch, (std::size_t)species);
   return tf24f_census_gradient_ad_core(pp, patch.environment_history,
     patch.step_history, birth, br, k_acclim, use_ad_gradient, traits,
@@ -1715,12 +1684,7 @@ Rcpp::List tf24f_coupled_gradient_native(
   if (patch.stand_newnode_height_stage_history.size() < 1)
     Rcpp::stop("the TF24f coupled (resident) census gradient needs the per-RK-stage "
                "boundary-node harvest; re-run with control(save_RK45_cache = TRUE)");
-  double br = birth_rate;
-  if (br < 0.0) {
-    const auto op = scm->offspring_production();
-    const auto nrr = scm->net_reproduction_ratios();
-    br = op[(std::size_t)species] / nrr[(std::size_t)species];
-  }
+  double br = plant::gradient::recover_birth_rate(scm, (std::size_t)species, birth_rate);
   const std::vector<int> birth = tf24f_birth_steps(patch, (std::size_t)species);
   return tf24f_coupled_gradient_core(pp, patch.environment_history, patch.step_history,
     birth, br, k_acclim, use_ad_gradient, traits, metrics,

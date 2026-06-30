@@ -22,6 +22,7 @@
 #include <XAD/XAD.hpp>
 #include <plant.h>                 // RcppR6 as<>/wrap for FF16_Environment etc.
 #include <plant/models/ff16_production_kernel.h>
+#include <plant/gradient/scm_harvest.h> // shared birth_steps / recover_birth_rate / census_trapezium
 #include <odelia/interpolator.hpp> // basic_interpolator<S> (active-value light spline)
 
 using ad   = xad::adj<double>;
@@ -483,15 +484,7 @@ Frozen build_frozen_scm(
   const std::size_t nC = nt.size();
 
   // Cohort birth steps: the step time nearest each node introduction time (0-based).
-  F.birth.resize(nC);
-  for (std::size_t i = 0; i < nC; ++i) {
-    std::size_t best = 0; double bd = std::abs(sh[0] - nt[i]);
-    for (std::size_t k = 1; k < sh.size(); ++k) {
-      const double d = std::abs(sh[k] - nt[i]);
-      if (d < bd) { bd = d; best = k; }
-    }
-    F.birth[i] = (int)best;
-  }
+  F.birth = plant::gradient::birth_steps(patch, species);
   F.decay.resize(nC);
   for (std::size_t i = 0; i < nC; ++i)
     F.decay[i] = std::exp(-s.pars.recruitment_decay * sh[(std::size_t)F.birth[i]]);
@@ -647,21 +640,10 @@ std::vector<S> assemble_metrics(const plant::FF16ProdPars<S>& pa, const Frozen& 
     return as_double(finals[a].demog.height) > as_double(finals[b].demog.height); });
 
   auto census_reduce = [&](auto psi) -> S {
-    std::vector<S> phi(nC);
-    for (std::size_t i = 0; i < nC; ++i)
-      phi[i] = psi(finals[i].demog.height, exp(finals[i].log_density),
-                   finals[i].demog.mass_heartwood);
-    S J = S(0.0);
-    for (std::size_t j = 0; j + 1 < nC; ++j) {
-      const std::size_t a = ord[j], b = ord[j + 1];
-      J = J + S(0.5) * (finals[a].demog.height - finals[b].demog.height) * (phi[a] + phi[b]);
-    }
-    if (nC > 0) {
-      const std::size_t last = ord[nC - 1];
-      S phi_new = psi(h0, dens_new, S(0.0));
-      J = J + S(0.5) * (finals[last].demog.height - h0) * (phi[last] + phi_new);
-    }
-    return J;
+    return plant::gradient::census_trapezium<S>(nC, ord, h0, dens_new,
+      [&](std::size_t i) -> S { return finals[i].demog.height; },
+      [&](std::size_t i) -> S { return exp(finals[i].log_density); },
+      [&](std::size_t i) -> S { return finals[i].demog.mass_heartwood; }, psi);
   };
 
   std::vector<S> J(M);
@@ -1608,12 +1590,7 @@ Rcpp::List ff16_stand_gradient_native(
     plant::SCM<plant::FF16_Strategy, plant::FF16_Environment>>>(scm_);
   const auto& patch = scm->r_patch();
   auto s = make_strategy(pp);
-  double br = birth_rate;
-  if (br < 0.0) {
-    const auto op  = scm->offspring_production();
-    const auto nrr = scm->net_reproduction_ratios();
-    br = op[(std::size_t)species] / nrr[(std::size_t)species];
-  }
+  double br = plant::gradient::recover_birth_rate(scm, (std::size_t)species, birth_rate);
   Frozen F = build_frozen_scm(s, patch, (std::size_t)species, br);
   return ff16_stand_gradient_core(F, s, traits, metrics, br, feedback,
                                   sh_h_list, sh_c_list, patch_area, al1_base, al2_base);
@@ -1732,12 +1709,7 @@ Rcpp::List ff16_coupled_gradient_native(
     Rcpp::stop("feedback = 'resident' needs the per-RK-stage boundary-node harvest; "
                "re-run the resident SCM with control(save_RK45_cache = TRUE)");
   auto s = make_strategy(pp);
-  double br = birth_rate;
-  if (br < 0.0) {
-    const auto op = scm->offspring_production();
-    const auto nrr = scm->net_reproduction_ratios();
-    br = op[(std::size_t)species] / nrr[(std::size_t)species];
-  }
+  double br = plant::gradient::recover_birth_rate(scm, (std::size_t)species, birth_rate);
   Frozen F = build_frozen_scm(s, patch, (std::size_t)species, br);
   attach_coupled_native(F, s.pars.k_I, patch_area,
                         patch.stand_newnode_height_stage_history,
