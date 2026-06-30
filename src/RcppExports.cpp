@@ -12968,17 +12968,14 @@ BEGIN_RCPP
 END_RCPP
 }
 // ff16_stand_gradient_native
-Rcpp::List ff16_stand_gradient_native(SEXP scm_, Rcpp::NumericVector pp, std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw, std::vector<std::string> traits, std::vector<std::string> metrics, double birth_rate, std::string feedback, Rcpp::List sh_h_list, Rcpp::List sh_c_list, double patch_area, double al1_base, double al2_base);
-RcppExport SEXP _plant_ff16_stand_gradient_native(SEXP scm_SEXP, SEXP ppSEXP, SEXP birthSEXP, SEXP ppsurvSEXP, SEXP ppsabSEXP, SEXP twSEXP, SEXP traitsSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP feedbackSEXP, SEXP sh_h_listSEXP, SEXP sh_c_listSEXP, SEXP patch_areaSEXP, SEXP al1_baseSEXP, SEXP al2_baseSEXP) {
+Rcpp::List ff16_stand_gradient_native(SEXP scm_, Rcpp::NumericVector pp, int species, std::vector<std::string> traits, std::vector<std::string> metrics, double birth_rate, std::string feedback, Rcpp::List sh_h_list, Rcpp::List sh_c_list, double patch_area, double al1_base, double al2_base);
+RcppExport SEXP _plant_ff16_stand_gradient_native(SEXP scm_SEXP, SEXP ppSEXP, SEXP speciesSEXP, SEXP traitsSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP feedbackSEXP, SEXP sh_h_listSEXP, SEXP sh_c_listSEXP, SEXP patch_areaSEXP, SEXP al1_baseSEXP, SEXP al2_baseSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< SEXP >::type scm_(scm_SEXP);
     Rcpp::traits::input_parameter< Rcpp::NumericVector >::type pp(ppSEXP);
-    Rcpp::traits::input_parameter< std::vector<int> >::type birth(birthSEXP);
-    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type ppsurv(ppsurvSEXP);
-    Rcpp::traits::input_parameter< std::vector<double> >::type ppsab(ppsabSEXP);
-    Rcpp::traits::input_parameter< std::vector<double> >::type tw(twSEXP);
+    Rcpp::traits::input_parameter< int >::type species(speciesSEXP);
     Rcpp::traits::input_parameter< std::vector<std::string> >::type traits(traitsSEXP);
     Rcpp::traits::input_parameter< std::vector<std::string> >::type metrics(metricsSEXP);
     Rcpp::traits::input_parameter< double >::type birth_rate(birth_rateSEXP);
@@ -12988,7 +12985,7 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
     Rcpp::traits::input_parameter< double >::type al1_base(al1_baseSEXP);
     Rcpp::traits::input_parameter< double >::type al2_base(al2_baseSEXP);
-    rcpp_result_gen = Rcpp::wrap(ff16_stand_gradient_native(scm_, pp, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate, feedback, sh_h_list, sh_c_list, patch_area, al1_base, al2_base));
+    rcpp_result_gen = Rcpp::wrap(ff16_stand_gradient_native(scm_, pp, species, traits, metrics, birth_rate, feedback, sh_h_list, sh_c_list, patch_area, al1_base, al2_base));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -14859,7 +14856,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ff16_reverse_tape_probe", (DL_FUNC) &_plant_ff16_reverse_tape_probe, 2},
     {"_plant_ff16_offspring_production_gradient_impl", (DL_FUNC) &_plant_ff16_offspring_production_gradient_impl, 8},
     {"_plant_ff16_stand_gradient_impl", (DL_FUNC) &_plant_ff16_stand_gradient_impl, 16},
-    {"_plant_ff16_stand_gradient_native", (DL_FUNC) &_plant_ff16_stand_gradient_native, 15},
+    {"_plant_ff16_stand_gradient_native", (DL_FUNC) &_plant_ff16_stand_gradient_native, 12},
     {"_plant_ff16_coupled_metrics_impl", (DL_FUNC) &_plant_ff16_coupled_metrics_impl, 13},
     {"_plant_ff16_coupled_gradient_impl", (DL_FUNC) &_plant_ff16_coupled_gradient_impl, 14},
     {"_plant_ff16_coupled_metrics_ms_impl", (DL_FUNC) &_plant_ff16_coupled_metrics_ms_impl, 10},

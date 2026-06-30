@@ -237,17 +237,24 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
   strat <- extract_RcppR6_template_types(scm$parameters, "Parameters")[[1]]
   if (identical(strat, "FF16")) {
     if (is.null(traits)) traits <- ff16_default_traits()
+    if (feedback == "frozen") {
+      # Frozen invasion gradient -> the FULLY native entry: the whole harvest (env +
+      # schedule + birth steps + weights + per-stage survival) is built in C++ from the
+      # live Patch, so the O(stand) R-side ff16_harvest (pr_survival loop) never runs.
+      pp <- unlist(scm$parameters$strategies[[species]]$pars)
+      return(ff16_stand_gradient_native(scm, pp, as.integer(species - 1L), traits,
+               metrics, if (is.null(birth_rate)) -1 else birth_rate, "frozen",
+               list(), list(), scm$parameters$patch_area, -1, -1))
+    }
     h <- ff16_harvest(scm, species, birth_rate)
     if (feedback != "resident") {
-      # Frozen / the undocumented resident_noanchor validation mode -> the original
-      # (per-cohort, frozen-canopy / leaf-area graft) engine.
+      # The undocumented resident_noanchor validation mode -> the per-cohort frozen-
+      # canopy / leaf-area graft engine (needs the per-RK-stage stand harvest).
       if (is_resident && length(h$sh_h) < 1L) {
         stop("feedback = 'resident' needs the per-RK-stage stand harvest; re-run the ",
              "resident SCM on this plant version with control(save_RK45_cache = TRUE)")
       }
-      # Native entry: reads the per-RK-stage env + schedule directly from the live
-      # SCM's Patch (no Rcpp::as<> env round-trip; faithful crown-sampled light).
-      return(ff16_stand_gradient_native(scm, h$pp, h$birth_step, h$ppsurv,
+      return(ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
                h$ppsab, h$tw, traits, metrics, h$birth_rate, feedback,
                if (is.null(h$sh_h)) list() else h$sh_h,
                if (is.null(h$sh_c)) list() else h$sh_c, h$patch_area, -1, -1))
@@ -306,9 +313,9 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
       values[census] <- gc$values[census]
     }
     if (length(offsp)) {
-      go <- ff16_stand_gradient_native(scm, h$pp, h$birth_step, h$ppsurv,
-              h$ppsab, h$tw, traits, offsp, h$birth_rate, "frozen", list(), list(),
-              h$patch_area, -1, -1)
+      # offspring stays the FROZEN invasion gradient (fully native, like the frozen path).
+      go <- ff16_stand_gradient_native(scm, h$pp, as.integer(species - 1L), traits,
+              offsp, h$birth_rate, "frozen", list(), list(), h$patch_area, -1, -1)
       jac[offsp, ] <- go$jacobian[offsp, , drop = FALSE]
       values[offsp] <- go$values[offsp]
     }

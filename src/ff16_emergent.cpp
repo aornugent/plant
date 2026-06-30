@@ -456,30 +456,65 @@ Frozen build_frozen(const plant::FF16_Strategy& s, Rcpp::List eh_list,
   return F;
 }
 
-// FAITHFUL native variant of build_frozen (#472 scope B, refactor+optimize phase):
-// copy the per-RK-stage env DIRECTLY from the live SCM's Patch instead of from an
-// R list. The Rcpp::as<plant::FF16_Environment> path rebuilds each env's light
-// spline from its serialized knots (r_get_state -> r_init_interpolators), which is
-// NOT faithful for the crown-sampled light above cohort heights (the root cause of
-// the TF24f long-horizon census-recon floor + the g' validation trap; see
-// notes/ad-refactor-optimize-roadmap.md). A C++ copy of the live env preserves the
-// spline exactly. EH / sh are borrowed from patch.environment_history /
-// patch.step_history; everything else matches build_frozen.
-Frozen build_frozen_native(
+// FULL native harvest (#472 scope B, refactor+optimize phase): build the ENTIRE
+// Frozen harvest from the live SCM's Patch -- the per-RK-stage env (faithful C++
+// copy, no Rcpp::as<>), the step schedule, and the per-cohort birth steps /
+// trapezoid weights / per-RK-stage patch survival / survival-at-birth -- replacing
+// the R-side ff16_harvest (whose pr_survival loop is O(stand size) because each
+// scm$patch access rebuilds the whole RcppR6 patch; see R/emergent_gradient.R:70).
+// Bit-identical to ff16_harvest + build_frozen (the same arithmetic, native data).
+Frozen build_frozen_scm(
     const plant::FF16_Strategy& s,
-    const std::vector<std::vector<plant::FF16_Environment>>& EH,
-    const std::vector<double>& sh, std::vector<int> birth,
-    Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw) {
-  Frozen F; F.eta = s.pars.eta; F.h0 = s.initial_height(); F.birth = birth;
-  F.ppsab = ppsab; F.tw = tw; F.ppsurv = ppsurv; F.integ = &s.function_integrator;
-  F.a_d0 = s.pars.a_d0;
+    const plant::Patch<plant::FF16_Strategy, plant::FF16_Environment>& patch,
+    std::size_t species, double birth_rate) {
+  Frozen F; F.eta = s.pars.eta; F.h0 = s.initial_height();
+  F.integ = &s.function_integrator; F.a_d0 = s.pars.a_d0;
+  const auto& EH = patch.environment_history;
+  const auto& sh = patch.step_history;
   const std::size_t N = EH.size();
   F.eh = EH;                                   // faithful copy (no Rcpp::as<>)
   F.step_h.resize(N);
-  for (std::size_t n=0;n<N;++n) F.step_h[n]=sh[n+1]-sh[n];
-  F.decay.resize(birth.size());
-  for (std::size_t i=0;i<birth.size();++i)
-    F.decay[i] = std::exp(-s.pars.recruitment_decay * sh[(std::size_t)birth[i]]);
+  for (std::size_t n = 0; n < N; ++n) F.step_h[n] = sh[n + 1] - sh[n];
+
+  const auto& sp = patch.at_species(species);
+  const std::vector<double> nt    = sp.node_times();
+  const std::vector<double> pdens = sp.r_patch_densities();
+  F.ppsab = sp.r_pr_patch_survival_at_birth();
+  const std::size_t nC = nt.size();
+
+  // Cohort birth steps: the step time nearest each node introduction time (0-based).
+  F.birth.resize(nC);
+  for (std::size_t i = 0; i < nC; ++i) {
+    std::size_t best = 0; double bd = std::abs(sh[0] - nt[i]);
+    for (std::size_t k = 1; k < sh.size(); ++k) {
+      const double d = std::abs(sh[k] - nt[i]);
+      if (d < bd) { bd = d; best = k; }
+    }
+    F.birth[i] = (int)best;
+  }
+  F.decay.resize(nC);
+  for (std::size_t i = 0; i < nC; ++i)
+    F.decay[i] = std::exp(-s.pars.recruitment_decay * sh[(std::size_t)F.birth[i]]);
+
+  // Node-spacing trapezoid weights so offspring_production = sum_i tw_i * offspring_i.
+  std::vector<double> tcoef(nC, 0.0);
+  if (nC >= 2) {
+    tcoef[0] = 0.5 * (nt[1] - nt[0]);
+    tcoef[nC - 1] = 0.5 * (nt[nC - 1] - nt[nC - 2]);
+    for (std::size_t i = 1; i + 1 < nC; ++i) tcoef[i] = 0.5 * (nt[i + 1] - nt[i - 1]);
+  }
+  const double S_D = s.pars.S_D;
+  F.tw.resize(nC);
+  for (std::size_t i = 0; i < nC; ++i) F.tw[i] = tcoef[i] * pdens[i] * S_D * birth_rate;
+
+  // pr_patch_survival at the exact Cash-Karp stage times sh[k] + ah[s]*h.
+  const double ah[6] = {0.0, 0.2, 0.3, 0.6, 1.0, 0.875};
+  Rcpp::NumericMatrix ppsurv((int)N, 6);
+  for (std::size_t k = 0; k < N; ++k) {
+    const double hN = sh[k + 1] - sh[k];
+    for (int st = 0; st < 6; ++st) ppsurv((int)k, st) = patch.r_pr_survival(sh[k] + ah[st] * hN);
+  }
+  F.ppsurv = ppsurv;
   return F;
 }
 
@@ -1532,27 +1567,31 @@ Rcpp::List ff16_stand_gradient_impl(
                                   sh_h_list, sh_c_list, patch_area, al1_base, al2_base);
 }
 
-// Native-SCM variant: reads the per-RK-stage env + step schedule DIRECTLY from the
-// live SCM's Patch (no Rcpp::as<> env round-trip; faithful crown-sampled light). The
-// remaining cheap, faithful arrays (birth/ppsurv/ppsab/tw/sh_h/sh_c) still come from
-// the R harvest. `scm_` is the RcppR6 SCM<FF16,FF16_Env> object; `Rcpp::as` only
-// unwraps its external pointer (no content serialization). Bit-identical to _impl
-// where the env round-trip was already faithful (FF16), faithful where it was not.
+// FULLY native-SCM variant: builds the WHOLE harvest (env + schedule + birth steps +
+// weights + per-stage survival) from the live Patch -- no R-side ff16_harvest at all,
+// so the O(stand) pr_survival loop (R/emergent_gradient.R:70) runs once in C++ on the
+// native patch. `species` is 0-based; birth_rate < 0 recovers the constant rate from
+// the run (offspring_production / net_reproduction_ratio). sh_h_list/sh_c_list are the
+// (rare) resident_noanchor stand-stage harvest; empty for the frozen path. `scm_` is
+// the RcppR6 SCM<FF16,FF16_Env>; Rcpp::as only unwraps its .ptr (no serialization).
 // [[Rcpp::export]]
 Rcpp::List ff16_stand_gradient_native(
-    SEXP scm_, Rcpp::NumericVector pp,
-    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
-    std::vector<double> tw, std::vector<std::string> traits,
-    std::vector<std::string> metrics, double birth_rate,
-    std::string feedback, Rcpp::List sh_h_list, Rcpp::List sh_c_list,
-    double patch_area, double al1_base, double al2_base) {
+    SEXP scm_, Rcpp::NumericVector pp, int species,
+    std::vector<std::string> traits, std::vector<std::string> metrics,
+    double birth_rate, std::string feedback, Rcpp::List sh_h_list,
+    Rcpp::List sh_c_list, double patch_area, double al1_base, double al2_base) {
   auto scm = Rcpp::as<plant::RcppR6::RcppR6<
     plant::SCM<plant::FF16_Strategy, plant::FF16_Environment>>>(scm_);
   const auto& patch = scm->r_patch();
   auto s = make_strategy(pp);
-  Frozen F = build_frozen_native(s, patch.environment_history, patch.step_history,
-                                 birth, ppsurv, ppsab, tw);
-  return ff16_stand_gradient_core(F, s, traits, metrics, birth_rate, feedback,
+  double br = birth_rate;
+  if (br < 0.0) {
+    const auto op  = scm->offspring_production();
+    const auto nrr = scm->net_reproduction_ratios();
+    br = op[(std::size_t)species] / nrr[(std::size_t)species];
+  }
+  Frozen F = build_frozen_scm(s, patch, (std::size_t)species, br);
+  return ff16_stand_gradient_core(F, s, traits, metrics, br, feedback,
                                   sh_h_list, sh_c_list, patch_area, al1_base, al2_base);
 }
 
