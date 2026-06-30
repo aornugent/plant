@@ -371,8 +371,14 @@ suite FAIL=0 ERROR=0 SKIP=9 **PASS=2587**, fixture all PASS):
 >   is genuinely non-trivial -- the canopy feedback dominates and FLIPS the sign of biomass
 >   (AD biomass -6.25e-4 vs frozen identity +0.456). Validated AD == FD over the SAME coupled
 >   recon (perturb birth_rate arg of `ff16_coupled_metrics_impl`) to ~0.7%. New fixture case
->   `ff16_birth_rate` (noise tier) + test in test-ff16-stand-gradient.R. **Remaining (future):**
->   the cross-species birth_rate block (d(metric)/d(birth_rate_s')); TF24f resident birth_rate
+>   `ff16_birth_rate` (noise tier) + test in test-ff16-stand-gradient.R.
+> - **C cross-species block DONE** (`8840d874`): `assemble_metrics_coupled_ms` gains an
+>   optional active per-species birth_rate vector; `ff16_birth_rate_gradient_ms_core/_native`
+>   register only the target species' birth_rate; `birth_rate_gradient(scm, metrics, species)`
+>   dispatches single/multi + gates the MS path on env_err. The cross term
+>   `d(total-stand metric)/d(birth_rate_s)` is the genuinely new object (frozen = diagonal
+>   identity). AD == FD over the same coupled MS recon ~0.3%; MS test added. Suite PASS=2606;
+>   make test-ad PASS=358 (installed DLL). **Remaining (future):** TF24f resident birth_rate
 >   (gated like its trait gradient); wiring birth_rate into the generic stand_gradient metric
 >   loop. Multi-species frozen birth_rate is the trivial diagonal identity (no tape needed).
 
