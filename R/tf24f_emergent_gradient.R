@@ -368,21 +368,32 @@ tf24f_harvest_ms <- function(scm) {
 tf24f_resident_census_gradient_ms_ad <- function(scm, metrics = c("LAI", "size_moment"),
                                                  traits = NULL, species = 1L,
                                                  trait_rel_step = 1e-5) {
+  tf24f_require_strategy(scm)
   if (is.null(traits)) traits <- tf24_default_traits()
-  hm <- tf24f_harvest_ms(scm)
-  if (species < 1L || species > hm$nsp) stop("target species out of range")
+  # Fully native (mirrors ff16_coupled_gradient_ms_native): the joint env + step schedule
+  # + per-species birth steps + all-species boundary harvest come from the live Patch; only
+  # the cheap per-species scalars (pp / recovered birth rates / acclimation knobs) are read
+  # from $parameters in R. No tf24f_harvest_ms (no Rcpp::as<> env, no O(stand) patch rebuild).
+  nsp <- length(scm$parameters$strategies)
+  if (species < 1L || species > nsp) stop("target species out of range")
+  pp_list <- lapply(seq_len(nsp), function(s) unlist(scm$parameters$strategies[[s]]$pars))
+  br_vec <- vapply(seq_len(nsp), function(s)
+    scm$offspring_production[[s]] / scm$net_reproduction_ratios[[s]], numeric(1))
+  k_acclim <- vapply(seq_len(nsp), function(s)
+    scm$parameters$strategies[[s]]$k_acclim, numeric(1))
+  use_ad <- vapply(seq_len(nsp), function(s)
+    as.integer(isTRUE(scm$parameters$strategies[[s]]$use_ad_gradient)), integer(1))
+  patch_area <- scm$parameters$patch_area
   diverged <- function(ee)
     stop("the multi-species TF24f coupled re-evolution is too stiff on this node ",
          "schedule (joint env drift = ", signif(ee, 3), "). The cross-species gradient ",
          "needs a well-conditioned stand: closely-spaced species on a fine FIXED node ",
          "schedule (refine_schedule = FALSE). Re-run the resident SCM accordingly.")
-  r0 <- tf24f_coupled_gradient_ms_impl(hm$pp_list, hm$eh, hm$sh, hm$birth_list,
-          hm$birth_rate, hm$k_acclim, hm$use_ad_gradient, traits, metrics, hm$nn_h,
-          hm$nn_c, hm$patch_area, as.integer(species), trait_rel_step, TRUE)
+  r0 <- tf24f_coupled_gradient_ms_native(scm, pp_list, br_vec, k_acclim, use_ad, traits,
+          metrics, patch_area, as.integer(species), trait_rel_step, TRUE)
   if (!all(is.finite(r0$values)) || r0$env_err > 1e-3) diverged(r0$env_err)
-  g <- tf24f_coupled_gradient_ms_impl(hm$pp_list, hm$eh, hm$sh, hm$birth_list, hm$birth_rate,
-    hm$k_acclim, hm$use_ad_gradient, traits, metrics, hm$nn_h, hm$nn_c, hm$patch_area,
-    as.integer(species), trait_rel_step, FALSE)
+  g <- tf24f_coupled_gradient_ms_native(scm, pp_list, br_vec, k_acclim, use_ad, traits,
+         metrics, patch_area, as.integer(species), trait_rel_step, FALSE)
   # Post-sweep guard: the linearised tape can still blow up (finite but astronomically
   # large) where the gate passes but the derivative is stiff; reject rather than mislead.
   if (!all(is.finite(g$jacobian)) || max(abs(g$jacobian)) > 1e12) diverged(r0$env_err)

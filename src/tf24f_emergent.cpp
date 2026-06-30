@@ -1952,12 +1952,23 @@ LHc harvest_point_ms(plant::TF24f_Strategy& s_sp,
 // the all-species per-RK-stage boundary harvest [step][stage][species]; target is 1-based.
 // If `gate_only` (R0), runs a double joint re-evolution and returns values + env_err (the
 // coupled-drift gauge) with no tape; else the AD cross-species sweep.
-// [[Rcpp::export]]
-Rcpp::List tf24f_coupled_gradient_ms_impl(
-    Rcpp::List pp_list, Rcpp::List eh_list, std::vector<double> sh, Rcpp::List birth_list,
+// Shared core of the TF24f cross-species coupled gradient (the analog of FF16's
+// ff16_coupled_gradient_ms_core). Takes the joint env / step schedule / per-species
+// cohort birth steps / all-species per-RK-stage boundary harvest as ready-built C++
+// structures, so the R-list `_impl` (the FD-reference surface + lossy Rcpp::as<> env)
+// and the live-Patch `_native` entry feed it identically. gate_only=TRUE runs the
+// double R0 pass and returns {values, env_err}; FALSE runs the cross-species AD sweep
+// and returns {jacobian, values}.
+Rcpp::List tf24f_coupled_gradient_ms_core(
+    Rcpp::List pp_list,
+    const std::vector<std::vector<plant::TF24_Environment>>& EH,
+    const std::vector<double>& sh,
+    const std::vector<std::vector<int>>& birth,
     std::vector<double> birth_rate, std::vector<double> k_acclim,
     std::vector<int> use_ad_gradient, std::vector<std::string> traits,
-    std::vector<std::string> metrics, Rcpp::List nn_h_list, Rcpp::List nn_c_list,
+    std::vector<std::string> metrics,
+    const std::vector<std::vector<std::vector<double>>>& NNH,
+    const std::vector<std::vector<std::vector<double>>>& NNC,
     double patch_area, int target, double trait_rel_step, bool gate_only) {
   using std::exp; using std::log;
   for (auto& nm : metrics)
@@ -2002,42 +2013,24 @@ Rcpp::List tf24f_coupled_gradient_ms_impl(
     dh0[k] = (sp[k].initial_height() - sm[k].initial_height()) / (2.0 * dk[k]);
   }
 
-  // Joint env + per-stage boundary harvest [step][stage][species].
-  const std::size_t N = eh_list.size();
-  std::vector<std::vector<plant::TF24_Environment>> EH(N);
-  for (std::size_t n = 0; n < N; ++n) {
-    Rcpp::List st = eh_list[n];
-    for (R_xlen_t k = 0; k < st.size(); ++k)
-      EH[n].push_back(Rcpp::as<plant::TF24_Environment>(st[k]));
-  }
+  // Joint env (EH) + per-stage boundary harvest (NNH/NNC, [step][stage][species]) arrive
+  // ready-built: the `_impl` wrapper Rcpp::as<>-rebuilds them from R lists; the `_native`
+  // entry borrows them from the live Patch. Only the per-step durations are derived here.
+  const std::size_t N = EH.size();
   std::vector<double> step_h(N);
   for (std::size_t n = 0; n < N; ++n) step_h[n] = sh[n + 1] - sh[n];
-  // NNH[n][stage] -> vector over species.
-  std::vector<std::vector<std::vector<double>>> NNH(N), NNC(N);
-  for (std::size_t n = 0; n < N; ++n) {
-    Rcpp::List hns = nn_h_list[n], cns = nn_c_list[n];
-    const std::size_t ns = hns.size();
-    NNH[n].resize(ns); NNC[n].resize(ns);
-    for (std::size_t k = 0; k < ns; ++k) {
-      NNH[n][k] = Rcpp::as<std::vector<double>>(hns[k]);
-      NNC[n][k] = Rcpp::as<std::vector<double>>(cns[k]);
-    }
-  }
   auto env_idx = [&](std::size_t rn, int rs, std::size_t& en, int& es) {
     if (rs == 0) { if (rn > 0) { en = rn - 1; es = 5; } else { en = 0; es = 0; } }
     else { en = rn; es = rs - 1; }
   };
 
-  // Flatten cohorts across species: gspec / glocal / gbirth.
+  // Flatten cohorts across species: gspec / glocal / gbirth (birth steps arrive built).
   std::vector<std::size_t> gspec, glocal;
   std::vector<int> gbirth;
-  std::vector<std::vector<int>> birth(nS);
-  for (std::size_t s = 0; s < nS; ++s) {
-    birth[s] = Rcpp::as<std::vector<int>>(birth_list[s]);
+  for (std::size_t s = 0; s < nS; ++s)
     for (std::size_t i = 0; i < birth[s].size(); ++i) {
       gspec.push_back(s); glocal.push_back(i); gbirth.push_back(birth[s][i]);
     }
-  }
   const std::size_t nG = gspec.size();
 
   // ---------- R0 gate: double joint re-evolution + env_err ----------
@@ -2364,4 +2357,70 @@ Rcpp::List tf24f_coupled_gradient_ms_impl(
   jac.attr("dimnames") = Rcpp::List::create(Rcpp::wrap(metrics), Rcpp::wrap(traits));
   values.attr("names") = Rcpp::wrap(metrics);
   return Rcpp::List::create(Rcpp::Named("jacobian") = jac, Rcpp::Named("values") = values);
+}
+
+// R-list entry (the FD-reference surface the test perturbs by re-passing pp_list, and
+// the lossy Rcpp::as<>-env path): rebuild the joint env + boundary harvest + per-species
+// birth steps from R lists, then call the shared core. Bit-identical to the `_native`
+// entry below (same arithmetic, faithful data either way).
+// [[Rcpp::export]]
+Rcpp::List tf24f_coupled_gradient_ms_impl(
+    Rcpp::List pp_list, Rcpp::List eh_list, std::vector<double> sh, Rcpp::List birth_list,
+    std::vector<double> birth_rate, std::vector<double> k_acclim,
+    std::vector<int> use_ad_gradient, std::vector<std::string> traits,
+    std::vector<std::string> metrics, Rcpp::List nn_h_list, Rcpp::List nn_c_list,
+    double patch_area, int target, double trait_rel_step, bool gate_only) {
+  const std::size_t N = eh_list.size();
+  std::vector<std::vector<plant::TF24_Environment>> EH(N);
+  for (std::size_t n = 0; n < N; ++n) {
+    Rcpp::List st = eh_list[n];
+    for (R_xlen_t k = 0; k < st.size(); ++k)
+      EH[n].push_back(Rcpp::as<plant::TF24_Environment>(st[k]));
+  }
+  std::vector<std::vector<std::vector<double>>> NNH(N), NNC(N);
+  for (std::size_t n = 0; n < N; ++n) {
+    Rcpp::List hns = nn_h_list[n], cns = nn_c_list[n];
+    const std::size_t ns = hns.size();
+    NNH[n].resize(ns); NNC[n].resize(ns);
+    for (std::size_t k = 0; k < ns; ++k) {
+      NNH[n][k] = Rcpp::as<std::vector<double>>(hns[k]);
+      NNC[n][k] = Rcpp::as<std::vector<double>>(cns[k]);
+    }
+  }
+  const std::size_t nS = pp_list.size();
+  std::vector<std::vector<int>> birth(nS);
+  for (std::size_t s = 0; s < nS; ++s) birth[s] = Rcpp::as<std::vector<int>>(birth_list[s]);
+  return tf24f_coupled_gradient_ms_core(pp_list, EH, sh, birth, birth_rate, k_acclim,
+    use_ad_gradient, traits, metrics, NNH, NNC, patch_area, target, trait_rel_step,
+    gate_only);
+}
+
+// FULLY native multi-species coupled cross-species gradient (the TF24f mirror of
+// ff16_coupled_gradient_ms_native): the joint env + step schedule + per-species birth
+// steps + all-species per-RK-stage boundary harvest come from the live Patch (no R
+// tf24f_harvest_ms, no Rcpp::as<> env round-trip). pp_list / birth_rate / k_acclim /
+// use_ad_gradient are cheap per-species scalars read from $parameters in R. gate_only
+// switches the core between the cheap double R0 gate (returns env_err) and the AD sweep;
+// the R wrapper runs the gate first then the sweep, exactly as the `_impl` path did.
+// [[Rcpp::export]]
+Rcpp::List tf24f_coupled_gradient_ms_native(
+    SEXP scm_, Rcpp::List pp_list, std::vector<double> birth_rate,
+    std::vector<double> k_acclim, std::vector<int> use_ad_gradient,
+    std::vector<std::string> traits, std::vector<std::string> metrics,
+    double patch_area, int target, double trait_rel_step, bool gate_only) {
+  auto scm = Rcpp::as<plant::RcppR6::RcppR6<
+    plant::SCM<plant::TF24f_Strategy, plant::TF24_Environment>>>(scm_);
+  const auto& patch = scm->r_patch();
+  if (patch.stand_newnode_height_stage_history_all.size() < 1)
+    Rcpp::stop("feedback = 'resident' on a multi-species TF24f stand needs the "
+               "all-species per-RK-stage harvest; re-run the resident SCM with "
+               "control(save_RK45_cache = TRUE)");
+  const std::size_t nS = pp_list.size();
+  std::vector<std::vector<int>> birth(nS);
+  for (std::size_t s = 0; s < nS; ++s) birth[s] = plant::gradient::birth_steps(patch, s);
+  return tf24f_coupled_gradient_ms_core(pp_list, patch.environment_history,
+    patch.step_history, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics,
+    patch.stand_newnode_height_stage_history_all,
+    patch.stand_newnode_competition_stage_history_all, patch_area, target,
+    trait_rel_step, gate_only);
 }
