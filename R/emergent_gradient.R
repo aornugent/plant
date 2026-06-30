@@ -40,9 +40,17 @@
 offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
                                           birth_rate = NULL) {
   if (is.null(traits)) traits <- ff16_default_traits()
-  h <- ff16_harvest(scm, species, birth_rate)
-  ff16_offspring_production_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
-                                          h$ppsab, h$tw, traits)
+  # Route through the fully native frozen entry (its fast path is exactly the
+  # per-cohort offspring reverse sweep), so the O(stand) R-side ff16_harvest is
+  # skipped. Reshape to this function's contract: a traits-named vector carrying the
+  # reconstructed offspring_production as an attribute.
+  pp <- unlist(scm$parameters$strategies[[species]]$pars)
+  g <- ff16_stand_gradient_native(scm, pp, as.integer(species - 1L), traits,
+         "offspring_production", if (is.null(birth_rate)) -1 else birth_rate,
+         "frozen", list(), list(), scm$parameters$patch_area, -1, -1)
+  out <- stats::setNames(as.numeric(g$jacobian["offspring_production", ]), traits)
+  attr(out, "offspring_production") <- unname(g$values[["offspring_production"]])
+  out
 }
 
 # The 28 production-relevant FF16 trait (parameter) names the emergent gradients
