@@ -75,8 +75,18 @@ tf24f_harvest <- function(scm, species = 1L, birth_rate = NULL) {
 # stored stand (heights / log_densities / opt_root_psi_state) and that the LAI reduction
 # matches compute_competition(0), before the reverse-mode tape (R1) is added. Not yet a
 # public gradient entry point -- it returns the recon, not d(metric)/d(theta).
+# Strategy guard for the native census entries (which take the live SCM via an
+# RcppR6<SCM<TF24f,...>> cast). Mirrors the check tf24f_harvest used to provide, so a
+# non-TF24f SCM still gets a clear message rather than a raw external-pointer cast error.
+tf24f_require_strategy <- function(scm) {
+  types <- extract_RcppR6_template_types(scm$parameters, "Parameters")
+  if (!identical(types[[1]], "TF24f"))
+    stop("TF24f census gradients are implemented for the TF24f strategy only")
+}
+
 tf24f_census_recon <- function(scm, metrics = c("LAI", "biomass", "size_moment"),
                                species = 1L, birth_rate = NULL) {
+  tf24f_require_strategy(scm)
   # The reconstruction's growth-rate gradient g' must match whatever the resident
   # SCM used (Node::growth_rate_gradient): the exact-AD path when the run set
   # control(node_gradient_exact_ad = TRUE), else the backward finite difference.
@@ -141,6 +151,7 @@ tf24f_census_gradient_fd <- function(scm, metrics = c("LAI", "biomass", "size_mo
 tf24f_census_gradient_ad <- function(scm, metrics = c("LAI", "biomass", "size_moment"),
                                      traits = NULL, species = 1L, birth_rate = NULL,
                                      trait_rel_step = 1e-5) {
+  tf24f_require_strategy(scm)
   if (is.null(traits)) traits <- tf24_default_traits()
   # Fully native: env + birth steps from the live Patch; tf24f_harvest skipped.
   strat <- scm$parameters$strategies[[species]]
@@ -286,6 +297,7 @@ tf24f_coupled_metrics <- function(scm, metrics = c("LAI", "size_moment"),
 tf24f_resident_census_gradient_ad <- function(scm, metrics = c("LAI", "size_moment"),
                                               traits = NULL, species = 1L,
                                               birth_rate = NULL, trait_rel_step = 1e-5) {
+  tf24f_require_strategy(scm)
   if (is.null(traits)) traits <- tf24_default_traits()
   # Fully native: env + birth steps + boundary-node history from the live Patch (no
   # tf24f_harvest, no Rcpp::as<> env). The boundary-node guard lives in the C++ entry.
