@@ -377,10 +377,19 @@ suite FAIL=0 ERROR=0 SKIP=9 **PASS=2587**, fixture all PASS):
 >   register only the target species' birth_rate; `birth_rate_gradient(scm, metrics, species)`
 >   dispatches single/multi + gates the MS path on env_err. The cross term
 >   `d(total-stand metric)/d(birth_rate_s)` is the genuinely new object (frozen = diagonal
->   identity). AD == FD over the same coupled MS recon ~0.3%; MS test added. Suite PASS=2606;
->   make test-ad PASS=358 (installed DLL). **Remaining (future):** TF24f resident birth_rate
->   (gated like its trait gradient); wiring birth_rate into the generic stand_gradient metric
->   loop. Multi-species frozen birth_rate is the trivial diagonal identity (no tape needed).
+>   identity). AD == FD over the same coupled MS recon ~0.3%; MS test added.
+> - **C demographic-equilibrium axis DONE** (`51ca9616`): exact-AD
+>   `d(net_reproduction_ratio)/d(birth_rate)` = dR0/db, via Dan's MUTANT framing (mutant
+>   traits = resident; change in mutant fitness as resident density moves = the density
+>   feedback). `assemble_metrics_coupled` carries a survival-weighted offspring accumulator
+>   (CensusState -> FullState, decoupled => census bit-identical); new metric
+>   "net_reproduction_ratio" with UNIT per-seed weights tw/birth_rate0 (birth_rate0 = fixed
+>   harvest br, new Frozen field, so birth_rate enters R0 only via the canopy). Single-species
+>   only (cross-species census-only). R0 recon == SCM exactly; dR0/db < 0; AD==FD(same recon,
+>   weight held) 0.19%; ~25% to full-SCM FD = frozen-grid response. Suite PASS=2610; test-ad
+>   PASS=362. The plant-side access point for the regnans R0=1 Newton solve is complete.
+>   **Remaining (future):** TF24f resident birth_rate (gated like its trait gradient); the
+>   generic stand_gradient metric-loop wiring; cross-species net_reproduction_ratio if needed.
 
 **Two tasks chosen for the next session (Dan, 2026-06-30):**
 
