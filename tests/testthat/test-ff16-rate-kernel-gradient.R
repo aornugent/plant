@@ -7,8 +7,8 @@
 #      (so the AD result is a derivative of the real model, not a parallel formula);
 #   2. gradient -- forward-mode d(fecundity_dt)/d(a_p1) matches a central finite
 #      difference of the same kernel.
-# The broader reverse-mode / emergent-output gradients (stand LAI, self-shading)
-# are demonstrated runnably in scripts/ad_gradient_examples.R.
+# The broader reverse-mode / emergent-output gradients (stand LAI, self-shading) are
+# covered by test-ff16-stand-gradient.R and the gradient-regression fixture.
 
 test_that("FF16 demographic rate kernel reproduces the live crown-centre rate", {
   ctrl <- Control(); ctrl$shading_model <- "crown-centre"

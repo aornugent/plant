@@ -11,8 +11,8 @@ and the live-SCM emergent gradient + calibration API built on top of it on
 `spike-ff16-scm-emergent`. When those land, move this file to
 `overstorey/guides/autodiff-trait-gradients.qmd`, add it to the Guides sidebar in
 `_quarto.yml`, and delete the `overstorey-staging/` directory here. The guide is
-deliberately narrative + runnable pointers (the `scripts/ad_*.R` family); it builds
-no figures, so nothing static needs to move with it.
+deliberately narrative + self-contained runnable chunks (each calls the compiled
+package API); it builds no figures, so nothing static needs to move with it.
 -->
 
 ::: {.eyebrow}
@@ -390,9 +390,9 @@ swamps a smaller one — the recurring lesson). The honest-scope gap to a FD ove
 fully-*adaptive* `grow_individual_to_size` (which lets the step schedule re-respond to
 the trait) is the grid response: ~1e-5 at small targets, growing to a few–30 % for
 geometry traits at the largest target — exactly the frozen-grid caveat of the SCM
-resident gradient, one plant instead of a stand. The reproducing script is
-`scripts/ad_grow_individual_gradient.R`; the compiled path is covered in plain R by
-`test-ff16-grow-individual-gradient.R`.
+resident gradient, one plant instead of a stand. The compiled path is covered in plain
+R by `test-ff16-grow-individual-gradient.R`, which also pins the AD gradient against a
+finite-difference reference.
 
 ## The resident total gradient: the coupled replay (FF16)
 
@@ -553,40 +553,20 @@ gradient. Possible future hardening, if a refined-schedule resident gradient is 
 wanted, is a `log_density`-rate cap mirroring the SCM's own `check_initial_density_rates`
 guard, or sub-stepping the clustered early steps in the replay.
 
-## Trying the kernels directly
+## How the kernels are validated
 
 The lower-level kernels all live in
-`inst/include/plant/models/ff16_production_kernel.h`, and a family of scripts under
-`scripts/` exercise them against finite differences with `Rcpp::sourceCpp`:
-
-- `ad_gradient_examples.R` — the leaf precedent (forward-mode AD + IFT, in pure R via
-  the exposed `Leaf` class) and the kernel-level FF16 gradients;
-- `ad_emergent_gradient.R`, `ad_offspring_gradient.R` — the live-SCM two-pass
-  gradients (stand fecundity, then the real `offspring_production`);
-- `ad_whole_gradient_offspring.R` — all 28 trait derivatives from one reverse sweep;
-- `ad_deep_crown_*` — the default deep-crown assimilation;
-- `ad_self_shading_live.R`, `ad_self_shading_timeint.R` — the resident-reshaping
-  (self-shading) gradient, at a census and over the whole stand.
-
-Each prints the AD derivative, the finite difference, and the relative error — for
-instance:
-
-```
-== Example 3: full self-shading gradient (resident light responds to trait) ==
-  focal net production = -0.95379859
-  d(focal net)/d(a_l1)         AD =  1.6583209   FD =  1.6583209   rel.err = 1.7e-11 OK
-```
-
-```bash
-# after installing plant from this branch:
-R CMD INSTALL .
-Rscript scripts/ad_gradient_examples.R
-Rscript scripts/ad_whole_gradient_offspring.R
-```
-
-These compile the kernels against the live FF16 symbols in `plant.so` and the
-reverse-mode tape in `odelia.so`, so they need `plant` installed from this branch
-(matching headers and library), plus `odelia` and `BH`.
+`inst/include/plant/models/ff16_production_kernel.h` (the templated net-production,
+allometry and rate fills) and are compiled into `plant.so`. They were brought up
+against finite differences during development and are now pinned in CI: the
+`test-ff16-*-ad.R` files exercise the leaf precedent (forward-mode AD + IFT via the
+exposed `Leaf` class), the kernel-level FF16 gradients, the deep-crown assimilation and
+the resident-reshaping (self-shading) gradient against an FD reference, and the
+correctness-regression fixture (`tests/testthat/fixtures/gradient-baseline.rds`, driven
+by `scripts/gradient_fixture.R`) pins every compiled gradient engine to its validated
+value at machine precision. So the public calls in the chunks above (`stand_gradient`,
+`offspring_production_gradient`, `grow_individual_to_size_gradient`) are the same
+reverse-mode tape the tests cover — no on-the-fly `sourceCpp` compilation is needed.
 
 ## Beyond FF16: TF24
 
@@ -712,28 +692,21 @@ taped in any path — for FF16 there is none; for TF24 it is harvested at one op
 point (net production) or per stage (emergent), and its envelope/IFT sensitivities are
 injected. FF16's only real advantage is that its closed-form net needs no harvest step.
 
-### The TF24 scripts
+### Validating the TF24 path
 
-- `ad_tf24_net_gradient.R`, `ad_tf24_photo_gradient.R`, `ad_tf24_hydraulic_gradient.R`,
-  `ad_tf24_mass_gradient.R` — the per-class leaf and cascade `d(net)/d(trait)` gradients;
-- `ad_tf24_reverse_sweep.R` — all 27 `d(net)/d(trait)` in one reverse sweep
-  (reverse == forward to machine precision; plateau-picked FD reference);
-- `ad_tf24_emergent_gradient.R` — the live-SCM emergent gradient (tangent-linear) for a
-  leaf trait *and* a cascade trait (`vcmax_25`, `lma` with its `height_0` shift);
-- `ad_tf24_emergent_offspring.R` — the real `offspring_production`, with the
-  survival-weighted state + establishment + trapezium;
-- `ad_tf24_emergent_all_traits.R` — the full 27-trait vector in one shared-harvest
-  forward pass;
-- `ad_tf24_emergent_reverse.R` — the same 27-vector by **one reverse sweep per cohort**.
-
-And, as for FF16, the reverse-per-cohort path is compiled into `plant.so` and reached
-through the strategy-agnostic `offspring_production_gradient(scm)` (or
+The same staged build-up was used for TF24 — the per-class leaf and cascade
+`d(net)/d(trait)` gradients, all 27 `d(net)/d(trait)` in one reverse sweep
+(reverse == forward to machine precision), the live-SCM emergent gradient for a leaf
+trait *and* a cascade trait (`vcmax_25`, `lma` with its `height_0` shift), the real
+survival-weighted `offspring_production`, and the full 27-trait vector by one reverse
+sweep per cohort. As for FF16, the reverse-per-cohort path is compiled into `plant.so`
+and reached through the strategy-agnostic `offspring_production_gradient(scm)` (or
 `stand_gradient(scm, metrics = "offspring_production")`) — given a crown-centre
 `save_RK45_cache` SCM it returns the named 27-trait gradient (plus the reconstructed
-`offspring_production`) with no on-the-fly compilation, covered by a plain-R CI test.
-Because TF24 is stiff (every rate evaluation re-solves the leaf optimisation), the CI
-test runs on a deliberately small stand; the exhaustive 27-trait FD validation lives in
-the script above.
+`offspring_production`) with no on-the-fly compilation. The `test-tf24-*-gradient.R`
+and `test-tf24f-*-gradient.R` files pin each of those stages against a finite-difference
+reference; because TF24 is stiff (every rate evaluation re-solves the leaf
+optimisation), they run on deliberately small stands.
 
 ## Lessons, distilled
 

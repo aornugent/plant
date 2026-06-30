@@ -1,8 +1,8 @@
 # Trait gradient of grow_individual_to_size (#472 scope B, the last FF16 surface).
 # CI-runnable in plain R: ff16_grow_to_size_gradient_impl is compiled into plant.so
 # with the XAD adjoint tape resolved at load against odelia, so no on-the-fly
-# compilation is needed (cf. the sourceCpp script scripts/ad_grow_individual_gradient.R,
-# which also reports the honest-scope gap to the fully-adaptive live solver).
+# compilation is needed. The honest-scope gap to the fully-adaptive live solver (the
+# frozen-grid caveat) is described in the AutoDiff guide.
 
 test_that("grow_individual_to_size_gradient reconstructs grow_individual_to_size", {
   s    <- FF16_Strategy()

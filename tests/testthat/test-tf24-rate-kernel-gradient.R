@@ -9,8 +9,8 @@
 #   2. gradient -- forward-mode d(fecundity_dt)/d(vcmax_25), with the leaf-profit
 #      sensitivity (Leaf::dprofit_dvcmax25) injected into net, matches a central
 #      finite difference of the live crown-centre net through the same kernel.
-# The broader reverse-mode 27-trait sweep + emergent SCM gradient are demonstrated
-# runnably in scripts/ad_tf24_*.R.
+# The broader reverse-mode 27-trait sweep + emergent SCM gradient are covered by
+# test-tf24-offspring-gradient.R and test-tf24f-census-gradient.R.
 
 test_that("TF24 demographic rate kernel reproduces the live crown-centre rate", {
   ctrl <- Control(); ctrl$shading_model <- "crown-centre"

@@ -8,10 +8,10 @@
 # mature slowly (hmat ~ 16.6 m), so a faithful, fast CI stand is a tension: this uses a
 # deliberately SMALL coarse-schedule stand (a handful of cohorts, short horizon) -- the
 # reconstruction check is exact for ANY schedule, and lma's gradient (a growth/cascade
-# trait) is robust even when offspring_production is tiny. The EXHAUSTIVE per-trait FD
-# validation of all 27 traits lives in scripts/ad_tf24_emergent_all_traits.R (run with
-# `full`); here we check the compiled API end-to-end: it reconstructs the SCM output and
-# its gradient matches a two-pass FD for a representative trait.
+# trait) is robust even when offspring_production is tiny. Here we check the compiled API
+# end-to-end: it reconstructs the SCM output and its gradient matches a two-pass FD for a
+# representative trait (the per-trait FD sweep over the full trait set runs in the same
+# style for any trait).
 
 test_that("tf24_offspring_production_gradient reconstructs the SCM and matches FD", {
   H <- 6L                               # short horizon (stiff leaf opt is the cost)
@@ -72,7 +72,7 @@ test_that("tf24_offspring_production_gradient selects the right species in a 2-s
   # correct cohort family + strategy: each species' replay reconstructs ITS OWN
   # offspring_production[[s]]. (TF24 matures slowly, so at this small coarse stand the
   # emergent output is tiny -- reconstruction is exact for any magnitude; the gradient
-  # FD is validated on a real stand in scripts/ad_tf24_emergent_all_traits.R.)
+  # is FD-validated in the single-species test above.)
   H <- 6L
   p <- scm_base_parameters("TF24")
   p$max_patch_lifetime <- H
