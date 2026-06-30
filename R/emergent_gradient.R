@@ -245,7 +245,9 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
         stop("feedback = 'resident' needs the per-RK-stage stand harvest; re-run the ",
              "resident SCM on this plant version with control(save_RK45_cache = TRUE)")
       }
-      return(ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
+      # Native entry: reads the per-RK-stage env + schedule directly from the live
+      # SCM's Patch (no Rcpp::as<> env round-trip; faithful crown-sampled light).
+      return(ff16_stand_gradient_native(scm, h$pp, h$birth_step, h$ppsurv,
                h$ppsab, h$tw, traits, metrics, h$birth_rate, feedback,
                if (is.null(h$sh_h)) list() else h$sh_h,
                if (is.null(h$sh_c)) list() else h$sh_c, h$patch_area, -1, -1))
@@ -304,7 +306,7 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
       values[census] <- gc$values[census]
     }
     if (length(offsp)) {
-      go <- ff16_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv,
+      go <- ff16_stand_gradient_native(scm, h$pp, h$birth_step, h$ppsurv,
               h$ppsab, h$tw, traits, offsp, h$birth_rate, "frozen", list(), list(),
               h$patch_area, -1, -1)
       jac[offsp, ] <- go$jacobian[offsp, , drop = FALSE]

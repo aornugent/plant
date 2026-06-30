@@ -456,6 +456,33 @@ Frozen build_frozen(const plant::FF16_Strategy& s, Rcpp::List eh_list,
   return F;
 }
 
+// FAITHFUL native variant of build_frozen (#472 scope B, refactor+optimize phase):
+// copy the per-RK-stage env DIRECTLY from the live SCM's Patch instead of from an
+// R list. The Rcpp::as<plant::FF16_Environment> path rebuilds each env's light
+// spline from its serialized knots (r_get_state -> r_init_interpolators), which is
+// NOT faithful for the crown-sampled light above cohort heights (the root cause of
+// the TF24f long-horizon census-recon floor + the g' validation trap; see
+// notes/ad-refactor-optimize-roadmap.md). A C++ copy of the live env preserves the
+// spline exactly. EH / sh are borrowed from patch.environment_history /
+// patch.step_history; everything else matches build_frozen.
+Frozen build_frozen_native(
+    const plant::FF16_Strategy& s,
+    const std::vector<std::vector<plant::FF16_Environment>>& EH,
+    const std::vector<double>& sh, std::vector<int> birth,
+    Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw) {
+  Frozen F; F.eta = s.pars.eta; F.h0 = s.initial_height(); F.birth = birth;
+  F.ppsab = ppsab; F.tw = tw; F.ppsurv = ppsurv; F.integ = &s.function_integrator;
+  F.a_d0 = s.pars.a_d0;
+  const std::size_t N = EH.size();
+  F.eh = EH;                                   // faithful copy (no Rcpp::as<>)
+  F.step_h.resize(N);
+  for (std::size_t n=0;n<N;++n) F.step_h[n]=sh[n+1]-sh[n];
+  F.decay.resize(birth.size());
+  for (std::size_t i=0;i<birth.size();++i)
+    F.decay[i] = std::exp(-s.pars.recruitment_decay * sh[(std::size_t)birth[i]]);
+  return F;
+}
+
 // Populate the RESIDENT per-RK-stage stand harvest on F from the R-side nested lists
 // stand_height_stage_history / stand_competition_stage_history ([step][stage][cohort]).
 // Each (step, stage) cohort vector is sorted DESCENDING by height and the frozen
@@ -1369,17 +1396,16 @@ Rcpp::NumericVector ff16_offspring_production_gradient_impl(
 //     cohorts (descending height) + the pending-seed tail term, matching the SCM's
 //     compute_competition arithmetic. density_i = exp(log_density_i) is the replayed
 //     census number density (log_density evolved with the SCM's own g' scheme).
-// [[Rcpp::export]]
-Rcpp::List ff16_stand_gradient_impl(
-    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
-    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
-    std::vector<double> tw, std::vector<std::string> traits,
-    std::vector<std::string> metrics, double birth_rate,
-    std::string feedback, Rcpp::List sh_h_list, Rcpp::List sh_c_list,
-    double patch_area, double al1_base, double al2_base) {
-  auto s  = make_strategy(pp);
+// Shared core of the FF16 stand-gradient entry points: given an already-built
+// Frozen harvest, compute the metrics x traits Jacobian + values. Split out so the
+// R-list (`_impl`) and native-SCM (`_native`) entries differ ONLY in how F's env is
+// sourced (lossy Rcpp::as<> vs faithful native copy), not in the replay/sweep.
+Rcpp::List ff16_stand_gradient_core(
+    Frozen& F, const plant::FF16_Strategy& s, std::vector<std::string> traits,
+    std::vector<std::string> metrics, double birth_rate, std::string feedback,
+    Rcpp::List sh_h_list, Rcpp::List sh_c_list, double patch_area,
+    double al1_base, double al2_base) {
   auto pd = s.prod_pars();
-  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
   // Weight basis: the per-node weight C_i = ce_i / area_leaf(al1_base, al2_base, h_i)
   // is frozen at the RESIDENT's base allometry, independent of the differentiated
   // a_l1/a_l2 in `pp` -- so that a FD that perturbs pp's allometry (the R1
@@ -1490,6 +1516,44 @@ Rcpp::List ff16_stand_gradient_impl(
   values.attr("names") = Rcpp::wrap(metrics);
   return Rcpp::List::create(Rcpp::Named("jacobian") = jac,
                             Rcpp::Named("values")   = values);
+}
+
+// [[Rcpp::export]]
+Rcpp::List ff16_stand_gradient_impl(
+    Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, std::vector<std::string> traits,
+    std::vector<std::string> metrics, double birth_rate,
+    std::string feedback, Rcpp::List sh_h_list, Rcpp::List sh_c_list,
+    double patch_area, double al1_base, double al2_base) {
+  auto s = make_strategy(pp);
+  Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
+  return ff16_stand_gradient_core(F, s, traits, metrics, birth_rate, feedback,
+                                  sh_h_list, sh_c_list, patch_area, al1_base, al2_base);
+}
+
+// Native-SCM variant: reads the per-RK-stage env + step schedule DIRECTLY from the
+// live SCM's Patch (no Rcpp::as<> env round-trip; faithful crown-sampled light). The
+// remaining cheap, faithful arrays (birth/ppsurv/ppsab/tw/sh_h/sh_c) still come from
+// the R harvest. `scm_` is the RcppR6 SCM<FF16,FF16_Env> object; `Rcpp::as` only
+// unwraps its external pointer (no content serialization). Bit-identical to _impl
+// where the env round-trip was already faithful (FF16), faithful where it was not.
+// [[Rcpp::export]]
+Rcpp::List ff16_stand_gradient_native(
+    SEXP scm_, Rcpp::NumericVector pp,
+    std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
+    std::vector<double> tw, std::vector<std::string> traits,
+    std::vector<std::string> metrics, double birth_rate,
+    std::string feedback, Rcpp::List sh_h_list, Rcpp::List sh_c_list,
+    double patch_area, double al1_base, double al2_base) {
+  auto scm = Rcpp::as<plant::RcppR6::RcppR6<
+    plant::SCM<plant::FF16_Strategy, plant::FF16_Environment>>>(scm_);
+  const auto& patch = scm->r_patch();
+  auto s = make_strategy(pp);
+  Frozen F = build_frozen_native(s, patch.environment_history, patch.step_history,
+                                 birth, ppsurv, ppsab, tw);
+  return ff16_stand_gradient_core(F, s, traits, metrics, birth_rate, feedback,
+                                  sh_h_list, sh_c_list, patch_area, al1_base, al2_base);
 }
 
 // R0 gate for the COUPLED resident replay (#472 scope B): a double-precision whole-

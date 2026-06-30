@@ -4609,6 +4609,10 @@ ff16_stand_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, 
     .Call('_plant_ff16_stand_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate, feedback, sh_h_list, sh_c_list, patch_area, al1_base, al2_base)
 }
 
+ff16_stand_gradient_native <- function(scm_, pp, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate, feedback, sh_h_list, sh_c_list, patch_area, al1_base, al2_base) {
+    .Call('_plant_ff16_stand_gradient_native', PACKAGE = 'plant', scm_, pp, birth, ppsurv, ppsab, tw, traits, metrics, birth_rate, feedback, sh_h_list, sh_c_list, patch_area, al1_base, al2_base)
+}
+
 ff16_coupled_metrics_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv = TRUE) {
     .Call('_plant_ff16_coupled_metrics_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv)
 }
