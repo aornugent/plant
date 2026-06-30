@@ -95,5 +95,5 @@ Works for FF16, TF24 and TF24f residents (dispatched on the strategy). A
   works for FF16 and TF24.
 }
 \seealso{
-\code{\link{offspring_production_gradient}}.
+\code{\link{offspring_production_gradient}}, \code{\link{birth_rate_gradient}}.
 }

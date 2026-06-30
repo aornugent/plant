@@ -145,6 +145,57 @@ ff16_harvest_ms <- function(scm) {
     patch_area = scm$parameters$patch_area, nsp = nsp)
 }
 
+##' Reverse-mode derivative of an SCM's emergent census metrics w.r.t. the per-species
+##' \emph{birth-rate driver} (#472 scope B, the birth-rate gradient AXIS).
+##'
+##' This differentiates a different axis than \code{\link{stand_gradient}}: not a trait,
+##' but the constant birth-rate driver of a species. The use case is evolving a community
+##' toward \strong{demographic equilibrium} -- birth_rate scales every cohort's
+##' establishment density, so it re-shades the whole resident canopy, and its derivative
+##' gives the Newton/gradient step that drives an emergent census target (e.g. a target
+##' LAI / biomass, or self-replacement).
+##'
+##' Only the \strong{resident-coupled} reading needs a tape: with the canopy held frozen
+##' every cohort's density is exactly linear in birth_rate, so the (rare-mutant) frozen
+##' derivative is the trivial identity \eqn{\partial(\mathrm{metric})/\partial b =
+##' \mathrm{metric}/b} (and \code{offspring_production} keeps that frozen reading even
+##' under resident feedback -- the canopy a rare mutant invades is the resident's). So
+##' this returns the resident TOTAL \eqn{\partial(\mathrm{census\ metric})/\partial b}:
+##' birth_rate is registered as the sole input on the same coupled whole-stand replay the
+##' resident trait gradient uses (one reverse sweep per metric).
+##'
+##' FF16 only so far (its closed-form net keeps the coupled replay robust to long
+##' horizons); TF24f's coupled replay is stiffness-gated (see
+##' \code{stand_gradient(feedback = "resident")}).
+##'
+##' @title Resident-coupled birth-rate gradient of emergent census metrics (FF16)
+##' @param scm An \code{SCM} run with \code{save_RK45_cache = TRUE} (FF16 strategy).
+##' @param metrics Character vector of census metrics, any of \code{"LAI"},
+##'   \code{"biomass"}, \code{"size_moment"}. (\code{offspring_production} is excluded --
+##'   its birth-rate derivative is the trivial frozen identity above.)
+##' @param species Integer species index. Default \code{1}.
+##' @param birth_rate The birth-rate driver to differentiate at; recovered from the run
+##'   by default.
+##' @return A list with \code{d_birth_rate} (named \code{d(metric)/d(birth_rate)}) and the
+##'   reconstructed \code{values}.
+##' @seealso \code{\link{stand_gradient}}, \code{\link{offspring_production_gradient}}.
+##' @export
+birth_rate_gradient <- function(scm, metrics = c("LAI", "biomass", "size_moment"),
+                                species = 1L, birth_rate = NULL) {
+  strat <- extract_RcppR6_template_types(scm$parameters, "Parameters")[[1]]
+  if (!identical(strat, "FF16"))
+    stop("birth_rate_gradient is implemented for the FF16 strategy only so far (its ",
+         "closed-form net keeps the resident coupled replay robust); got ", strat)
+  bad <- setdiff(metrics, c("LAI", "biomass", "size_moment"))
+  if (length(bad))
+    stop("birth_rate_gradient supports the census metrics (LAI, biomass, size_moment); ",
+         "offspring_production's birth-rate derivative is the trivial frozen identity ",
+         "offspring_production / birth_rate. Got: ", paste(bad, collapse = ", "))
+  pp <- unlist(scm$parameters$strategies[[species]]$pars)
+  ff16_birth_rate_gradient_native(scm, pp, as.integer(species - 1L), metrics,
+    if (is.null(birth_rate)) -1 else birth_rate, scm$parameters$patch_area)
+}
+
 ##' Reverse-mode trait gradient of an SCM's emergent stand metrics (#472 scope B,
 ##' the calibration-facing generic engine, FF16).
 ##'
@@ -215,7 +266,7 @@ ff16_harvest_ms <- function(scm) {
 ##'   state with a curvature-linearised gradient-ascent rate); its resident (coupled)
 ##'   census gradient and an offspring tape are follow-ups. \code{\link{stand_state_jacobian}}
 ##'   works for FF16 and TF24.
-##' @seealso \code{\link{offspring_production_gradient}}.
+##' @seealso \code{\link{offspring_production_gradient}}, \code{\link{birth_rate_gradient}}.
 ##' @export
 stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
                            species = 1L, birth_rate = NULL,

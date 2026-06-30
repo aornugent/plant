@@ -740,7 +740,7 @@ State rkck_one_step(State y, double h, std::size_t rn, DerivFn&& deriv, AxpyFn&&
 // SCM knot light| across all stages (the R0 coupled-drift gauge).
 template <typename S>
 std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const Frozen& F,
-    const std::vector<std::string>& metrics, double birth_rate, S h0,
+    const std::vector<std::string>& metrics, S birth_rate, S h0,
     double* env_err = nullptr, double* env_err_z = nullptr) {
   using std::exp; using std::log;
   using interp_t = odelia::interpolator::basic_interpolator<S>;
@@ -860,7 +860,7 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
         }
         S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
         S mort0 = -log(pr_estab);
-        S logd0 = log(S(birth_rate) * pr_estab / g0);
+        S logd0 = log(birth_rate * pr_estab / g0);
         stand[i] = CensusState<S>{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, logd0};
         alive[i] = 1;
       }
@@ -880,7 +880,7 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
     S g0   = deep_height_dt<S>(pd, F.integ, F.eta, &F.eh.back()[5], h0);
     S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
     stand[i] = CensusState<S>{plant::FF16State<S>{h0, -log(pr_estab), S(0), S(0), S(0)},
-                              log(S(birth_rate) * pr_estab / g0)};
+                              log(birth_rate * pr_estab / g0)};
     alive[i] = 1;
   }
 
@@ -898,7 +898,7 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
   S net0 = deep_net<S>(pd, F.integ, F.eta, &F.eh.back()[5], h0);
   S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay.back());
   S g0 = deep_height_dt<S>(pd, F.integ, F.eta, &F.eh.back()[5], h0);
-  S dens_new = S(birth_rate) * pr_estab / g0;
+  S dens_new = birth_rate * pr_estab / g0;
 
   auto census_reduce = [&](auto psi) -> S {
     std::vector<S> phi(nC);
@@ -1737,6 +1737,72 @@ Rcpp::List ff16_coupled_gradient_native(
                         patch.stand_newnode_height_stage_history,
                         patch.stand_newnode_competition_stage_history, active_birthenv);
   return ff16_coupled_gradient_core(F, s, traits, metrics, br);
+}
+
+// Resident-coupled birth_rate gradient core (#472 scope B, the birth_rate AXIS, not a
+// trait). d(census metric)/d(birth_rate) with the FULL resident feedback: birth_rate
+// scales every cohort's establishment density (logd0 = log(birth_rate*pr_estab/g0)), so
+// it re-shades the active canopy the whole stand reads -- the same coupled re-evolution
+// the trait gradient uses, but with birth_rate as the SOLE registered tape input (the
+// traits stay constant). The use case is evolving toward demographic equilibrium: the
+// derivative gives the Newton step that drives an emergent census target. (The FROZEN /
+// invasion reading is trivially analytic -- every density is linear in birth_rate, so
+// d(metric)/d(birth_rate) = metric/birth_rate -- which is why only the resident-feedback
+// axis needs a tape.) One reverse sweep per metric.
+Rcpp::List ff16_birth_rate_gradient_core(
+    Frozen& F, const plant::FF16_Strategy& s, std::vector<std::string> metrics,
+    double birth_rate) {
+  auto pd = s.prod_pars();
+  for (auto& nm : metrics)
+    if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
+      Rcpp::stop("birth_rate gradient: expected LAI / biomass / size_moment, got " + nm);
+  const double h0v = s.initial_height();
+  const std::size_t M = metrics.size();
+  Rcpp::NumericVector dbr(M), values(M);
+  {
+    // One coupled tape; birth_rate is the only input. Traits are lifted constant.
+    ad::tape_type tape;
+    ad_t br = birth_rate;
+    tape.registerInput(br);
+    tape.newRecording();
+    auto pa = lift<ad_t>(pd);
+    std::vector<ad_t> J = assemble_metrics_coupled<ad_t>(pa, F, metrics, br, ad_t(h0v));
+    for (std::size_t m = 0; m < M; ++m) tape.registerOutput(J[m]);
+    for (std::size_t m = 0; m < M; ++m) {
+      tape.clearDerivatives();
+      xad::derivative(J[m]) = 1.0;
+      tape.computeAdjoints();
+      dbr[m] = xad::derivative(br);
+      values[m] = as_double(J[m]);
+    }
+  }
+  dbr.attr("names") = Rcpp::wrap(metrics);
+  values.attr("names") = Rcpp::wrap(metrics);
+  return Rcpp::List::create(Rcpp::Named("d_birth_rate") = dbr,
+                            Rcpp::Named("values")       = values);
+}
+
+// FULLY native resident-coupled birth_rate gradient: harvest + boundary new_node history
+// from the live Patch (no R ff16_harvest, no Rcpp::as<> env). `species` 0-based;
+// birth_rate<0 recovers natively. Returns d(census metric)/d(birth_rate) (the resident
+// TOTAL, every cohort's density re-shading the canopy) + the reconstructed values.
+// [[Rcpp::export]]
+Rcpp::List ff16_birth_rate_gradient_native(
+    SEXP scm_, Rcpp::NumericVector pp, int species, std::vector<std::string> metrics,
+    double birth_rate, double patch_area, bool active_birthenv = true) {
+  auto scm = Rcpp::as<plant::RcppR6::RcppR6<
+    plant::SCM<plant::FF16_Strategy, plant::FF16_Environment>>>(scm_);
+  const auto& patch = scm->r_patch();
+  if (patch.stand_newnode_height_stage_history.size() < 1)
+    Rcpp::stop("the resident birth_rate gradient needs the per-RK-stage boundary-node "
+               "harvest; re-run the resident SCM with control(save_RK45_cache = TRUE)");
+  auto s = make_strategy(pp);
+  double br = plant::gradient::recover_birth_rate(scm, (std::size_t)species, birth_rate);
+  Frozen F = build_frozen_scm(s, patch, (std::size_t)species, br);
+  attach_coupled_native(F, s.pars.k_I, patch_area,
+                        patch.stand_newnode_height_stage_history,
+                        patch.stand_newnode_competition_stage_history, active_birthenv);
+  return ff16_birth_rate_gradient_core(F, s, metrics, br);
 }
 
 // R0 gate for the MULTI-SPECIES coupled replay (#472 scope B, R2): a double-precision

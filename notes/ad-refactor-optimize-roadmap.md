@@ -360,13 +360,21 @@ suite FAIL=0 ERROR=0 SKIP=9 **PASS=2587**, fixture all PASS):
 >   gate; added the double R0 (env_err) gate + post-sweep finiteness/magnitude guard -> clear
 >   error for stiff horizons. H<=4 unchanged. True horizon extension = adaptive sub-stepping
 >   in the replay (future hardening).
-> - **C (birth_rate deriv) scoped, deferred:** frozen case is trivially analytic
->   (`d(metric)/d(birth_rate)=metric/birth_rate`, verified op/br=0.86; cross-species zero).
->   Valuable case = resident-coupled (demographic-equilibrium Newton): needs birth_rate as a
->   COUPLED-tape input + a DESIGN decision (offspring_production "resident" mode is documented
->   to STAY the frozen invasion gradient, so birth_rate's demographic-equilibrium semantics
->   must be chosen) + full-SCM-re-run FD validation. Best first slice: FF16 resident (robust)
->   birth_rate-as-tape-input on `assemble_metrics_coupled`. Multi-hour, design fork -> awaits Dan.
+> - **C (birth_rate deriv) — FF16 resident slice DONE (Dan chose "build FF16 resident slice
+>   now").** `birth_rate_gradient(scm, metrics, species)` (exported) returns the
+>   resident-coupled `d(census metric)/d(birth_rate)` for FF16 (LAI/biomass/size_moment).
+>   Mechanism: `assemble_metrics_coupled` templated on the birth_rate type; new
+>   `ff16_birth_rate_gradient_core/_native` register birth_rate as the SOLE tape input on the
+>   same coupled whole-stand replay the trait gradient uses (one reverse sweep/metric). The
+>   FROZEN reading is the trivial identity `metric/birth_rate` (verified op/br=0.86; offspring
+>   stays frozen even under resident -> excluded); only the resident axis needs a tape, and it
+>   is genuinely non-trivial -- the canopy feedback dominates and FLIPS the sign of biomass
+>   (AD biomass -6.25e-4 vs frozen identity +0.456). Validated AD == FD over the SAME coupled
+>   recon (perturb birth_rate arg of `ff16_coupled_metrics_impl`) to ~0.7%. New fixture case
+>   `ff16_birth_rate` (noise tier) + test in test-ff16-stand-gradient.R. **Remaining (future):**
+>   the cross-species birth_rate block (d(metric)/d(birth_rate_s')); TF24f resident birth_rate
+>   (gated like its trait gradient); wiring birth_rate into the generic stand_gradient metric
+>   loop. Multi-species frozen birth_rate is the trivial diagonal identity (no tape needed).
 
 **Two tasks chosen for the next session (Dan, 2026-06-30):**
 

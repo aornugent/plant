@@ -105,6 +105,53 @@ test_that("feedback='resident' is the coupled total gradient (every trait feeds 
   expect_equal(gro$jacobian, gfo$jacobian, tolerance = 1e-8)
 })
 
+test_that("birth_rate_gradient is the resident-coupled d(census)/d(birth_rate)", {
+  # A new gradient AXIS (the birth-rate driver, not a trait): birth_rate scales every
+  # cohort's establishment density, re-shading the whole resident canopy. The
+  # resident-coupled derivative is the demographic-equilibrium object; it is genuinely
+  # non-trivial (the canopy feedback dominates and even flips signs), unlike the frozen
+  # reading which is the trivial identity d(metric)/d(birth_rate) = metric/birth_rate.
+  p <- scm_base_parameters("FF16")
+  p <- add_strategies(p, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar,
+                      birth_rate = list(20))
+  p$node_schedule_times <- list(seq(0, 60, length.out = 11))
+  p$max_patch_lifetime <- 60
+  scm <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
+                 refine_schedule = FALSE)
+  mets <- c("LAI", "biomass", "size_moment")
+
+  g <- birth_rate_gradient(scm, metrics = mets)
+  expect_equal(names(g$d_birth_rate), mets)
+  expect_true(all(is.finite(g$d_birth_rate)))
+  # LAI reconstruction matches the SCM's own compute_competition(0) (recon faithfulness).
+  expect_equal(unname(g$values[["LAI"]]), scm$patch$compute_competition(0),
+               tolerance = 1e-3)
+
+  # AD == central FD over the SAME coupled reconstruction (perturb the birth_rate driver
+  # of ff16_coupled_metrics_impl, everything else held). The coupled recon carries ~1e-8
+  # value noise, so validate at the coupled noise floor (~1e-2), as the trait test does.
+  h <- plant:::ff16_harvest(scm, 1L, NULL)
+  cval_br <- function(br) plant:::ff16_coupled_metrics_impl(
+    h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw, mets, br,
+    h$nn_h, h$nn_c, h$patch_area)$values
+  br0 <- h$birth_rate; d <- 1e-5 * br0
+  fd <- (cval_br(br0 + d) - cval_br(br0 - d)) / (2 * d)
+  for (mm in mets)
+    expect_equal(unname(g$d_birth_rate[[mm]]), unname(fd[[mm]]), tolerance = 1e-2)
+
+  # The resident feedback makes it genuinely different from the trivial frozen identity
+  # (metric / birth_rate) -- the whole point of differentiating the coupled stand. LAI
+  # differs by >50% relative; biomass even flips sign (the self-shading feedback dominates).
+  frozen_identity <- g$values / br0
+  expect_gt(abs(g$d_birth_rate[["LAI"]] - frozen_identity[["LAI"]]) /
+              abs(frozen_identity[["LAI"]]), 0.5)
+  expect_true(g$d_birth_rate[["biomass"]] * frozen_identity[["biomass"]] < 0)
+
+  # offspring_production's birth-rate derivative is the trivial frozen identity -> excluded.
+  expect_error(birth_rate_gradient(scm, metrics = "offspring_production"),
+               "census metrics")
+})
+
 # Helper: harvest a multi-species FF16 SCM into the per-species arrays the multi-species
 # coupled engine consumes (mirrors ff16_harvest's single-species gather, all species).
 ms_harvest <- function(scm) {

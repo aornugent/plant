@@ -97,6 +97,11 @@ gradient_fixture_specs <- function() {
       stand_gradient(scm, metrics = c("LAI", "size_moment"), traits = c("lma", "a_p1"),
                      species = 1L, feedback = "resident")
     }),
+    ff16_birth_rate = list(tier = "noise", compute = function() {
+      scm <- .gf_ff16_resident()
+      g <- birth_rate_gradient(scm, metrics = c("LAI", "biomass", "size_moment"))
+      list(d_birth_rate = g$d_birth_rate, values = g$values)
+    }),
     ff16_state_jac = list(tier = "bit", compute = function() {
       scm <- .gf_ff16_statejac()
       J <- stand_state_jacobian(scm, traits = c("a_p1", "lma"))
