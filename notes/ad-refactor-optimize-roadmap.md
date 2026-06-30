@@ -165,6 +165,32 @@ TF24f gates pass; the Phase-1 fixture confirms ≤4-horizon Jacobians unchanged;
 
 ## Phase 3 — Unify the three replay engines (maximal dedup, per Dan)
 
+> **OUTCOME 2026-06-30 (safe dedup done; finding on the limit of further unification).**
+> Executed the safe, high-value, bit-identical shares and measured the result. What was
+> genuinely duplicated and is now shared in `inst/include/plant/gradient/`:
+> - `scm_harvest.h`: `recover_birth_rate` (was inlined 5×), `birth_steps` (2×),
+>   `census_trapezium` (the descending-height census reduction, FF16 + TF24f).
+> - `coupled_canopy.h`: `canopy_comp_at` (the Yokozawa light trapezium, was hand-copied
+>   as ff16 `coupled_comp_at` + tf24f `tf24f_comp_at`; 4 call sites).
+> - The Cash-Karp stepper (`ff16_cashkarp_replay`) + state containers were **already**
+>   shared before this work.
+>
+> All bit-identical (fixture max_rel 0.0; one 9e-16 FP-reassociation on frozen census).
+> **Key finding:** the engines shrank only ~107 lines for ~132 lines of shared header —
+> i.e. the duplicated *orchestration* was small relative to the **irreducible
+> strategy-specific physiology** (FF16's light-response hyperbola + deep-crown GK vs
+> TF24f's tracked-collar leaf solve + curvature harvest; the coupled `deep_net_coupled`
+> / deriv kernels). So the "4900 → 2000" estimate was optimistic: after sharing the
+> stepper/harvest/census/canopy, the bulk of each engine is **distinct biology, not
+> redundant copy**. A generic `replay_cohort_final<Strategy,S>` trait-class would add
+> machinery to abstract over genuinely-different deriv kernels for modest line savings,
+> and the multi-species coupled unification is high-risk (the stiffness/conditioning
+> guards) for low dedup value (the MS engines are largely distinct). **Recommendation:
+> stop the engine unification here** — the redundant duplication is removed; what remains
+> is either irreducible or net-negative to force. The remaining `build_interp`
+> single-vs-MS intra-file overlap is a small (~25-line) optional same-file cleanup.
+> Original (pre-execution) plan kept below for context.
+
 Collapse the triplicated orchestration into one strategy-parameterized engine. The
 stepper (`ff16_cashkarp_replay`) and state containers are already shared across all three
 (`tf24_emergent.cpp` and `tf24f_emergent.cpp` already `#include ff16_production_kernel.h`).
