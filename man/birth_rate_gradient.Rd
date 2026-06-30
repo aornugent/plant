@@ -14,9 +14,14 @@ birth_rate_gradient(
 \arguments{
 \item{scm}{An \code{SCM} run with \code{save_RK45_cache = TRUE} (FF16 strategy).}
 
-\item{metrics}{Character vector of census metrics, any of \code{"LAI"},
-\code{"biomass"}, \code{"size_moment"}. (\code{offspring_production} is excluded --
-its birth-rate derivative is the trivial frozen identity above.)}
+\item{metrics}{Character vector, any of the census metrics \code{"LAI"},
+\code{"biomass"}, \code{"size_moment"} and -- single-species only --
+\code{"net_reproduction_ratio"} (the demographic-equilibrium / \eqn{R_0 = 1} axis:
+\eqn{\partial R_0/\partial b}, with unit per-seed weights so \code{birth_rate} enters
+only through the canopy -- the pure density feedback, i.e. the change in a
+trait-identical mutant's fitness as the resident density moves; negative, which is
+what makes an \eqn{R_0 = 1} equilibrium well-posed). (\code{offspring_production} is
+excluded -- its birth-rate derivative is the trivial frozen identity above.)}
 
 \item{species}{Integer species index; on a multi-species stand this selects which
 species' birth-rate driver to differentiate (the cross-species total). Default \code{1}.}

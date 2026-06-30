@@ -71,6 +71,14 @@ struct Frozen {
   Rcpp::NumericMatrix ppsurv;                            // [step][0..5] stage survival
   std::vector<int> birth;
   double eta, h0, a_d0;
+  // Harvest birth_rate, ONLY for the net_reproduction_ratio unit weights w_i =
+  // tw_i / birth_rate0 (tw is harvested birth-scaled; R0 uses per-seed unit weights). It
+  // must stay the FIXED harvest value so that perturbing/activating `birth_rate` (which
+  // scales the resident density / canopy) does NOT spuriously rescale the weight -- the
+  // mutant reading: fixed per-seed weight, varying resident density. <=0 => fall back to
+  // the value of the birth_rate passed to assemble (correct for the native AD, whose
+  // active base IS the harvest value; the R-list FD reference passes it explicitly).
+  double birth_rate0 = -1.0;
   const plant::quadrature::QK* integ;
 
   // RESIDENT total-gradient harvest (#472 scope B, R0). When `resident` is true the
@@ -482,6 +490,7 @@ Frozen build_frozen_scm(
   // native offspring harvest (identical computation across FF16 / TF24 / TF24f).
   auto w = plant::gradient::offspring_weights(patch, species, s.pars.S_D, birth_rate);
   F.birth = w.birth; F.ppsab = w.ppsab; F.tw = w.tw;
+  F.birth_rate0 = birth_rate;                  // fixed harvest br for the R0 unit weights
   const std::size_t nC = F.birth.size();
   F.decay.resize(nC);
   for (std::size_t i = 0; i < nC; ++i)
@@ -747,7 +756,13 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
   const std::size_t nC = F.birth.size(), N = F.eh.size();
   const double GEPS = 1e-6;                          // Control::node_gradient_eps
 
-  std::vector<CensusState<S>> stand(nC);             // all cohorts, zero until birth
+  // FullState carries a per-cohort survival-weighted OFFSPRING accumulator alongside the
+  // {5 demog, log_density} census state. Offspring is fully decoupled from the demog /
+  // log_density rates, so carrying it leaves the census + density trajectories bit-
+  // identical; it is reduced only for the net_reproduction_ratio metric (the demographic-
+  // equilibrium / mutant-fitness axis -- birth_rate enters offspring ONLY through the
+  // active canopy, the pure density feedback).
+  std::vector<FullState<S>> stand(nC);               // all cohorts, zero until birth
   std::vector<char> alive(nC, 0);
 
   // (rn, stage) -> the cached env (en, es) it reads, mirroring stage_env().
@@ -758,7 +773,7 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
 
   // Build the active light interpolator at (en, es)'s frozen knots from the current
   // alive stand + the frozen boundary node. Shared by all cohorts in this stage.
-  auto build_interp = [&](const std::vector<CensusState<S>>& y,
+  auto build_interp = [&](const std::vector<FullState<S>>& y,
                           std::size_t en, int es) -> interp_t {
     const std::vector<double>& kx = F.knot_x[en][es];
     std::vector<S> hv, gv;
@@ -791,15 +806,15 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
   };
 
   // Whole-stand derivative at replay step rn, RK stage rs (alive cohorts only).
-  auto deriv = [&](const std::vector<CensusState<S>>& y, std::size_t rn, int rs)
-      -> std::vector<CensusState<S>> {
+  auto deriv = [&](const std::vector<FullState<S>>& y, std::size_t rn, int rs)
+      -> std::vector<FullState<S>> {
     std::size_t en; int es; env_idx(rn, rs, en, es);
     interp_t interp = build_interp(y, en, es);
     const double cap = F.knot_x[en][es].back();
-    std::vector<CensusState<S>> dy(nC);
+    std::vector<FullState<S>> dy(nC);
     for (std::size_t i = 0; i < nC; ++i) {
       if (!alive[i]) {
-        dy[i] = CensusState<S>{plant::FF16State<S>{S(0),S(0),S(0),S(0),S(0)}, S(0)};
+        dy[i] = FullState<S>{plant::FF16State<S>{S(0),S(0),S(0),S(0),S(0)}, S(0), S(0)};
         continue;
       }
       const S h = y[i].demog.height;
@@ -811,21 +826,28 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
       S g_back = deep_height_dt_coupled<S>(pd, F.integ, F.eta, interp, cap, h - S(GEPS));
       S gprime = (r.height_dt - g_back) / S(GEPS);
       S log_density_dt = -gprime - r.mortality_dt;
-      dy[i] = CensusState<S>{plant::FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
-        r.area_heartwood_dt, r.mass_heartwood_dt}, log_density_dt};
+      // Survival-weighted offspring rate (same as the frozen offspring tape): the focal
+      // individual's fecundity discounted by its own survival exp(-mortality) and the
+      // per-stage patch survival ppsurv/ppsab. fecundity reads the ACTIVE canopy, so
+      // offspring carries the birth_rate density feedback (and nothing else).
+      S off_dt = r.fecundity_dt * exp(-y[i].demog.mortality)
+                 * S(F.ppsurv(rn, rs) / F.ppsab[i]);
+      dy[i] = FullState<S>{plant::FF16State<S>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+        r.area_heartwood_dt, r.mass_heartwood_dt}, off_dt, log_density_dt};
     }
     return dy;
   };
-  auto axpy = [&](const std::vector<CensusState<S>>& a, double c,
-                  const std::vector<CensusState<S>>& k) -> std::vector<CensusState<S>> {
-    std::vector<CensusState<S>> r(a.size());
+  auto axpy = [&](const std::vector<FullState<S>>& a, double c,
+                  const std::vector<FullState<S>>& k) -> std::vector<FullState<S>> {
+    std::vector<FullState<S>> r(a.size());
     for (std::size_t i = 0; i < a.size(); ++i)
-      r[i] = CensusState<S>{plant::FF16State<S>{
+      r[i] = FullState<S>{plant::FF16State<S>{
         a[i].demog.height + c * k[i].demog.height,
         a[i].demog.mortality + c * k[i].demog.mortality,
         a[i].demog.fecundity + c * k[i].demog.fecundity,
         a[i].demog.area_heartwood + c * k[i].demog.area_heartwood,
         a[i].demog.mass_heartwood + c * k[i].demog.mass_heartwood},
+        a[i].offspring + c * k[i].offspring,
         a[i].log_density + c * k[i].log_density};
     return r;
   };
@@ -861,7 +883,7 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
         S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
         S mort0 = -log(pr_estab);
         S logd0 = log(birth_rate * pr_estab / g0);
-        stand[i] = CensusState<S>{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, logd0};
+        stand[i] = FullState<S>{plant::FF16State<S>{h0, mort0, S(0), S(0), S(0)}, S(0), logd0};
         alive[i] = 1;
       }
     }
@@ -879,8 +901,8 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
     S net0 = deep_net<S>(pd, F.integ, F.eta, &F.eh.back()[5], h0);
     S g0   = deep_height_dt<S>(pd, F.integ, F.eta, &F.eh.back()[5], h0);
     S pr_estab = plant::ff16_establishment_probability<S>(area_leaf_0, net0, F.a_d0, F.decay[i]);
-    stand[i] = CensusState<S>{plant::FF16State<S>{h0, -log(pr_estab), S(0), S(0), S(0)},
-                              log(birth_rate * pr_estab / g0)};
+    stand[i] = FullState<S>{plant::FF16State<S>{h0, -log(pr_estab), S(0), S(0), S(0)},
+                            S(0), log(birth_rate * pr_estab / g0)};
     alive[i] = 1;
   }
 
@@ -917,6 +939,14 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
     return J;
   };
 
+  // net_reproduction_ratio (the demographic-equilibrium / mutant-fitness axis): the
+  // per-seed expected offspring = sum_i w_i * offspring_i with UNIT birth weights
+  // w_i = tw_i / birth_rate0 (the CONSTANT harvested birth_rate; tw was harvested
+  // birth-scaled). birth_rate enters offspring_i ONLY through the active canopy, so the
+  // reverse sweep w.r.t. birth_rate is the pure density feedback dR0/d(birth_rate) -- the
+  // change in a (trait-identical) mutant's fitness as the resident density moves. No
+  // pending-seed / new_node term (the pending seed has not reproduced).
+  const double br0 = (F.birth_rate0 > 0.0) ? F.birth_rate0 : as_double(birth_rate);
   std::vector<S> J(metrics.size());
   for (std::size_t m = 0; m < metrics.size(); ++m) {
     const std::string& nm = metrics[m];
@@ -926,6 +956,11 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
     } else if (nm == "biomass") {
       J[m] = census_reduce([&](S h, S dens, S mhw) -> S {
         return dens * (plant::ff16_mass_live_given_height(pd, h) + mhw); });
+    } else if (nm == "net_reproduction_ratio") {
+      S R0 = S(0.0);
+      for (std::size_t i = 0; i < nC; ++i)
+        R0 = R0 + S(F.tw[i] / br0) * stand[i].offspring;
+      J[m] = R0;
     } else { // size_moment
       J[m] = census_reduce([&](S h, S dens, S) -> S { return dens * h; });
     }
@@ -1650,14 +1685,20 @@ Rcpp::List ff16_coupled_metrics_impl(
     std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab,
     std::vector<double> tw, std::vector<std::string> metrics, double birth_rate,
     Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area,
-    bool active_birthenv = true) {
+    bool active_birthenv = true, double birth_rate0 = -1.0) {
   auto s  = make_strategy(pp);
   auto pd = s.prod_pars();
   Frozen F = build_frozen(s, eh_list, sh, birth, ppsurv, ppsab, tw);
   attach_coupled(F, s.pars.k_I, patch_area, nn_h_list, nn_c_list, active_birthenv);
+  // net_reproduction_ratio unit weights are tw/birth_rate0: pass birth_rate0 = the FIXED
+  // harvest br so an FD that perturbs `birth_rate` (the canopy/density driver) holds the
+  // per-seed weight fixed -- matching the AD. Defaults to birth_rate (census FD callers).
+  F.birth_rate0 = (birth_rate0 > 0.0) ? birth_rate0 : birth_rate;
   for (auto& nm : metrics)
-    if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
-      Rcpp::stop("coupled metrics: expected LAI / biomass / size_moment, got " + nm);
+    if (nm != "LAI" && nm != "biomass" && nm != "size_moment" &&
+        nm != "net_reproduction_ratio")
+      Rcpp::stop("coupled metrics: expected LAI / biomass / size_moment / "
+                 "net_reproduction_ratio, got " + nm);
   const double h0v = s.initial_height();
   double env_err = 0.0, env_err_z = -1.0;
   std::vector<double> J = assemble_metrics_coupled<double>(pd, F, metrics, birth_rate,
@@ -1760,8 +1801,10 @@ Rcpp::List ff16_birth_rate_gradient_core(
     double birth_rate) {
   auto pd = s.prod_pars();
   for (auto& nm : metrics)
-    if (nm != "LAI" && nm != "biomass" && nm != "size_moment")
-      Rcpp::stop("birth_rate gradient: expected LAI / biomass / size_moment, got " + nm);
+    if (nm != "LAI" && nm != "biomass" && nm != "size_moment" &&
+        nm != "net_reproduction_ratio")
+      Rcpp::stop("birth_rate gradient: expected LAI / biomass / size_moment / "
+                 "net_reproduction_ratio, got " + nm);
   const double h0v = s.initial_height();
   const std::size_t M = metrics.size();
   Rcpp::NumericVector dbr(M), values(M);

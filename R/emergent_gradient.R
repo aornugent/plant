@@ -177,9 +177,14 @@ ff16_harvest_ms <- function(scm) {
 ##'
 ##' @title Resident-coupled birth-rate gradient of emergent census metrics (FF16)
 ##' @param scm An \code{SCM} run with \code{save_RK45_cache = TRUE} (FF16 strategy).
-##' @param metrics Character vector of census metrics, any of \code{"LAI"},
-##'   \code{"biomass"}, \code{"size_moment"}. (\code{offspring_production} is excluded --
-##'   its birth-rate derivative is the trivial frozen identity above.)
+##' @param metrics Character vector, any of the census metrics \code{"LAI"},
+##'   \code{"biomass"}, \code{"size_moment"} and -- single-species only --
+##'   \code{"net_reproduction_ratio"} (the demographic-equilibrium / \eqn{R_0 = 1} axis:
+##'   \eqn{\partial R_0/\partial b}, with unit per-seed weights so \code{birth_rate} enters
+##'   only through the canopy -- the pure density feedback, i.e. the change in a
+##'   trait-identical mutant's fitness as the resident density moves; negative, which is
+##'   what makes an \eqn{R_0 = 1} equilibrium well-posed). (\code{offspring_production} is
+##'   excluded -- its birth-rate derivative is the trivial frozen identity above.)
 ##' @param species Integer species index; on a multi-species stand this selects which
 ##'   species' birth-rate driver to differentiate (the cross-species total). Default \code{1}.
 ##' @param birth_rate The birth-rate driver to differentiate at; recovered from the run
@@ -195,13 +200,17 @@ birth_rate_gradient <- function(scm, metrics = c("LAI", "biomass", "size_moment"
   if (!identical(strat, "FF16"))
     stop("birth_rate_gradient is implemented for the FF16 strategy only so far (its ",
          "closed-form net keeps the resident coupled replay robust); got ", strat)
-  bad <- setdiff(metrics, c("LAI", "biomass", "size_moment"))
+  bad <- setdiff(metrics, c("LAI", "biomass", "size_moment", "net_reproduction_ratio"))
   if (length(bad))
-    stop("birth_rate_gradient supports the census metrics (LAI, biomass, size_moment); ",
+    stop("birth_rate_gradient supports the census metrics (LAI, biomass, size_moment) ",
+         "and net_reproduction_ratio (the demographic-equilibrium / R0 = 1 axis). ",
          "offspring_production's birth-rate derivative is the trivial frozen identity ",
          "offspring_production / birth_rate. Got: ", paste(bad, collapse = ", "))
   nsp <- length(scm$parameters$strategies)
   if (species < 1L || species > nsp) stop("species index out of range")
+  if ("net_reproduction_ratio" %in% metrics && nsp > 1L)
+    stop("net_reproduction_ratio is the single-species demographic-equilibrium axis; ",
+         "the cross-species birth_rate gradient supports the census metrics only")
   patch_area <- scm$parameters$patch_area
   if (nsp == 1L) {
     pp <- unlist(scm$parameters$strategies[[species]]$pars)

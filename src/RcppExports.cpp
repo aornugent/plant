@@ -12978,8 +12978,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // ff16_coupled_metrics_impl
-Rcpp::List ff16_coupled_metrics_impl(Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw, std::vector<std::string> metrics, double birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, bool active_birthenv);
-RcppExport SEXP _plant_ff16_coupled_metrics_impl(SEXP ppSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP ppsurvSEXP, SEXP ppsabSEXP, SEXP twSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP nn_h_listSEXP, SEXP nn_c_listSEXP, SEXP patch_areaSEXP, SEXP active_birthenvSEXP) {
+Rcpp::List ff16_coupled_metrics_impl(Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh, std::vector<int> birth, Rcpp::NumericMatrix ppsurv, std::vector<double> ppsab, std::vector<double> tw, std::vector<std::string> metrics, double birth_rate, Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, bool active_birthenv, double birth_rate0);
+RcppExport SEXP _plant_ff16_coupled_metrics_impl(SEXP ppSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP ppsurvSEXP, SEXP ppsabSEXP, SEXP twSEXP, SEXP metricsSEXP, SEXP birth_rateSEXP, SEXP nn_h_listSEXP, SEXP nn_c_listSEXP, SEXP patch_areaSEXP, SEXP active_birthenvSEXP, SEXP birth_rate0SEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -12996,7 +12996,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< Rcpp::List >::type nn_c_list(nn_c_listSEXP);
     Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
     Rcpp::traits::input_parameter< bool >::type active_birthenv(active_birthenvSEXP);
-    rcpp_result_gen = Rcpp::wrap(ff16_coupled_metrics_impl(pp, eh_list, sh, birth, ppsurv, ppsab, tw, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv));
+    Rcpp::traits::input_parameter< double >::type birth_rate0(birth_rate0SEXP);
+    rcpp_result_gen = Rcpp::wrap(ff16_coupled_metrics_impl(pp, eh_list, sh, birth, ppsurv, ppsab, tw, metrics, birth_rate, nn_h_list, nn_c_list, patch_area, active_birthenv, birth_rate0));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -14908,7 +14909,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ff16_offspring_production_gradient_impl", (DL_FUNC) &_plant_ff16_offspring_production_gradient_impl, 8},
     {"_plant_ff16_stand_gradient_impl", (DL_FUNC) &_plant_ff16_stand_gradient_impl, 16},
     {"_plant_ff16_stand_gradient_native", (DL_FUNC) &_plant_ff16_stand_gradient_native, 12},
-    {"_plant_ff16_coupled_metrics_impl", (DL_FUNC) &_plant_ff16_coupled_metrics_impl, 13},
+    {"_plant_ff16_coupled_metrics_impl", (DL_FUNC) &_plant_ff16_coupled_metrics_impl, 14},
     {"_plant_ff16_coupled_gradient_native", (DL_FUNC) &_plant_ff16_coupled_gradient_native, 8},
     {"_plant_ff16_birth_rate_gradient_native", (DL_FUNC) &_plant_ff16_birth_rate_gradient_native, 7},
     {"_plant_ff16_birth_rate_gradient_ms_native", (DL_FUNC) &_plant_ff16_birth_rate_gradient_ms_native, 7},

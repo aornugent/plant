@@ -152,6 +152,51 @@ test_that("birth_rate_gradient is the resident-coupled d(census)/d(birth_rate)",
                "census metrics")
 })
 
+test_that("birth_rate_gradient net_reproduction_ratio = dR0/db (the R0=1 / mutant axis)", {
+  # The demographic-equilibrium axis: d(net_reproduction_ratio)/d(birth_rate). With unit
+  # per-seed weights, birth_rate enters R0 ONLY through the resident canopy (denser
+  # recruitment -> more self-shading -> lower per-seed reproduction), so this is the pure
+  # density feedback -- equivalently, the change in a trait-identical mutant's fitness as
+  # the resident density moves. It is what an R0 = 1 self-replacement Newton step needs.
+  p <- scm_base_parameters("FF16")
+  p <- add_strategies(p, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar,
+                      birth_rate = list(20))
+  p$node_schedule_times <- list(seq(0, 60, length.out = 11))
+  p$max_patch_lifetime <- 60
+  scm <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
+                 refine_schedule = FALSE)
+  g <- birth_rate_gradient(scm, metrics = "net_reproduction_ratio")
+  # The reconstructed R0 reproduces the SCM's own net_reproduction_ratio.
+  expect_equal(unname(g$values[["net_reproduction_ratio"]]),
+               scm$net_reproduction_ratios[[1]], tolerance = 1e-6)
+  # Density-dependent: dR0/db < 0 (the feedback that makes an R0 = 1 equilibrium well-posed).
+  expect_lt(g$d_birth_rate[["net_reproduction_ratio"]], 0)
+
+  # AD == central FD over the SAME coupled recon, holding the per-seed weight fixed at the
+  # harvest birth_rate (birth_rate0) and perturbing only the canopy/density driver -- the
+  # mutant reading. (Perturbing the weight too would add a spurious 1/b term.)
+  h <- plant:::ff16_harvest(scm, 1L, NULL)
+  cval <- function(br) plant:::ff16_coupled_metrics_impl(h$pp, h$eh, h$sh, h$birth_step,
+    h$ppsurv, h$ppsab, h$tw, "net_reproduction_ratio", br, h$nn_h, h$nn_c, h$patch_area,
+    TRUE, h$birth_rate)$values
+  br0 <- h$birth_rate; d <- 1e-5 * br0
+  fd <- (cval(br0 + d) - cval(br0 - d)) / (2 * d)
+  expect_equal(unname(g$d_birth_rate[["net_reproduction_ratio"]]), unname(fd[[1]]),
+               tolerance = 1e-2)
+
+  # net_reproduction_ratio is the single-species demographic-equilibrium axis (cross-
+  # species is the census metrics only).
+  pms <- scm_base_parameters("FF16")
+  pms <- add_strategies(pms, trait_matrix(c(0.0825, 0.2), "lma"), hyperpar = FF16_hyperpar,
+                        birth_rate = list(20, 20))
+  pms$node_schedule_times <- list(seq(0, 60, length.out = 11), seq(0, 60, length.out = 11))
+  pms$max_patch_lifetime <- 60
+  scm_ms <- run_scm(pms, Environment("FF16"), control(save_RK45_cache = TRUE),
+                    refine_schedule = FALSE)
+  expect_error(birth_rate_gradient(scm_ms, metrics = "net_reproduction_ratio"),
+               "single-species")
+})
+
 # Helper: harvest a multi-species FF16 SCM into the per-species arrays the multi-species
 # coupled engine consumes (mirrors ff16_harvest's single-species gather, all species).
 ms_harvest <- function(scm) {

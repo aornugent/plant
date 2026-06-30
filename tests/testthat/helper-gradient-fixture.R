@@ -99,7 +99,8 @@ gradient_fixture_specs <- function() {
     }),
     ff16_birth_rate = list(tier = "noise", compute = function() {
       scm <- .gf_ff16_resident()
-      g <- birth_rate_gradient(scm, metrics = c("LAI", "biomass", "size_moment"))
+      g <- birth_rate_gradient(scm, metrics = c("LAI", "biomass", "size_moment",
+                                                "net_reproduction_ratio"))
       list(d_birth_rate = g$d_birth_rate, values = g$values)
     }),
     ff16_state_jac = list(tier = "bit", compute = function() {
