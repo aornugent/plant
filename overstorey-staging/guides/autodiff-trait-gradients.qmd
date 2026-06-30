@@ -219,9 +219,9 @@ questions.
 
 The capability is exposed as a small set of R calls. Each is "the gradient as an
 optional output of the call you already make": you run the model (or grow a plant),
-then ask for a derivative of what it produced. The five **exported** functions are the
-public API; the TF24f-specific routines are reached through `stand_gradient()` (or
-called directly as `plant:::…` for advanced use).
+then ask for a derivative of what it produced. These four functions are the whole
+public API — they **dispatch on strategy**, so the same calls cover FF16, TF24 and
+TF24f; there is no per-strategy entry point to learn.
 
 | Call | Differentiates | Strategies | Key arguments |
 |---|---|---|---|
@@ -237,17 +237,6 @@ gradient of adaptive dynamics, and the correct reading for `offspring_production
 the resident-total gradient for the census metrics, which routinely dominates and flips
 the sign of the frozen reading. On a multi-species stand `"resident"` returns the
 cross-species total `d(total-stand metric)/d(θ of species s)`.
-
-**TF24f census (reached through `stand_gradient`).** A TF24f SCM routes the census
-metrics to the reverse-mode collar-state tape: `stand_gradient(scm, metrics = c("LAI",
-"biomass", "size_moment"))` (frozen) and `feedback = "resident"` (coupled). The
-underlying routines are also callable directly — `plant:::tf24f_census_gradient_ad()`,
-`plant:::tf24f_resident_census_gradient_ad()` (single-species),
-`plant:::tf24f_resident_census_gradient_ms_ad()` (cross-species),
-`plant:::tf24f_offspring_production_gradient()` (the TF24f offspring invasion gradient),
-and `plant:::tf24f_grow_individual_to_size_gradient_ad()` (dispatched to automatically
-by `grow_individual_to_size_gradient()` for a TF24f individual). The `*_fd` / `*_recon`
-siblings are the finite-difference and R0-reconstruction validation references.
 
 **All SCM-driven entries are C++-native.** Every gradient of an emergent output now
 builds its harvest — the per-RK-stage resident environment, the step schedule, cohort
@@ -270,6 +259,10 @@ library(plant)
 p <- scm_base_parameters("FF16")
 p <- add_strategies(p, trait_matrix(0.0825, "lma"),
                     hyperpar = FF16_hyperpar, birth_rate = list(20))
+# Two passes are required (they cannot be combined): pass 1 refines and FIXES the
+# adaptive node schedule; pass 2 re-runs on that frozen schedule with the sub-step
+# cache on -- the resident baseline the gradient harvests. (A single
+# refine + save_RK45_cache run leaves the cache inconsistent with the replay.)
 p <- run_scm(p, Environment("FF16"), control(), refine_schedule = TRUE)$parameters
 scm <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
                refine_schedule = FALSE)
@@ -352,6 +345,8 @@ is no resident feedback at all, so this is the lightest of the FF16 gradients �
 the two-pass replay with **one** extra idea, the stopping-time implicit-function step.
 
 ```{r}
+individual <- Individual("FF16", "FF16_Env")(FF16_Strategy())  # a single FF16 plant
+env <- Environment("FF16")                                     # the fixed environment
 g <- grow_individual_to_size_gradient(individual, sizes = c(2, 5, 10), "height", env)
 g$time      # t* per size; g$d_time = d(t*)/d(theta), a sizes x trait matrix
 g$state     # the ODE state at t*; g$d_state = TOTAL d(state)/d(theta), sizes x comp x trait
@@ -499,9 +494,21 @@ than one species, `feedback = "resident"` returns the cross-species total
 cross-term was zero):
 
 ```{r}
-# 2-species stand, fixed node schedule
-gr <- stand_gradient(scm, metrics = c("LAI", "size_moment"),
+# A 2-species stand on a FIXED node schedule (the cross-species coupled replay is
+# well-conditioned on a fixed schedule; an adaptively-refined one can go stiff).
+pms <- scm_base_parameters("FF16")
+pms <- add_strategies(pms, trait_matrix(c(0.0825, 0.2), "lma"),
+                      hyperpar = FF16_hyperpar, birth_rate = list(20, 20))
+pms$node_schedule_times <- list(seq(0, 70, length.out = 16),
+                                seq(0, 70, length.out = 16))
+pms$max_patch_lifetime <- 70
+scm_ms <- run_scm(pms, Environment("FF16"), control(save_RK45_cache = TRUE),
+                  refine_schedule = FALSE)
+
+gr <- stand_gradient(scm_ms, metrics = c("LAI", "size_moment"),
+                     traits = c("lma", "a_p1"),             # a small, validated trait set
                      species = 1L, feedback = "resident")   # d(total stand)/d(θ_species1)
+gr$jacobian
 ```
 
 The joint canopy is reconstructed from *every* species' re-evolved cohorts as a **sum
