@@ -23,6 +23,7 @@
 #include <plant.h>                 // RcppR6 as<>/wrap for FF16_Environment etc.
 #include <plant/models/ff16_production_kernel.h>
 #include <plant/gradient/scm_harvest.h> // shared birth_steps / recover_birth_rate / census_trapezium
+#include <plant/gradient/coupled_canopy.h> // shared Yokozawa canopy_comp_at
 #include <odelia/interpolator.hpp> // basic_interpolator<S> (active-value light spline)
 
 using ad   = xad::adj<double>;
@@ -677,33 +678,9 @@ std::vector<S> assemble_metrics(const plant::FF16ProdPars<S>& pa, const Frozen& 
 // ONCE per stage and shared across cohorts (O(N) per knot, not O(N^2)).
 // ===========================================================================
 
-// Competition at a frozen knot z over the active stand (descending heights h,
-// per-node effect-coefficients geff_i = density_i*kI*area_leaf_i; the boundary node
-// appended with its frozen ce_b). Matches Species::compute_competition's trapezium
-// (comp = (1/2) sum_adjacent (h0-h1)(g0+g1), g_i = geff_i*Q(z/h_i), Q the Yokozawa
-// (1-u^eta)^2). Returned UN-divided by patch area (caller divides). z is the frozen
-// knot (double); h_i / geff_i are active. Crown check on the height VALUE (discrete).
-template <typename S>
-S coupled_comp_at(double z, const std::vector<S>& h, const std::vector<S>& geff,
-                  double eta) {
-  using std::pow;
-  const std::size_t n = h.size();
-  if (n < 2) return S(0.0);
-  auto g = [&](std::size_t i) -> S {
-    if (z >= as_double(h[i])) return S(0.0);     // no leaf area above the crown
-    const S u  = S(z) / h[i];
-    const S om = S(1.0) - pow(u, S(eta));
-    return geff[i] * (om * om);
-  };
-  S comp = S(0.0);
-  S gp = g(0); S hp = h[0];
-  for (std::size_t i = 1; i < n; ++i) {
-    S gi = g(i);
-    comp = comp + (hp - h[i]) * (gp + gi);
-    hp = h[i]; gp = gi;
-  }
-  return S(0.5) * comp;
-}
+// Competition at a frozen knot z over the active stand: see
+// plant::gradient::canopy_comp_at (shared Yokozawa trapezium, used by both the
+// single- and multi-species coupled reconstructions here and by TF24f).
 
 // Deep-crown net at `height` reading the ACTIVE light interpolator (the coupled
 // resident canopy). Mirrors deep_net but light(z) = interp(z) [+ analytic z-slope
@@ -820,7 +797,7 @@ std::vector<S> assemble_metrics_coupled(const plant::FF16ProdPars<S>& pd, const 
     for (std::size_t k = 0; k < ord.size(); ++k) { hs[k] = hv[ord[k]]; gs[k] = gv[ord[k]]; }
     std::vector<S> ly(kx.size());
     for (std::size_t k = 0; k < kx.size(); ++k)
-      ly[k] = exp(-coupled_comp_at<S>(kx[k], hs, gs, F.eta) * S(1.0 / F.area));
+      ly[k] = exp(-plant::gradient::canopy_comp_at<S>(kx[k], hs, gs, F.eta) * S(1.0 / F.area));
     if (env_err) {
       const std::vector<double>& y0 = F.knot_y0[en][es];
       for (std::size_t k = 0; k < ly.size() && k < y0.size(); ++k) {
@@ -1096,7 +1073,7 @@ std::vector<S> assemble_metrics_coupled_ms(const std::vector<plant::FF16ProdPars
       std::vector<S> hs(hv[s].size()), gs(hv[s].size());
       for (std::size_t k = 0; k < ord.size(); ++k) { hs[k] = hv[s][ord[k]]; gs[k] = gv[s][ord[k]]; }
       for (std::size_t k = 0; k < kx.size(); ++k)
-        comp[k] = comp[k] + coupled_comp_at<S>(kx[k], hs, gs, F.eta[s]);
+        comp[k] = comp[k] + plant::gradient::canopy_comp_at<S>(kx[k], hs, gs, F.eta[s]);
     }
     std::vector<S> ly(kx.size());
     for (std::size_t k = 0; k < kx.size(); ++k) ly[k] = exp(-comp[k] * S(1.0 / F.area));

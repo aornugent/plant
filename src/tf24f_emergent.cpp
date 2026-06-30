@@ -38,6 +38,7 @@
 #include <plant/models/tf24_production_kernel.h>
 #include <plant/models/ff16_production_kernel.h>   // ff16_cashkarp_replay, FF16State
 #include <plant/gradient/scm_harvest.h>            // shared birth_steps / recover_birth_rate / census_trapezium
+#include <plant/gradient/coupled_canopy.h>         // shared Yokozawa canopy_comp_at
 #include <odelia/interpolator.hpp>                 // basic_interpolator<S> (coupled canopy)
 
 namespace {
@@ -1057,30 +1058,9 @@ namespace {
 double dval(double v)        { return v; }
 double dval(const ad_t& v)   { return xad::value(v); }
 
-// Competition at a frozen knot z over the active stand (descending heights h,
-// effect-coefficients geff_i = density_i*kI*area_leaf_i; boundary node appended).
-// Q = (1-(z/h)^eta)^2 (TF24's [eqn 10], identical to FF16's Yokozawa). Returned
-// UN-divided by patch area (caller divides). Mirror of ff16's coupled_comp_at.
-template <typename S>
-S tf24f_comp_at(double z, const std::vector<S>& h, const std::vector<S>& geff, double eta) {
-  using std::pow;
-  const std::size_t n = h.size();
-  if (n < 2) return S(0.0);
-  auto g = [&](std::size_t i) -> S {
-    if (z >= dval(h[i])) return S(0.0);            // no leaf area above the crown
-    const S u  = S(z) / h[i];
-    const S om = S(1.0) - pow(u, S(eta));
-    return geff[i] * (om * om);
-  };
-  S comp = S(0.0);
-  S gp = g(0); S hp = h[0];
-  for (std::size_t i = 1; i < n; ++i) {
-    S gi = g(i);
-    comp = comp + (hp - h[i]) * (gp + gi);
-    hp = h[i]; gp = gi;
-  }
-  return S(0.5) * comp;
-}
+// Competition at a frozen knot z over the active stand: see
+// plant::gradient::canopy_comp_at (shared Yokozawa trapezium == FF16's; TF24's
+// [eqn 10] is identical). Used by the single- and multi-species coupled canopies.
 
 // Build the active canopy light interpolator at the frozen knot x-positions kx from
 // the current active stand (alive cohorts) + the frozen boundary node (nn_h, nn_c).
@@ -1109,7 +1089,7 @@ build_canopy(const std::vector<St7ad<S>>& stand, const std::vector<char>& alive,
   for (std::size_t k = 0; k < ord.size(); ++k) { hs[k] = hv[ord[k]]; gs[k] = gv[ord[k]]; }
   std::vector<S> ly(kx.size());
   for (std::size_t k = 0; k < kx.size(); ++k)
-    ly[k] = exp(-tf24f_comp_at<S>(kx[k], hs, gs, eta) * S(1.0 / area));
+    ly[k] = exp(-plant::gradient::canopy_comp_at<S>(kx[k], hs, gs, eta) * S(1.0 / area));
   if (ly_out) { ly_out->resize(kx.size());
     for (std::size_t k = 0; k < kx.size(); ++k) (*ly_out)[k] = dval(ly[k]); }
   odelia::interpolator::basic_interpolator<S> interp; interp.init(kx, ly);
@@ -1913,7 +1893,7 @@ build_canopy_ms(const std::vector<St7ad<S>>& stand, const std::vector<char>& ali
     std::vector<S> hs(hv[s].size()), gs(hv[s].size());
     for (std::size_t k = 0; k < ord.size(); ++k) { hs[k] = hv[s][ord[k]]; gs[k] = gv[s][ord[k]]; }
     for (std::size_t k = 0; k < kx.size(); ++k)
-      comp[k] = comp[k] + tf24f_comp_at<S>(kx[k], hs, gs, eta[s]);
+      comp[k] = comp[k] + plant::gradient::canopy_comp_at<S>(kx[k], hs, gs, eta[s]);
   }
   std::vector<S> ly(kx.size());
   for (std::size_t k = 0; k < kx.size(); ++k) ly[k] = exp(-comp[k] * S(1.0 / area));
