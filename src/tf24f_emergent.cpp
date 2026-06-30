@@ -44,9 +44,11 @@ namespace {
 // make_strategy in tf24_emergent.cpp but constructs the fast-acclimation variant and
 // sets its acclimation knobs. crown-centre + GSS_tol_abs match the resident run.
 plant::TF24f_Strategy make_tf24f(const Rcpp::NumericVector& pp, double k_acclim,
-                                 bool use_ad_gradient) {
+                                 bool use_ad_gradient,
+                                 const std::string& shading = "crown-centre",
+                                 double gss_tol = 1e-9) {
   plant::TF24f_Strategy s;
-  s.control.shading_model = "crown-centre"; s.control.GSS_tol_abs = 1e-9;
+  s.control.shading_model = shading; s.control.GSS_tol_abs = gss_tol;
   s.k_acclim = k_acclim; s.use_ad_gradient = use_ad_gradient;
   auto& q = s.pars;
   q.lma=pp["lma"];q.rho=pp["rho"];q.hmat=pp["hmat"];q.omega=pp["omega"];q.eta=pp["eta"];
@@ -730,4 +732,221 @@ Rcpp::List tf24f_census_gradient_ad_impl(
   jac.attr("dimnames") = Rcpp::List::create(Rcpp::wrap(metrics), Rcpp::wrap(traits));
   values.attr("names") = Rcpp::wrap(metrics);
   return Rcpp::List::create(Rcpp::Named("jacobian") = jac, Rcpp::Named("values") = values);
+}
+
+
+// ===========================================================================
+// TF24f individual grow-to-size reverse-mode AD trait gradient (#472 scope B,
+// build-order step 4 -- the "individuals" surface). A single TF24f plant grown
+// in a FIXED environment to target size(s), differentiated w.r.t. traits: the
+// AD refine of tf24f_grow_individual_to_size_gradient_fd. The TF24f analogue of
+// ff16_grow_to_size_gradient_impl, but the trajectory carries the tracked collar
+// (opt_root_psi_state) as a 6th state -- the SAME curvature-linearised collar
+// machinery the census tape uses -- and there is NO canopy / density / g' (the
+// env is given), so it is the lightest TF24f AD surface.
+//
+// No resident feedback, so the only machinery beyond the replay is the stopping-
+// time implicit-function step. Pass 1 (R) runs the live grow (grow_individual_bracket)
+// to harvest its adaptive Cash-Karp schedule + initial state. Pass 2 (here):
+// discover t* (the size component crosses target) over the FROZEN schedule reading
+// the FIXED env, harvest the per-RK-stage leaf operating point at the tracked
+// collar along the schedule-to-t*, replay the 6-state system as a leaf-opt-free
+// tapeable expression, and take one reverse sweep per state component. The collar
+// starts at the individual's birth value (0, clamped into the feasible interval on
+// the first eval) -- theta-independent, so unlike the census seed it needs no
+// collar-IFT injection; only the seedling height h0 carries d(h0)/d(theta).
+// The stopping time responds via the IFT on size(t*, theta) = target:
+//   d(t*)/d(theta) = -(d size/d theta|t*) / size_dt(t*),
+// and the TOTAL derivative of each component is the partial plus rate*d(t*)/d(theta).
+
+namespace {
+
+// 6-state grow cohort on the tape: 5 demog + tracked collar.
+template <typename S> struct St6 { plant::FF16State<S> demog; S collar; };
+
+template <typename S>
+St6<S> st6_axpy(const St6<S>& a, double c, const St6<S>& k) {
+  return St6<S>{plant::FF16State<S>{
+    a.demog.height+c*k.demog.height, a.demog.mortality+c*k.demog.mortality,
+    a.demog.fecundity+c*k.demog.fecundity, a.demog.area_heartwood+c*k.demog.area_heartwood,
+    a.demog.mass_heartwood+c*k.demog.mass_heartwood}, a.collar+c*k.collar};
+}
+double st6_at(const St6<double>& s, int c) {
+  switch (c) { case 0: return s.demog.height; case 1: return s.demog.mortality;
+    case 2: return s.demog.fecundity; case 3: return s.demog.area_heartwood;
+    case 4: return s.demog.mass_heartwood; default: return s.collar; }
+}
+
+} // namespace
+
+
+// Compiled core of tf24f_grow_individual_to_size_gradient(). Returns, per target
+// size: the stopping time t*, the ODE state at t*, d(t*)/d(theta) and the TOTAL
+// d(state at t*)/d(theta) (a sizes x component x trait array). y0v is the live
+// individual's initial ODE state {height, mortality, fecundity, area_heartwood,
+// mass_heartwood, opt_root_psi_state}; sh the harvested adaptive step-time schedule
+// (grow_individual_bracket$time); sidx the size component (0 = height). shading /
+// gss_tol / k_acclim / use_ad_gradient mirror the live individual's strategy.
+// [[Rcpp::export]]
+Rcpp::List tf24f_grow_to_size_gradient_impl(
+    Rcpp::NumericVector pp, plant::TF24_Environment env, Rcpp::NumericVector y0v,
+    std::vector<double> sh, std::vector<double> targets, int sidx,
+    std::vector<std::string> traits, double k_acclim, bool use_ad_gradient,
+    std::string shading, double gss_tol, double trait_rel_step) {
+  using std::exp; using std::log;
+  if (sh.size() < 2) Rcpp::stop("schedule must have at least two step times");
+  if (y0v.size() < 6) Rcpp::stop("y0 must have the 6 TF24f ODE states");
+
+  plant::TF24f_Strategy s = make_tf24f(pp, k_acclim, use_ad_gradient, shading, gss_tol);
+  plant::TF24ProdPars<double> pd = s.prod_pars();
+  const std::size_t T = traits.size();
+
+  // Base trait values + per-trait FD steps; build the +/- perturbed strategies once
+  // (reused across targets/stages) and the seedling-size IFT d(h0)/d(theta).
+  Rcpp::CharacterVector ppn = pp.names();
+  std::vector<double> tr0(T), dk(T), dh0(T, 0.0);
+  std::vector<plant::TF24f_Strategy> sp; sp.reserve(T);
+  std::vector<plant::TF24f_Strategy> sm; sm.reserve(T);
+  const double h0v = y0v[0];
+  for (std::size_t k = 0; k < T; ++k) {
+    bool found = false;
+    for (R_xlen_t j = 0; j < ppn.size(); ++j)
+      if (std::string(ppn[j]) == traits[k]) { found = true; break; }
+    if (!found) Rcpp::stop("unknown TF24f trait (not in strategy pars): " + traits[k]);
+    tr0[k] = pp[traits[k]];
+    dk[k]  = trait_rel_step * std::max(std::abs(tr0[k]), 1e-8);
+    Rcpp::NumericVector q1 = Rcpp::clone(pp); q1[traits[k]] = tr0[k] + dk[k];
+    Rcpp::NumericVector q2 = Rcpp::clone(pp); q2[traits[k]] = tr0[k] - dk[k];
+    sp.push_back(make_tf24f(q1, k_acclim, use_ad_gradient, shading, gss_tol));
+    sm.push_back(make_tf24f(q2, k_acclim, use_ad_gradient, shading, gss_tol));
+    dh0[k] = (sp[k].initial_height() - sm[k].initial_height()) / (2.0 * dk[k]);
+  }
+
+  std::vector<double> step_h(sh.size() - 1);
+  for (std::size_t n = 0; n + 1 < sh.size(); ++n) step_h[n] = sh[n + 1] - sh[n];
+
+  // Double 6-state derivative reading the fixed env (real leaf at tracked collar).
+  auto deriv_d = [&](const St6<double>& y, std::size_t, int) -> St6<double> {
+    double dpsi = 0.0;
+    const double net = net_at_tracked(s, env, y.demog.height, y.collar, dpsi);
+    const double al = plant::tf24_area_leaf<double>(pd.a_l1, pd.a_l2, y.demog.height);
+    plant::TF24Rates<double> r = plant::tf24_compute_rates_from_net<double>(pd, y.demog.height, al, net, true);
+    return St6<double>{plant::FF16State<double>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+      r.area_heartwood_dt, r.mass_heartwood_dt}, k_acclim * dpsi};
+  };
+  auto axpy_d = [](const St6<double>& a, double c, const St6<double>& k){ return st6_axpy<double>(a,c,k); };
+  auto replay_one_d = [&](St6<double> y, const std::vector<double>& sched) -> St6<double> {
+    return plant::ff16_cashkarp_replay(y, sched, (std::size_t)0, deriv_d, axpy_d);
+  };
+
+  St6<double> y0{plant::FF16State<double>{y0v[0], y0v[1], y0v[2], y0v[3], y0v[4]}, y0v[5]};
+
+  const std::vector<std::string> comp =
+    {"height","mortality","fecundity","area_heartwood","mass_heartwood","opt_root_psi_state"};
+  const std::size_t nS = comp.size(), nG = targets.size();
+  Rcpp::NumericVector tstar(nG);
+  Rcpp::NumericMatrix state(nG, nS);
+  Rcpp::NumericMatrix dtime(nG, T);
+  Rcpp::NumericVector dstate(nG * nS * T);
+  auto DS = [&](std::size_t g, std::size_t c, std::size_t k) -> double& {
+    return dstate[g + nG * (c + nS * k)]; };
+
+  for (std::size_t g = 0; g < nG; ++g) {
+    // --- Discover t*: walk the schedule one RKCK step at a time until the size
+    // component crosses target, then bisect the partial final step. -------------
+    int nfull = -1; double dt_final = 0.0; St6<double> fin{};
+    {
+      St6<double> y = y0;
+      for (std::size_t n = 0; n < step_h.size(); ++n) {
+        St6<double> ynext = replay_one_d(y, {step_h[n]});
+        if (st6_at(ynext, sidx) >= targets[g]) {
+          nfull = (int)n;
+          double lo = 0.0, hi = step_h[n];
+          for (int it = 0; it < 80; ++it) {
+            double mid = 0.5 * (lo + hi);
+            double sm_ = st6_at(replay_one_d(y, {mid}), sidx);
+            if (sm_ < targets[g]) lo = mid; else hi = mid;
+          }
+          dt_final = 0.5 * (lo + hi);
+          fin = replay_one_d(y, {dt_final});
+          break;
+        }
+        y = ynext;
+      }
+    }
+    if (nfull < 0) Rcpp::stop("target size not reached within the schedule");
+    tstar[g] = sh[nfull] + dt_final;
+    for (std::size_t c = 0; c < nS; ++c) state(g, c) = st6_at(fin, (int)c);
+
+    // Rates at t* (double) for the IFT correction.
+    St6<double> rate = deriv_d(fin, 0, 0);
+    double yd[6] = {rate.demog.height, rate.demog.mortality, rate.demog.fecundity,
+                    rate.demog.area_heartwood, rate.demog.mass_heartwood, rate.collar};
+    const double sdot = yd[sidx];
+
+    // Frozen schedule to t*: nfull full steps + the single partial step dt_final.
+    std::vector<double> sched(step_h.begin(), step_h.begin() + nfull);
+    sched.push_back(dt_final);
+
+    // --- Harvest the per-RK-stage leaf operating point along sched (double). ----
+    std::vector<LH> stages;
+    {
+      auto deriv_h = [&](const St6<double>& y, std::size_t, int) -> St6<double> {
+        stages.push_back(harvest_point(s, sp, sm, dk, env, y.demog.height, y.collar));
+        return deriv_d(y, 0, 0);
+      };
+      St6<double> y = y0;
+      plant::ff16_cashkarp_replay(y, sched, (std::size_t)0, deriv_h, axpy_d);
+    }
+
+    // --- Tape replay over sched: partial d(state)/d(theta) holding t* fixed. -----
+    ad::tape_type tape;
+    std::vector<ad_t> tr(T);
+    for (std::size_t k = 0; k < T; ++k) tr[k] = tr0[k];
+    for (auto& x : tr) tape.registerInput(x);
+    tape.newRecording();
+    plant::TF24ProdPars<ad_t> pf = pf_active(pd, traits, tr);
+    ad_t h0 = ad_t(h0v);
+    for (std::size_t k = 0; k < T; ++k) if (dh0[k] != 0.0) h0 += ad_t(dh0[k]) * (tr[k] - ad_t(tr0[k]));
+
+    std::size_t idx = 0;
+    auto deriv_ad = [&](const St6<ad_t>& y, std::size_t, int) -> St6<ad_t> {
+      const LH& H = stages[idx++];
+      ad_t h = y.demog.height, collar = y.collar;
+      ad_t profit = profit_lin(H, h, collar, tr, tr0);
+      ad_t al = plant::tf24_area_leaf<ad_t>(pf.a_l1, pf.a_l2, h);
+      ad_t net = plant::tf24_net_mass_production<ad_t>(pf, h, al, profit);
+      plant::TF24Rates<ad_t> r = plant::tf24_compute_rates_from_net<ad_t>(pf, h, al, net, true);
+      ad_t collar_dt = ad_t(k_acclim) * dpsi_lin(H, h, collar, tr, tr0);
+      return St6<ad_t>{plant::FF16State<ad_t>{r.height_dt, r.mortality_dt, r.fecundity_dt,
+        r.area_heartwood_dt, r.mass_heartwood_dt}, collar_dt};
+    };
+    auto axpy_ad = [](const St6<ad_t>& a, double c, const St6<ad_t>& k){ return st6_axpy<ad_t>(a,c,k); };
+    St6<ad_t> yad{plant::FF16State<ad_t>{h0, ad_t(y0v[1]), ad_t(y0v[2]), ad_t(y0v[3]),
+      ad_t(y0v[4])}, ad_t(y0v[5])};
+    St6<ad_t> out = plant::ff16_cashkarp_replay(yad, sched, (std::size_t)0, deriv_ad, axpy_ad);
+    ad_t oc[6] = {out.demog.height, out.demog.mortality, out.demog.fecundity,
+                  out.demog.area_heartwood, out.demog.mass_heartwood, out.collar};
+    for (std::size_t c = 0; c < nS; ++c) tape.registerOutput(oc[c]);
+    std::vector<std::vector<double>> P(nS, std::vector<double>(T, 0.0));
+    for (std::size_t c = 0; c < nS; ++c) {
+      tape.clearDerivatives();
+      xad::derivative(oc[c]) = 1.0;
+      tape.computeAdjoints();
+      for (std::size_t k = 0; k < T; ++k) P[c][k] = xad::derivative(tr[k]);
+    }
+    // IFT: d(t*)/d(theta_k) = -(d size/d theta_k|t*) / size_dt(t*); total = P + ydot*dt*.
+    for (std::size_t k = 0; k < T; ++k) {
+      double dtk = (sdot != 0.0) ? -P[sidx][k] / sdot : 0.0;
+      dtime(g, k) = dtk;
+      for (std::size_t c = 0; c < nS; ++c) DS(g, c, k) = P[c][k] + yd[c] * dtk;
+    }
+  }
+
+  state.attr("dimnames")  = Rcpp::List::create(R_NilValue, Rcpp::wrap(comp));
+  dtime.attr("dimnames")  = Rcpp::List::create(R_NilValue, Rcpp::wrap(traits));
+  dstate.attr("dim")      = Rcpp::IntegerVector::create((int)nG, (int)nS, (int)T);
+  dstate.attr("dimnames") = Rcpp::List::create(R_NilValue, Rcpp::wrap(comp), Rcpp::wrap(traits));
+  return Rcpp::List::create(Rcpp::Named("time") = tstar, Rcpp::Named("state") = state,
+                            Rcpp::Named("d_time") = dtime, Rcpp::Named("d_state") = dstate);
 }

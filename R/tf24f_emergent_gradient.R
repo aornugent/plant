@@ -116,6 +116,46 @@ tf24f_census_gradient_ad <- function(scm, metrics = c("LAI", "biomass", "size_mo
                                 trait_rel_step)
 }
 
+# TF24f individual grow-to-size trait gradient by reverse-mode AD (#472 scope B,
+# build-order step 4 -- the AD refine of tf24f_grow_individual_to_size_gradient_fd). A
+# single TF24f plant grown in a FIXED environment to target size(s); returns d(t*)/d(theta)
+# and the TOTAL d(state at t*)/d(theta). No resident feedback / canopy / density, so the
+# only machinery beyond the frozen-schedule replay is the stopping-time IFT. The tracked
+# collar (opt_root_psi_state) is carried as the 6th replayed state with the SAME curvature-
+# linearised gradient-ascent rate the census tape uses; it starts at the individual's birth
+# value (theta-independent), so only the seedling height h0 carries an initial-condition
+# derivative. Pass 1 (R) harvests the live grow's adaptive Cash-Karp schedule via
+# grow_individual_bracket; pass 2 (C++) replays + sweeps. Validated against
+# tf24f_grow_individual_to_size_gradient_fd; see test-tf24f-individual-gradient.R.
+tf24f_grow_individual_to_size_gradient_ad <- function(individual, sizes, size_name, env,
+                                                      traits = NULL, time_max = Inf,
+                                                      warn = TRUE, trait_rel_step = 1e-5) {
+  if (!grepl("^TF24f", individual$strategy_name))
+    stop("tf24f_grow_individual_to_size_gradient_ad is for the TF24f strategy only")
+  if (is.unsorted(sizes) || length(sizes) == 0L)
+    stop("sizes must be non-empty and sorted")
+  sidx <- match(size_name, individual$ode_names)
+  if (is.na(sidx))
+    stop("size_name must be one of the ODE state names: ",
+         paste(individual$ode_names, collapse = ", "))
+  if (is.null(traits)) traits <- tf24_default_traits()
+
+  # Pass 1: harvest the adaptive step schedule (the frozen schedule the replay reproduces).
+  brk <- grow_individual_bracket(individual, sizes, size_name, env, time_max, warn)
+  y0  <- individual$ode_state
+  s   <- individual$strategy
+  pp  <- unlist(s$pars)
+  shading <- s$control$shading_model
+  if (is.null(shading) || !nzchar(shading)) shading <- "mean-light"  # TF24's default
+
+  res <- tf24f_grow_to_size_gradient_impl(pp, env, y0, brk$time, as.numeric(sizes),
+                                          as.integer(sidx - 1L), traits, s$k_acclim,
+                                          s$use_ad_gradient, shading, s$control$GSS_tol_abs,
+                                          trait_rel_step)
+  res$sizes <- sizes
+  res
+}
+
 # TF24f individual grow-to-size trait gradient (#472 scope B, the "individuals" surface
 # -- prototype). d(t*)/d(theta) and d(state at t*)/d(theta) for a single plant grown in a
 # FIXED environment to target size(s), by central finite difference over

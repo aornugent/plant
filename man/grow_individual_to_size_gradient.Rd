@@ -2,7 +2,7 @@
 % Please edit documentation in R/emergent_gradient.R
 \name{grow_individual_to_size_gradient}
 \alias{grow_individual_to_size_gradient}
-\title{Reverse-mode gradient of grow_individual_to_size (FF16)}
+\title{Reverse-mode gradient of grow_individual_to_size (FF16 / TF24f)}
 \usage{
 grow_individual_to_size_gradient(
   individual,
@@ -15,8 +15,11 @@ grow_individual_to_size_gradient(
 )
 }
 \arguments{
-\item{individual}{An \code{Individual} object (FF16 strategy), as passed to
-\code{\link{grow_individual_to_size}}.}
+\item{individual}{An \code{Individual} object (FF16 or TF24f strategy), as passed to
+\code{\link{grow_individual_to_size}}. For TF24f the trajectory carries the tracked
+collar (\code{opt_root_psi_state}) as a 6th state and the gradient is dispatched to
+the TF24f AD tape (same frozen-schedule replay + stopping-time IFT, with the collar
+curvature-linearised); all other behaviour is identical.}
 
 \item{sizes}{A vector of target sizes to grow the plant to (increasing).}
 

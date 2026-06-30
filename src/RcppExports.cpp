@@ -13448,6 +13448,28 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// tf24f_grow_to_size_gradient_impl
+Rcpp::List tf24f_grow_to_size_gradient_impl(Rcpp::NumericVector pp, plant::TF24_Environment env, Rcpp::NumericVector y0v, std::vector<double> sh, std::vector<double> targets, int sidx, std::vector<std::string> traits, double k_acclim, bool use_ad_gradient, std::string shading, double gss_tol, double trait_rel_step);
+RcppExport SEXP _plant_tf24f_grow_to_size_gradient_impl(SEXP ppSEXP, SEXP envSEXP, SEXP y0vSEXP, SEXP shSEXP, SEXP targetsSEXP, SEXP sidxSEXP, SEXP traitsSEXP, SEXP k_acclimSEXP, SEXP use_ad_gradientSEXP, SEXP shadingSEXP, SEXP gss_tolSEXP, SEXP trait_rel_stepSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< plant::TF24_Environment >::type env(envSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type y0v(y0vSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sh(shSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type targets(targetsSEXP);
+    Rcpp::traits::input_parameter< int >::type sidx(sidxSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type traits(traitsSEXP);
+    Rcpp::traits::input_parameter< double >::type k_acclim(k_acclimSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_ad_gradient(use_ad_gradientSEXP);
+    Rcpp::traits::input_parameter< std::string >::type shading(shadingSEXP);
+    Rcpp::traits::input_parameter< double >::type gss_tol(gss_tolSEXP);
+    Rcpp::traits::input_parameter< double >::type trait_rel_step(trait_rel_stepSEXP);
+    rcpp_result_gen = Rcpp::wrap(tf24f_grow_to_size_gradient_impl(pp, env, y0v, sh, targets, sidx, traits, k_acclim, use_ad_gradient, shading, gss_tol, trait_rel_step));
+    return rcpp_result_gen;
+END_RCPP
+}
 // node_schedule_default__Parameters___TF24f__TF24_Env
 plant::NodeSchedule node_schedule_default__Parameters___TF24f__TF24_Env(const plant::Parameters<plant::TF24f_Strategy,plant::TF24_Environment>& p);
 RcppExport SEXP _plant_node_schedule_default__Parameters___TF24f__TF24_Env(SEXP pSEXP) {
@@ -14717,6 +14739,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_tf24_fecundity_dt_grad_vcmax", (DL_FUNC) &_plant_tf24_fecundity_dt_grad_vcmax, 2},
     {"_plant_tf24f_census_recon_impl", (DL_FUNC) &_plant_tf24f_census_recon_impl, 9},
     {"_plant_tf24f_census_gradient_ad_impl", (DL_FUNC) &_plant_tf24f_census_gradient_ad_impl, 10},
+    {"_plant_tf24f_grow_to_size_gradient_impl", (DL_FUNC) &_plant_tf24f_grow_to_size_gradient_impl, 12},
     {"_plant_node_schedule_default__Parameters___TF24f__TF24_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___TF24f__TF24_Env, 1},
     {"_plant_make_node_schedule__Parameters___TF24f__TF24_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___TF24f__TF24_Env, 1},
     {"_plant_test_uniroot", (DL_FUNC) &_plant_test_uniroot, 3},

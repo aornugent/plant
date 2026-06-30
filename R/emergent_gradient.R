@@ -378,9 +378,12 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
 ##' size \eqn{h_0} (which solves \eqn{\mathrm{mass}(h_0) = \mathrm{seed\ mass}}) carries
 ##' its own \eqn{dh_0/d\theta} by the same implicit-function step.
 ##'
-##' @title Reverse-mode gradient of grow_individual_to_size (FF16)
-##' @param individual An \code{Individual} object (FF16 strategy), as passed to
-##'   \code{\link{grow_individual_to_size}}.
+##' @title Reverse-mode gradient of grow_individual_to_size (FF16 / TF24f)
+##' @param individual An \code{Individual} object (FF16 or TF24f strategy), as passed to
+##'   \code{\link{grow_individual_to_size}}. For TF24f the trajectory carries the tracked
+##'   collar (\code{opt_root_psi_state}) as a 6th state and the gradient is dispatched to
+##'   the TF24f AD tape (same frozen-schedule replay + stopping-time IFT, with the collar
+##'   curvature-linearised); all other behaviour is identical.
 ##' @param sizes A vector of target sizes to grow the plant to (increasing).
 ##' @param size_name The size variable the targets refer to (one of the ODE state
 ##'   names, e.g. \code{"height"}; FF16's monotonic size).
@@ -400,8 +403,16 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
 grow_individual_to_size_gradient <- function(individual, sizes, size_name, env,
                                              traits = NULL, time_max = Inf,
                                              warn = TRUE) {
+  # TF24f: the fast-acclimation variant carries the tracked collar as a 6th ODE state;
+  # its grow gradient reuses the same frozen-schedule replay + stopping-time IFT but with
+  # the curvature-linearised collar (build-order step 4). Dispatch to the TF24f AD tape.
+  if (grepl("^TF24f", individual$strategy_name)) {
+    return(tf24f_grow_individual_to_size_gradient_ad(individual, sizes, size_name, env,
+                                                     traits, time_max, warn))
+  }
   if (!grepl("^FF16", individual$strategy_name))
-    stop("grow_individual_to_size_gradient is implemented for the FF16 strategy only")
+    stop("grow_individual_to_size_gradient is implemented for the FF16 and TF24f ",
+         "strategies only")
   if (is.unsorted(sizes) || length(sizes) == 0L)
     stop("sizes must be non-empty and sorted")
   sidx <- match(size_name, individual$ode_names)
