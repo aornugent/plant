@@ -287,15 +287,13 @@ tf24f_resident_census_gradient_ad <- function(scm, metrics = c("LAI", "size_mome
                                               traits = NULL, species = 1L,
                                               birth_rate = NULL, trait_rel_step = 1e-5) {
   if (is.null(traits)) traits <- tf24_default_traits()
-  h <- tf24f_harvest(scm, species, birth_rate)
-  if (length(h$nn_h) < 1L) {
-    stop("the TF24f coupled (resident) census gradient needs the per-RK-stage ",
-         "boundary-node harvest; re-run the resident SCM with ",
-         "control(save_RK45_cache = TRUE)")
-  }
-  tf24f_coupled_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$birth_rate, h$k_acclim,
-                              h$use_ad_gradient, traits, metrics, h$nn_h, h$nn_c,
-                              h$patch_area, trait_rel_step)
+  # Fully native: env + birth steps + boundary-node history from the live Patch (no
+  # tf24f_harvest, no Rcpp::as<> env). The boundary-node guard lives in the C++ entry.
+  strat <- scm$parameters$strategies[[species]]
+  tf24f_coupled_gradient_native(scm, unlist(strat$pars), as.integer(species - 1L),
+                                if (is.null(birth_rate)) -1 else birth_rate,
+                                strat$k_acclim, strat$use_ad_gradient, traits, metrics,
+                                scm$parameters$patch_area, trait_rel_step)
 }
 
 # Harvest a multi-species TF24f SCM into the all-species arrays the cross-species coupled

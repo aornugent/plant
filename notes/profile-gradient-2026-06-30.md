@@ -105,12 +105,15 @@ full native harvest (move `ppsurv`/`tw`/birth into C++), a follow-up.
 | 2026-06-30 | full native FF16 harvest (cb8edf5e) | ff16_frozen | ~0 (native) | ~1860 | ~1910 | ~0 | ~1.0 | ~1.0 | off | bit-identical |
 | 2026-06-30 | full native TF24f census harvest | tf24f_census | ~0 (native) | — | **111** (was 154) | ~0 | **1.39×** | 1.39× | off | bit-identical |
 | 2026-06-30 | full native FF16 coupled harvest | ff16_resident_coupled | ~0 (native) | — | **74** (was 109) | ~0 | **1.47×** | 1.47× | off | bit-identical |
+| 2026-06-30 | full native TF24f coupled harvest | tf24f_resident | ~0 (native) | — | **170** (was 216) | ~0 | **1.27×** | 1.27× | off | bit-identical |
 
 **Perf outcome:** the full native harvest pays off where the harvest was a large
 fraction and the impl is cheap — `tf24f_census` **154 → 111 ms (~28% faster, 1.39×)**,
 bit-identical, because the R `tf24f_harvest` (the wasted `ppsurv`/`tw` loop + env
 extraction) is gone. It does NOT help the impl-bound `ff16_frozen` (reverse sweeps
 dominate; harvest was ~5%). The FF16 coupled resident path is now native too:
-**109 → 74 ms (~32%, 1.47×)**, bit-identical. Remaining high-frac target:
-`tf24f_resident` (22%) — its coupled engine still takes the R harvest; FF16/TF24f
-multi-species coupled also still use the R harvest (rarer paths).
+**109 → 74 ms (~32%, 1.47×)**, bit-identical. `tf24f_resident` is now native too:
+**216 → 170 ms (~21%, 1.27×)**, bit-identical. All three high-harvest-frac
+single-species calibration paths (tf24f_census, ff16_resident_coupled,
+tf24f_resident) are reclaimed. Still on the R harvest (rarer / lower-value): the
+FF16/TF24f multi-species coupled engines, the offspring tapes, state_jacobian, grow.

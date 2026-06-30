@@ -13568,6 +13568,29 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// tf24f_coupled_gradient_core
+Rcpp::List tf24f_coupled_gradient_core(Rcpp::NumericVector pp, const std::vector<std::vector<plant::TF24_Environment>>& EH, std::vector<double> sh, std::vector<int> birth, double birth_rate, double k_acclim, bool use_ad_gradient, std::vector<std::string> traits, std::vector<std::string> metrics, const std::vector<std::vector<double>>& NNH, const std::vector<std::vector<double>>& NNC, double patch_area, double trait_rel_step);
+RcppExport SEXP _plant_tf24f_coupled_gradient_core(SEXP ppSEXP, SEXP EHSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP birth_rateSEXP, SEXP k_acclimSEXP, SEXP use_ad_gradientSEXP, SEXP traitsSEXP, SEXP metricsSEXP, SEXP NNHSEXP, SEXP NNCSEXP, SEXP patch_areaSEXP, SEXP trait_rel_stepSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< const std::vector<std::vector<plant::TF24_Environment>>& >::type EH(EHSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sh(shSEXP);
+    Rcpp::traits::input_parameter< std::vector<int> >::type birth(birthSEXP);
+    Rcpp::traits::input_parameter< double >::type birth_rate(birth_rateSEXP);
+    Rcpp::traits::input_parameter< double >::type k_acclim(k_acclimSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_ad_gradient(use_ad_gradientSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type traits(traitsSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type metrics(metricsSEXP);
+    Rcpp::traits::input_parameter< const std::vector<std::vector<double>>& >::type NNH(NNHSEXP);
+    Rcpp::traits::input_parameter< const std::vector<std::vector<double>>& >::type NNC(NNCSEXP);
+    Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
+    Rcpp::traits::input_parameter< double >::type trait_rel_step(trait_rel_stepSEXP);
+    rcpp_result_gen = Rcpp::wrap(tf24f_coupled_gradient_core(pp, EH, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, NNH, NNC, patch_area, trait_rel_step));
+    return rcpp_result_gen;
+END_RCPP
+}
 // tf24f_coupled_gradient_impl
 Rcpp::List tf24f_coupled_gradient_impl(Rcpp::NumericVector pp, Rcpp::List eh_list, std::vector<double> sh, std::vector<int> birth, double birth_rate, double k_acclim, bool use_ad_gradient, std::vector<std::string> traits, std::vector<std::string> metrics, Rcpp::List nn_h_list, Rcpp::List nn_c_list, double patch_area, double trait_rel_step);
 RcppExport SEXP _plant_tf24f_coupled_gradient_impl(SEXP ppSEXP, SEXP eh_listSEXP, SEXP shSEXP, SEXP birthSEXP, SEXP birth_rateSEXP, SEXP k_acclimSEXP, SEXP use_ad_gradientSEXP, SEXP traitsSEXP, SEXP metricsSEXP, SEXP nn_h_listSEXP, SEXP nn_c_listSEXP, SEXP patch_areaSEXP, SEXP trait_rel_stepSEXP) {
@@ -13588,6 +13611,26 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
     Rcpp::traits::input_parameter< double >::type trait_rel_step(trait_rel_stepSEXP);
     rcpp_result_gen = Rcpp::wrap(tf24f_coupled_gradient_impl(pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, nn_h_list, nn_c_list, patch_area, trait_rel_step));
+    return rcpp_result_gen;
+END_RCPP
+}
+// tf24f_coupled_gradient_native
+Rcpp::List tf24f_coupled_gradient_native(SEXP scm_, Rcpp::NumericVector pp, int species, double birth_rate, double k_acclim, bool use_ad_gradient, std::vector<std::string> traits, std::vector<std::string> metrics, double patch_area, double trait_rel_step);
+RcppExport SEXP _plant_tf24f_coupled_gradient_native(SEXP scm_SEXP, SEXP ppSEXP, SEXP speciesSEXP, SEXP birth_rateSEXP, SEXP k_acclimSEXP, SEXP use_ad_gradientSEXP, SEXP traitsSEXP, SEXP metricsSEXP, SEXP patch_areaSEXP, SEXP trait_rel_stepSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type scm_(scm_SEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< int >::type species(speciesSEXP);
+    Rcpp::traits::input_parameter< double >::type birth_rate(birth_rateSEXP);
+    Rcpp::traits::input_parameter< double >::type k_acclim(k_acclimSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_ad_gradient(use_ad_gradientSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type traits(traitsSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type metrics(metricsSEXP);
+    Rcpp::traits::input_parameter< double >::type patch_area(patch_areaSEXP);
+    Rcpp::traits::input_parameter< double >::type trait_rel_step(trait_rel_stepSEXP);
+    rcpp_result_gen = Rcpp::wrap(tf24f_coupled_gradient_native(scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, traits, metrics, patch_area, trait_rel_step));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -14912,7 +14955,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_tf24f_census_gradient_ad_native", (DL_FUNC) &_plant_tf24f_census_gradient_ad_native, 9},
     {"_plant_tf24f_grow_to_size_gradient_impl", (DL_FUNC) &_plant_tf24f_grow_to_size_gradient_impl, 12},
     {"_plant_tf24f_coupled_metrics_impl", (DL_FUNC) &_plant_tf24f_coupled_metrics_impl, 11},
+    {"_plant_tf24f_coupled_gradient_core", (DL_FUNC) &_plant_tf24f_coupled_gradient_core, 13},
     {"_plant_tf24f_coupled_gradient_impl", (DL_FUNC) &_plant_tf24f_coupled_gradient_impl, 13},
+    {"_plant_tf24f_coupled_gradient_native", (DL_FUNC) &_plant_tf24f_coupled_gradient_native, 10},
     {"_plant_tf24f_offspring_gradient_impl", (DL_FUNC) &_plant_tf24f_offspring_gradient_impl, 11},
     {"_plant_tf24f_coupled_gradient_ms_impl", (DL_FUNC) &_plant_tf24f_coupled_gradient_ms_impl, 15},
     {"_plant_node_schedule_default__Parameters___TF24f__TF24_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___TF24f__TF24_Env, 1},

@@ -4784,8 +4784,16 @@ tf24f_coupled_metrics_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acc
     .Call('_plant_tf24f_coupled_metrics_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, metrics, nn_h_list, nn_c_list, patch_area)
 }
 
+tf24f_coupled_gradient_core <- function(pp, EH, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, NNH, NNC, patch_area, trait_rel_step) {
+    .Call('_plant_tf24f_coupled_gradient_core', PACKAGE = 'plant', pp, EH, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, NNH, NNC, patch_area, trait_rel_step)
+}
+
 tf24f_coupled_gradient_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, nn_h_list, nn_c_list, patch_area, trait_rel_step) {
     .Call('_plant_tf24f_coupled_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, nn_h_list, nn_c_list, patch_area, trait_rel_step)
+}
+
+tf24f_coupled_gradient_native <- function(scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, traits, metrics, patch_area, trait_rel_step) {
+    .Call('_plant_tf24f_coupled_gradient_native', PACKAGE = 'plant', scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, traits, metrics, patch_area, trait_rel_step)
 }
 
 tf24f_offspring_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, k_acclim, use_ad_gradient, traits, trait_rel_step) {
