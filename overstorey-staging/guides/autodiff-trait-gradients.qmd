@@ -215,6 +215,51 @@ gradient; for an allometric trait the self-shading term can dominate and even fl
 the sign of the frozen-resident value — a reminder the two are genuinely different
 questions.
 
+## The access points at a glance
+
+The capability is exposed as a small set of R calls. Each is "the gradient as an
+optional output of the call you already make": you run the model (or grow a plant),
+then ask for a derivative of what it produced. The five **exported** functions are the
+public API; the TF24f-specific routines are reached through `stand_gradient()` (or
+called directly as `plant:::…` for advanced use).
+
+| Call | Differentiates | Strategies | Key arguments |
+|---|---|---|---|
+| `stand_gradient(scm, metrics, traits, species, birth_rate, feedback)` | a **metrics × traits Jacobian** of emergent stand outputs, from one resident baseline | FF16 (all metrics), TF24 (`offspring_production` only), TF24f (census metrics) | `metrics ∈ {offspring_production, LAI, biomass, size_moment}`; `feedback ∈ {"frozen", "resident"}` |
+| `offspring_production_gradient(scm, traits, species, birth_rate)` | `d(offspring_production)/d(trait)` — the rare-mutant **invasion / selection gradient** | FF16 | a named convenience wrapper over the `stand_gradient` offspring entry |
+| `tf24_offspring_production_gradient(scm, traits, species, birth_rate)` | the same offspring invasion gradient for TF24 (27 traits) | TF24 | leaf-opt harvested + injected (never taped) |
+| `stand_state_jacobian(scm, traits, species, birth_rate)` | the per-cohort **state × trait Jacobian** (the escape hatch for any downstream metric) | FF16, TF24 | returns `$states` and `$jacobian` (cohort × component × trait) |
+| `grow_individual_to_size_gradient(individual, sizes, size_name, env, traits, …)` | `d(t*)/dθ` and the total `d(state at t*)/dθ` for one plant grown to target size(s) | FF16, TF24f | fixed *given* environment — no resident feedback |
+
+**The `feedback` axis (the two distinct questions).** `"frozen"` (default) holds the
+resident canopy fixed: the rare-mutant invasion-fitness gradient — the selection
+gradient of adaptive dynamics, and the correct reading for `offspring_production`.
+`"resident"` lets the canopy co-vary with the trait (the coupled whole-stand replay):
+the resident-total gradient for the census metrics, which routinely dominates and flips
+the sign of the frozen reading. On a multi-species stand `"resident"` returns the
+cross-species total `d(total-stand metric)/d(θ of species s)`.
+
+**TF24f census (reached through `stand_gradient`).** A TF24f SCM routes the census
+metrics to the reverse-mode collar-state tape: `stand_gradient(scm, metrics = c("LAI",
+"biomass", "size_moment"))` (frozen) and `feedback = "resident"` (coupled). The
+underlying routines are also callable directly — `plant:::tf24f_census_gradient_ad()`,
+`plant:::tf24f_resident_census_gradient_ad()` (single-species),
+`plant:::tf24f_resident_census_gradient_ms_ad()` (cross-species),
+`plant:::tf24f_offspring_production_gradient()` (the TF24f offspring invasion gradient),
+and `plant:::tf24f_grow_individual_to_size_gradient_ad()` (dispatched to automatically
+by `grow_individual_to_size_gradient()` for a TF24f individual). The `*_fd` / `*_recon`
+siblings are the finite-difference and R0-reconstruction validation references.
+
+**All SCM-driven entries are C++-native.** Every gradient of an emergent output now
+builds its harvest — the per-RK-stage resident environment, the step schedule, cohort
+birth steps, trapezoid weights and survival — *inside* `plant.so` directly from the live
+`SCM`'s `Patch`, rather than marshalling it through R. There is no on-the-fly
+compilation (the XAD adjoint tape is resolved at *load* against `odelia`) and no
+`Rcpp::as<>` environment round-trip, so the replay drives the native environments and
+the calls are covered by the test suite in plain R. `grow_individual_to_size_gradient()`
+is the one exception to the Patch-harvest: its environment is supplied as an argument,
+so it replays over that fixed env instead.
+
 ## The calibration interface
 
 The headline is a single R call. Given an SCM run with the sub-step cache on,
