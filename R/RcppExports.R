@@ -4764,6 +4764,14 @@ tf24f_grow_to_size_gradient_impl <- function(pp, env, y0v, sh, targets, sidx, tr
     .Call('_plant_tf24f_grow_to_size_gradient_impl', PACKAGE = 'plant', pp, env, y0v, sh, targets, sidx, traits, k_acclim, use_ad_gradient, shading, gss_tol, trait_rel_step)
 }
 
+tf24f_coupled_metrics_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, metrics, nn_h_list, nn_c_list, patch_area) {
+    .Call('_plant_tf24f_coupled_metrics_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, metrics, nn_h_list, nn_c_list, patch_area)
+}
+
+tf24f_coupled_gradient_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, nn_h_list, nn_c_list, patch_area, trait_rel_step) {
+    .Call('_plant_tf24f_coupled_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, nn_h_list, nn_c_list, patch_area, trait_rel_step)
+}
+
 node_schedule_default__Parameters___TF24f__TF24_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___TF24f__TF24_Env', PACKAGE = 'plant', p)
 }

@@ -322,16 +322,13 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
                              traits, metrics, h$birth_rate)
   } else if (identical(strat, "TF24f")) {
     # TF24f: the CENSUS metrics (LAI / biomass / size_moment) via the reverse-mode
-    # AD tape (#472 scope B, build-order step 2). The tracked-collar leaf eval is
-    # analytic, so -- unlike TF24 -- the census number-density gradient is available
-    # (the collar is carried as a taped state with a curvature-linearised rate; see
-    # tf24f_census_gradient_ad). FROZEN (rare-mutant / invasion) only so far:
-    # resident coupling is step 5 and a TF24f offspring tape is a separate follow-up.
-    if (is_resident) {
-      stop("feedback = 'resident' is implemented for FF16 only so far; the TF24f ",
-           "resident (coupled) census gradient is a follow-up (#472 scope B step 5). ",
-           "Use feedback = 'frozen' for the invasion census gradient.")
-    }
+    # AD tape (#472 scope B). The tracked-collar leaf eval is analytic, so -- unlike
+    # TF24 -- the census number-density gradient is available (the collar is carried as
+    # a taped state with a curvature-linearised rate). feedback = "frozen" gives the
+    # rare-mutant / invasion census gradient (tf24f_census_gradient_ad, step 2);
+    # feedback = "resident" gives the coupled TOTAL stand gradient where every trait
+    # re-shades the canopy (tf24f_resident_census_gradient_ad, step 5). offspring_production
+    # (its own tape) is a separate follow-up.
     census_set <- c("LAI", "biomass", "size_moment")
     bad <- setdiff(metrics, census_set)
     if (length(bad)) {
@@ -341,8 +338,17 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
            paste(bad, collapse = ", "))
     }
     if (is.null(traits)) traits <- tf24_default_traits()
-    tf24f_census_gradient_ad(scm, metrics = metrics, traits = traits,
-                             species = species, birth_rate = birth_rate)
+    if (is_resident) {
+      if (length(scm$patch$species) > 1L) {
+        stop("the TF24f resident (coupled) census gradient is single-species so far ",
+             "(#472 scope B step 5); the cross-species joint canopy is a follow-up.")
+      }
+      tf24f_resident_census_gradient_ad(scm, metrics = metrics, traits = traits,
+                                        species = species, birth_rate = birth_rate)
+    } else {
+      tf24f_census_gradient_ad(scm, metrics = metrics, traits = traits,
+                               species = species, birth_rate = birth_rate)
+    }
   } else {
     stop("stand_gradient is implemented for the FF16, TF24 and TF24f strategies only")
   }

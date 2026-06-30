@@ -171,9 +171,9 @@ vs frozen-schedule FD), mirroring `test-ff16-grow-individual-gradient.R` and
 | target | TF24 | TF24F |
 |---|---|---|
 | `offspring_production`, frozen (invasion) | **DONE** (`tf24_offspring_production_gradient`) | inherits TF24's; minor (tracked-state seed) |
-| census (LAI/biomass/size_moment), frozen | needs **curvature harvest** for g′; ~5e-7 floor | **clean** (analytic rates; carry collar state on tape) |
-| census, **resident** (coupled, self-shading) | curvature harvest + per-stage leaf-opt in the re-evolution (stiff, many solves) | **clean + cheaper** (no optimiser; 1 leaf eval/step) |
-| census, **multi-species** (cross-species) | as above; canopy ports free | as above; canopy ports free |
+| census (LAI/biomass/size_moment), frozen | needs **curvature harvest** for g′; ~5e-7 floor | **DONE** (`tf24f_census_gradient_ad`; collar state on tape, curvature harvest) |
+| census, **resident** (coupled, self-shading) | curvature harvest + per-stage leaf-opt in the re-evolution (stiff, many solves) | **DONE** (`tf24f_coupled_gradient_impl`; canopy ports from FF16, crown-centre light channel) |
+| census, **multi-species** (cross-species) | as above; canopy ports free | canopy ports free (FF16 multi-species path); follow-up |
 | `stand_state_jacobian` (escape hatch) | per-cohort, harvested profit | per-cohort, analytic |
 | `grow_individual_to_size` (single plant, fixed env) | reuses harvested-profit replay + IFT stop; no g′/density; ~5e-7 floor | **clean** (analytic rates + IFT stop); FF16 done |
 
@@ -366,10 +366,46 @@ target (collar equilibrated, FD converged) AD matches FD to <1% (the 2.7e10-magn
 mortality sensitivity to 0.003%); early targets are FD-noise-limited and AD is the
 convergent limit.
 
-**Remaining.** Step 5: resident/coupled AD (swap the FF16 coupled per-cohort rate for the
-TF24f harvested-leaf-at-tracked-collar eval; fixed schedule; validate vs
-`tf24f_resident_census_gradient_fd`). The C++-native-env migration
-(memory `move-gradient-machinery-to-cpp`) still gates lifetime >4 fidelity.
+**Step 5 (resident/coupled census AD) DONE.** `tf24f_coupled_gradient_impl` (R1) +
+`tf24f_coupled_metrics_impl` (R0 gate) in `src/tf24f_emergent.cpp`; R entries
+`tf24f_resident_census_gradient_ad` / `tf24f_coupled_metrics`; `stand_gradient(scm,
+feedback="resident")` now dispatches TF24f single-species census to the coupled tape.
+The FF16 coupled engine ports as the scope predicted: the canopy reconstruction is the
+SAME Yokozawa height-trapezium (`Q=(1-(z/h)^eta)^2`, TF24's [eqn 10]), so the whole
+canopy half is identical work — `tf24f_comp_at`/`build_canopy` mirror FF16's
+`coupled_comp_at`/`build_interp` with `tf24_area_leaf`. Two differences: the 7-state
+cohort {5 demog, collar, log_density}, and the per-cohort RATE is the harvested+linearised
+leaf (the frozen-census curvature harvest) plus ONE new ingredient — the crown-centre
+**light channel**. TF24f crown-centre reads light at the single height `h·eta_c`, so the
+resident feedback needs just `L_i = canopy(h_i·eta_c)`; `dprofit_dL` and the collar-rate
+light curvature `d²p/dψ dL` are harvested by FD over a **flat env** (`set_fixed_environment`
+on a copy preserves soil/vpd/ca/PPFD while pinning the crown light). On the tape the
+resident light correction is **anchored** (`Lact − value(Lact)`, the FF16
+`resident_light_anchored` trick): value 0 (clean baseline at every θ), derivative = the
+pure resident reshaping — the focal plant's own height→light slope stays inside the
+frozen-census `dprofit_dh`, so no double count. Births seed from the frozen birth env
+(active-birthenv deferred, as in FF16); the resident feedback enters through the
+growth-phase canopy.
+
+**Validation (`test-tf24f-census-gradient.R`, step-5 tests, lifetime-4 gate stand).**
+R0: the coupled re-evolution reconstructs the resident stand with `env_err = 2.8e-6` and
+LAI 0.03% vs `compute_competition(0)`. R1: AD == a central FD over the SAME coupled
+reconstruction to ≤0.8% on {LAI, size_moment}×{lma, K_s} — proving the tape exactly
+differentiates the coupled functional (the rigorous check, mirroring the FF16 coupled
+test). The defining resident property holds: `d(LAI)/d(lma)` flips from **+13.5 (frozen)
+to −2.08 (resident AD)**, landing near the full-SCM FD (−2.30, ~9.5%). The residual gap to
+the full-SCM FD is the documented grid-response gap (the adaptive node schedule's own trait
+response, which the frozen-schedule replay holds fixed — the FF16 coupled gradient carries
+the same gap); `size_moment` additionally carries a metric-definition difference (the
+prototype full-SCM FD's hand-rolled trapezium omits the pending-seed tail that the
+reconstruction and `compute_competition` include), so step 5 validates `size_moment`
+apples-to-apples and the full-SCM comparison on LAI (the canonical metric), as FF16 does.
+Full plant suite green (FAIL 0, PASS 2540).
+
+**Remaining.** Multi-species cross-species coupled (the joint canopy is generic — the FF16
+multi-species path; deferred, single-species guarded in `stand_gradient`); the TF24f
+offspring tape; and the C++-native-env migration (memory `move-gradient-machinery-to-cpp`)
+that still gates lifetime >4 fidelity.
 
 ## Bottom line for Dan
 

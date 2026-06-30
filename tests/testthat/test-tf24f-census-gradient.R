@@ -128,11 +128,84 @@ test_that("stand_gradient dispatches TF24f census to the AD tape", {
   expect_equal(sg$jacobian, ad$jacobian)
   expect_equal(sg$values, ad$values)
   expect_equal(unname(sg$values[["LAI"]]), scm$patch$compute_competition(0), tolerance = 1e-3)
-  # The unbuilt surfaces stop, not silently mislead.
-  expect_error(stand_gradient(scm, metrics = "LAI", traits = tr, feedback = "resident"),
-               "resident")
+  # feedback = "resident" routes to the coupled total gradient (step 5).
+  sgr <- stand_gradient(scm, metrics = "LAI", traits = tr, feedback = "resident")
+  adr <- plant:::tf24f_resident_census_gradient_ad(scm, metrics = "LAI", traits = tr)
+  expect_equal(sgr$jacobian, adr$jacobian)
+  # offspring_production (its own tape) is still a follow-up.
   expect_error(stand_gradient(scm, metrics = "offspring_production", traits = tr),
                "offspring_production")
+})
+
+test_that("tf24f coupled census R0 reconstructs the resident stand (step 5 gate)", {
+  # The resident (coupled) gate: a double-precision whole-stand re-evolution that
+  # reconstructs the ACTIVE canopy each RK stage (every cohort re-shades the light the
+  # whole stand reads) must reproduce the SCM's resident stand before the AD tape. The
+  # gauge is env_err (worst reconstructed vs SCM knot-light drift) + the LAI value.
+  scm <- tf24f_small_scm()
+  r0 <- plant:::tf24f_coupled_metrics(scm, metrics = c("LAI", "size_moment"))
+  expect_lt(r0$env_err, 1e-4)
+  expect_equal(unname(r0$values[["LAI"]]), scm$patch$compute_competition(0), tolerance = 1e-3)
+  expect_true(all(is.finite(r0$values)) && all(r0$values > 0))
+})
+
+test_that("tf24f resident coupled AD == FD over the same coupled reconstruction (step 5)", {
+  # The coupled AD tape (build-order step 5) must exactly differentiate the coupled
+  # whole-stand reconstruction it replays. Mirroring the FF16 coupled test, the rigorous
+  # check is AD vs a central FD over the SAME reconstruction (tf24f_coupled_metrics_impl)
+  # -- isolating tape correctness from the looser full-SCM gaps (the adaptive node
+  # schedule's trait response and metric-definition differences). The new ingredient over
+  # the frozen tape -- the leaf crown-centre LIGHT channel + anchored resident reshaping --
+  # is what makes EVERY trait feed back through the canopy.
+  scm <- tf24f_small_scm()
+  tr <- c("lma", "K_s")
+  mt <- c("LAI", "size_moment")
+  h <- plant:::tf24f_harvest(scm)
+  recon <- function(pp) plant:::tf24f_coupled_metrics_impl(pp, h$eh, h$sh, h$birth_step,
+    h$birth_rate, h$k_acclim, h$use_ad_gradient, mt, h$nn_h, h$nn_c, h$patch_area)$values
+  ad <- plant:::tf24f_resident_census_gradient_ad(scm, metrics = mt, traits = tr)
+  fd <- matrix(0, length(mt), length(tr), dimnames = list(mt, tr))
+  for (j in seq_along(tr)) {
+    d <- 1e-5 * max(abs(h$pp[[tr[j]]]), 1e-8)
+    pp_p <- h$pp; pp_p[[tr[j]]] <- pp_p[[tr[j]]] + d
+    pp_m <- h$pp; pp_m[[tr[j]]] <- pp_m[[tr[j]]] - d
+    fd[, j] <- (recon(pp_p) - recon(pp_m)) / (2 * d)
+  }
+  # AD values match the coupled reconstruction to its floor (~env_err): the AD tape
+  # linearises the leaf at the frozen env, while tf24f_coupled_metrics drives the real
+  # leaf at the RECONSTRUCTED canopy light -- the two differ only by the knot-light drift.
+  expect_equal(unname(ad$values), unname(recon(h$pp)), tolerance = 1e-5)
+  # AD == FD over the coupled reconstruction within the recon noise floor.
+  rel <- abs(ad$jacobian - fd) / pmax(abs(fd), 1e-8)
+  expect_lt(max(rel), 0.02)
+})
+
+test_that("tf24f resident LAI gradient flips sign and tracks the full-SCM FD", {
+  # The defining resident property: the canopy feedback flips d(LAI)/d(lma) negative
+  # (a stand-wide LMA rise shades out leaf area) where the frozen rare-mutant gradient is
+  # positive. The coupled AD reproduces this and lands near the full-SCM FD ground truth
+  # for LAI (the canonical compute_competition(0) metric); a residual gap is expected from
+  # the adaptive node schedule's own trait response (the frozen-schedule replay holds it
+  # fixed), as for the FF16 coupled gradient.
+  H <- 4L
+  p <- scm_base_parameters("TF24f"); p$max_patch_lifetime <- H
+  p <- add_strategies(p, trait_matrix(0.1978791, "lma"), hyperpar = TF24f_hyperpar,
+                      birth_rate = list(20))
+  p$node_schedule_times <- list(seq(0, H, length.out = 9L))
+  ctlc <- control(shading_model = "crown-centre", GSS_tol_abs = 1e-9,
+                  ode_tol_rel = 1e-4, ode_tol_abs = 1e-4, save_RK45_cache = TRUE)
+  scm <- run_scm(p, Environment("TF24f"), ctlc, refine_schedule = FALSE)
+
+  gf <- plant:::tf24f_census_gradient_ad(scm, metrics = "LAI", traits = "lma")
+  gr <- plant:::tf24f_resident_census_gradient_ad(scm, metrics = "LAI", traits = "lma")
+  fd <- plant:::tf24f_resident_census_gradient_fd(p, Environment("TF24f"), ctlc,
+          metrics = "LAI", traits = "lma")
+  expect_gt(gf$jacobian["LAI", "lma"], 0)         # frozen: positive (rare mutant)
+  expect_lt(gr$jacobian["LAI", "lma"], 0)         # resident: feedback flips it negative
+  expect_lt(fd$jacobian["LAI", "lma"], 0)         # full-SCM FD agrees on the sign
+  # Same order of magnitude as the full-SCM ground truth (grid-response gap aside).
+  expect_equal(unname(gr$jacobian["LAI", "lma"]),
+               unname(fd$jacobian["LAI", "lma"]), tolerance = 0.2)
 })
 
 test_that("tf24f resident census FD gradient is the total gradient (flips sign)", {

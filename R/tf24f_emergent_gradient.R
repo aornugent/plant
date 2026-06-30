@@ -39,8 +39,17 @@ tf24f_harvest <- function(scm, species = 1L, birth_rate = NULL) {
   # Cohort birth steps (introductions land on step times).
   birth_step <- vapply(nt, function(t) which.min(abs(sh - t)) - 1L, integer(1))
 
+  # Boundary new_node (height + competition effect) per RK stage: the trapezium tail
+  # term Species::compute_competition adds beyond `nodes`, needed by the COUPLED
+  # resident replay's per-stage canopy reconstruction at ground level (the TF24f mirror
+  # of ff16_harvest's nn_h / nn_c). Empty on older caches.
+  nn_h <- patch$stand_newnode_height_stage_history
+  nn_c <- patch$stand_newnode_competition_stage_history
+  patch_area <- scm$parameters$patch_area
+
   list(pp = pp, eh = eh, sh = sh, birth_step = birth_step, birth_rate = birth_rate,
-       k_acclim = strat$k_acclim, use_ad_gradient = strat$use_ad_gradient, nt = nt)
+       k_acclim = strat$k_acclim, use_ad_gradient = strat$use_ad_gradient, nt = nt,
+       nn_h = nn_h, nn_c = nn_c, patch_area = patch_area)
 }
 
 # R0 gate (internal): double-precision census reconstruction of a TF24f resident stand.
@@ -200,6 +209,52 @@ tf24f_grow_individual_to_size_gradient_fd <- function(individual, sizes, size_na
   }
   list(sizes = sizes, time = base$time, state = base$state,
        d_time = d_time, d_state = d_state)
+}
+
+# TF24f COUPLED census reconstruction -- the resident R0 gate (#472 scope B step 5,
+# internal). A double-precision whole-stand re-evolution that reconstructs the ACTIVE
+# canopy each RK stage and drives the real TF24f leaf at the reconstructed crown light.
+# Returns the reconstructed TOTAL-stand census values and `env_err` (worst reconstructed
+# vs SCM knot-light drift) -- the gauge that the coupled re-evolution reproduces the
+# resident stand before the AD tape. Not a public gradient entry; used by the gate test.
+tf24f_coupled_metrics <- function(scm, metrics = c("LAI", "size_moment"),
+                                  species = 1L, birth_rate = NULL) {
+  h <- tf24f_harvest(scm, species, birth_rate)
+  if (length(h$nn_h) < 1L) {
+    stop("the TF24f coupled (resident) census gradient needs the per-RK-stage ",
+         "boundary-node harvest; re-run the resident SCM with ",
+         "control(save_RK45_cache = TRUE)")
+  }
+  tf24f_coupled_metrics_impl(h$pp, h$eh, h$sh, h$birth_step, h$birth_rate, h$k_acclim,
+                             h$use_ad_gradient, metrics, h$nn_h, h$nn_c, h$patch_area)
+}
+
+# TF24f RESIDENT (coupled) census trait gradient by reverse-mode AD (#472 scope B,
+# build-order step 5 -- the resident-feedback AD refine of tf24f_resident_census_gradient_fd).
+# The TOTAL stand-level d(census metric)/d(theta): all cohorts are re-evolved TOGETHER over
+# the frozen schedule and the canopy light each RK stage is reconstructed from the active
+# stand (heights AND densities respond to theta), so EVERY trait re-shades the light every
+# cohort reads -- the genuine resident feedback that routinely flips the sign relative to
+# the frozen (rare-mutant) gradient. The new ingredient beyond the frozen census tape is the
+# leaf's crown-centre LIGHT channel (dprofit_dL + the collar-rate light curvature, harvested
+# by FD over a flat environment); on the tape the resident light correction is anchored so
+# the baseline is exact at theta0 and the focal plant's own height->light slope stays in the
+# frozen-census dprofit_dh (no double count). One reverse sweep per metric over the coupled
+# whole-stand replay. Validated against tf24f_resident_census_gradient_fd (full SCM re-runs);
+# see test-tf24f-census-gradient.R. Single-species; FIXED node schedule (TF24f is stiff).
+tf24f_resident_census_gradient_ad <- function(scm, metrics = c("LAI", "size_moment"),
+                                              traits = NULL, species = 1L,
+                                              birth_rate = NULL, trait_rel_step = 1e-5) {
+  if (is.null(traits)) traits <- tf24_default_traits()
+  h <- tf24f_harvest(scm, species, birth_rate)
+  if (length(h$nn_h) < 1L) {
+    stop("the TF24f coupled (resident) census gradient needs the per-RK-stage ",
+         "boundary-node harvest; re-run the resident SCM with ",
+         "control(save_RK45_cache = TRUE)")
+  }
+  tf24f_coupled_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$birth_rate, h$k_acclim,
+                              h$use_ad_gradient, traits, metrics, h$nn_h, h$nn_c,
+                              h$patch_area, trait_rel_step)
 }
 
 # TF24f RESIDENT (coupled) census trait gradient (#472 scope B, the resident-feedback
