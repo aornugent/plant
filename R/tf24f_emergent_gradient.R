@@ -30,6 +30,8 @@ tf24f_harvest <- function(scm, species = 1L, birth_rate = NULL) {
   }
   sp    <- patch$species[[species]]
   nt    <- sp$node_times
+  pdens <- sp$patch_densities
+  ppsab <- sp$pr_patch_survival_at_birth
   strat <- scm$parameters$strategies[[species]]
   pp    <- unlist(strat$pars)
 
@@ -38,6 +40,19 @@ tf24f_harvest <- function(scm, species = 1L, birth_rate = NULL) {
   }
   # Cohort birth steps (introductions land on step times).
   birth_step <- vapply(nt, function(t) which.min(abs(sh - t)) - 1L, integer(1))
+  N <- length(eh)
+
+  # offspring_production weighting (the TF24f mirror of ff16_harvest / tf24_harvest): the
+  # node-spacing trapezoid weights so offspring_production == sum_i tw_i * offspring_i,
+  # and per-RK-stage patch survival at the exact Cash-Karp stage times. Only the offspring
+  # tape uses these (census / resident do not).
+  tcoef <- numeric(length(nt)); x <- nt; n <- length(x)
+  tcoef[1] <- 0.5 * (x[2] - x[1]); tcoef[n] <- 0.5 * (x[n] - x[n - 1])
+  if (n > 2) tcoef[2:(n - 1)] <- 0.5 * (x[3:n] - x[1:(n - 2)])
+  tw <- tcoef * pdens * pp[["S_D"]] * birth_rate
+  ah <- c(0, 0.2, 0.3, 0.6, 1.0, 0.875); hN <- diff(sh)
+  ppsurv <- matrix(0, N, 6)
+  for (k in seq_len(N)) for (s in 1:6) ppsurv[k, s] <- patch$pr_survival(sh[k] + ah[s] * hN[k])
 
   # Boundary new_node (height + competition effect) per RK stage: the trapezium tail
   # term Species::compute_competition adds beyond `nodes`, needed by the COUPLED
@@ -49,6 +64,7 @@ tf24f_harvest <- function(scm, species = 1L, birth_rate = NULL) {
 
   list(pp = pp, eh = eh, sh = sh, birth_step = birth_step, birth_rate = birth_rate,
        k_acclim = strat$k_acclim, use_ad_gradient = strat$use_ad_gradient, nt = nt,
+       tw = tw, ppsurv = ppsurv, ppsab = ppsab,
        nn_h = nn_h, nn_c = nn_c, patch_area = patch_area)
 }
 
@@ -211,6 +227,22 @@ tf24f_grow_individual_to_size_gradient_fd <- function(individual, sizes, size_na
        d_time = d_time, d_state = d_state)
 }
 
+# TF24f offspring_production trait gradient by reverse-mode AD (#472 scope B, the
+# offspring surface). d(offspring_production)/d(theta) for the seed-rain integral
+# offspring_production = sum_i tw_i * offspring_i (survival-weighted lifetime fecundity),
+# the FROZEN rare-mutant / invasion gradient. The TF24 offspring tape with the one TF24f
+# difference the census tape already solves -- the tracked collar is carried as a taped
+# state with the curvature-linearised gradient-ascent rate (the lag the envelope theorem
+# does not zero), seeded at the birth optimum (IFT-injected). Returns a named gradient
+# vector + the reconstructed value.
+tf24f_offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
+                                                birth_rate = NULL, trait_rel_step = 1e-5) {
+  if (is.null(traits)) traits <- tf24_default_traits()
+  h <- tf24f_harvest(scm, species, birth_rate)
+  tf24f_offspring_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab,
+                                h$tw, h$k_acclim, h$use_ad_gradient, traits, trait_rel_step)
+}
+
 # TF24f COUPLED census reconstruction -- the resident R0 gate (#472 scope B step 5,
 # internal). A double-precision whole-stand re-evolution that reconstructs the ACTIVE
 # canopy each RK stage and drives the real TF24f leaf at the reconstructed crown light.
@@ -255,6 +287,126 @@ tf24f_resident_census_gradient_ad <- function(scm, metrics = c("LAI", "size_mome
   tf24f_coupled_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$birth_rate, h$k_acclim,
                               h$use_ad_gradient, traits, metrics, h$nn_h, h$nn_c,
                               h$patch_area, trait_rel_step)
+}
+
+# Harvest a multi-species TF24f SCM into the all-species arrays the cross-species coupled
+# engine consumes (#472 scope B, the cross-species resident Jacobian). The shared schedule
+# + joint env, per-species parameter vectors / cohort birth steps / birth rates / TF24f
+# acclimation knobs, and the all-species per-RK-stage boundary harvest
+# (stand_newnode_*_stage_history_all, [step][stage][species]). The TF24f mirror of
+# ff16_harvest_ms; the joint stand light is reconstructed in C++ from each species'
+# re-evolved cohorts, so only these per-species pieces are needed from R.
+tf24f_harvest_ms <- function(scm) {
+  patch <- scm$patch
+  nsp <- length(scm$parameters$strategies)
+  sh  <- patch$step_history
+  eh  <- patch$environment_history
+  if (length(eh) < 1L) {
+    stop("No resident schedule cached: run the SCM with control(save_RK45_cache = TRUE)")
+  }
+  nn_h <- patch$stand_newnode_height_stage_history_all
+  nn_c <- patch$stand_newnode_competition_stage_history_all
+  if (length(nn_h) < 1L) {
+    stop("feedback = 'resident' on a multi-species TF24f stand needs the all-species ",
+         "per-RK-stage harvest; re-run the resident SCM with control(save_RK45_cache = TRUE)")
+  }
+  list(
+    pp_list = lapply(seq_len(nsp), function(s) unlist(scm$parameters$strategies[[s]]$pars)),
+    eh = eh, sh = sh,
+    birth_list = lapply(seq_len(nsp), function(s)
+      vapply(patch$species[[s]]$node_times,
+             function(t) which.min(abs(sh - t)) - 1L, integer(1))),
+    birth_rate = vapply(seq_len(nsp), function(s)
+      scm$offspring_production[[s]] / scm$net_reproduction_ratios[[s]], numeric(1)),
+    k_acclim = vapply(seq_len(nsp), function(s)
+      scm$parameters$strategies[[s]]$k_acclim, numeric(1)),
+    use_ad_gradient = vapply(seq_len(nsp), function(s)
+      as.integer(isTRUE(scm$parameters$strategies[[s]]$use_ad_gradient)), integer(1)),
+    nn_h = nn_h, nn_c = nn_c,
+    patch_area = scm$parameters$patch_area, nsp = nsp)
+}
+
+# TF24f CROSS-SPECIES resident (coupled) census trait gradient by reverse-mode AD (#472
+# scope B). On a multi-species stand, the TOTAL-stand d(census metric)/d(theta of species
+# `species`): all species' cohorts are re-evolved together over the frozen schedule and
+# the canopy light each RK stage is the JOINT reconstruction (sum over species of each
+# species' trapezium); only the target species' traits are registered as tape inputs, so
+# one reverse sweep per metric gives the cross-species total -- the target's traits re-shade
+# the joint canopy that EVERY species reads (the cross term the frozen gradient zeroes).
+# A cheap double R0 pass gates a diverged (stiff) node schedule before the sweep. Unlike
+# FF16 (closed-form leaf), the TF24f cross-species tape's linearised log_density / g'
+# derivative is sensitive to the JOINT-canopy reshaping, and amplifies when the species
+# are widely separated or the schedule is coarse -- so the gate is tighter (joint-env drift
+# > 1e-3, vs FF16's 1e-2) and a post-sweep finiteness / magnitude guard catches any
+# residual blow-up. The cross-species gradient therefore needs a WELL-CONDITIONED stand:
+# closely-spaced species on a fine FIXED node schedule (where it matches the FD reference;
+# see tf24f_resident_census_gradient_ms_fd). Validated on such a stand.
+tf24f_resident_census_gradient_ms_ad <- function(scm, metrics = c("LAI", "size_moment"),
+                                                 traits = NULL, species = 1L,
+                                                 trait_rel_step = 1e-5) {
+  if (is.null(traits)) traits <- tf24_default_traits()
+  hm <- tf24f_harvest_ms(scm)
+  if (species < 1L || species > hm$nsp) stop("target species out of range")
+  diverged <- function(ee)
+    stop("the multi-species TF24f coupled re-evolution is too stiff on this node ",
+         "schedule (joint env drift = ", signif(ee, 3), "). The cross-species gradient ",
+         "needs a well-conditioned stand: closely-spaced species on a fine FIXED node ",
+         "schedule (refine_schedule = FALSE). Re-run the resident SCM accordingly.")
+  r0 <- tf24f_coupled_gradient_ms_impl(hm$pp_list, hm$eh, hm$sh, hm$birth_list,
+          hm$birth_rate, hm$k_acclim, hm$use_ad_gradient, traits, metrics, hm$nn_h,
+          hm$nn_c, hm$patch_area, as.integer(species), trait_rel_step, TRUE)
+  if (!all(is.finite(r0$values)) || r0$env_err > 1e-3) diverged(r0$env_err)
+  g <- tf24f_coupled_gradient_ms_impl(hm$pp_list, hm$eh, hm$sh, hm$birth_list, hm$birth_rate,
+    hm$k_acclim, hm$use_ad_gradient, traits, metrics, hm$nn_h, hm$nn_c, hm$patch_area,
+    as.integer(species), trait_rel_step, FALSE)
+  # Post-sweep guard: the linearised tape can still blow up (finite but astronomically
+  # large) where the gate passes but the derivative is stiff; reject rather than mislead.
+  if (!all(is.finite(g$jacobian)) || max(abs(g$jacobian)) > 1e12) diverged(r0$env_err)
+  g
+}
+
+# TF24f multi-species CROSS-SPECIES resident census FD reference (ground truth). Perturbs
+# one species' (post-hyperpar) trait, re-runs the full SCM on the SAME fixed node schedule,
+# and differences the TOTAL-stand metric (LAI = compute_competition(0); size_moment summed
+# over species). Slow (one SCM solve per trait per side); keep `traits` small.
+tf24f_resident_census_gradient_ms_fd <- function(p, env, ctrl,
+                                                 metrics = c("LAI", "size_moment"),
+                                                 traits = NULL, species = 1L,
+                                                 rel_step = 1e-4) {
+  if (is.null(traits)) traits <- tf24_default_traits()
+  stand_metrics <- function(scm) {
+    patch <- scm$patch
+    out <- c(LAI = patch$compute_competition(0))
+    sm <- 0
+    for (s in seq_along(patch$species)) {
+      sp <- patch$species[[s]]
+      h <- sp$heights; dens <- exp(sp$log_densities)
+      ord <- order(h, decreasing = TRUE); h <- h[ord]; dens <- dens[ord]
+      phi <- dens * h
+      if (length(h) > 1) sm <- sm + sum(0.5 * (h[-length(h)] - h[-1]) * (phi[-length(h)] + phi[-1]))
+    }
+    out["size_moment"] <- sm
+    out[metrics]
+  }
+  run_with <- function(pp_override) {
+    pmod <- p
+    if (!is.null(pp_override)) {
+      s <- pmod$strategies[[species]]; s$pars <- pp_override; pmod$strategies[[species]] <- s
+    }
+    run_scm(pmod, env, ctrl, refine_schedule = FALSE)
+  }
+  values <- stand_metrics(run_with(NULL))
+  pars0 <- p$strategies[[species]]$pars
+  jac <- matrix(0, length(metrics), length(traits), dimnames = list(metrics, traits))
+  for (j in seq_along(traits)) {
+    tr <- traits[j]
+    if (!tr %in% names(pars0)) stop("unknown TF24f trait: ", tr)
+    d <- rel_step * max(abs(pars0[[tr]]), 1e-8)
+    pp_p <- pars0; pp_p[[tr]] <- pp_p[[tr]] + d
+    pp_m <- pars0; pp_m[[tr]] <- pp_m[[tr]] - d
+    jac[, j] <- (stand_metrics(run_with(pp_p)) - stand_metrics(run_with(pp_m))) / (2 * d)
+  }
+  list(jacobian = jac, values = values)
 }
 
 # TF24f RESIDENT (coupled) census trait gradient (#472 scope B, the resident-feedback

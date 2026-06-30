@@ -170,10 +170,10 @@ vs frozen-schedule FD), mirroring `test-ff16-grow-individual-gradient.R` and
 
 | target | TF24 | TF24F |
 |---|---|---|
-| `offspring_production`, frozen (invasion) | **DONE** (`tf24_offspring_production_gradient`) | inherits TF24's; minor (tracked-state seed) |
+| `offspring_production`, frozen (invasion) | **DONE** (`tf24_offspring_production_gradient`) | **DONE** (`tf24f_offspring_production_gradient`; collar curvature seed) |
 | census (LAI/biomass/size_moment), frozen | needs **curvature harvest** for g′; ~5e-7 floor | **DONE** (`tf24f_census_gradient_ad`; collar state on tape, curvature harvest) |
 | census, **resident** (coupled, self-shading) | curvature harvest + per-stage leaf-opt in the re-evolution (stiff, many solves) | **DONE** (`tf24f_coupled_gradient_impl`; canopy ports from FF16, crown-centre light channel) |
-| census, **multi-species** (cross-species) | as above; canopy ports free | canopy ports free (FF16 multi-species path); follow-up |
+| census, **multi-species** (cross-species) | as above; canopy ports free | **DONE** (`tf24f_coupled_gradient_ms_impl`; joint canopy; well-conditioned stands) |
 | `stand_state_jacobian` (escape hatch) | per-cohort, harvested profit | per-cohort, analytic |
 | `grow_individual_to_size` (single plant, fixed env) | reuses harvested-profit replay + IFT stop; no g′/density; ~5e-7 floor | **clean** (analytic rates + IFT stop); FF16 done |
 
@@ -402,10 +402,38 @@ reconstruction and `compute_competition` include), so step 5 validates `size_mom
 apples-to-apples and the full-SCM comparison on LAI (the canonical metric), as FF16 does.
 Full plant suite green (FAIL 0, PASS 2540).
 
-**Remaining.** Multi-species cross-species coupled (the joint canopy is generic — the FF16
-multi-species path; deferred, single-species guarded in `stand_gradient`); the TF24f
-offspring tape; and the C++-native-env migration (memory `move-gradient-machinery-to-cpp`)
-that still gates lifetime >4 fidelity.
+**Step 5 follow-ups (offspring + multi-species) DONE.**
+- **TF24f offspring tape.** `tf24f_offspring_gradient_impl` + `tf24f_offspring_production_gradient`;
+  `stand_gradient` now assembles offspring_production alongside the census metrics for TF24f.
+  It is the TF24 offspring tape (`tf24_emergent.cpp`) with the one TF24f difference the census
+  tape already solves — the tracked collar carried as a taped state with the curvature-linearised
+  rate (seeded at the birth optimum, IFT-injected) instead of TF24's envelope-zeroed optimised
+  collar. A per-cohort {5 demog, collar, offspring} replay over the frozen schedule, off_dt =
+  fecundity_dt·exp(−mortality)·(ppsurv/ppsab), one tape over all cohorts (offspring_production is
+  linear in the per-cohort offspring → one sweep). Validated: value matches the SCM to 1.4e-5;
+  AD == FD over the same reconstruction to ~1e-5 (≤0.02 worst).
+- **TF24f multi-species cross-species.** `tf24f_coupled_gradient_ms_impl` (R0 gate `gate_only=TRUE`
+  + R1) + `tf24f_harvest_ms` / `tf24f_resident_census_gradient_ms_ad` / `_ms_fd`; `stand_gradient(
+  feedback="resident")` on a >1-species TF24f stand routes here. Mirrors FF16's
+  `assemble_metrics_coupled_ms`: all species' cohorts re-evolved together, the JOINT canopy each
+  stage = sum over species of each species' Yokozawa trapezium (`build_canopy_ms`), each cohort
+  reading it at its crown centre; the leaf rate is the harvested+linearised tracked-collar leaf +
+  the anchored crown-centre light channel, with the θ-injection harvested ONLY for the target
+  species (`harvest_point_ms`; non-target cohorts respond to the canopy but carry no target-trait
+  derivative). Lift every species' prod_pars, register only the target's traits → one sweep per
+  metric = the cross-species total. **Conditioning caveat:** unlike FF16's closed-form leaf, the
+  TF24f linearised cross-species tape's log_density/g' derivative amplifies under large joint-canopy
+  reshaping, so it needs a WELL-CONDITIONED stand (closely-spaced species, fine FIXED schedule). A
+  tightened gate (joint-env drift > 1e-3, vs FF16's 1e-2) + a post-sweep finiteness/magnitude guard
+  reject ill-conditioned stands rather than returning a blown-up gradient. Validated on a
+  well-conditioned 2-species stand: R0 LAI 0.04%; AD == FD-over-recon on LAI/lma to 1.3%; the
+  cross-species resident gradient (−1.56) differs by orders of magnitude from the frozen rare-mutant
+  gradient; ill-conditioned stands are cleanly rejected. (Full-SCM FD gap ~22% = the grid-response
+  gap, larger for multi-species, as for FF16.) Full plant suite green (FAIL 0, PASS 2549).
+
+**Remaining.** The C++-native-env migration (memory `move-gradient-machinery-to-cpp`) that still
+gates lifetime >4 fidelity, and (optional) a stiffness-robust cross-species tape for widely-separated
+species. All five build-order steps + the offspring and multi-species follow-ups are now DONE.
 
 ## Bottom line for Dan
 

@@ -330,25 +330,50 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
     # re-shades the canopy (tf24f_resident_census_gradient_ad, step 5). offspring_production
     # (its own tape) is a separate follow-up.
     census_set <- c("LAI", "biomass", "size_moment")
-    bad <- setdiff(metrics, census_set)
+    bad <- setdiff(metrics, c(census_set, "offspring_production"))
     if (length(bad)) {
-      stop("stand_gradient for TF24f supports the census metrics (",
-           paste(census_set, collapse = ", "), ") so far; offspring_production is a ",
-           "follow-up (it needs the TF24f offspring tape). Got: ",
+      stop("stand_gradient for TF24f supports offspring_production and the census ",
+           "metrics (", paste(census_set, collapse = ", "), "). Got: ",
            paste(bad, collapse = ", "))
     }
     if (is.null(traits)) traits <- tf24_default_traits()
-    if (is_resident) {
-      if (length(scm$patch$species) > 1L) {
-        stop("the TF24f resident (coupled) census gradient is single-species so far ",
-             "(#472 scope B step 5); the cross-species joint canopy is a follow-up.")
+    census <- metrics[metrics %in% census_set]
+    offsp  <- metrics[metrics == "offspring_production"]
+    jac <- matrix(0, length(metrics), length(traits),
+                  dimnames = list(metrics, traits))
+    values <- stats::setNames(numeric(length(metrics)), metrics)
+    if (length(census)) {
+      # feedback = "frozen" -> the rare-mutant / invasion census gradient (step 2);
+      # feedback = "resident" -> the coupled TOTAL stand gradient (step 5, single-species).
+      gc <- if (is_resident) {
+        if (length(scm$patch$species) > 1L) {
+          # Multi-species: the CROSS-SPECIES total gradient d(total-stand metric)/d(theta
+          # of species `species`) -- the joint canopy is rebuilt from every species'
+          # re-evolved cohorts, so the differentiated species feeds back through the canopy
+          # every species reads. Well-conditioned on a fixed node schedule (gated for stiff
+          # schedules inside the ms wrapper).
+          tf24f_resident_census_gradient_ms_ad(scm, metrics = census, traits = traits,
+                                               species = species)
+        } else {
+          tf24f_resident_census_gradient_ad(scm, metrics = census, traits = traits,
+                                            species = species, birth_rate = birth_rate)
+        }
+      } else {
+        tf24f_census_gradient_ad(scm, metrics = census, traits = traits,
+                                 species = species, birth_rate = birth_rate)
       }
-      tf24f_resident_census_gradient_ad(scm, metrics = metrics, traits = traits,
-                                        species = species, birth_rate = birth_rate)
-    } else {
-      tf24f_census_gradient_ad(scm, metrics = metrics, traits = traits,
-                               species = species, birth_rate = birth_rate)
+      jac[census, ] <- gc$jacobian[census, , drop = FALSE]
+      values[census] <- gc$values[census]
     }
+    if (length(offsp)) {
+      # offspring_production is always the FROZEN invasion gradient (the canopy a rare
+      # mutant invades is the resident's), even under feedback = "resident".
+      go <- tf24f_offspring_production_gradient(scm, traits = traits, species = species,
+                                                birth_rate = birth_rate)
+      jac["offspring_production", ] <- go$gradient
+      values["offspring_production"] <- go$value
+    }
+    list(jacobian = jac, values = values)
   } else {
     stop("stand_gradient is implemented for the FF16, TF24 and TF24f strategies only")
   }

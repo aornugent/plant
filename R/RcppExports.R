@@ -4772,6 +4772,14 @@ tf24f_coupled_gradient_impl <- function(pp, eh_list, sh, birth, birth_rate, k_ac
     .Call('_plant_tf24f_coupled_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, nn_h_list, nn_c_list, patch_area, trait_rel_step)
 }
 
+tf24f_offspring_gradient_impl <- function(pp, eh_list, sh, birth, ppsurv, ppsab, tw, k_acclim, use_ad_gradient, traits, trait_rel_step) {
+    .Call('_plant_tf24f_offspring_gradient_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, ppsurv, ppsab, tw, k_acclim, use_ad_gradient, traits, trait_rel_step)
+}
+
+tf24f_coupled_gradient_ms_impl <- function(pp_list, eh_list, sh, birth_list, birth_rate, k_acclim, use_ad_gradient, traits, metrics, nn_h_list, nn_c_list, patch_area, target, trait_rel_step, gate_only) {
+    .Call('_plant_tf24f_coupled_gradient_ms_impl', PACKAGE = 'plant', pp_list, eh_list, sh, birth_list, birth_rate, k_acclim, use_ad_gradient, traits, metrics, nn_h_list, nn_c_list, patch_area, target, trait_rel_step, gate_only)
+}
+
 node_schedule_default__Parameters___TF24f__TF24_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___TF24f__TF24_Env', PACKAGE = 'plant', p)
 }

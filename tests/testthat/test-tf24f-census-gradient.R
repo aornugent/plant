@@ -132,9 +132,88 @@ test_that("stand_gradient dispatches TF24f census to the AD tape", {
   sgr <- stand_gradient(scm, metrics = "LAI", traits = tr, feedback = "resident")
   adr <- plant:::tf24f_resident_census_gradient_ad(scm, metrics = "LAI", traits = tr)
   expect_equal(sgr$jacobian, adr$jacobian)
-  # offspring_production (its own tape) is still a follow-up.
-  expect_error(stand_gradient(scm, metrics = "offspring_production", traits = tr),
-               "offspring_production")
+  # offspring_production routes to the offspring tape, and assembles alongside census.
+  sgo <- stand_gradient(scm, metrics = c("offspring_production", "LAI"), traits = tr)
+  go <- plant:::tf24f_offspring_production_gradient(scm, traits = tr)
+  expect_equal(unname(sgo$jacobian["offspring_production", ]), as.numeric(go$gradient))
+  expect_equal(unname(sgo$jacobian["LAI", ]), unname(ad$jacobian["LAI", ]))
+})
+
+test_that("tf24f offspring_production AD == FD over the same reconstruction", {
+  # The offspring tape (the TF24 offspring tape + the tracked-collar curvature the census
+  # tape already solves) must exactly differentiate its frozen-invasion reconstruction.
+  # The rigorous check is AD vs a central FD over the SAME offspring reconstruction
+  # (re-harvested at perturbed traits), as for the census tape; and the reconstructed value
+  # matches the SCM's offspring_production.
+  scm <- tf24f_small_scm()
+  tr <- c("vcmax_25", "lma", "a_l1", "K_s")
+  ad <- plant:::tf24f_offspring_production_gradient(scm, traits = tr)
+  expect_equal(ad$value, scm$offspring_production[[1]], tolerance = 1e-3)
+  h <- plant:::tf24f_harvest(scm)
+  oval <- function(pp) plant:::tf24f_offspring_gradient_impl(pp, h$eh, h$sh, h$birth_step,
+    h$ppsurv, h$ppsab, h$tw, h$k_acclim, h$use_ad_gradient, tr, 1e-5)$value
+  fd <- vapply(tr, function(t) {
+    d <- 1e-5 * max(abs(h$pp[[t]]), 1e-8)
+    pp_p <- h$pp; pp_p[[t]] <- pp_p[[t]] + d
+    pp_m <- h$pp; pp_m[[t]] <- pp_m[[t]] - d
+    (oval(pp_p) - oval(pp_m)) / (2 * d)
+  }, numeric(1))
+  rel <- abs(ad$gradient - fd) / pmax(abs(fd), 1e-30)
+  expect_lt(max(rel), 0.02)   # the recon noise floor (most entries agree to ~1e-5)
+})
+
+# A well-conditioned 2-species TF24f stand (closely-spaced lma, fine fixed schedule) -- the
+# regime where the cross-species coupled tape is stable (the joint-canopy reshaping does not
+# blow up the linearised log_density / g' derivative).
+tf24f_ms_scm <- function(lmas = c(0.15, 0.22), n = 12L, H = 4L) {
+  p <- scm_base_parameters("TF24f"); p$max_patch_lifetime <- H
+  p <- add_strategies(p, trait_matrix(lmas, "lma"), hyperpar = TF24f_hyperpar,
+                      birth_rate = as.list(rep(20, length(lmas))))
+  p$node_schedule_times <- rep(list(seq(0, H, length.out = n)), length(lmas))
+  ctlc <- control(shading_model = "crown-centre", GSS_tol_abs = 1e-9,
+                  ode_tol_rel = 1e-4, ode_tol_abs = 1e-4, save_RK45_cache = TRUE)
+  list(p = p, ctlc = ctlc, scm = run_scm(p, Environment("TF24f"), ctlc, refine_schedule = FALSE))
+}
+
+test_that("tf24f multi-species coupled R0 reconstructs the joint canopy + total metrics", {
+  w <- tf24f_ms_scm()
+  hm <- plant:::tf24f_harvest_ms(w$scm)
+  tr <- c("lma", "K_s"); mt <- c("LAI", "size_moment")
+  r0 <- plant:::tf24f_coupled_gradient_ms_impl(hm$pp_list, hm$eh, hm$sh, hm$birth_list,
+    hm$birth_rate, hm$k_acclim, hm$use_ad_gradient, tr, mt, hm$nn_h, hm$nn_c,
+    hm$patch_area, 1L, 1e-5, TRUE)
+  expect_lt(r0$env_err, 1e-3)
+  expect_equal(unname(r0$values[["LAI"]]), w$scm$patch$compute_competition(0), tolerance = 1e-3)
+})
+
+test_that("tf24f cross-species coupled AD == FD over the same recon; cross term + gate", {
+  # The cross-species total gradient d(total-stand metric)/d(theta of species 1): all
+  # species' cohorts re-evolved together, the joint canopy active in species 1's traits.
+  # Validated AD == FD over the SAME coupled reconstruction on LAI/lma (the dominant entry,
+  # as for the FF16 ms test), and the resident cross-species gradient differs by orders of
+  # magnitude from the frozen rare-mutant gradient (the canopy feedback).
+  w <- tf24f_ms_scm()
+  hm <- plant:::tf24f_harvest_ms(w$scm)
+  tr <- c("lma", "K_s")
+  ad <- stand_gradient(w$scm, metrics = "LAI", traits = tr, species = 1L, feedback = "resident")
+  recon <- function(ppl) plant:::tf24f_coupled_gradient_ms_impl(ppl, hm$eh, hm$sh,
+    hm$birth_list, hm$birth_rate, hm$k_acclim, hm$use_ad_gradient, tr, "LAI", hm$nn_h,
+    hm$nn_c, hm$patch_area, 1L, 1e-5, TRUE)$values
+  d <- 1e-5 * abs(hm$pp_list[[1]][["lma"]])
+  ppp <- hm$pp_list; ppp[[1]][["lma"]] <- ppp[[1]][["lma"]] + d
+  ppm <- hm$pp_list; ppm[[1]][["lma"]] <- ppm[[1]][["lma"]] - d
+  fd_lma <- (recon(ppp) - recon(ppm)) / (2 * d)
+  expect_equal(unname(ad$jacobian["LAI", "lma"]), unname(fd_lma[["LAI"]]), tolerance = 0.05)
+  expect_equal(unname(ad$values[["LAI"]]), w$scm$patch$compute_competition(0), tolerance = 1e-3)
+  # The cross-species feedback dominates: resident differs hugely from frozen.
+  gf <- plant:::tf24f_census_gradient_ad(w$scm, metrics = "LAI", traits = "lma", species = 1L)
+  expect_false(isTRUE(all.equal(unname(gf$jacobian["LAI", "lma"]),
+                                unname(ad$jacobian["LAI", "lma"]), tolerance = 0.5)))
+  # An ill-conditioned stand (widely-spaced species, coarse schedule) is rejected, not
+  # silently returned as a blown-up gradient.
+  b <- tf24f_ms_scm(lmas = c(0.1218, 0.2625), n = 8L)
+  expect_error(stand_gradient(b$scm, metrics = "LAI", traits = tr, species = 1L,
+                              feedback = "resident"), "well-conditioned")
 })
 
 test_that("tf24f coupled census R0 reconstructs the resident stand (step 5 gate)", {
