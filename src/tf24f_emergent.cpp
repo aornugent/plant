@@ -292,6 +292,26 @@ std::vector<std::vector<plant::TF24_Environment>> eh_from_list(Rcpp::List eh_lis
   }
   return EH;
 }
+// Per-cohort birth steps from a live TF24f patch: the step time nearest each node
+// introduction time (0-based), matching tf24f_harvest's which.min. Computing this in
+// C++ lets the census native entries skip the R ff16/tf24f_harvest entirely (whose
+// O(stand) ppsurv loop is dead work for the census metrics).
+std::vector<int> tf24f_birth_steps(
+    const plant::Patch<plant::TF24f_Strategy, plant::TF24_Environment>& patch,
+    std::size_t species) {
+  const auto& sh = patch.step_history;
+  const std::vector<double> nt = patch.at_species(species).node_times();
+  std::vector<int> birth(nt.size());
+  for (std::size_t i = 0; i < nt.size(); ++i) {
+    std::size_t best = 0; double bd = std::abs(sh[0] - nt[i]);
+    for (std::size_t k = 1; k < sh.size(); ++k) {
+      const double d = std::abs(sh[k] - nt[i]);
+      if (d < bd) { bd = d; best = k; }
+    }
+    birth[i] = (int)best;
+  }
+  return birth;
+}
 } // namespace
 
 // [[Rcpp::export]]
@@ -308,14 +328,21 @@ Rcpp::List tf24f_census_recon_impl(
 // (synchronous) core call, so the borrowed env history never dangles.
 // [[Rcpp::export]]
 Rcpp::List tf24f_census_recon_native(
-    SEXP scm_, Rcpp::NumericVector pp, std::vector<int> birth, double birth_rate,
+    SEXP scm_, Rcpp::NumericVector pp, int species, double birth_rate,
     double k_acclim, bool use_ad_gradient, std::vector<std::string> metrics,
     bool exact_ad_gprime) {
   auto scm = Rcpp::as<plant::RcppR6::RcppR6<
     plant::SCM<plant::TF24f_Strategy, plant::TF24_Environment>>>(scm_);
   const auto& patch = scm->r_patch();
+  double br = birth_rate;
+  if (br < 0.0) {
+    const auto op = scm->offspring_production();
+    const auto nrr = scm->net_reproduction_ratios();
+    br = op[(std::size_t)species] / nrr[(std::size_t)species];
+  }
+  const std::vector<int> birth = tf24f_birth_steps(patch, (std::size_t)species);
   return tf24f_census_recon_core(pp, patch.environment_history, patch.step_history,
-                                 birth, birth_rate, k_acclim, use_ad_gradient,
+                                 birth, br, k_acclim, use_ad_gradient,
                                  metrics, exact_ad_gprime);
 }
 
@@ -781,17 +808,26 @@ Rcpp::List tf24f_census_gradient_ad_impl(
     k_acclim, use_ad_gradient, traits, metrics, trait_rel_step);
 }
 
-// Native-SCM census gradient: faithful per-RK-stage env read from the live Patch.
+// Native-SCM census gradient: faithful per-RK-stage env + birth steps from the live
+// Patch -- the whole harvest is native, so the R wrapper never calls tf24f_harvest
+// (whose ppsurv/tw loop is dead work for census). birth_rate<0 recovers natively.
 // [[Rcpp::export]]
 Rcpp::List tf24f_census_gradient_ad_native(
-    SEXP scm_, Rcpp::NumericVector pp, std::vector<int> birth, double birth_rate,
+    SEXP scm_, Rcpp::NumericVector pp, int species, double birth_rate,
     double k_acclim, bool use_ad_gradient, std::vector<std::string> traits,
     std::vector<std::string> metrics, double trait_rel_step) {
   auto scm = Rcpp::as<plant::RcppR6::RcppR6<
     plant::SCM<plant::TF24f_Strategy, plant::TF24_Environment>>>(scm_);
   const auto& patch = scm->r_patch();
+  double br = birth_rate;
+  if (br < 0.0) {
+    const auto op = scm->offspring_production();
+    const auto nrr = scm->net_reproduction_ratios();
+    br = op[(std::size_t)species] / nrr[(std::size_t)species];
+  }
+  const std::vector<int> birth = tf24f_birth_steps(patch, (std::size_t)species);
   return tf24f_census_gradient_ad_core(pp, patch.environment_history,
-    patch.step_history, birth, birth_rate, k_acclim, use_ad_gradient, traits,
+    patch.step_history, birth, br, k_acclim, use_ad_gradient, traits,
     metrics, trait_rel_step);
 }
 

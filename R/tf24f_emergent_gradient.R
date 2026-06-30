@@ -77,16 +77,17 @@ tf24f_harvest <- function(scm, species = 1L, birth_rate = NULL) {
 # public gradient entry point -- it returns the recon, not d(metric)/d(theta).
 tf24f_census_recon <- function(scm, metrics = c("LAI", "biomass", "size_moment"),
                                species = 1L, birth_rate = NULL) {
-  h <- tf24f_harvest(scm, species, birth_rate)
   # The reconstruction's growth-rate gradient g' must match whatever the resident
   # SCM used (Node::growth_rate_gradient): the exact-AD path when the run set
   # control(node_gradient_exact_ad = TRUE), else the backward finite difference.
   exact_ad <- isTRUE(scm$parameters$strategies[[species]]$control$node_gradient_exact_ad)
-  # Native entry: faithful per-RK-stage env read directly from the live SCM's Patch
-  # (no Rcpp::as<> round-trip -- the crown-sampled light is exact, lifting the
-  # long-horizon census-recon fidelity floor; see notes/ad-refactor-optimize-roadmap.md).
-  tf24f_census_recon_native(scm, h$pp, h$birth_step, h$birth_rate, h$k_acclim,
-                            h$use_ad_gradient, metrics, exact_ad)
+  # Fully native: env + birth steps from the live Patch (no Rcpp::as<> round-trip; the
+  # whole harvest is native, so the R-side tf24f_harvest -- whose ppsurv/tw loop is dead
+  # work for census -- is skipped). birth_rate < 0 recovers the rate natively.
+  strat <- scm$parameters$strategies[[species]]
+  tf24f_census_recon_native(scm, unlist(strat$pars), as.integer(species - 1L),
+                            if (is.null(birth_rate)) -1 else birth_rate,
+                            strat$k_acclim, strat$use_ad_gradient, metrics, exact_ad)
 }
 
 # TF24f frozen census trait gradient (#472 scope B, build-order step 2 -- R1 GATE).
@@ -106,8 +107,9 @@ tf24f_census_gradient_fd <- function(scm, metrics = c("LAI", "biomass", "size_mo
   h <- tf24f_harvest(scm, species, birth_rate)
   exact_ad <- isTRUE(scm$parameters$strategies[[species]]$control$node_gradient_exact_ad)
   # Native recon so the FD reference differentiates the SAME function the native AD
-  # tape does (faithful crown-sampled light, no Rcpp::as<> round-trip).
-  recon <- function(pp) tf24f_census_recon_native(scm, pp, h$birth_step,
+  # tape does (faithful crown-sampled light, no Rcpp::as<> round-trip). birth steps are
+  # computed natively inside; h$birth_rate is the concrete recovered rate.
+  recon <- function(pp) tf24f_census_recon_native(scm, pp, as.integer(species - 1L),
     h$birth_rate, h$k_acclim, h$use_ad_gradient, metrics, exact_ad)$values
 
   values <- recon(h$pp)
@@ -140,10 +142,11 @@ tf24f_census_gradient_ad <- function(scm, metrics = c("LAI", "biomass", "size_mo
                                      traits = NULL, species = 1L, birth_rate = NULL,
                                      trait_rel_step = 1e-5) {
   if (is.null(traits)) traits <- tf24_default_traits()
-  h <- tf24f_harvest(scm, species, birth_rate)
-  # Native entry: faithful per-RK-stage env from the live Patch (no Rcpp::as<>).
-  tf24f_census_gradient_ad_native(scm, h$pp, h$birth_step, h$birth_rate,
-                                  h$k_acclim, h$use_ad_gradient, traits, metrics,
+  # Fully native: env + birth steps from the live Patch; tf24f_harvest skipped.
+  strat <- scm$parameters$strategies[[species]]
+  tf24f_census_gradient_ad_native(scm, unlist(strat$pars), as.integer(species - 1L),
+                                  if (is.null(birth_rate)) -1 else birth_rate,
+                                  strat$k_acclim, strat$use_ad_gradient, traits, metrics,
                                   trait_rel_step)
 }
 

@@ -102,3 +102,12 @@ full native harvest (move `ppsurv`/`tw`/birth into C++), a follow-up.
 | 2026-06-30 | baseline (b3b4e188) | — | see table above | | | | 1.00 | — | off | PASS |
 | 2026-06-30 | 2a FF16 native-env (d69014b4) | ff16_frozen | (env only) | — | — | — | — | — | off | bit-identical |
 | 2026-06-30 | 2b TF24f native-env (735d02c8) | tf24f_census | (env only) | — | — | — | — | — | off | bit-identical |
+| 2026-06-30 | full native FF16 harvest (cb8edf5e) | ff16_frozen | ~0 (native) | ~1860 | ~1910 | ~0 | ~1.0 | ~1.0 | off | bit-identical |
+| 2026-06-30 | full native TF24f census harvest | tf24f_census | ~0 (native) | — | **111** (was 154) | ~0 | **1.39×** | 1.39× | off | bit-identical |
+
+**Perf outcome:** the full native harvest pays off where the harvest was a large
+fraction and the impl is cheap — `tf24f_census` **154 → 111 ms (~28% faster, 1.39×)**,
+bit-identical, because the R `tf24f_harvest` (the wasted `ppsurv`/`tw` loop + env
+extraction) is gone. It does NOT help the impl-bound `ff16_frozen` (reverse sweeps
+dominate; harvest was ~5%). Remaining high-frac targets: `ff16_resident_coupled` (28%),
+`tf24f_resident` (22%) — their coupled engines still take the R harvest.

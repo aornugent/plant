@@ -4760,16 +4760,16 @@ tf24f_census_recon_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acclim
     .Call('_plant_tf24f_census_recon_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime)
 }
 
-tf24f_census_recon_native <- function(scm_, pp, birth, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime) {
-    .Call('_plant_tf24f_census_recon_native', PACKAGE = 'plant', scm_, pp, birth, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime)
+tf24f_census_recon_native <- function(scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime) {
+    .Call('_plant_tf24f_census_recon_native', PACKAGE = 'plant', scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, metrics, exact_ad_gprime)
 }
 
 tf24f_census_gradient_ad_impl <- function(pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, trait_rel_step) {
     .Call('_plant_tf24f_census_gradient_ad_impl', PACKAGE = 'plant', pp, eh_list, sh, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, trait_rel_step)
 }
 
-tf24f_census_gradient_ad_native <- function(scm_, pp, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, trait_rel_step) {
-    .Call('_plant_tf24f_census_gradient_ad_native', PACKAGE = 'plant', scm_, pp, birth, birth_rate, k_acclim, use_ad_gradient, traits, metrics, trait_rel_step)
+tf24f_census_gradient_ad_native <- function(scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, traits, metrics, trait_rel_step) {
+    .Call('_plant_tf24f_census_gradient_ad_native', PACKAGE = 'plant', scm_, pp, species, birth_rate, k_acclim, use_ad_gradient, traits, metrics, trait_rel_step)
 }
 
 tf24f_grow_to_size_gradient_impl <- function(pp, env, y0v, sh, targets, sidx, traits, k_acclim, use_ad_gradient, shading, gss_tol, trait_rel_step) {
