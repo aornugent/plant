@@ -353,10 +353,21 @@ strategy: the census metrics under `feedback = "frozen"` route to `tf24f_census_
 `feedback = "resident"` and `offspring_production` stop with a clear "follow-up" message.
 Test in `test-tf24f-census-gradient.R`; commit `fcbfc60d`.
 
-**Remaining (the seed's later steps).** Step 4: individual grow-to-size AD tape (same collar
-curvature harvest, no canopy/density; validate vs `tf24f_grow_individual_to_size_gradient_fd`).
-Step 5: resident/coupled AD (swap the FF16 coupled per-cohort rate for the TF24f
-harvested-leaf-at-tracked-collar eval; fixed schedule; validate vs
+**Step 4 (individual grow-to-size AD) DONE** (commit `80372353`).
+`tf24f_grow_to_size_gradient_impl` + `tf24f_grow_individual_to_size_gradient_ad`;
+`grow_individual_to_size_gradient` dispatches TF24f to it. A 6-state replay {5 demog +
+tracked collar} over the live grow's adaptive schedule (harvested via
+`grow_individual_bracket`), the same collar curvature-linearised rate as the census tape,
+no canopy/density/g', and the stopping-time IFT. The collar starts at the birth value (0,
+clamped) -- θ-independent -- so only h0 carries an initial-condition derivative. Uses
+TF24's DEFAULT mean-light shading (one leaf solve), so `make_tf24f` gained a shading/gss
+arg. Validated vs `tf24f_grow_individual_to_size_gradient_fd`: t* exact; at the largest
+target (collar equilibrated, FD converged) AD matches FD to <1% (the 2.7e10-magnitude
+mortality sensitivity to 0.003%); early targets are FD-noise-limited and AD is the
+convergent limit.
+
+**Remaining.** Step 5: resident/coupled AD (swap the FF16 coupled per-cohort rate for the
+TF24f harvested-leaf-at-tracked-collar eval; fixed schedule; validate vs
 `tf24f_resident_census_gradient_fd`). The C++-native-env migration
 (memory `move-gradient-machinery-to-cpp`) still gates lifetime >4 fidelity.
 
