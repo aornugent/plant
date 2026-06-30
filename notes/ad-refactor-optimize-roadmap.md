@@ -323,11 +323,74 @@ Each PR carries its slice of the timing-history table and its fixture verdict.
 
 ---
 
-## Jobs for next session (handoff 2026-06-30)
+## Jobs for the NEXT session (handoff 2026-06-30, session 2)
+
+Session 2 landed (branch `spike-ff16-scm-emergent`, 5 commits on top of `2156a42f`;
+suite FAIL=0 ERROR=0 SKIP=9 **PASS=2587**, fixture all PASS):
+- `8153c924` — **the old Job 1 NaN, fixed.** Root cause was NOT a `log_density` runaway —
+  it was trait **`a_l2`**: the last cohort's birth step lands on the final step
+  (`birth==N`), which the coupled `rn<N` loop never established, leaving a zero-height
+  cohort whose `area_leaf=(h/a_l1)^(1/a_l2)` differentiates to `0*log(0)=NaN` (and biased
+  the value). Fixed by establishing `birth>=N` cohorts at `h0` (FF16 + TF24f). All 28 FF16
+  traits finite, single + MS + **>2 species**; re-snapshotted 3 fixtures.
+- `279cae5c`, `cde17580` — **the old Job 2 (dead-code), done.** Removed 7 superseded
+  `_impl`/probe entries; reframed `bench_gradient.R` to public/native only; purged 21
+  `ad_*.R` sourceCpp prototypes; guide made self-contained.
+- `bef2503e` — **FF16 multi-species coupled gradient natived** (`ff16_coupled_gradient_ms_native`
+  + `build_frozen_ms_scm`; public path off the R `ff16_harvest_ms`; `_impl` kept as the
+  test FD-reference; bit-identical, `_impl`/`_native` share `ff16_coupled_gradient_ms_core`).
+- `b6830bbe` — **notes/ pruned to just this roadmap**; all `see notes/X` pointers trimmed.
+
+**Two tasks chosen for the next session (Dan, 2026-06-30):**
+
+### A. Native the TF24f multi-species coupled gradient (mirror `bef2503e`)
+
+The lone public path still on the R harvest. `tf24f_resident_census_gradient_ms_ad`
+(`R/tf24f_emergent_gradient.R`) calls `tf24f_harvest_ms` (R, rebuilds the RcppR6 patch
+O(stand) + `Rcpp::as<>` env) then `tf24f_coupled_gradient_ms_impl` twice (gate_only=TRUE
+then FALSE). **Cosmetic/perf only — it works and is tested; changes no results.** Pattern
+to copy from FF16 (`src/ff16_emergent.cpp`): (1) extract `tf24f_coupled_gradient_ms_core`
+from `tf24f_coupled_gradient_ms_impl` (`src/tf24f_emergent.cpp:1956`) — but note that impl
+is a ~400-line MONOLITH that builds `EH`/`NNH`/`birth` inline from R lists (`:2005-2040`),
+unlike FF16 where `build_frozen_ms` was already a separate fn; so the refactor is to move
+that R-list→C++ build into the `_impl` wrapper and have the core take the C++ structures;
+(2) add a native builder reading `patch.environment_history` / `step_history` /
+`stand_newnode_*_stage_history_all` / `plant::gradient::birth_steps(patch,s)` (the live
+`Patch`); (3) add `tf24f_coupled_gradient_ms_native(SEXP scm_, pp_list, ...)` that bundles
+the R0 gate (env_err) + the AD sweep like the FF16 native does; (4) wire
+`tf24f_resident_census_gradient_ms_ad` to it. **`compileAttributes()` + `make compile`**
+(new export). Gate: native == impl bit-for-bit on the MS fixture stand; fixture +
+whole suite stay green.
+
+### B. TF24f long-horizon coupled-gradient NaN (a REAL correctness gap)
+
+`tf24f_resident_census_gradient_ad` (single-species) goes **all-NaN** on patch lifetime
+**H≥6** (H=4 fixture is fine — it has `birth==N` too, so this is NOT the boundary-cohort
+bug A above, which is already fixed). Diagnosis gathered this session:
+- The **frozen census recon is clean at H8** (`log_density` ∈ [−2.8, 5.6], all heights >0),
+  so the NaN is purely in the **COUPLED AD tape**, and it is **derivative-only** (the
+  `values` are finite; only the adjoint is NaN — a single op with finite value but
+  ∞/NaN local derivative poisons the whole shared tape).
+- It **scales with horizon** (H4 ok, H6/H8 NaN). **FF16 coupled is robust to lifetime 140**,
+  so it is TF24f-leaf-solve-specific, not generic.
+- Prime suspects: the `g' = (height_dt - g_back)/GEPS` backward-FD near-cancellation
+  accumulated over more stages (the handoff's original `log_density`/g' hypothesis, but
+  for the COUPLED tape), or a `pow`/`anchor`/interpolator-derivative singularity in
+  `build_canopy` (`src/tf24f_emergent.cpp`) at a knot for the taller H8 stand.
+- Method: instrument the AD core (`tf24f_coupled_gradient_core`) to find the first op whose
+  derivative goes non-finite (e.g. guard + report `xad::value`/`xad::derivative` per stage,
+  or bisect by zeroing channels). Compare H4 (works) vs H6 (fails) at the same code path.
+  Consider a `log_density`-rate cap mirroring `check_initial_density_rates`, or reading the
+  canopy derivative more carefully where a knot coincides with a cohort crown edge.
+
+### C. (still pending) Derivative w.r.t. birth_rate — see §3 below (NEW capability).
+
+---
+
+## Jobs from session 1 (handoff 2026-06-30) — §1 DONE, §2 DONE; §3 pending
 
 Recorded at the end of the refactor/optimize + API-consolidation session. Phases 1–4
-are done and committed; the suite is green (FAIL=0 ERROR=0 SKIP=9 PASS=2350) and the
-AD-vs-AD fixture is bit-identical. Two follow-ups remain:
+are done and committed; the suite is green and the AD-vs-AD fixture is bit-identical.
 
 ### 1. Multi-species coupled resident gradient — make it reliable
 
