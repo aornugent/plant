@@ -288,8 +288,8 @@ both strategies.
 ## The generic stand-gradient engine
 
 `offspring_production_gradient()` differentiates one output. The calibration-facing
-design (see `notes/scm-gradient-architecture.md`) generalises it to a metric-*symmetric*
-engine that lives **outside** the SCM object: it consumes a `ResidentHarvest` that any
+design generalises it to a metric-*symmetric* engine that lives **outside** the SCM
+object: it consumes a `ResidentHarvest` that any
 SCM variant (single-patch, multi-patch, stochastic, …) can emit, and differentiates a
 *supplied* set of stand metrics over **one** replay — `offspring_production`, `LAI`,
 `biomass`, a size-distribution moment are all equal entries, **none privileged**. It
@@ -741,8 +741,8 @@ on strategy). And **multi-species stands** are now supported: the APIs take a `s
 index and return the per-species invasion gradient against the shared frozen canopy,
 validated per species against finite differences. What remains:
 
-- **The calibration-facing generalisation has landed for FF16** (design in
-  `notes/scm-gradient-architecture.md`): the generic, metric-symmetric `stand_gradient()`
+- **The calibration-facing generalisation has landed for FF16**: the generic,
+  metric-symmetric `stand_gradient()`
   engine *outside* the SCM object, differentiating a supplied set of stand metrics
   (`offspring_production`, `LAI`, `biomass`, `size_moment` — none privileged) over one
   replay → a metrics × traits Jacobian, plus the `stand_state_jacobian()` escape hatch

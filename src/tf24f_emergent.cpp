@@ -3,8 +3,8 @@
 // the collar-state trajectory + the census number-density (log_density) reproduce
 // the SCM's stored stand before any reverse-mode tape is built (the R1 follow-up).
 //
-// Why TF24f, not TF24, gets the census gradient (the scope decision in
-// notes/tf24-stand-gradient-scope.md): TF24's census number density needs the
+// Why TF24f, not TF24, gets the census gradient (the scope decision): TF24's census
+// number density needs the
 // SECOND-order leaf-optimiser sensitivity d(growth-rate-gradient)/d(theta), which the
 // linearised leaf-opt harvest of tf24_emergent.cpp does not differentiate faithfully.
 // TF24f removes the per-step golden-section optimiser entirely: the optimal root-collar
@@ -324,7 +324,7 @@ Rcpp::List tf24f_census_recon_native(
 // frozen-schedule trajectory and HARVESTS the trait-independent operating point
 // per RK stage; a second pass replays a leaf-opt-free, fully tapeable expression.
 //
-// The one ingredient beyond the offspring tape (notes/tf24f-census-tape-seed.md):
+// The one ingredient beyond the offspring tape:
 // TF24f's tracked collar is a strongly theta-dependent STATE that at k_acclim=1
 // LAGS the optimum, so the envelope theorem does NOT zero its contribution. We
 // therefore (a) carry the collar as a TAPED state whose gradient-ascent rate

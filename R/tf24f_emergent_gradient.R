@@ -1,7 +1,7 @@
 # TF24f stand-metric gradients (#472 scope B, build-order step 1). TF24f is the
 # fast-acclimation TF24 variant whose optimal root-collar potential is a 6th ODE state
-# tracked by gradient ascent (no per-step golden-section optimiser). Per
-# notes/tf24-stand-gradient-scope.md, TF24f -- not TF24 -- is the right target for the
+# tracked by gradient ascent (no per-step golden-section optimiser). TF24f -- not TF24
+# -- is the right target for the
 # stand CENSUS gradients: its leaf evaluation at the tracked collar is analytic / IFT-able,
 # so the census number density's growth-rate-gradient term needs no curvature harvest. The
 # R0 GATE below is the first deliverable: a double-precision census reconstruction that
@@ -208,7 +208,7 @@ tf24f_grow_individual_to_size_gradient_ad <- function(individual, sizes, size_na
 # so this is the lightest gradient surface; for TF24f the tracked collar is re-evolved
 # inside each grow (it is one of the ODE states), so the FD captures the collar's response
 # automatically -- which is exactly why an exact AD version is the heavier follow-up (the
-# tracked collar is strongly theta-dependent; see notes/tf24-stand-gradient-scope.md). The
+# tracked collar is strongly theta-dependent). The
 # FD here is the prototype + the reference that AD version must reproduce. Traits are
 # perturbed on the (post-hyperpar) strategy parameters directly, matching the census FD.
 tf24f_grow_individual_to_size_gradient_fd <- function(individual, sizes, size_name, env,

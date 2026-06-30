@@ -13,8 +13,8 @@
 # and the AD g' matches a native height_dt-FD to ~1e-5 even for the tallest cohort. (An
 # earlier "~18% off" reading was an artifact of validating through an Rcpp::as<>
 # round-tripped environment, which is NOT faithful for the crown-sampled light above
-# cohort heights -- not a fault in the gradient; see notes/tf24-stand-gradient-scope.md
-# §9.) node_gradient_exact_ad stays OFF by default for bit-compatibility; the exact-AD
+# cohort heights -- not a fault in the gradient.) node_gradient_exact_ad stays OFF by
+# default for bit-compatibility; the exact-AD
 # gradient does NOT change the TF24f census fidelity floor (that is a separate,
 # Rcpp::as<>-limited reconstruction issue at long horizons, not g').
 

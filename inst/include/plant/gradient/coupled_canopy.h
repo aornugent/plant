@@ -6,7 +6,7 @@
 // Yokozawa light-competition trapezium is identical across FF16 and TF24/TF24f -- in
 // all of them area_leaf is pure allometry and competition is density*k_I*area_leaf*Q
 // with Q = (1-(z/h)^eta)^2; the leaf optimiser (TF24) affects only the demographic
-// RATES, not the light-field geometry (see notes/tf24-stand-gradient-scope.md). So the
+// RATES, not the light-field geometry. So the
 // per-RK-stage canopy reconstruction shared this code by hand-copy (ff16's
 // coupled_comp_at == tf24f's tf24f_comp_at); this is the single templated source.
 

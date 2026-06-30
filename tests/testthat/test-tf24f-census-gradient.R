@@ -1,5 +1,5 @@
 # TF24f stand census reconstruction -- the R0 GATE (#472 scope B, build-order step 1).
-# Per notes/tf24-stand-gradient-scope.md, TF24f is the right target for the stand CENSUS
+# TF24f is the right target for the stand CENSUS
 # gradients (its tracked-collar leaf evaluation is analytic / IFT-able, so the census
 # number density needs no curvature harvest). Before any reverse-mode tape (R1) is built,
 # this gate proves the prerequisite §7 flags: that re-evolving each cohort's {5 demog,

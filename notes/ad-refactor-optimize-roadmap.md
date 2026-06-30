@@ -90,7 +90,7 @@ non-regressing in both timing and value. Templates the existing
   machinery. Per the profile-plant skill: sample **ON** for hotspot localisation, **OFF**
   for A/B ratios; only same-session ratios are trustworthy.
 
-- **Timing history:** `notes/profile-gradient-2026-06-30.md`, columns
+- **Timing history:** recorded alongside the `bench_gradient.R` RESULT lines, columns
   `date | step+sha | case | run_ms | harvest_ms | impl_ms | public_ms | harvest_frac |
   cum_speedup | incr_speedup | sample | fixture(PASS/FAIL + worst rel_dev) | notes`.
   No speedup row is recorded without its correctness verdict attached.
@@ -122,8 +122,8 @@ round-trip is structurally avoidable — confirmed: the replay reads the env onl
 scalars into the AD type; the AD type never touches the env. A faithful native env
 **pointer** is sufficient and exact.
 
-**Approach (honours `notes/scm-gradient-architecture.md`: engine stays OUTSIDE the SCM
-object).** Do **not** add a `collect_gradient` run mode to `SCM::run()` — the harvest is
+**Approach (engine stays OUTSIDE the SCM object).** Do **not** add a `collect_gradient`
+run mode to `SCM::run()` — the harvest is
 already captured during the normal `save_RK45_cache=TRUE` run. Instead:
 
 - Add `inst/include/plant/gradient/resident_harvest.h` with a `ResidentHarvest` struct
@@ -303,8 +303,7 @@ Each PR carries its slice of the timing-history table and its fixture verdict.
   interleave `Rscript scripts/bench_gradient.R <path> <label>` runs, compare `RESULT`
   lines; expect `harvest_frac` → ~0 and `public_ms` to drop by the old harvest fraction on
   the frozen/offspring/grow cases. Native `/usr/bin/sample` (OFF for ratios) confirms time
-  left the R harvest. Record cumulative + incremental speedup in
-  `notes/profile-gradient-2026-06-30.md`.
+  left the R harvest. Record cumulative + incremental speedup alongside the bench results.
 
 ## Critical files
 
@@ -320,8 +319,7 @@ Each PR carries its slice of the timing-history table and its fixture verdict.
   generic engine + trait class live); `tf24_production_kernel.h`.
 - New: `inst/include/plant/gradient/resident_harvest.h`, `…/gradient/replay_engine.h`.
 - New: `scripts/bench_gradient.R`, `tests/testthat/fixtures/gradient-baseline.rds`,
-  `tests/testthat/test-gradient-regression.R`, `notes/profile-gradient-2026-06-30.md`;
-  extend `scripts/profile-benchmarks.R`.
+  `tests/testthat/test-gradient-regression.R`; extend `scripts/profile-benchmarks.R`.
 
 ---
 
