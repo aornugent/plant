@@ -102,6 +102,19 @@ the current HEAD and that `harvest_ms + impl_ms ≈ public_ms`.
 
 ## Phase 2 — Native-env harvest in C++ (kills the `Rcpp::as<>` round-trip)
 
+> **UPDATE 2026-06-30 (measured, supersedes the fidelity rationale below).** The premise
+> that the `Rcpp::as<>` env round-trip causes the TF24f census floor is **NOT supported by
+> measurement**. A lossy-vs-native A/B of the census recon gives bit-identical LAI at every
+> horizon (H=4 rel 6.3e-7; H=5 3.98e-3; H=8 1.19e-2, no abort) — `native == lossy` exactly.
+> The TF24_Environment round-trip is faithful for the census path (knots fully determine the
+> spline; `compute_competition(0)` is read at z=0, inside the domain). **The lifetime>4 floor
+> is the g' backward-FD near-cancellation + frozen-schedule replay, not the env.** Phases 2a
+> (FF16) and 2b (TF24f census) are DONE and committed as **bit-identical refactors** that
+> remove a real serialization round-trip + the documented env-validation hazard and unlock the
+> `harvest_frac` perf headroom — **not** a fidelity fix. Lifting the census floor is a separate
+> item (exact-AD g' / refined-schedule replay). No false lifetime gate added. See memory
+> `ad-env-roundtrip-faithful-for-census`.
+
 The highest-value change: it has a **correctness payoff** (removes the lifetime-floor and
 the validation trap) and shrinks the per-engine surface Phase 3 then unifies. The
 round-trip is structurally avoidable — confirmed: the replay reads the env only as a
