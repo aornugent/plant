@@ -2,7 +2,7 @@
 % Please edit documentation in R/emergent_gradient.R
 \name{offspring_production_gradient}
 \alias{offspring_production_gradient}
-\title{Reverse-mode gradient of emergent offspring_production (FF16)}
+\title{Reverse-mode gradient of emergent offspring_production}
 \usage{
 offspring_production_gradient(
   scm,
@@ -12,24 +12,19 @@ offspring_production_gradient(
 )
 }
 \arguments{
-\item{scm}{An \code{SCM} object that has been run with \code{save_RK45_cache =
-TRUE} (FF16 strategy). The cached schedule + resident light are read from its
-patch; the SCM is not re-run.}
+\item{scm}{An \code{SCM} run with \code{control(save_RK45_cache = TRUE)} (FF16,
+TF24, or TF24f). The cached schedule + resident light are read from its patch
+natively; the SCM is not re-run.}
 
-\item{traits}{Character vector of FF16 trait (parameter) names to differentiate.
-\code{NULL} (default) uses all 28 production-relevant parameters.}
+\item{traits}{Character vector of trait (parameter) names to differentiate.
+\code{NULL} (default) uses the strategy's full production-trait set.}
 
-\item{species}{Integer index of the species (cohort family) to differentiate, in
-a multi-species stand. Default \code{1}. \code{offspring_production} is a
-per-species emergent output; this returns \eqn{d(\mathrm{offspring\_production}_s)
-/ d(\theta_k)} for the traits of species \code{s}. The resident light is the
-shared frozen canopy of ALL species (so this is the rare-mutant / invasion
-gradient of species \code{s} against the fixed N-species canopy); a
-cross-species Jacobian would require a resident-reshaping (active-knot) treatment.}
+\item{species}{Integer index of the species (cohort family) to differentiate.
+Default \code{1}.}
 
-\item{birth_rate}{The (constant) birth-rate driver used in the run. By default it
-is recovered as \code{offspring_production / net_reproduction_ratio} (exact for
-a constant birth rate); pass it explicitly for a time-varying driver.}
+\item{birth_rate}{The (constant) birth-rate driver used in the run. Recovered as
+\code{offspring_production / net_reproduction_ratio} by default; pass it for a
+time-varying driver.}
 }
 \value{
 A named numeric vector of trait derivatives, with attribute
@@ -38,22 +33,18 @@ A named numeric vector of trait derivatives, with attribute
 }
 \description{
 Reverse-mode trait gradient of an SCM's emergent \code{offspring_production}
-(#472 scope B, FF16 only).
+(#472 scope B).
 }
 \details{
-Given an \code{SCM} that has been run with \code{control(save_RK45_cache =
-TRUE)}, this returns \eqn{d(\mathrm{offspring\_production}) / d(\theta_k)} for a
-set of FF16 traits \eqn{\theta_k} in a SINGLE reverse-mode sweep -- at the cost
-of one extra model evaluation, independent of the number of traits, whereas a
-finite-difference Jacobian needs a fresh whole-stand replay per trait. This is
-the calibration-objective gradient: many traits in, one scalar out.
-
-It is a two-pass method. Pass 1 is the resident SCM run you pass in (it owns the
-frozen schedule and the per-RK-stage resident light, harvested into
-\code{patch$step_history} / \code{environment_history}). Pass 2 replays each
-cohort's demography under the XAD adjoint tape over that frozen schedule
-(deep-crown assimilation), accumulating the survival-weighted offspring, then
-takes one backward sweep. The resident light is held frozen (the rare-mutant /
-invasion-fitness gradient); the recruitment-filter (establishment) initial
-condition is held frozen too (a separable partial).
+A convenience wrapper over \code{\link{stand_gradient}} for the single
+\code{offspring_production} metric, returning a named vector instead of a
+one-row Jacobian. It works for \strong{any} strategy that \code{stand_gradient}
+supports (FF16, TF24, TF24f) -- the dispatch and the reverse-mode replay live in
+\code{stand_gradient}; this just selects the metric and reshapes. It is the
+rare-mutant / invasion-fitness (selection) gradient: the resident light is held
+frozen, so for a multi-species stand it is species \code{s}'s gradient against
+the shared frozen canopy of all species.
+}
+\seealso{
+\code{\link{stand_gradient}}, the canonical metrics x traits engine.
 }

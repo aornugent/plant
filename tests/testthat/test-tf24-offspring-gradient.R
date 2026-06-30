@@ -24,7 +24,7 @@ test_that("tf24_offspring_production_gradient reconstructs the SCM and matches F
                   ode_tol_rel = 1e-4, ode_tol_abs = 1e-4, save_RK45_cache = TRUE)
   scm <- run_scm(p, Environment("TF24"), ctlc, refine_schedule = FALSE)
 
-  g <- tf24_offspring_production_gradient(scm)
+  g <- offspring_production_gradient(scm)
   expect_length(g, 27L)                 # all net-production traits by default
   expect_true(all(is.finite(g)))
   expect_true("lma" %in% names(g) && "vcmax_25" %in% names(g))
@@ -85,7 +85,7 @@ test_that("tf24_offspring_production_gradient selects the right species in a 2-s
   expect_length(scm$offspring_production, 2L)
 
   for (s in 1:2) {
-    gs <- tf24_offspring_production_gradient(scm, traits = "lma", species = s)
+    gs <- offspring_production_gradient(scm, traits = "lma", species = s)
     expect_equal(attr(gs, "offspring_production"), scm$offspring_production[[s]],
                  tolerance = 1e-4)
   }

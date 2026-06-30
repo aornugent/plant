@@ -225,9 +225,8 @@ called directly as `plant:::…` for advanced use).
 
 | Call | Differentiates | Strategies | Key arguments |
 |---|---|---|---|
-| `stand_gradient(scm, metrics, traits, species, birth_rate, feedback)` | a **metrics × traits Jacobian** of emergent stand outputs, from one resident baseline | FF16 (all metrics), TF24 (`offspring_production` only), TF24f (census metrics) | `metrics ∈ {offspring_production, LAI, biomass, size_moment}`; `feedback ∈ {"frozen", "resident"}` |
-| `offspring_production_gradient(scm, traits, species, birth_rate)` | `d(offspring_production)/d(trait)` — the rare-mutant **invasion / selection gradient** | FF16 | a named convenience wrapper over the `stand_gradient` offspring entry |
-| `tf24_offspring_production_gradient(scm, traits, species, birth_rate)` | the same offspring invasion gradient for TF24 (27 traits) | TF24 | leaf-opt harvested + injected (never taped) |
+| `stand_gradient(scm, metrics, traits, species, birth_rate, feedback)` | a **metrics × traits Jacobian** of emergent stand outputs, from one resident baseline. **This is the canonical entry — it dispatches on strategy.** | FF16 (all metrics), TF24 (`offspring_production` only), TF24f (`offspring_production` + census) | `metrics ∈ {offspring_production, LAI, biomass, size_moment}`; `feedback ∈ {"frozen", "resident"}` |
+| `offspring_production_gradient(scm, traits, species, birth_rate)` | `d(offspring_production)/d(trait)` — the rare-mutant **invasion / selection gradient** | FF16, TF24, TF24f | a thin **strategy-agnostic** wrapper over `stand_gradient` (selects the `offspring_production` metric; returns a named vector + attribute) |
 | `stand_state_jacobian(scm, traits, species, birth_rate)` | the per-cohort **state × trait Jacobian** (the escape hatch for any downstream metric) | FF16, TF24 | returns `$states` and `$jacobian` (cohort × component × trait) |
 | `grow_individual_to_size_gradient(individual, sizes, size_name, env, traits, …)` | `d(t*)/dθ` and the total `d(state at t*)/dθ` for one plant grown to target size(s) | FF16, TF24f | fixed *given* environment — no resident feedback |
 
@@ -266,7 +265,8 @@ The headline is a single R call. Given an SCM run with the sub-step cache on,
 `offspring_production_gradient()` returns the derivative of the emergent
 `offspring_production` w.r.t. all 28 production traits in one reverse sweep:
 
-```r
+```{r}
+library(plant)
 p <- scm_base_parameters("FF16")
 p <- add_strategies(p, trait_matrix(0.0825, "lma"),
                     hyperpar = FF16_hyperpar, birth_rate = list(20))
@@ -275,6 +275,7 @@ scm <- run_scm(p, Environment("FF16"), control(save_RK45_cache = TRUE),
                refine_schedule = FALSE)
 
 g <- offspring_production_gradient(scm)   # named vector: d(offspring_production)/d(trait)
+g
 ```
 
 This is the "many traits in, one scalar out" shape of a calibration objective,
@@ -303,7 +304,7 @@ returns a metrics × traits **Jacobian** from one resident baseline: one forward
 records a single adjoint tape, then a *cheap reverse sweep per metric*, so M metrics
 cost a replay plus M sweeps, not M replays.
 
-```r
+```{r}
 g <- stand_gradient(scm,
                     metrics = c("offspring_production", "LAI", "biomass", "size_moment"))
 g$values     # reconstructed stand metrics (LAI == scm$patch$compute_competition(0))
@@ -323,7 +324,7 @@ For a metric that is **not** a simple reduction — a quantile, a ratio, a bespo
 statistic a downstream package invents — there is an escape hatch: the per-cohort
 **state × trait Jacobian**.
 
-```r
+```{r}
 J <- stand_state_jacobian(scm)
 J$states     # cohort x {height, mortality, fecundity, area_heartwood, mass_heartwood, offspring}
 J$jacobian   # cohort x component x trait: d(state_i,c)/d(theta_k)
@@ -335,8 +336,9 @@ downstream" (data never enters `plant`, which is what lets many likelihood terms
 one stand baseline). The same "gradient as an optional output of the call you already
 make" pattern also reaches the single-plant `grow_individual_to_size` (growth-rate /
 time-to-size optimisation — landed, see the next section) and `Leaf` (standalone leaf
-calibration — still to come), and the engine mirrors onto TF24 (the offspring entry is
-`tf24_offspring_production_gradient()`; the census metrics are the TF24 follow-up).
+calibration — still to come), and the engine mirrors onto TF24 (its `offspring_production`
+is reached through the same `stand_gradient()` / `offspring_production_gradient()` calls;
+the census metrics are the TF24 follow-up).
 
 ## The same pattern on a single plant: `grow_individual_to_size`
 
@@ -349,7 +351,7 @@ behind a growth-rate or time-to-size calibration (e.g.
 is no resident feedback at all, so this is the lightest of the FF16 gradients —
 the two-pass replay with **one** extra idea, the stopping-time implicit-function step.
 
-```r
+```{r}
 g <- grow_individual_to_size_gradient(individual, sizes = c(2, 5, 10), "height", env)
 g$time      # t* per size; g$d_time = d(t*)/d(theta), a sizes x trait matrix
 g$state     # the ODE state at t*; g$d_state = TOTAL d(state)/d(theta), sizes x comp x trait
@@ -406,7 +408,7 @@ and every resident grows and dies differently, re-shading the whole stand.
 `stand_gradient(scm, feedback = "resident")` now computes that **resident total**
 gradient for the census metrics via a **coupled whole-stand replay**.
 
-```r
+```{r}
 gr <- stand_gradient(scm, metrics = c("LAI", "biomass", "size_moment"),
                      feedback = "resident")           # every trait re-shades the canopy
 gf <- stand_gradient(scm, metrics = c("LAI", "biomass", "size_moment"),
@@ -496,7 +498,7 @@ than one species, `feedback = "resident"` returns the cross-species total
 `d(total-stand metric)/d(θ of species s)` — the genuinely new object (the mutant
 cross-term was zero):
 
-```r
+```{r}
 # 2-species stand, fixed node schedule
 gr <- stand_gradient(scm, metrics = c("LAI", "size_moment"),
                      species = 1L, feedback = "resident")   # d(total stand)/d(θ_species1)
@@ -717,8 +719,9 @@ injected. FF16's only real advantage is that its closed-form net needs no harves
   forward pass;
 - `ad_tf24_emergent_reverse.R` — the same 27-vector by **one reverse sweep per cohort**.
 
-And, as for FF16, the reverse-per-cohort path is compiled into `plant.so` behind a
-first-class R call, `tf24_offspring_production_gradient(scm)` — given a crown-centre
+And, as for FF16, the reverse-per-cohort path is compiled into `plant.so` and reached
+through the strategy-agnostic `offspring_production_gradient(scm)` (or
+`stand_gradient(scm, metrics = "offspring_production")`) — given a crown-centre
 `save_RK45_cache` SCM it returns the named 27-trait gradient (plus the reconstructed
 `offspring_production`) with no on-the-fly compilation, covered by a plain-R CI test.
 Because TF24 is stiff (every rate evaluation re-solves the leaf optimisation), the CI
@@ -750,12 +753,13 @@ Three things on the earlier roadmap are now done. TF24's establishment filter is
 both AD and FD); the TF24 emergent 27-vector is **fully FD-validated** — every trait
 against a two-pass live finite difference (the 27 independent replays run across cores;
 all match to ≤2e-4, with the photosynthesis curvatures needing a finer FD step their AD
-does not); and the reverse-per-cohort replay is now a **committed first-class API**,
-`tf24_offspring_production_gradient()`, on a par with FF16's (both compiled into
-`plant.so`, both covered by plain-R CI tests). And **multi-species stands** are now
-supported: both APIs take a `species` index and return the per-species invasion
-gradient against the shared frozen canopy, validated per species against finite
-differences. What remains:
+does not); and the reverse-per-cohort replay is **committed and compiled into `plant.so`**
+on a par with FF16's (both covered by plain-R CI tests), reached through the same
+strategy-agnostic `offspring_production_gradient()` / `stand_gradient()` calls (there is
+no longer a separate `tf24_offspring_production_gradient()` — `stand_gradient` dispatches
+on strategy). And **multi-species stands** are now supported: the APIs take a `species`
+index and return the per-species invasion gradient against the shared frozen canopy,
+validated per species against finite differences. What remains:
 
 - **The calibration-facing generalisation has landed for FF16** (design in
   `notes/scm-gradient-architecture.md`): the generic, metric-symmetric `stand_gradient()`
@@ -767,8 +771,7 @@ differences. What remains:
   `compute_competition(0)`) and validate against frozen-resident finite differences; all
   covered by plain-R CI tests. **TF24 is mirrored** too: `stand_gradient()` and
   `stand_state_jacobian()` dispatch on the strategy, with TF24's `offspring_production`
-  (validated bit-for-bit against `tf24_offspring_production_gradient()`) and the escape
-  hatch both available. Still to come: TF24's **census** metrics (their census number
+  and the escape hatch both available. Still to come: TF24's **census** metrics (their census number
   density needs a leaf-optimisation cross-sensitivity — the SCM's growth-rate gradient
   re-solves the leaf opt, which the linearised harvest does not differentiate
   faithfully); the `ResidentHarvest` seam formalised for multi-patch/stochastic

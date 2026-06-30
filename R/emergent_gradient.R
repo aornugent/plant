@@ -1,54 +1,37 @@
 ##' Reverse-mode trait gradient of an SCM's emergent \code{offspring_production}
-##' (#472 scope B, FF16 only).
+##' (#472 scope B).
 ##'
-##' Given an \code{SCM} that has been run with \code{control(save_RK45_cache =
-##' TRUE)}, this returns \eqn{d(\mathrm{offspring\_production}) / d(\theta_k)} for a
-##' set of FF16 traits \eqn{\theta_k} in a SINGLE reverse-mode sweep -- at the cost
-##' of one extra model evaluation, independent of the number of traits, whereas a
-##' finite-difference Jacobian needs a fresh whole-stand replay per trait. This is
-##' the calibration-objective gradient: many traits in, one scalar out.
+##' A convenience wrapper over \code{\link{stand_gradient}} for the single
+##' \code{offspring_production} metric, returning a named vector instead of a
+##' one-row Jacobian. It works for \strong{any} strategy that \code{stand_gradient}
+##' supports (FF16, TF24, TF24f) -- the dispatch and the reverse-mode replay live in
+##' \code{stand_gradient}; this just selects the metric and reshapes. It is the
+##' rare-mutant / invasion-fitness (selection) gradient: the resident light is held
+##' frozen, so for a multi-species stand it is species \code{s}'s gradient against
+##' the shared frozen canopy of all species.
 ##'
-##' It is a two-pass method. Pass 1 is the resident SCM run you pass in (it owns the
-##' frozen schedule and the per-RK-stage resident light, harvested into
-##' \code{patch$step_history} / \code{environment_history}). Pass 2 replays each
-##' cohort's demography under the XAD adjoint tape over that frozen schedule
-##' (deep-crown assimilation), accumulating the survival-weighted offspring, then
-##' takes one backward sweep. The resident light is held frozen (the rare-mutant /
-##' invasion-fitness gradient); the recruitment-filter (establishment) initial
-##' condition is held frozen too (a separable partial).
-##'
-##' @title Reverse-mode gradient of emergent offspring_production (FF16)
-##' @param scm An \code{SCM} object that has been run with \code{save_RK45_cache =
-##'   TRUE} (FF16 strategy). The cached schedule + resident light are read from its
-##'   patch; the SCM is not re-run.
-##' @param traits Character vector of FF16 trait (parameter) names to differentiate.
-##'   \code{NULL} (default) uses all 28 production-relevant parameters.
-##' @param species Integer index of the species (cohort family) to differentiate, in
-##'   a multi-species stand. Default \code{1}. \code{offspring_production} is a
-##'   per-species emergent output; this returns \eqn{d(\mathrm{offspring\_production}_s)
-##'   / d(\theta_k)} for the traits of species \code{s}. The resident light is the
-##'   shared frozen canopy of ALL species (so this is the rare-mutant / invasion
-##'   gradient of species \code{s} against the fixed N-species canopy); a
-##'   cross-species Jacobian would require a resident-reshaping (active-knot) treatment.
-##' @param birth_rate The (constant) birth-rate driver used in the run. By default it
-##'   is recovered as \code{offspring_production / net_reproduction_ratio} (exact for
-##'   a constant birth rate); pass it explicitly for a time-varying driver.
+##' @title Reverse-mode gradient of emergent offspring_production
+##' @param scm An \code{SCM} run with \code{control(save_RK45_cache = TRUE)} (FF16,
+##'   TF24, or TF24f). The cached schedule + resident light are read from its patch
+##'   natively; the SCM is not re-run.
+##' @param traits Character vector of trait (parameter) names to differentiate.
+##'   \code{NULL} (default) uses the strategy's full production-trait set.
+##' @param species Integer index of the species (cohort family) to differentiate.
+##'   Default \code{1}.
+##' @param birth_rate The (constant) birth-rate driver used in the run. Recovered as
+##'   \code{offspring_production / net_reproduction_ratio} by default; pass it for a
+##'   time-varying driver.
 ##' @return A named numeric vector of trait derivatives, with attribute
 ##'   \code{"offspring_production"} (the value reconstructed by the replay, which
 ##'   should match \code{scm$offspring_production[[species]]}).
+##' @seealso \code{\link{stand_gradient}}, the canonical metrics x traits engine.
 ##' @export
 offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
                                           birth_rate = NULL) {
-  if (is.null(traits)) traits <- ff16_default_traits()
-  # Route through the fully native frozen entry (its fast path is exactly the
-  # per-cohort offspring reverse sweep), so the O(stand) R-side ff16_harvest is
-  # skipped. Reshape to this function's contract: a traits-named vector carrying the
-  # reconstructed offspring_production as an attribute.
-  pp <- unlist(scm$parameters$strategies[[species]]$pars)
-  g <- ff16_stand_gradient_native(scm, pp, as.integer(species - 1L), traits,
-         "offspring_production", if (is.null(birth_rate)) -1 else birth_rate,
-         "frozen", list(), list(), scm$parameters$patch_area, -1, -1)
-  out <- stats::setNames(as.numeric(g$jacobian["offspring_production", ]), traits)
+  g <- stand_gradient(scm, metrics = "offspring_production", traits = traits,
+                      species = species, birth_rate = birth_rate)
+  out <- stats::setNames(as.numeric(g$jacobian["offspring_production", ]),
+                         colnames(g$jacobian))
   attr(out, "offspring_production") <- unname(g$values[["offspring_production"]])
   out
 }
@@ -334,10 +317,24 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
       stop("feedback = 'resident' is implemented for FF16 only so far (R0-R1); ",
            "TF24 resident light is R2")
     }
+    # TF24 supports offspring_production only (census is a TF24 follow-up: its census
+    # number density needs a leaf-optimiser cross-sensitivity the linearised harvest
+    # does not differentiate faithfully -- TF24f, with its analytic tracked collar,
+    # gets census instead). Route to the native offspring entry (no R harvest).
+    bad <- setdiff(metrics, "offspring_production")
+    if (length(bad)) {
+      stop("stand_gradient for TF24 supports offspring_production only (census is a ",
+           "TF24 follow-up; use TF24f for census metrics). Got: ",
+           paste(bad, collapse = ", "))
+    }
     if (is.null(traits)) traits <- tf24_default_traits()
-    h <- tf24_harvest(scm, species, birth_rate)
-    tf24_stand_gradient_impl(h$pp, h$eh, h$sh, h$birth_step, h$ppsurv, h$ppsab, h$tw,
-                             traits, metrics, h$birth_rate)
+    pp <- unlist(scm$parameters$strategies[[species]]$pars)
+    go <- tf24_offspring_production_gradient_native(scm, pp, as.integer(species - 1L),
+            if (is.null(birth_rate)) -1 else birth_rate, traits)
+    jac <- matrix(as.numeric(go), 1L, length(traits),
+                  dimnames = list("offspring_production", traits))
+    list(jacobian = jac,
+         values = stats::setNames(attr(go, "offspring_production"), "offspring_production"))
   } else if (identical(strat, "TF24f")) {
     # TF24f: the CENSUS metrics (LAI / biomass / size_moment) via the reverse-mode
     # AD tape (#472 scope B). The tracked-collar leaf eval is analytic, so -- unlike
@@ -345,8 +342,9 @@ stand_gradient <- function(scm, metrics = "offspring_production", traits = NULL,
     # a taped state with a curvature-linearised rate). feedback = "frozen" gives the
     # rare-mutant / invasion census gradient (tf24f_census_gradient_ad, step 2);
     # feedback = "resident" gives the coupled TOTAL stand gradient where every trait
-    # re-shades the canopy (tf24f_resident_census_gradient_ad, step 5). offspring_production
-    # (its own tape) is a separate follow-up.
+    # re-shades the canopy (tf24f_resident_census_gradient_ad, step 5).
+    # offspring_production is supported too (its own native tape, the frozen invasion
+    # gradient even under feedback = "resident"; wired below).
     census_set <- c("LAI", "biomass", "size_moment")
     bad <- setdiff(metrics, c(census_set, "offspring_production"))
     if (length(bad)) {

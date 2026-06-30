@@ -1,58 +1,8 @@
-##' Reverse-mode trait gradient of an SCM's emergent \code{offspring_production}
-##' for the TF24 strategy (#472 scope B, Phase F1-full).
-##'
-##' The TF24 counterpart of \code{\link{offspring_production_gradient}} (FF16). Given a
-##' TF24 \code{SCM} run with \code{control(shading_model = "crown-centre",
-##' save_RK45_cache = TRUE)}, this returns \eqn{d(\mathrm{offspring\_production}) /
-##' d(\theta_k)} for a set of TF24 traits in ONE reverse-mode sweep per cohort -- the
-##' calibration-objective gradient (many traits in, one scalar out).
-##'
-##' TF24 net production comes from a hydraulic leaf optimisation, which has no adjoint
-##' tape. So a first (double) pass harvests the trait-independent leaf operating point
-##' at every RK stage (the optimised profit, the leaf sensitivities, the
-##' \eqn{d(\mathrm{profit})/d(\mathrm{height})} Jacobian); a second pass replays each
-##' cohort's survival-weighted offspring over that harvest as a leaf-opt-free, tapeable
-##' expression and takes one backward sweep. The full mass cascade + leaf path, the
-##' seedling size \code{height_0} (implicit function theorem) and the recruitment
-##' filter (establishment, via the seedling net production) are all differentiated; the
-##' resident light is held frozen (the rare-mutant / invasion-fitness gradient).
-##'
-##' The cached resident SCM MUST have been run with \code{shading_model =
-##' "crown-centre"} (the replay re-solves the crown-centre leaf optimisation); a
-##' deep-crown resident would not be reproduced faithfully.
-##'
-##' @title Reverse-mode gradient of emergent offspring_production (TF24)
-##' @param scm A TF24 \code{SCM} run with \code{control(shading_model = "crown-centre",
-##'   save_RK45_cache = TRUE)}. The cached schedule + per-RK-stage resident environment
-##'   are read from its patch; the SCM is not re-run.
-##' @param traits Character vector of TF24 trait names to differentiate. \code{NULL}
-##'   (default) uses all 27 net-production traits (10 leaf + 17 mass-cascade). The
-##'   reverse sweep covers all 27 regardless; \code{traits} only selects the output.
-##' @param species Integer index of the species (cohort family) to differentiate, in
-##'   a multi-species stand. Default \code{1}. \code{offspring_production} is a
-##'   per-species emergent output; this returns \eqn{d(\mathrm{offspring\_production}_s)
-##'   / d(\theta_k)} for the traits of species \code{s} against the shared frozen
-##'   canopy of ALL species (the rare-mutant / invasion gradient).
-##' @param birth_rate The (constant) birth-rate driver used in the run. By default it
-##'   is recovered as \code{offspring_production / net_reproduction_ratio}.
-##' @return A named numeric vector of trait derivatives, with attribute
-##'   \code{"offspring_production"} (the value reconstructed by the replay, which should
-##'   match \code{scm$offspring_production[[species]]}).
-##' @seealso \code{\link{offspring_production_gradient}} (FF16).
-##' @export
-tf24_offspring_production_gradient <- function(scm, traits = NULL, species = 1L,
-                                               birth_rate = NULL) {
-  types <- extract_RcppR6_template_types(scm$parameters, "Parameters")
-  if (!identical(types[[1]], "TF24"))
-    stop("TF24 stand gradients are implemented for the TF24 strategy only")
-  if (is.null(traits)) traits <- tf24_default_traits()
-  # Fully native (mirrors FF16's offspring path): env + offspring harvest from the
-  # live Patch; tf24_harvest skipped. birth_rate < 0 recovers natively.
-  pp <- unlist(scm$parameters$strategies[[species]]$pars)
-  tf24_offspring_production_gradient_native(scm, pp, as.integer(species - 1L),
-                                            if (is.null(birth_rate)) -1 else birth_rate,
-                                            traits)
-}
+# TF24 emergent offspring_production gradient: there is no public tf24_*-named entry.
+# offspring_production_gradient(scm) (R/emergent_gradient.R) dispatches on strategy and
+# covers TF24 via stand_gradient()'s TF24 branch -> the native C++ entry
+# tf24_offspring_production_gradient_native. (The single-strategy wrapper that used to
+# live here was removed as redundant once stand_gradient unified the dispatch.)
 
 # The 27 net-production TF24 trait names (10 leaf + 17 mass-cascade) the emergent
 # gradients differentiate by default.

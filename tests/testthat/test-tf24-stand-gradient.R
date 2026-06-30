@@ -17,7 +17,7 @@ tf24_small_scm <- function(H = 8L, n = 9L) {
 test_that("stand_gradient (TF24) reproduces tf24_offspring_production_gradient", {
   scm <- tf24_small_scm()
   tr <- c("vcmax_25", "lma", "a_l1", "theta")
-  g_ded <- as.numeric(tf24_offspring_production_gradient(scm, traits = tr))
+  g_ded <- as.numeric(offspring_production_gradient(scm, traits = tr))
   g_eng <- stand_gradient(scm, metrics = "offspring_production", traits = tr)
   expect_equal(as.numeric(g_eng$jacobian["offspring_production", ]), g_ded,
                tolerance = 1e-10)
