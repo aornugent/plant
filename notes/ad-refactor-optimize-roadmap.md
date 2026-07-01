@@ -360,6 +360,19 @@ suite FAIL=0 ERROR=0 SKIP=9 **PASS=2587**, fixture all PASS):
 >   gate; added the double R0 (env_err) gate + post-sweep finiteness/magnitude guard -> clear
 >   error for stiff horizons. H<=4 unchanged. True horizon extension = adaptive sub-stepping
 >   in the replay (future hardening).
+>   - **Plausibly related to #550** (`[TF24 hydraulics] SCM cohort-density blow-up under
+>     extreme seasonal drought`): SAME size-density equation `d(log_density)/dt = -dg/dh -
+>     mortality` destabilised by a large/near-singular `dg/dh` originating in the TF24 leaf.
+>     But a DISTINCT manifestation, confirmed by measurement: #550 is a genuine `run_scm`
+>     **caustic** (the density VALUE overflows to +Inf, log_density ~1e9-1e10, under drought;
+>     Dan: "not a stepper artifact", no gradient exists there). Ours has `run_scm` HEALTHY in
+>     the failing regime (steady env, max|log_density| ~5, nowhere near overflow) and the TRUE
+>     resident gradient EXISTS (full-SCM FD finite at H=6: d(LAI)/d(lma)=16.9) — only the
+>     frozen-step AD *replay* diverges. So ours is a replay artifact of the same equation, not
+>     the caustic; #550's root fixes (NSC #517 / hydraulic-optimum continuity) would also help
+>     ours, and #550's regime is a hard limit for gradients too (no derivative at a caustic).
+>     Note also TF24f uses the smooth tracked collar, avoiding the #550 opt_psi_stem
+>     discontinuity — so ours is the milder cousin.
 > - **C (birth_rate deriv) — FF16 resident slice DONE (Dan chose "build FF16 resident slice
 >   now").** `birth_rate_gradient(scm, metrics, species)` (exported) returns the
 >   resident-coupled `d(census metric)/d(birth_rate)` for FF16 (LAI/biomass/size_moment).
