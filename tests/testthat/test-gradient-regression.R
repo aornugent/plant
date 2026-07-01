@@ -8,6 +8,14 @@
 # its own validated self at machine precision).
 
 test_that("AD gradients match the committed baseline (AD-vs-AD regression)", {
+  # SAME-MACHINE guard. The baseline is snapshotted on one machine and the tiers are
+  # bit (1e-12) / noise (5e-6) -- machine precision. Across compilers/libm the AD values
+  # legitimately drift ~1e-9 (frozen, closed-form) to ~3e-3 (the coupled/resident paths,
+  # whose cohort-height-crossing sort tie-breaks resolve differently), so committed FP
+  # values cannot be asserted cross-platform. Skip on CI; the AD-vs-FD tests (loose,
+  # physics-tolerance) are the portable correctness net. Run this on the snapshot machine
+  # via `make test-ad` or `Rscript scripts/gradient_fixture.R check`.
+  skip_on_ci()
   rds <- testthat::test_path("fixtures", "gradient-baseline.rds")
   skip_if_not(file.exists(rds),
               "no gradient-baseline.rds (run scripts/gradient_fixture.R snapshot)")
