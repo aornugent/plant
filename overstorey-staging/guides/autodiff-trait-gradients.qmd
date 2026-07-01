@@ -798,25 +798,26 @@ Shorthand used in the table:
 - **census** (metric) — the **size-distribution reductions at the final census**:
   `LAI`, `biomass`, `size_moment`. These are integrals over the standing stand, as opposed
   to `offspring_production` / `net_reproduction_ratio` (lifetime seed-output quantities).
-- **cross-species** — the **multi-species resident reading**: on a stand with `nsp > 1`,
-  the derivative of a **total-stand** metric w.r.t. the trait (or `birth_rate`) of *one*
-  species `s`, `d(total-stand metric)/d(θ_s)`. It is "cross-species" because `s`'s change
-  re-shades the joint canopy that *every* species reads, so the other species respond too —
-  the term the single-species / frozen reading sets to zero.
+
+The multi-species rows (`nsp = 2→5`) are the **resident** reading on a stand with more
+than one species: `feedback = "resident"` there returns the total-stand
+`d(total-stand metric)/d(θ_s)` for one species `s` — its change re-shades the joint canopy
+every species reads (the cross-species feedback the single-species / frozen reading zeroes;
+see "Multi-species" under the coupled replay).
 
 | Access point | Strategy | Swept | Result |
 |---|---|---|---|
 | `offspring_production_gradient` (frozen) | FF16 | H = 30→200, nsp = 2→5 | all OK, recon/SCM = 1.0000, ≤ 0.25 s |
 | `stand_gradient` resident census | FF16 | H = 30→200 | all OK, LAI recon err ~1e-9…1e-8, ≤ 1.2 s |
-| `stand_gradient` resident (cross-species) | FF16 | nsp = 2→5 | all OK, recon err 6e-10 → 1.1e-6 (grows with nsp) |
+| `stand_gradient` resident census | FF16 | nsp = 2→5 | all OK, recon err 6e-10 → 1.1e-6 (grows with nsp) |
 | `birth_rate_gradient` (census + `dR0/db`) | FF16 | H = 30→200 | all OK, `dR0/db` < 0, R0 recon err 1e-8 → 1.7e-4 (rel ~1e-6) |
-| `birth_rate_gradient` (cross-species) | FF16 | nsp = 2→5 | all OK |
+| `birth_rate_gradient` census | FF16 | nsp = 2→5 | all OK |
 | `stand_state_jacobian` | FF16 | H = 60, 150 | all OK |
 | `grow_individual_to_size_gradient` | FF16 | to = 10, 25 | OK to 10; to = 25 hits `time_max` (the plant cannot reach 25 m — not a gradient limit) |
 | `offspring_production_gradient` (frozen) | TF24f | H = 4, 6, 8 | all OK |
 | `stand_gradient` frozen census | TF24f | H = 4, 6, 8 | all OK |
 | `stand_gradient` **resident** census | TF24f | H = 4, **5, 6, 8** | **OK at H = 4; GATED at H ≥ 5** |
-| `stand_gradient` resident (cross-species) | TF24f | nsp = 2, 3 (H = 4) | all OK |
+| `stand_gradient` resident census | TF24f | nsp = 2, 3 (H = 4) | all OK |
 | `offspring_production_gradient` (frozen) | TF24 | H = 6, 8 | all OK |
 
 **FF16 has no hard break in the tested envelope** — every entry point stays finite and
