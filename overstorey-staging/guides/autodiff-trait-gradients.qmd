@@ -786,7 +786,23 @@ optimisation), they run on deliberately small stands.
 
 Beyond the per-section validation, it is worth stating plainly *where each access point
 holds up* — swept empirically across patch lifetime and species count (single
-same-machine session; times are the full call, run + gradient):
+same-machine session; times are the full call, run + gradient).
+
+Shorthand used in the table:
+
+- **`H`** — the **patch lifetime** (`max_patch_lifetime`, the time in years the SCM
+  integrates a patch over). Larger `H` means more ODE steps and more cohorts, so it is the
+  main "horizon" axis.
+- **`nsp`** — the **number of species** in the stand (competing strategies sharing the
+  canopy). `nsp = 1` is a monoculture resident.
+- **census** (metric) — the **size-distribution reductions at the final census**:
+  `LAI`, `biomass`, `size_moment`. These are integrals over the standing stand, as opposed
+  to `offspring_production` / `net_reproduction_ratio` (lifetime seed-output quantities).
+- **cross-species** — the **multi-species resident reading**: on a stand with `nsp > 1`,
+  the derivative of a **total-stand** metric w.r.t. the trait (or `birth_rate`) of *one*
+  species `s`, `d(total-stand metric)/d(θ_s)`. It is "cross-species" because `s`'s change
+  re-shades the joint canopy that *every* species reads, so the other species respond too —
+  the term the single-species / frozen reading sets to zero.
 
 | Access point | Strategy | Swept | Result |
 |---|---|---|---|
