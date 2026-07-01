@@ -782,6 +782,57 @@ and `test-tf24f-*-gradient.R` files pin each of those stages against a finite-di
 reference; because TF24 is stiff (every rate evaluation re-solves the leaf
 optimisation), they run on deliberately small stands.
 
+## Where it works, and where it breaks: the operational envelope
+
+Beyond the per-section validation, it is worth stating plainly *where each access point
+holds up* — swept empirically across patch lifetime and species count (single
+same-machine session; times are the full call, run + gradient):
+
+| Access point | Strategy | Swept | Result |
+|---|---|---|---|
+| `offspring_production_gradient` (frozen) | FF16 | H = 30→200, nsp = 2→5 | all OK, recon/SCM = 1.0000, ≤ 0.25 s |
+| `stand_gradient` resident census | FF16 | H = 30→200 | all OK, LAI recon err ~1e-9…1e-8, ≤ 1.2 s |
+| `stand_gradient` resident (cross-species) | FF16 | nsp = 2→5 | all OK, recon err 6e-10 → 1.1e-6 (grows with nsp) |
+| `birth_rate_gradient` (census + `dR0/db`) | FF16 | H = 30→200 | all OK, `dR0/db` < 0, R0 recon err 1e-8 → 1.7e-4 (rel ~1e-6) |
+| `birth_rate_gradient` (cross-species) | FF16 | nsp = 2→5 | all OK |
+| `stand_state_jacobian` | FF16 | H = 60, 150 | all OK |
+| `grow_individual_to_size_gradient` | FF16 | to = 10, 25 | OK to 10; to = 25 hits `time_max` (the plant cannot reach 25 m — not a gradient limit) |
+| `offspring_production_gradient` (frozen) | TF24f | H = 4, 6, 8 | all OK |
+| `stand_gradient` frozen census | TF24f | H = 4, 6, 8 | all OK |
+| `stand_gradient` **resident** census | TF24f | H = 4, **5, 6, 8** | **OK at H = 4; GATED at H ≥ 5** |
+| `stand_gradient` resident (cross-species) | TF24f | nsp = 2, 3 (H = 4) | all OK |
+| `offspring_production_gradient` (frozen) | TF24 | H = 6, 8 | all OK |
+
+**FF16 has no hard break in the tested envelope** — every entry point stays finite and
+accurate to patch lifetime 200 and to 5 species. Two *soft* limits, both gentle: cost
+grows with cohort count (∝ steps × cohorts; the reverse sweep is trait-count-free by
+design, so #traits is free), and the frozen-*grid* reconstruction fidelity drifts slowly
+with horizon and species (FF16 birth-rate R0 recon 1e-8 → 1.7e-4 over H = 30→200, still
+~1e-6 *relative*; cross-species LAI recon 6e-10 → 1e-6 over 2→5 species). The *gradient*
+stays finite throughout — it is the value it differentiates that drifts, gently.
+
+**TF24f is envelope-limited, and the sweep pins where.** Frozen (offspring, census) and
+multi-species resident on short fixed schedules are robust; the single-species **resident
+census gates cleanly at H ≥ 5** (the coupled `log_density ↔ canopy` replay instability of
+the previous section — now a clear error, not a NaN). TF24f is also simply *slower* (a
+leaf optimisation per stage), so practical stands are smaller regardless. **TF24 is
+offspring-only** by design.
+
+**The property that matters for a downstream consumer.** The envelope is a clean binary
+everywhere: a call either returns a finite, validated gradient across its whole range, or
+it *gates with an explicit error* at a sharp, reproducible boundary. No access point
+silently returns a plausible-but-wrong finite value. The one place a *value* quietly (and
+never catastrophically) degrades is the frozen-grid reconstruction at long FF16 horizons —
+~1e-6 relative at H = 200 — which is the same frozen-grid caveat as everywhere, not a new
+failure mode. So a caller such as `regnans` can trust a returned number and gets a clear
+signal, not garbage, at the edge.
+
+**The single common cause of every hard limit** is the frozen-schedule replay meeting
+stiffness: wherever the live SCM relies on *adaptive* stepping to control a
+`log_density`/`g′` feedback, the frozen-step replay cannot follow it (the TF24f H ≥ 5
+gate; the refined-schedule multi-species gate). Adaptive sub-stepping in the replay is the
+one change that would retire most of the gated cases at once.
+
 ## Lessons, distilled
 
 Three principles recur across both strategies and are the real transferable content:
