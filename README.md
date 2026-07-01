@@ -20,7 +20,7 @@ coordinated on a shared [project board](https://github.com/orgs/traitecoevo/proj
 | Repository | Role |
 |---|---|
 | [**plant**](https://github.com/traitecoevo/plant) | Core C++/R model: size- and trait-structured demography, the SCM solver, and the physiological strategies (FF16, TF24, …). |
-| [**plant.assembly**](https://github.com/traitecoevo/plant.assembly) | Evolutionary community assembly on top of `plant` — invasion fitness, demographic equilibria, and selection gradients. |
+| [**regnans**](https://github.com/traitecoevo/regnans) | Evolutionary community assembly on top of `plant` — invasion fitness, demographic equilibria, and selection gradients. |
 | [**overstorey**](https://github.com/traitecoevo/overstorey) | The narrative documentation / field guide site (user guides, theory, worked reproductions). |
 
 Issues from all three repositories feed into the
@@ -170,3 +170,16 @@ Here are some example publications using plant:
 
 Contributions are welcome. By submitting a pull request or code to this repository, you agree to the terms of the [Contributor License Agreement](CLA.md).
 
+
+## Plant family
+
+`plant` is part of the **plant family** of packages in the
+[`traitecoevo`](https://github.com/traitecoevo) org, built around the
+[`plant`](https://github.com/traitecoevo/plant) forest model. Docs hub:
+<https://traitecoevo.github.io/overstorey/>.
+
+**Contributing:** please skim the family
+[issue guide](https://github.com/traitecoevo/plant-meta/blob/main/governance/issue-guide.md)
+before filing — issues across the family are triaged on
+[board #5](https://github.com/orgs/traitecoevo/projects/5), and cross-package context lives in
+[`plant-meta`](https://github.com/traitecoevo/plant-meta).

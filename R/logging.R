@@ -1,73 +1,88 @@
-## Standard fields:
+## Log fields included in output:
 ##
-## * time    (done in loggr)
-## * level   (done in loggr)
-## * package (done here)
-## * pid     (done here)
-## * routine {equilibrium, schedule, ...}
-## * stage   (start, converged, etc.)
-plant_log_info <- function(...) {
-  loggr::log_info(..., package="plant", pid=Sys.getpid())
+## * time    (from logger)
+## * level   (from logger)
+## * routine {equilibrium, viable, inviable, ...}
+plant_log_info <- function(message, routine=NULL, ...) {
+  if (!is.null(routine)) message <- paste0(crayon::yellow(routine), "> ", message)
+  logger::log_info(message, namespace="plant", .topenv=parent.frame())
 }
 
-plant_log_debug <- function(...) {
-  loggr::log_debug(..., package="plant", pid=Sys.getpid())
+plant_log_debug <- function(message, routine=NULL, ...) {
+  if (!is.null(routine)) message <- paste0(crayon::yellow(routine), "> ", message)
+  logger::log_debug(message, namespace="plant", .topenv=parent.frame())
 }
 
+plant_log_eq <- function(...) {
+  plant_log_info(..., routine="equilibrium")
+}
 
-make_plant_format_log_entry <- function(colour) {
-  if (colour) {
-    col_routine <- crayon::yellow
-    col_time    <- crayon::silver
-  } else {
-    col_routine <- col_time <- identity
-  }
-  function(event) {
-    if (is.null(event$routine)) {
-      msg <- event$message
-    } else {
-      msg <- sprintf("%s> %s", col_routine(event$routine), event$message)
-    }
+plant_log_viable <- function(...) {
+  plant_log_info(..., routine="viable")
+}
+
+plant_log_inviable <- function(...) {
+  plant_log_info(..., routine="inviable")
+}
+
+make_plant_layout <- function(colour=TRUE) {
+  col_time <- if (colour) crayon::silver else identity
+  function(level, msg, namespace, .logcall, .topcall, .topenv, .timestamp=Sys.time()) {
     sprintf("[%s] %s",
-            col_time(format(event$time, "%Y-%m-%d %H:%M:%OS3")),
-            msg)
+            col_time(format(.timestamp, "%H:%M:%OS3")),
+            paste(msg, collapse=" "))
   }
 }
 
-##' Activate logging with loggr
+##' Activate logging
 ##'
 ##' By default plant prints little information about its progress.
-##' This can be modified by enabling logging.  A formatter that is
-##' different to the default \code{loggr::log_file} formatter is
-##' selected here; it will print additional information that plant's
-##' internal logging functions record.
+##' This can be modified by enabling logging.  Log entries include a
+##' timestamp and, where applicable, a routine label indicating which
+##' part of the model is running.
 ##'
 ##' "Schedule" events (splitting) are sent to the DEBUG stream,
-##' everything else is sent to INFO.  All events have a "routine"
-##' field added to them, which is useful if sent to a Redis server
-##' (using \code{loggr.redis}).
-##' @title Activate logging with loggr
-##' @param ... Additional parameters passed to \code{loggr::log_file},
-##' but \emph{not} \code{file_name} which is hard coded here to
-##' \code{"console"}.
-##' @param file_name File to save output (default = console)
-##' @param .message,.warning,.error Include messages, warnings or
-##' errors?  By default (and in contrast to \code{loggr::log_file}
-##' these are disabled here.
+##' everything else is sent to INFO.
+##' @title Activate logging
+##' @param file_name File to save output (default = "console")
+##' @param colour Use colour in console output?
+##' @param threshold Minimum log level to emit: "DEBUG", "INFO", etc.
 ##' @export
-plant_log_console <- function(file_name="console",
-                              .message=FALSE,
-                              .warning=FALSE,
-                              .error=FALSE,
-                              ...) {
-  loggr::log_file(file_name, ...,
-                  .message=.message,
-                  .warning=.warning,
-                  .error=.error,
-                  .formatter=make_plant_format_log_entry(TRUE))
+plant_log_console <- function(file_name="console", colour=TRUE, threshold="INFO") {
+  logger::log_threshold(threshold, namespace="plant")
+  if (file_name == "console") {
+    logger::log_appender(logger::appender_console, namespace="plant")
+  } else {
+    logger::log_appender(logger::appender_file(file_name), namespace="plant")
+  }
+  logger::log_layout(make_plant_layout(colour), namespace="plant")
 }
 
-## There would be no need for this though; we'd just pass through directly:
-## plant_log_redis <- function(con, key, ...) {
-##   loggr.redis::log_redis(con, key, ...)
-## }
+.onLoad <- function(libname, pkgname) {
+  logger::log_threshold(logger::OFF, namespace = "plant")
+
+  # Wrap Leaf() to error on partial argument name matches.
+  # R's partial matching silently accepts any unambiguous prefix (e.g. `vcma`
+  # resolves to `vcmax_25`), turning typos into wrong-value bugs.  We derive
+  # valid_args from formals() so the check stays correct automatically whenever
+  # RcppR6.R is regenerated with new parameters.
+  ns <- asNamespace(pkgname)
+  original_Leaf <- get("Leaf", envir = ns, inherits = FALSE)
+  valid_args <- names(formals(original_Leaf))
+
+  leaf_wrapper <- function() {
+    supplied <- names(as.list(sys.call())[-1])
+    supplied <- supplied[nzchar(supplied)]
+    bad <- setdiff(supplied, valid_args)
+    if (length(bad) > 0) {
+      stop(sprintf(
+        "Unknown argument(s) to Leaf(): %s\nCheck for misspelled parameter names.",
+        paste(bad, collapse = ", ")
+      ), call. = FALSE)
+    }
+    env <- environment()
+    do.call(original_Leaf, lapply(valid_args, function(nm) get(nm, envir = env)))
+  }
+  formals(leaf_wrapper) <- formals(original_Leaf)
+  assign("Leaf", leaf_wrapper, envir = ns)
+}

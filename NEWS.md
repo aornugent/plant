@@ -70,7 +70,7 @@ The following earlier changes (since the 2.0.0 release) are also breaking and
 were not previously recorded here:
 
 * All fitness/equilibrium functionality was removed from plant; it now lives in
-  the separate `plant.assembly` package (#388). Removed `fitness_landscape()`,
+  the separate `regnans` package (#388). Removed `fitness_landscape()`,
   `solve_max_fitness()`, `viable_fitness()`, `fundamental_fitness()`,
   `assembly_parameters()`, `equilibrium_birth_rate()` and the `equilibrium_*`
   parameters/controls.

@@ -23,7 +23,7 @@ LinkingTo: Rcpp, BH, odelia
 Imports:
     Rcpp,
     R6,
-    loggr,
+    logger,
     crayon,
     magrittr,
     tibble,
@@ -47,9 +47,9 @@ Suggests:
     ggplot2,
     ggridges,
     patchwork,
-    kableExtra
+    kableExtra,
+    withr
 Remotes:
-    smbache/loggr,
     richfitz/RcppR6,
     traitecoevo/odelia
 URL: https://github.com/traitecoevo/plant
