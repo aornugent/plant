@@ -219,9 +219,11 @@ questions.
 
 The capability is exposed as a small set of R calls. Each is "the gradient as an
 optional output of the call you already make": you run the model (or grow a plant),
-then ask for a derivative of what it produced. These four functions are the whole
-public API — they **dispatch on strategy**, so the same calls cover FF16, TF24 and
-TF24f; there is no per-strategy entry point to learn.
+then ask for a derivative of what it produced. The four **trait**-facing functions are
+the core public API — they **dispatch on strategy**, so the same calls cover FF16, TF24
+and TF24f; there is no per-strategy entry point to learn. A fifth call,
+`birth_rate_gradient()`, differentiates a distinct *axis* — the per-species birth-rate
+driver, not a trait (see "The birth-rate axis" below); it is FF16 so far.
 
 | Call | Differentiates | Strategies | Key arguments |
 |---|---|---|---|
@@ -229,6 +231,7 @@ TF24f; there is no per-strategy entry point to learn.
 | `offspring_production_gradient(scm, traits, species, birth_rate)` | `d(offspring_production)/d(trait)` — the rare-mutant **invasion / selection gradient** | FF16, TF24, TF24f | a thin **strategy-agnostic** wrapper over `stand_gradient` (selects the `offspring_production` metric; returns a named vector + attribute) |
 | `stand_state_jacobian(scm, traits, species, birth_rate)` | the per-cohort **state × trait Jacobian** (the escape hatch for any downstream metric) | FF16, TF24 | returns `$states` and `$jacobian` (cohort × component × trait) |
 | `grow_individual_to_size_gradient(individual, sizes, size_name, env, traits, …)` | `d(t*)/dθ` and the total `d(state at t*)/dθ` for one plant grown to target size(s) | FF16, TF24f | fixed *given* environment — no resident feedback |
+| `birth_rate_gradient(scm, metrics, species)` | the **birth-rate axis**: `d(census metric)/d(birth_rate_s)` (resident total) and `d(net_reproduction_ratio)/d(birth_rate)` = `dR0/db` (the demographic-equilibrium axis) | FF16 | `metrics ∈ {LAI, biomass, size_moment, net_reproduction_ratio}`; `net_reproduction_ratio` is single-species |
 
 **The `feedback` axis (the two distinct questions).** `"frozen"` (default) holds the
 resident canopy fixed: the rare-mutant invasion-fitness gradient — the selection
@@ -553,6 +556,77 @@ gradient. Possible future hardening, if a refined-schedule resident gradient is 
 wanted, is a `log_density`-rate cap mirroring the SCM's own `check_initial_density_rates`
 guard, or sub-stepping the clustered early steps in the replay.
 
+## The birth-rate axis: `birth_rate_gradient` (FF16)
+
+Everything above differentiates w.r.t. **traits**. `birth_rate_gradient()` differentiates
+a distinct axis — the per-species **birth-rate driver** `b`, the constant seed-rain input.
+It is not a trait; it enters the model only through the *density* of each cohort at
+establishment (`log_density₀ = log(b · pr_estab / g₀)`) and the offspring weighting
+(`tw ∝ b`). The use case is **demographic equilibrium**: evolving a community to
+self-replacement, where the resident's realised net reproduction returns exactly one
+offspring per seed.
+
+**Only the resident-coupled reading needs a tape.** Hold the canopy frozen and every
+cohort's density is *exactly linear* in `b`, so the rare-mutant derivative is the trivial
+identity `∂(metric)/∂b = metric/b` — no tape earns its keep, and `offspring_production`
+keeps that frozen invasion reading even under `feedback = "resident"` (the canopy a rare
+mutant invades is the resident's). So `birth_rate_gradient()` returns the **resident
+total**: `b` is registered as an input on the *same* coupled whole-stand replay the
+resident trait gradient uses (§"the coupled replay"), and one reverse sweep per metric
+gives `d(metric)/db` with the full canopy feedback.
+
+```{r}
+gb <- birth_rate_gradient(scm, metrics = c("LAI", "biomass", "size_moment"))
+gb$d_birth_rate   # d(metric)/d(birth_rate), resident total
+```
+
+The feedback is the whole point: a higher `b` means denser recruitment, more
+self-shading, slower growth — which partly (or more than) offsets the naive density
+scaling. It routinely *flips the sign* of the trivial reading. For a representative FF16
+stand `d(biomass)/db` comes back **negative** (≈ −6 × 10⁻⁴) where the frozen identity
+`biomass/b` is strongly **positive** (≈ +0.46): past some birth rate, extra seeds *lower*
+standing biomass because the added shade costs more than the added stems. On a
+multi-species stand the call takes a `species` index and returns the **cross-species
+total** `d(total-stand metric)/d(b_s)` — species `s`'s recruitment re-shades the joint
+canopy every species reads (the cross term the frozen reading sets to zero).
+
+### `net_reproduction_ratio`: the `R0 = 1` gradient via the mutant
+
+The demographic equilibrium is `R0 = 1` (`net_reproduction_ratio → 1`), and its Newton
+step needs `dR0/db`. The clean way to define that object is the **mutant** reading: set a
+rare mutant's traits equal to the resident's and ask how the mutant's fitness changes as
+the *resident's* density moves. Since `b` is not a trait, changing it moves only the
+resident **canopy**, so `d(mutant fitness)/d(resident density)` at mutant = resident *is*
+`dR0/db` — and using **unit per-seed weights** (`net_reproduction_ratio`, not the
+`b`-scaled `offspring_production`) means `b` enters *only* through the canopy: the pure
+density feedback, with no trivial `tw ∝ b` term to subtract.
+
+```{r}
+gR0 <- birth_rate_gradient(scm, metrics = "net_reproduction_ratio")
+gR0$values         # reconstructs the SCM's own net_reproduction_ratio exactly
+gR0$d_birth_rate   # dR0/db  (< 0: density-dependent, so R0 = 1 is well-posed)
+```
+
+Mechanically, the coupled replay carries a **survival-weighted offspring** accumulator
+per cohort (`d/dt = fecundity_dt · exp(−mortality) · pr_survival/pr_survival_at_birth`,
+the same rate as the frozen offspring tape), fully decoupled from the demographic and
+density rates — so the census trajectories stay bit-identical and only `R0` reads it. The
+per-seed weight is pinned to the *harvest* `b` (a fixed constant), so activating `b`
+rescales the resident density, never the weight — the mutant reading, exactly. `dR0/db`
+comes back **negative** (the density dependence that makes an `R0 = 1` equilibrium
+well-posed and unique), reconstructs the SCM's own `net_reproduction_ratio`, and matches
+a finite difference over the same coupled reconstruction (weight held, canopy perturbed)
+to ~0.2%.
+
+**Honest scope.** As for every resident-coupled gradient here, this is the frozen-*grid*
+total: against a *full* `run_scm` finite difference over `b` (which lets the adaptive
+schedule and knot positions re-respond) it differs by the same ~20–30% grid response
+described above — arguably not the wanted derivative, since that part tracks where the
+solver places its grid rather than the biology. The **solver itself lives downstream**
+(`regnans` and the other plant-family packages own the equilibrium/adaptive-dynamics
+loops); `plant`'s job is only to expose `dR0/db` cleanly. It is FF16 only so far — TF24f's
+coupled replay is stiffness-gated (next section and "What's next").
+
 ## How the kernels are validated
 
 The lower-level kernels all live in
@@ -772,7 +846,23 @@ validated per species against finite differences. What remains:
   rates, time-integrated growth, emergent `offspring_production`, the census metrics (frozen
   and resident, single- and multi-species), and individual growth-to-size — is
   gradient-enabled**, and the branch is a complete PR boundary for the FF16 AD surface.
+- **The birth-rate axis has landed for FF16** (see "The birth-rate axis" above):
+  `birth_rate_gradient()` returns the resident-total `d(census metric)/d(birth_rate)`
+  (single- and cross-species) and the demographic-equilibrium `d(net_reproduction_ratio)/
+  d(birth_rate)` = `dR0/db`, the plant-side access point an `R0 = 1` self-replacement
+  solve consumes. Still to come: the TF24f resident birth-rate axis (gated as below), a
+  cross-species `net_reproduction_ratio`, and folding `birth_rate` into the generic
+  `stand_gradient` metric loop.
+- **TF24f's resident (coupled) census gradient is horizon-limited.** Its single-species
+  coupled gradient is reliable only on a short, finely-resolved fixed schedule (patch
+  lifetime ≈ 4); past that the frozen-step replay drifts and the coupled
+  `log_density ↔ canopy` sensitivity runs away — TF24f's deeply-shaded leaf has a large
+  `dprofit/dL`, so high-density shaded cohorts amplify a feedback the live SCM only tames
+  by stepping *adaptively*. The path **gates** this (a clear error, not a NaN); FF16 stays
+  robust to long horizons because its closed-form net has a bounded light response.
+  Genuinely lifting the horizon needs adaptive sub-stepping in the replay.
 - Calibration, likelihoods, and adaptive-dynamics analyses themselves live in
   *downstream packages*; `plant`'s job is to expose the gradient capability cleanly —
   the frozen-resident gradient *is* the invasion-fitness selection gradient those
-  analyses consume.
+  analyses consume, and `dR0/db` the density-dependence a demographic-equilibrium solve
+  consumes.
