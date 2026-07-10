@@ -15,6 +15,33 @@ namespace plant {
 
 class TF24_Environment : public Environment {
 public:
+  std::vector<double> resolve_soil_parameter_values(SEXP values,
+                                                    int n,
+                                                    double default_value,
+                                                    const std::string &name) const {
+    if (Rf_isNull(values)) {
+      return std::vector<double>(n, default_value);
+    }
+
+    const auto out = Rcpp::as<std::vector<double> >(values);
+    if (out.size() != static_cast<size_t>(n)) {
+      throw std::invalid_argument(
+        name + " must have length equal to soil_number_of_depths when provided.");
+    }
+
+    return out;
+  }
+
+  double soil_parameter_value(const std::vector<double> &layer_values,
+                              double fallback,
+                              size_t layer) const {
+    if (use_layered_soil_parameters &&
+        layer_values.size() == static_cast<size_t>(soil_number_of_depths)) {
+      return layer_values[layer];
+    }
+    return fallback;
+  }
+
   // constructor for R interface - default settings can be modified
   // except for soil_number_of_depths
   // which are only updated on construction
@@ -99,7 +126,34 @@ public:
     psi_soil_cache_.resize(soil_number_of_depths);
     psi_soil_cache_state_.resize(soil_number_of_depths);
     psi_soil_cache_valid_ = false;
+
+    use_layered_soil_parameters = false;
+    soil_moist_sat_layers.clear();
+    K_sat_layers.clear();
+    a_psi_layers.clear();
+    n_psi_layers.clear();
   }
+
+  void set_soil_parameters(int n,
+                           SEXP soil_moist_sat_values,
+                           SEXP K_sat_values,
+                           SEXP a_psi_values,
+                           SEXP n_psi_values) {
+    set_soil_number_of_depths(n);
+
+    soil_moist_sat_layers = resolve_soil_parameter_values(
+      soil_moist_sat_values, n, soil_moist_sat, "soil_moist_sat");
+    K_sat_layers = resolve_soil_parameter_values(
+      K_sat_values, n, K_sat, "K_sat");
+    a_psi_layers = resolve_soil_parameter_values(
+      a_psi_values, n, a_psi, "a_psi");
+    n_psi_layers = resolve_soil_parameter_values(
+      n_psi_values, n, n_psi, "n_psi");
+
+    use_layered_soil_parameters = true;
+    psi_soil_cache_valid_ = false;
+  }
+
   int get_soil_number_of_depths() const {return soil_number_of_depths;}
   std::vector<double> get_soil_mid_depths() const { return z_mid; }
 
@@ -145,6 +199,11 @@ public:
   double K_sat;
   double a_psi;
   double n_psi;
+  std::vector<double> soil_moist_sat_layers;
+  std::vector<double> K_sat_layers;
+  std::vector<double> a_psi_layers;
+  std::vector<double> n_psi_layers;
+  bool use_layered_soil_parameters = false;
   double a_infil;
   double b_infil;
 
@@ -222,7 +281,11 @@ public:
 
     double water_input;
     double rainfall = extrinsic_drivers.evaluate("rainfall", time);
-    double infiltration = rainfall*std::max(0.0, 1 - a_infil*std::pow(vars.state(0)/soil_moist_sat, b_infil));
+    const double soil_moist_sat_0 =
+      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
+    double infiltration = rainfall * std::max(
+      0.0,
+      1 - a_infil * std::pow(vars.state(0) / soil_moist_sat_0, b_infil));
     double total_resource_depletion = 0;
 
 
@@ -241,7 +304,7 @@ public:
         water_input = water_flux[i-1];
       }
         // TODO: m3 m^-2
-      water_flux[i] = soil_K_from_soil_theta(vars.state(i));
+      water_flux[i] = soil_K_from_soil_theta(vars.state(i), i);
       // this function does runoff
 
       // Positivity guard (issue #485): a layer at or below the residual
@@ -273,7 +336,7 @@ public:
   }
 
   // calculate K from K_sat based on theta
-  double soil_K_from_soil_theta(double theta) {
+  double soil_K_from_soil_theta(double theta, size_t layer) const {
     //Eq. 5 Zeng and Decker (2009), ref Clapp and Hornberger (1978)
     // Clamp theta to [0, soil_moist_sat] (issue #485/#549): an intermediate
     // explicit-RK stage can probe theta < 0 (std::pow(negative, non-integer) is
@@ -281,20 +344,34 @@ public:
     // feedback is perturbed, a theta far above saturation, whose large positive
     // exponent would otherwise make the inter-layer water_flux astronomically
     // large and cascade the blow-up across layers. Physically K saturates at
-    // K_sat, so clamp there.
-  const double t = std::min(std::max(theta, 0.0), soil_moist_sat);
-  return K_sat * std::pow(t/soil_moist_sat, 2*n_psi + 3);
+    // K_sat, so clamp there. Per-layer parameters (#558) fall back to the
+    // scalar default when no layered vector is set.
+    const double k_sat_layer = soil_parameter_value(K_sat_layers, K_sat, layer);
+    const double soil_moist_sat_layer =
+      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
+    const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
+    const double t = std::min(std::max(theta, 0.0), soil_moist_sat_layer);
+    return k_sat_layer * std::pow(t / soil_moist_sat_layer, 2 * n_psi_layer + 3);
+  }
+
+  double soil_K_from_soil_theta(double theta) {
+    return soil_K_from_soil_theta(theta, 0);
   }
 
 
   // convert soil moisture to soil water potential
-  double psi_from_soil_moist(double soil_moist_) const {
+  double psi_from_soil_moist(double soil_moist_, size_t layer) const {
     // Floor at the residual moisture: the retention curve (negative exponent)
     // diverges to +inf as theta->0, so an empty layer would otherwise yield a
     // non-finite potential. At/below theta_r the potential is large but finite
     // and the plant's root vulnerability curve has already shut uptake to ~0.
     const double t = std::max(soil_moist_, soil_moist_residual);
-    const double psi = a_psi * std::pow(t/soil_moist_sat, -n_psi)/1e6; // Pa -> MPa
+    const double a_psi_layer = soil_parameter_value(a_psi_layers, a_psi, layer);
+    const double soil_moist_sat_layer =
+      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
+    const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
+    const double psi =
+      a_psi_layer * std::pow(t / soil_moist_sat_layer, -n_psi_layer) / 1e6; // Pa -> MPa
     // Cap at a large-but-finite ceiling (#549): near theta_r the retention curve
     // gives psi ~ 1e8 MPa, which pushes the leaf hydraulic solve non-finite and
     // corrupts the soil feedback. Root conductance is already ~0 far below this
@@ -303,9 +380,21 @@ public:
     return std::min(psi, soil_psi_max_);
   }
 
+  double psi_from_soil_moist(double soil_moist_) const {
+    return psi_from_soil_moist(soil_moist_, 0);
+  }
+
   // convert soil water potential to soil moisture
+  double soil_moist_from_psi(double psi_soil_, size_t layer) const {
+    const double a_psi_layer = soil_parameter_value(a_psi_layers, a_psi, layer);
+    const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
+    const double soil_moist_sat_layer =
+      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
+    return pow((psi_soil_ / a_psi_layer), (-1 / n_psi_layer)) * soil_moist_sat_layer;
+  }
+
   double soil_moist_from_psi(double psi_soil_) const {
-    return pow((psi_soil_/a_psi), (-1/n_psi))*soil_moist_sat;
+    return soil_moist_from_psi(psi_soil_, 0);
   }
 
   // Easy wrappers. Cn also use `extrinsic_drivers_evaluate("PPFD", time)
@@ -345,7 +434,7 @@ public:
       for (int i = 0; i < soil_number_of_depths; ++i) {
         const double soil_moist = vars.state(i);
         psi_soil_cache_state_[i] = soil_moist;
-        psi_soil_cache_[i] = psi_from_soil_moist(soil_moist);
+        psi_soil_cache_[i] = psi_from_soil_moist(soil_moist, i);
       }
       psi_soil_cache_valid_ = true;
     }
