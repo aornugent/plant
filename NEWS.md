@@ -148,6 +148,18 @@ were not previously recorded here:
 
 ### New features
 
+* **NSC storage pool for TF24 (`TF24@v3`, `TF24f@v3.1`).** TF24 now carries a
+  non-structural-carbohydrate storage state so growth and mortality respond to
+  *buffered* carbon rather than instantaneous net production (#517, #554).
+  Growth/reproduction are reserve-gated (a smooth logistic on relative reserves
+  `r = S/S_max`), and mortality is now `a_dG1·exp(-a_dG2·r)` — bounded in
+  `[a_dG1·e⁻ᵃ_dG2, a_dG1]` — which is the root-cause fix for the SCM
+  cohort-density blow-up (#550). New parameters `a_st1`/`a_st2`/`a_st3` (storage
+  capacity per unit sapwood, growth half-on reserve fraction, birth fill).
+  Because this changes the simulation output for identical inputs, the TF24
+  scientific version is bumped **2 → 3**; `TF24f` inherits the state and its
+  compound version auto-tracks to **3.1**. This invalidates the `logpile` cache
+  for both models. See the staging guide in `overstorey-staging/guides/`.
 * **Per-model scientific versioning.** Each model now carries a scientific
   version — an integer that is independent of the package `Version` and is
   bumped only when the model's equations or default parameters change the
