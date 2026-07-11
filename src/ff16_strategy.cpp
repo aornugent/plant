@@ -1,5 +1,6 @@
 #include <plant/models/ff16_strategy.h>
 #include <plant/models/ff16_production_kernel.h>
+#include <XAD/XAD.hpp>  // xad::value, the one sanctioned active -> double read
 
 namespace plant {
 
@@ -579,15 +580,21 @@ S FF16_Strategy_<S>::height_seed(void) const {
   // most of time. Only issue is that could break with obscure parameter
   // values for LMA or height-leaf area scaling. Could instead use some
   // absolute maximum height for new seedling, e.g. 1m?
+  // The seed height solves a double root; it carries no trait derivative of its
+  // own (a differentiable seed height is later work). Traits that feed the
+  // birth cohort reach the derivative through the quantities derived *from* this
+  // height at the active scalar -- area_leaf_0 = area_leaf(height_0) via a_l1 /
+  // a_l2 -- and through eta_c. So compute the root in double (xad::value at each
+  // active intermediate) and let the returned double lift into S.
   const double
-    h0 = height_given_mass_leaf(std::numeric_limits<double>::min()),
-    h1 = height_given_mass_leaf(pars.omega);
+    h0 = xad::value(height_given_mass_leaf(S(std::numeric_limits<double>::min()))),
+    h1 = xad::value(height_given_mass_leaf(pars.omega));
 
   const double tol = control.offspring_production_tol;
   const size_t max_iterations = control.offspring_production_iterations;
 
   auto target = [&] (double x) mutable -> double {
-    return mass_live_given_height(x) - pars.omega;
+    return xad::value(mass_live_given_height(S(x)) - pars.omega);
   };
 
   return util::uniroot(target, h0, h1, tol, max_iterations);
@@ -609,7 +616,9 @@ void FF16_Strategy_<S>::prepare_strategy() {
     shading_model_from_string(control.shading_model, ShadingModel::DeepCrown);
   // canopy_shape also selects the competition contribution: smooth Q for every
   // model except flat-top-box, which casts a step (see CanopyShape).
-  canopy_shape.initialise(pars.eta, shading_model);
+  // canopy_shape only needs the double eta to pick its power-chain
+  // specialisation; the differentiable crown factor is the S member eta_c below.
+  canopy_shape.initialise(xad::value(pars.eta), shading_model);
   switch (shading_model) {
   case ShadingModel::DeepCrown:
     assimilation_fn = &FF16_Strategy_<S>::assimilation_deep_crown;
@@ -643,12 +652,8 @@ void FF16_Strategy_<S>::prepare_strategy() {
   }
 }
 
-FF16_Strategy::ptr make_strategy_ptr(FF16_Strategy s) {
-  s.prepare_strategy();
-  return std::make_shared<FF16_Strategy>(s);
-}
-
-// Only the double numerics are instantiated here; the active scalar is
-// instantiated where a trait gradient is taken.
+// make_strategy_ptr is a header template (ff16_strategy.h) so it also builds
+// the active twin; only the double numerics are instantiated here, the active
+// scalar being instantiated where a trait gradient is taken.
 template class FF16_Strategy_<double>;
 }

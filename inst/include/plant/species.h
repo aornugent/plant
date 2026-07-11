@@ -3,6 +3,7 @@
 #define SPECIES
 
 #include <vector>
+#include <type_traits>
 #include <plant/util.h>
 #include <plant/environment.h>
 #include <odelia/ode_interface.hpp>
@@ -116,6 +117,20 @@ public:
                        const std::vector<double>& pr_patch_survival);
 
   ExtrinsicDrivers extrinsic_drivers() const {return strategy->extrinsic_drivers;}
+
+  // odelia System AD contract, forwarded from the one shared strategy: the
+  // seedable trait pointers, and the re-freeze of derived quantities from the
+  // (possibly seeded) parameters. reprepare_strategy() is a no-op on the double
+  // path (the resident numerics are unchanged); on the active twin it must run
+  // after a trait is seeded so eta_c / area_leaf_0 carry the derivative.
+  std::vector<value_type*> strategy_ad_parameters() {
+    return strategy->ad_parameters();
+  }
+  void reprepare_strategy() {
+    if constexpr (!std::is_same_v<value_type, double>) {
+      strategy->prepare_strategy();
+    }
+  }
 
 private:
   // Storage (strategy, nodes) and control() live in SpeciesBase; the

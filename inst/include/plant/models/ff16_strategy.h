@@ -97,6 +97,35 @@ struct FF16_Pars_ {
 
   // * Light capture parameters
   S k_I = 0.5;
+
+  // The trait fields as pointers, in a fixed column order. This is the one
+  // place the order lives: ad_parameters() (the seed/read contract) and lift()
+  // (the double -> active copy) both read it, so a caller resolving trait names
+  // to Jacobian columns stays in sync with the copy. Add or reorder a field
+  // here and both follow.
+  std::vector<S*> field_ptrs() {
+    return {&lma,  &rho,  &hmat, &omega, &eta,   &theta, &a_l1, &a_l2,
+            &a_r1, &a_b1, &r_l,  &r_r,   &r_s,   &r_b,   &a_y,  &a_bio,
+            &k_l,  &k_b,  &k_s,  &k_r,   &a_p1,  &a_p2,  &a_f3, &a_f1,
+            &a_f2, &S_D,  &a_d0, &d_I,   &a_dG1, &a_dG2, &recruitment_decay,
+            &k_I};
+  }
+
+  // Copy the trait values onto another scalar. The source is the double model
+  // held in R, so the values are plain doubles the active scalar constructs
+  // from directly; derived quantities are left for prepare_strategy() to
+  // recompute under S2 once the traits are seeded.
+  template <class S2>
+  FF16_Pars_<S2> lift() const {
+    FF16_Pars_<S> self = *this;  // a mutable copy to take field pointers from
+    FF16_Pars_<S2> out;
+    std::vector<S*>  src = self.field_ptrs();
+    std::vector<S2*> dst = out.field_ptrs();
+    for (size_t i = 0; i < dst.size(); ++i) {
+      *dst[i] = S2(*src[i]);
+    }
+    return out;
+  }
 };
 
 // The double parameters cross the R boundary; the template default keeps this
@@ -395,6 +424,34 @@ public:
   // Set constants within FF16_Strategy
   void prepare_strategy();
 
+  // odelia System AD contract (the strategy half). The double model held in R
+  // is lifted onto an active scalar per gradient call; ad_parameters() exposes
+  // the seedable trait inputs. Derived quantities are re-frozen by
+  // prepare_strategy() after seeding (Patch::reset), so a seeded trait reaches
+  // eta_c / area_leaf_0 / the allocation family.
+  template <class S2> using rebind = FF16_Strategy_<S2>;
+
+  // The double -> active mould: a config-only copy (trait values plus the
+  // double control/birth-rate settings), no derived quantities and no tape
+  // identity. prepare_strategy() recomputes the derived quantities under S2.
+  template <class S2>
+  rebind<S2> rebind_from() const {
+    rebind<S2> out;
+    out.pars = pars.template lift<S2>();
+    out.control = control;
+    out.name = name;
+    out.birth_rate_x = birth_rate_x;
+    out.birth_rate_y = birth_rate_y;
+    out.is_variable_birth_rate = is_variable_birth_rate;
+    out.collect_all_auxiliary = collect_all_auxiliary;
+    return out;
+  }
+
+  // Pointers to the seedable trait inputs, in the fixed column order defined by
+  // FF16_Pars_::field_ptrs(). Every cohort aliases this one shared pars store,
+  // so seeding here reaches all cohorts, including late introductions.
+  std::vector<S*> ad_parameters() { return pars.field_ptrs(); }
+
   // Birth height of a (germinated) seed. Strategy-agnostic accessor used by
   // the templated Individual; here height_0 is derived in prepare_strategy().
   S initial_height() const { return height_0; }
@@ -419,7 +476,14 @@ public:
 // this name a concrete type for RcppR6 and every existing caller.
 using FF16_Strategy = FF16_Strategy_<double>;
 
-FF16_Strategy::ptr make_strategy_ptr(FF16_Strategy s);
+// Build a shared strategy, freezing its derived quantities from pars via
+// prepare_strategy(). Templated on the scalar so an active twin
+// (FF16_Strategy_<active>) is constructed exactly as the double model is.
+template <class S>
+typename FF16_Strategy_<S>::ptr make_strategy_ptr(FF16_Strategy_<S> s) {
+  s.prepare_strategy();
+  return std::make_shared<FF16_Strategy_<S>>(s);
+}
 
 }
 

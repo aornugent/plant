@@ -32,6 +32,32 @@ public:
   void reset();
   size_t size() const {return species.size();}
 
+  // odelia System AD contract (the seed side). A trait gradient lifts the
+  // R-held double model to an active twin, seeds a chosen subset of one
+  // species' traits through ad_parameters(), runs, and reads adjoints -- all
+  // internal, only double crossing the R boundary. Every cohort of a species
+  // aliases one shared strategy, so seeding once reaches late introductions;
+  // reset() re-freezes the derived quantities from the seeded parameters.
+  //
+  // The double -> active *lift* is driven from the runnable (SCM::rebind_from,
+  // AD-3), whose ctor builds the active Patch from lifted parameters. Patch
+  // deliberately exposes no rebind_from() of its own: odelia's stiff (RODAS)
+  // stepper auto-detects a System rebind_from() and would forward-differentiate
+  // the Patch through it, which the demographic layer cannot yet satisfy.
+
+  // The species whose traits a gradient is taken with respect to. The R entry
+  // resolves it; defaults to the first species. ad_parameters() reaches into
+  // that species' one shared strategy.
+  size_t ad_target_species = 0;
+
+  // Pointers to the seedable trait inputs (fixed column order) and the seedable
+  // initial state (empty for invasion; a real target later). The gradient
+  // driver seeds through these before reset()/run().
+  std::vector<value_type*> ad_parameters() {
+    return species.at(ad_target_species).strategy_ad_parameters();
+  }
+  std::vector<value_type*> ad_initial_state() { return {}; }
+
   //Try using pointer in place of object itself
   double time() const {return environment.time;}
   double get_area() const { return area;}
@@ -252,6 +278,15 @@ void Patch<T,E>::set_mutant() {
 
 template <typename T, typename E>
 void Patch<T,E>::reset() {
+   // Re-freeze each strategy's derived quantities (eta_c, height_0, area_leaf_0,
+   // the bound assimilation_fn, ...) from its current parameters. On the active
+   // twin a trait seeded through ad_parameters() must reach these before any
+   // cohort is built, so its derivative is not silently dropped; a guarded
+   // no-op on the double path, so the resident numerics are unchanged.
+   for (auto& s : species) {
+    s.reprepare_strategy();
+   }
+
    for (auto& s : species) {
     s.clear();
     // allocate variables for tracking resource consumption

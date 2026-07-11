@@ -47,12 +47,15 @@ public:
   value_type rate(int i) const { return vars.rate(i); }
 
   // useage: set_state("height", 2.0)
-  void set_state(std::string name, double v) {
+  // Takes value_type so an active cohort can be seeded from an active quantity
+  // (e.g. the strategy's initial_height at S=active); a plain double still binds
+  // (double -> value_type), so the resident path is unchanged.
+  void set_state(std::string name, value_type v) {
     int i = strategy->state_index.at(name);
     vars.set_state(i, v);
     strategy->update_dependent_aux(i, vars);
   }
-  void set_state(int i, double v) {
+  void set_state(int i, value_type v) {
     vars.set_state(i, v);
     strategy->update_dependent_aux(i, vars);
   }
