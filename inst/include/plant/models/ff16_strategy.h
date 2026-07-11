@@ -429,6 +429,19 @@ public:
                                vars.aux(HEIGHT_INVERSE_AUX_INDEX));
   }
 
+  // Per-plant census quantities the emergent kernels reduce over the cohorts,
+  // reusing the allocation model: live+heartwood mass and stem basal area at the
+  // cohort state.
+  S census_biomass(const Internals_<S>& vars) const {
+    return mass_live_given_height(vars.state(HEIGHT_INDEX)) +
+           vars.state(MASS_HEARTWOOD_INDEX);
+  }
+  S census_basal_area(const Internals_<S>& vars) const {
+    const S area_leaf_ = area_leaf(vars.state(HEIGHT_INDEX));
+    return area_stem(area_bark(area_leaf_), area_sapwood(area_leaf_),
+                     vars.state(AREA_HEARTWOOD_INDEX));
+  }
+
   // [      ] Inverse of Q: height above which fraction 'x' of leaf found
   S Qp(S x, S height) const;
 

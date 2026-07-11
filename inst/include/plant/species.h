@@ -52,6 +52,32 @@ public:
 
   double height_max() const;
   double compute_competition(double height) const;
+
+  // Descending-height trapezium of density * psi(individual) over the active
+  // cohorts plus the pending-seed tail, at the model scalar. Mirrors
+  // compute_competition (heights active, density read passively); psi returns the
+  // per-plant census quantity so LAI/biomass/basal_area share one reduction.
+  template <typename Psi>
+  value_type census(Psi psi) const {
+    if (size() == 0) {
+      return value_type(0.0);
+    }
+    auto it = nodes.begin();
+    value_type h1 = it->individual.state(HEIGHT_INDEX);
+    value_type f_h1 = it->get_density_ad() * psi(it->individual);
+    value_type tot(0.0);
+    for (++it; it != nodes.end(); ++it) {
+      const value_type h0 = it->individual.state(HEIGHT_INDEX);
+      const value_type f_h0 = it->get_density_ad() * psi(it->individual);
+      tot += (h1 - h0) * (f_h1 + f_h0);
+      h1 = h0;
+      f_h1 = f_h0;
+    }
+    const value_type h0 = new_node.individual.state(HEIGHT_INDEX);
+    const value_type f_h0 = new_node.get_density_ad() * psi(new_node.individual);
+    tot += (h1 - h0) * (f_h1 + f_h0);
+    return tot / 2;
+  }
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
   std::vector<double> net_reproduction_ratio_by_node() const;
   // Per-node lifetime offspring, weighted by patch-age density and S_D.

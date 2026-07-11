@@ -42,8 +42,8 @@ public:
       case Metric::LAI:
       case Metric::biomass:
       case Metric::basal_area:
-        util::stop("census metrics (LAI/biomass/basal_area) require the native "
-                   "crown integral and are not available yet");
+        out.push_back(census<S>(patch, m));
+        break;
       }
     }
     return out;
@@ -61,6 +61,33 @@ private:
     if (name == "basal_area") return Metric::basal_area;
     util::stop("unknown emergent metric: " + name);
     return Metric::offspring_production; // unreachable
+  }
+
+  // Stand census metric: the size-distribution integral summed over species, i.e.
+  // the descending-height trapezium of density * per-plant psi over the active
+  // cohorts (Species::census). Each metric selects a per-plant kernel reusing the
+  // strategy's own reductions -- LAI = k_I * leaf area (compute_competition),
+  // biomass = live + heartwood mass, basal_area = stem area.
+  template <class S, class Patch>
+  static S census(const Patch& patch, Metric m) {
+    S total(0.0);
+    for (std::size_t s = 0; s < patch.size(); ++s) {
+      const auto& sp = patch.at_species(s);
+      switch (m) {
+      case Metric::LAI:
+        total += sp.census([](const auto& ind) { return ind.compute_competition(0.0); });
+        break;
+      case Metric::biomass:
+        total += sp.census([](const auto& ind) { return ind.census_biomass(); });
+        break;
+      case Metric::basal_area:
+        total += sp.census([](const auto& ind) { return ind.census_basal_area(); });
+        break;
+      default:
+        break;
+      }
+    }
+    return total;
   }
 
   // Total survival-weighted offspring across the stand: the trapezium of each

@@ -8,6 +8,7 @@
 #include <odelia/ode_interface.hpp>
 #include <optional>
 #include <limits> // std::numeric_limits
+#include <type_traits> // std::is_same_v
 
 namespace plant {
 
@@ -42,7 +43,7 @@ public:
   double introduction_time() const {return node_introduction_time;}
   double patch_density() const {return patch_density_at_birth;}
   double get_pr_patch_survival_at_birth() const {return pr_patch_survival_at_birth;}
-  double get_log_density_rate() const {return log_density_dt;}
+  double get_log_density_rate() const {return ad_value(log_density_dt);}
 
   // Restore birth bookkeeping for a node imported from an exported patch state,
   // without re-running compute_initial_conditions (which would overwrite the
@@ -63,11 +64,14 @@ public:
   }
 
   // Unfortunate, but need a get_ here because of name shadowing...
-  double get_log_density() const {return log_density;}
+  double get_log_density() const {return ad_value(log_density);}
   // exp(log_density); can overflow to +Inf when the SCM density equation runs
   // away (see Patch::check_finite_node_densities).
-  double get_density() const {return density;}
-  void set_log_density(double x) {
+  double get_density() const {return ad_value(density);}
+  // Density at the model scalar, read by the census reduction so the number
+  // density carries the trait derivative alongside the active cohort heights.
+  value_type get_density_ad() const {return density;}
+  void set_log_density(value_type x) {
     log_density = x;
     density = exp(log_density);
   }
@@ -97,7 +101,7 @@ public:
   }
 
   double consumption_rate(int i) const {
-    return ad_value(individual.consumption_rate(i)) * density;
+    return ad_value(individual.consumption_rate(i)) * ad_value(density);
   }
 
   individual_type individual;
@@ -105,15 +109,18 @@ public:
 private:
   // This is the gradient of growth rate with respect to height:
   double growth_rate_gradient(const environment_type& environment) const;
+  // Active-scalar variant for the census density derivative (never instantiated on
+  // the resident double build, so growth_rate_gradient above stays verbatim).
+  value_type growth_rate_gradient_active(const environment_type& environment) const;
 
-  double log_density;
-  double log_density_dt;
-  double density; // hmm...
-  // The survival-weighted fecundity accumulator and its rate carry the model
-  // scalar so a trait's derivative flows through the invasion offspring metric;
-  // log_density stays double (its rate uses the finite-difference growth gradient
-  // and the census density is read passively). At S = double both are the
-  // resident's plain doubles, so that path is bit-unchanged.
+  // log_density carries the model scalar so a trait's derivative flows through the
+  // census number density (LAI/biomass/basal_area); its rate differentiates the
+  // finite-difference growth gradient at the active scalar (growth_rate_gradient).
+  // The offspring accumulator carries it for the invasion offspring metric. At
+  // S = double all are the resident's plain doubles, so that path is bit-unchanged.
+  value_type log_density;
+  value_type log_density_dt;
+  value_type density; // hmm...
   value_type offspring_produced_survival_weighted;
   value_type offspring_produced_survival_weighted_dt;
   double pr_patch_survival_at_birth;
@@ -141,10 +148,18 @@ void Node<T,E>::compute_rates(const environment_type& environment,
   individual.compute_rates(environment);
 
   // NOTE: This must be called *after* compute_rates, but given we
-  // need mortality_dt() that's always going to be the case.
-  log_density_dt =
-    - growth_rate_gradient(environment)
-    - ad_value(individual.rate(MORTALITY_INDEX));
+  // need mortality_dt() that's always going to be the case. The double path is
+  // verbatim the resident's (ad_value identity); the active path keeps the
+  // mortality derivative so log_density carries it into the census.
+  if constexpr (std::is_same_v<value_type, double>) {
+    log_density_dt =
+      - growth_rate_gradient(environment)
+      - ad_value(individual.rate(MORTALITY_INDEX));
+  } else {
+    log_density_dt =
+      - growth_rate_gradient_active(environment)
+      - individual.rate(MORTALITY_INDEX);
+  }
   // survival_individual: converts from the mean of the poisson process (on
   // [0,Inf)) to a probability (on [0,1]). Kept at the model scalar so the
   // survival-weighted fecundity rate below carries the trait derivative into the
@@ -181,18 +196,19 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
 
   // Keep establishment active: the mortality initial condition -log(pr_estab)
   // feeds the survival weighting, so a trait shifting seedling establishment is a
-  // real part of the invasion offspring gradient. log_density stays double.
+  // real part of the invasion offspring gradient and of the initial density.
   const value_type pr_estab = individual.establishment_probability_ad(environment);
   individual.set_state("mortality", -log(pr_estab));
-  const double g = ad_value(individual.rate(HEIGHT_INDEX));
-  const double pr_estab_d = ad_value(pr_estab);
-  // NOTE: log(0.0) -> -Inf, which should behave fine.
-  set_log_density(g > 0 ? log(birth_rate * pr_estab_d / g) : log(0.0));
+  // g and pr_estab stay active so the initial density carries the trait derivative
+  // into the census; at S = double this is the resident's value. log(0.0) -> -Inf.
+  const value_type g = individual.rate(HEIGHT_INDEX);
+  set_log_density(ad_value(g) > 0 ? log(birth_rate * pr_estab / g)
+                                  : value_type(log(0.0)));
 
   // Need to check that the rates are valid after setting the
   // mortality value here (can go to -Inf and that requires squashing
   // the rate to zero).
-  if (!util::is_finite(log_density)) {
+  if (!util::is_finite(ad_value(log_density))) {
     // Can do this at the same time that we do set_log_density, I think.
     log_density_dt = 0.0;
   }
@@ -233,6 +249,38 @@ double Node<T,E>::growth_rate_gradient(const environment_type& environment) cons
   }
 }
 
+// Active-scalar growth-rate gradient: the same difference scheme at the model
+// scalar, so the trait derivative of the gradient flows into log_density (the
+// census number-density response). growth_rate_given_height_ad recomputes the
+// height rate actively at the perturbed height; the already-computed rate is the
+// base evaluation. Never instantiated on the resident double build.
+template <typename T, typename E>
+typename Node<T,E>::value_type
+Node<T,E>::growth_rate_gradient_active(const environment_type& environment) const {
+  thread_local std::optional<individual_type> scratch;
+  if (scratch.has_value()) {
+    *scratch = individual;
+  } else {
+    scratch.emplace(individual);
+  }
+  individual_type& p = *scratch;
+  auto fun = [&] (value_type h) -> value_type {
+    return p.growth_rate_given_height_ad(h, environment);
+  };
+  const value_type x = individual.state(HEIGHT_INDEX);
+  const value_type fx = individual.rate(HEIGHT_INDEX);
+  const Control& control = individual.control();
+  const value_type eps = control.node_gradient_eps;
+  const int dir = control.node_gradient_direction;
+  if (dir < 0) {
+    return (fx - fun(x - eps)) / eps;
+  } else if (dir > 0) {
+    return (fun(x + eps) - fx) / eps;
+  } else {
+    return (fun(x + eps / 2) - fun(x - eps / 2)) / eps;
+  }
+}
+
 // Wrapper to growth_rate_gradient for testing
 template <typename T, typename E>
 double Node<T,E>::r_growth_rate_gradient(const environment_type& environment) {
@@ -246,7 +294,7 @@ double Node<T,E>::r_growth_rate_gradient(const environment_type& environment) {
 
 template <typename T, typename E>
 double Node<T,E>::compute_competition(double height_) const {
-  return density * ad_value(individual.compute_competition(height_));
+  return ad_value(density) * ad_value(individual.compute_competition(height_));
 }
 
 // ODE interface -- note that the don't care about time in the node;
@@ -262,7 +310,7 @@ It Node<T,E>::set_ode_state(It it) {
     individual.set_state(i, *it++);
   }
   offspring_produced_survival_weighted = *it++;
-  set_log_density(ad_value(*it++));
+  set_log_density(*it++);
   return it;
 }
 template <typename T, typename E>

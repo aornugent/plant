@@ -76,6 +76,11 @@ public:
     return strategy->compute_competition(z, vars);
   }
 
+  // Per-plant census quantities (live+heartwood biomass, stem basal area) at the
+  // cohort state, forwarded to the strategy's allocation model.
+  value_type census_biomass() const { return strategy->census_biomass(vars); }
+  value_type census_basal_area() const { return strategy->census_basal_area(vars); }
+
   // Seed strategy-specific initial ODE states (e.g. an acclimating tracked
   // state) given the birth environment. No-op for strategies that don't need it.
   void set_initial_states(const environment_type& environment) {
@@ -162,6 +167,16 @@ public:
     set_state(HEIGHT_INDEX, height);
     compute_rates(environment);
     return ad_value(rate(HEIGHT_INDEX));
+  }
+
+  // The height rate at the model scalar, for the active growth-rate gradient that
+  // feeds the census number density (keeps the trait derivative the double
+  // overload strips). Identity at S = double.
+  value_type growth_rate_given_height_ad(value_type height,
+                                         const environment_type& environment) {
+    set_state(HEIGHT_INDEX, height);
+    compute_rates(environment);
+    return rate(HEIGHT_INDEX);
   }
 
   double resource_compensation_point() {
