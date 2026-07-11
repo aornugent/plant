@@ -797,9 +797,18 @@ It Patch<T,E>::set_ode_state(It it, int index) {
 
   for (auto& s : species) { it = s.set_ode_state(it); }
 
-  // using a pointer here to avoid copying environment object
-  // just point the pointer, used inside compute rates to get env, to relevant env object
-  environment_ptr = &(environment_history[idx][index]);
+  // A cohort introduced on the final recorded step (birth >= N) reaches the last
+  // ode time, one step_history entry past the last recorded RK-stage environment
+  // (step_history carries the extra t=0 slot, so it is one longer). Read the final
+  // frozen environment there: the boundary cohort is established at seed height and
+  // never stepped past the record (the zero-height fix; without it the active crown
+  // derivative dereferences a slot beyond environment_history and segfaults).
+  int env_idx = idx;
+  if (!environment_history.empty() &&
+      static_cast<size_t>(env_idx) >= environment_history.size()) {
+    env_idx = static_cast<int>(environment_history.size()) - 1;
+  }
+  environment_ptr = &(environment_history[env_idx][index]);
   environment.time = environment_ptr->time;
 
   // increment the iterator by an appropriate amount, but don't actually do anything in the env

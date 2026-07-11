@@ -26,6 +26,11 @@ public:
   template <typename Function>
   double integrate(Function f, double a, double b);
 
+  // Scalar-templated single-layer Kronrod integral with active bounds (defined
+  // below). Used by the active crown quadrature so the plant-height bound moves.
+  template <typename S, typename Function>
+  S integrate_ad(Function f, S a, S b) const;
+
   // These two provide very low level access to the integration
   // routines.
   std::vector<double> integrate_vector_x(double a, double b) const;
@@ -128,6 +133,32 @@ double QK::integrate(Function f, double a, double b) {
   }
 
   return last_result;
+}
+
+// Scalar-templated Gauss-Kronrod: the same xgk/wgk rule as integrate(), but with
+// the bounds, abscissae and accumulator at the model scalar so an active plant-
+// height bound propagates through the moving nodes (a frozen-node replay would
+// miss it). Kronrod result only, stateless (no last_* / error writes). At
+// S = double the accumulation order matches integrate()'s Kronrod result exactly.
+template <typename S, typename Function>
+S QK::integrate_ad(Function f, S a, S b) const {
+  const S center      = 0.5 * (a + b);
+  const S half_length = 0.5 * (b - a);
+
+  S result_kronrod = f(center) * wgk[n - 1];
+
+  for (size_t j = 0; j < (n - 1) / 2; j++) {
+    const size_t jtw = j * 2 + 1;
+    const S abscissa = half_length * xgk[jtw];
+    result_kronrod += wgk[jtw] * (f(center - abscissa) + f(center + abscissa));
+  }
+  for (size_t j = 0; j < n / 2; j++) {
+    const size_t jtwm1 = j * 2;
+    const S abscissa = half_length * xgk[jtwm1];
+    result_kronrod += wgk[jtwm1] * (f(center - abscissa) + f(center + abscissa));
+  }
+
+  return result_kronrod * half_length;
 }
 
 }

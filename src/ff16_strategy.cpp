@@ -162,32 +162,34 @@ S FF16_Strategy_<S>::assimilation_deep_crown(const FF16_Environment& environment
                                               S area_leaf,
                                               S height_inverse) {
 
-  S A = 0.0;
-
-  // Define an anonymous function to integrate.
-  // Keep the lambda's own closure type (do not wrap in std::function) so the
-  // templated QK::integrate inlines the integrand at each quadrature point
-  // instead of making a type-erased indirect call.
-  // Hoist the light-spline upper bound (canopy top) out of the integrand: it
-  // is invariant across the quadrature, so fetch it once and pass it into the
-  // capped get_environment_at_height() overload rather than re-reading
-  // spline.max() at every quadrature point.
-  // The crown integral runs in double: the light profile is frozen (invasion)
-  // and canopy_shape/QK are the precomputed double machinery. area_leaf carries
-  // the active derivative; the integrand's own trait/height sensitivity is
-  // recovered once the crown quadrature runs at the active scalar.
+  // Hoist the light-spline upper bound (canopy top) out of the integrand: it is
+  // invariant across the quadrature. Keep the lambda's own closure type (do not
+  // wrap in std::function) so the integrand inlines at each quadrature point.
   const double canopy_top = environment.max_environment_height();
-  auto f = [&](double z) -> double {
-    return ad_value(assimilation_leaf(environment.get_environment_at_height(z, canopy_top))) *
-      canopy_shape.q(ad_value(z * height_inverse), z);
-  };
 
-  // Integrate over crown depth using using Gauss-Kronrod quadrature.
-  // The number of points used in the integration is determined by the control parameter
-  // function_integration_rule. Rules defined in qk_rules.cpp
-  A = function_integrator.integrate(f, 0.0, ad_value(height));
-
-  return area_leaf * A;
+  if constexpr (std::is_same_v<S, double>) {
+    // Resident hot path: the crown integral runs in double via QK::integrate.
+    auto f = [&](double z) -> double {
+      return ad_value(assimilation_leaf(environment.get_environment_at_height(z, canopy_top))) *
+        canopy_shape.q(ad_value(z * height_inverse), z);
+    };
+    return area_leaf * function_integrator.integrate(f, 0.0, ad_value(height));
+  } else {
+    // Invasion (gradient) path: moving-node Gauss-Kronrod over [0, height] so the
+    // active height bound, crown shape and light-sampling point all carry the
+    // trait derivative. The recorded canopy stays off-tape -- its value is read
+    // frozen and linearised in z (frozen value + frozen slope * (z - z_value)),
+    // so only the mutant's own height->light channel flows, not the canopy shape.
+    auto f = [&](S z) -> S {
+      const double zv = ad_value(z);
+      const double lv = environment.get_environment_at_height(zv, canopy_top);
+      const double ld = environment.get_environment_deriv_at_height(zv, canopy_top);
+      const S light = S(lv) + S(std::isfinite(ld) ? ld : 0.0) * (z - S(zv));
+      const S u = z * height_inverse;
+      return assimilation_leaf(light) * canopy_shape.q_active(u, z);
+    };
+    return area_leaf * function_integrator.integrate_ad(f, S(0.0), height);
+  }
 }
 
 // [eqn 12] Gross annual CO2 assimilation -- mean-light model.

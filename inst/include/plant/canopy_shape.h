@@ -135,6 +135,16 @@ public:
     return 2.0 * eta_ * (1.0 - u_eta) * u_eta / z;
   }
 
+  // Scalar-templated q for the active crown integral: same Yokozawa density with
+  // active height-ratio and depth, so the mutant's own crown geometry carries its
+  // trait derivative. eta_ stays the frozen double (a seeded eta is out of this
+  // path); pow resolves to XAD by ADL. The double hot path keeps q() above.
+  template <class S>
+  S q_active(S z_over_height, S z) const {
+    const S u_eta = pow(z_over_height, S(eta_));
+    return S(2.0) * S(eta_) * (S(1.0) - u_eta) * u_eta / z;
+  }
+
   double q_from_height(double z, double height) const {
     return q(z / height, z);
   }

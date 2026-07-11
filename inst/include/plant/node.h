@@ -29,7 +29,7 @@ public:
 
   double height() const {return ad_value(individual.state(HEIGHT_INDEX));}
   double compute_competition(double z) const;
-  double fecundity() const {return offspring_produced_survival_weighted;}
+  double fecundity() const {return ad_value(offspring_produced_survival_weighted);}
 
   // Bookkeeping recorded at the moment the node is introduced, so that
   // lifetime-fitness calculations need not look these up after the run.
@@ -109,8 +109,13 @@ private:
   double log_density;
   double log_density_dt;
   double density; // hmm...
-  double offspring_produced_survival_weighted;
-  double offspring_produced_survival_weighted_dt;
+  // The survival-weighted fecundity accumulator and its rate carry the model
+  // scalar so a trait's derivative flows through the invasion offspring metric;
+  // log_density stays double (its rate uses the finite-difference growth gradient
+  // and the census density is read passively). At S = double both are the
+  // resident's plain doubles, so that path is bit-unchanged.
+  value_type offspring_produced_survival_weighted;
+  value_type offspring_produced_survival_weighted_dt;
   double pr_patch_survival_at_birth;
 
   // Recorded at introduction (see set_introduction).
@@ -141,18 +146,20 @@ void Node<T,E>::compute_rates(const environment_type& environment,
     - growth_rate_gradient(environment)
     - ad_value(individual.rate(MORTALITY_INDEX));
   // survival_individual: converts from the mean of the poisson process (on
-  // [0,Inf)) to a probability (on [0,1]).
-  double survival_individual = exp(-ad_value(individual.state(MORTALITY_INDEX)));
-  if (!util::is_finite(survival_individual)) {
+  // [0,Inf)) to a probability (on [0,1]). Kept at the model scalar so the
+  // survival-weighted fecundity rate below carries the trait derivative into the
+  // offspring accumulator (the invasion gradient's whole payload).
+  value_type survival_individual = exp(-individual.state(MORTALITY_INDEX));
+  if (!util::is_finite(ad_value(survival_individual))) {
     // This is caused by NaN values in plant.mortality and log
     // density; this should only be an issue when density is so low
     // that we can throw these away.  I think that with smaller step
     // sizes this is better behaved too?
-    survival_individual = 0.0;
+    survival_individual = value_type(0.0);
   }
 
   offspring_produced_survival_weighted_dt =
-    ad_value(individual.rate(FECUNDITY_INDEX)) * survival_individual *
+    individual.rate(FECUNDITY_INDEX) * survival_individual *
     pr_patch_survival / pr_patch_survival_at_birth;
 }
 
@@ -172,11 +179,15 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   individual.set_initial_states(environment);
   compute_rates(environment, pr_patch_survival);
 
-  const double pr_estab = individual.establishment_probability(environment);
+  // Keep establishment active: the mortality initial condition -log(pr_estab)
+  // feeds the survival weighting, so a trait shifting seedling establishment is a
+  // real part of the invasion offspring gradient. log_density stays double.
+  const value_type pr_estab = individual.establishment_probability_ad(environment);
   individual.set_state("mortality", -log(pr_estab));
   const double g = ad_value(individual.rate(HEIGHT_INDEX));
+  const double pr_estab_d = ad_value(pr_estab);
   // NOTE: log(0.0) -> -Inf, which should behave fine.
-  set_log_density(g > 0 ? log(birth_rate * pr_estab / g) : log(0.0));
+  set_log_density(g > 0 ? log(birth_rate * pr_estab_d / g) : log(0.0));
 
   // Need to check that the rates are valid after setting the
   // mortality value here (can go to -Inf and that requires squashing
@@ -241,18 +252,16 @@ double Node<T,E>::compute_competition(double height_) const {
 // ODE interface -- note that the don't care about time in the node;
 // only Patch and above does.
 // Templated on the state iterator so the individual's cohort state flows at the
-// ODE vector's scalar. The two node-level bookkeeping equations
-// (offspring_produced_survival_weighted, log_density) are held as double -- their
-// rates are already reduced to double in compute_rates -- so an active slot is
-// read through ad_value; a plain double is the identity, so the resident path is
-// bit-unchanged.
+// ODE vector's scalar. offspring_produced_survival_weighted keeps its active
+// value (the invasion metric differentiates through it); log_density is read
+// passively through ad_value. At S = double both are the identity.
 template <typename T, typename E>
 template <class It>
 It Node<T,E>::set_ode_state(It it) {
   for (size_t i = 0; i < individual.ode_size(); i++) {
     individual.set_state(i, *it++);
   }
-  offspring_produced_survival_weighted = ad_value(*it++);
+  offspring_produced_survival_weighted = *it++;
   set_log_density(ad_value(*it++));
   return it;
 }

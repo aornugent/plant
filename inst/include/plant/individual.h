@@ -94,6 +94,13 @@ public:
     return ad_value(strategy->establishment_probability(environment));
   }
 
+  // Establishment probability at the model scalar: the double overload above is
+  // the R/stochastic boundary, this keeps the trait derivative for the mortality
+  // initial condition on the invasion tape. Identity at S = double.
+  value_type establishment_probability_ad(const environment_type &environment) {
+    return strategy->establishment_probability(environment);
+  }
+
   value_type net_mass_production_dt(const environment_type &environment) {
     // TODO(#483):  maybe reuse intervals? default false
     return strategy->net_mass_production_dt(environment, vars);

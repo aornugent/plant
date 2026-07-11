@@ -88,6 +88,17 @@ public:
     return height <= cap ? std::max(0.0, spline(height)) : 1.0;
   }
 
+  // Analytic slope of the (frozen) spline, matching get_value_at_height's clamps:
+  // zero above the cap or where the value is floored to zero, else the
+  // interpolator's exact derivative. Feeds the crown integral's frozen-light
+  // linearisation on the active (gradient) path.
+  double get_deriv_at_height(double height, double cap) const {
+    if (height > cap) {
+      return 0.0;
+    }
+    return std::max(0.0, spline(height)) > 0.0 ? spline.deriv(height) : 0.0;
+  }
+
   virtual void r_init_interpolators(const std::vector<double>& state) {
     // See issue #144; this is important as we have to at least refine
     // the light environment, but doing this is better because it means

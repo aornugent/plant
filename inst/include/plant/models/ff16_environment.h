@@ -81,6 +81,14 @@ public:
     return step_light(light_availability.get_value_at_height(height, cap));
   }
 
+  // Slope of the frozen light profile at height, for the crown integral's
+  // active-height linearisation on the invasion (gradient) path. step_light is
+  // the identity for the smooth (default) shading models, so this is the spline
+  // slope; the PPA staircase's extra chain-rule factor is out of that path.
+  double get_environment_deriv_at_height(double height, double cap) const {
+    return light_availability.get_deriv_at_height(height, cap);
+  }
+
   // Discretise a smooth light value into PPA canopy layers. For the smooth
   // models this is a single predicted branch returning the input unchanged, so
   // it adds no measurable cost to deep-crown/crown-centre. For PPA it maps the
