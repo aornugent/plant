@@ -26,6 +26,16 @@ public:
   template <typename Function>
   double integrate(Function f, double a, double b);
 
+  // Active-bound Gauss-Kronrod: the same rule as integrate(), but the bounds,
+  // abscissae, and accumulator carry the scalar S, so a differentiable upper
+  // bound (a plant's active height) propagates through the moving quadrature
+  // nodes -- the sensitivity a frozen-node replay would miss. Kronrod estimate
+  // only (no Gauss/error/abs/asc), and stateless: it writes none of the last_*
+  // members, so it is const and reentrant under AD. At S=double it returns the
+  // same Kronrod value as integrate().
+  template <typename Function, typename S>
+  S integrate_ad(Function f, S a, S b) const;
+
   // These two provide very low level access to the integration
   // routines.
   std::vector<double> integrate_vector_x(double a, double b) const;
@@ -128,6 +138,39 @@ double QK::integrate(Function f, double a, double b) {
   }
 
   return last_result;
+}
+
+template <typename Function, typename S>
+S QK::integrate_ad(Function f, S a, S b) const {
+  const S center      = 0.5 * (a + b);
+  const S half_length = 0.5 * (b - a);
+
+  const S f_center = f(center);
+  if (f_center != f_center) {  // NaN at the midpoint (self-compare, no <cmath> on S)
+    util::stop("integrate_ad: integrand returned NaN at the interval midpoint");
+  }
+
+  // Accumulate the Kronrod estimate in the same order as integrate() so the
+  // S=double path is bit-identical to it.
+  S result_kronrod = f_center * wgk[n - 1];
+
+  for (size_t j = 0; j < (n - 1) / 2; j++) {
+    const size_t jtw = j * 2 + 1;
+    const S abscissa = half_length * xgk[jtw];
+    result_kronrod += wgk[jtw] * (f(center - abscissa) + f(center + abscissa));
+  }
+
+  for (size_t j = 0; j < n / 2; j++) {
+    const size_t jtwm1 = j * 2;
+    const S abscissa = half_length * xgk[jtwm1];
+    result_kronrod += wgk[jtwm1] * (f(center - abscissa) + f(center + abscissa));
+  }
+
+  result_kronrod *= half_length;
+  if (result_kronrod != result_kronrod) {
+    util::stop("integrate_ad: integrand produced a NaN result");
+  }
+  return result_kronrod;
 }
 
 }
