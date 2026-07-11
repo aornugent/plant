@@ -1,5 +1,10 @@
 #include <plant.h>
 
+// Patch satisfies odelia's Replayable concept, so derivs compiles the frozen-field
+// dispatch the mutant replay needs (record/replay hooks + has_recorded_field).
+static_assert(odelia::ode::Replayable<
+              plant::Patch<plant::FF16_Strategy, plant::FF16_Environment>>);
+
 // Helpers for FF16 model
 
 // [[Rcpp::export]]
