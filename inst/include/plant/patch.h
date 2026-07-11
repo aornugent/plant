@@ -11,10 +11,54 @@
 
 #include <algorithm>
 #include <limits>
+#include <type_traits>
 
 using namespace Rcpp;
 
 namespace plant {
+
+// The active twin of a strategy under scalar S2, or the strategy unchanged when
+// it is not AD-capable (TF24, K93). Keeps the rebind_from() return types
+// (SCM::rebind_from, rebind_parameters) well-formed for every strategy while
+// only FF16 actually rebinds.
+template <class Strat, class S2, class = void>
+struct rebind_strategy { using type = Strat; };
+template <class Strat, class S2>
+struct rebind_strategy<Strat, S2,
+                       std::void_t<typename Strat::template rebind<S2>>> {
+  using type = typename Strat::template rebind<S2>;
+};
+
+// Lift a Parameters onto scalar S2: copy the plain config and lift each
+// strategy's trait values via its own rebind_from. Used by SCM::rebind_from
+// (AD-3) to build the active twin; only instantiated when a gradient is taken
+// (FF16 active), so double-only strategies are untouched.
+template <class S2, class T, class E>
+Parameters<typename rebind_strategy<T, S2>::type, E>
+rebind_parameters(const Parameters<T, E>& src) {
+  using strategy2 = typename rebind_strategy<T, S2>::type;
+  Parameters<strategy2, E> p;
+  p.patch_area = src.patch_area;
+  p.n_patches = src.n_patches;
+  p.patch_type = src.patch_type;
+  p.max_patch_lifetime = src.max_patch_lifetime;
+  p.initial_time = src.initial_time;
+  p.node_schedule_times_default = src.node_schedule_times_default;
+  p.node_schedule_times = src.node_schedule_times;
+  p.ode_times = src.ode_times;
+  p.initial_state = src.initial_state;
+  p.n_initial_cohorts = src.n_initial_cohorts;
+  p.initial_node_times = src.initial_node_times;
+  p.initial_patch_density = src.initial_patch_density;
+  p.initial_pr_patch_survival = src.initial_pr_patch_survival;
+  p.strategy_default = src.strategy_default.template rebind_from<S2>();
+  p.strategies.clear();
+  for (const auto& s : src.strategies) {
+    p.strategies.push_back(s.template rebind_from<S2>());
+  }
+  p.validate();
+  return p;
+}
 
 template <typename T, typename E>
 class Patch {

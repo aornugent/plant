@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
+#include <type_traits>
 
 using namespace Rcpp;
 
@@ -38,6 +40,33 @@ public:
 
   // ---- Construction ------------------------------------------------------
   SCM(parameters_type p, environment_type e, plant::Control c);
+
+  // ---- odelia gradient-driver contract (the SCM is the runnable) ---------
+  // A trait gradient runs through the existing run()/run_mutant(): the driver
+  // lifts the double SCM to an active twin (rebind_from), seeds the live
+  // system's ad_parameters(), and calls reset()/run() under the tape. Cohort
+  // introductions are interleaved between advance_fixed segments (run_next_impl),
+  // so the SCM -- not the inner odelia Solver -- is the runnable.
+
+  // The live system the solver owns (mutated in place across the run), not the
+  // `patch` snapshot member.
+  patch_type& get_system_ref() { return solver.get_system_ref(); }
+
+  // Reverse-mode tape the driver creates lazily and reuses across a Jacobian's
+  // rows. A shared_ptr (not unique_ptr) so the SCM stays copyable for the
+  // RcppR6 bindings; the tape is rebuildable amortization scratch, not value,
+  // so sharing it across the off-AD-path copies is harmless.
+  std::shared_ptr<xad::adj<double>::tape_type> tape;
+
+  // The double -> active mould: lift the configuration onto S2 and build the
+  // active SCM (node_schedule is rebuilt double from the lifted parameters --
+  // L0 introduction times are constants). Only FF16 rebinds (rebind_strategy),
+  // so double-only strategies (TF24, K93) are untouched; the body is
+  // instantiated only when a gradient is taken (the FF16 invasion port). Unlike
+  // a Patch-level hook, this is never probed by odelia's RODAS stepper (which
+  // differentiates the Solver's System, the Patch), so it is safe to expose now.
+  template <class S2>
+  SCM<typename rebind_strategy<T, S2>::type, E> rebind_from() const;
 
   // ---- Simulation lifecycle ----------------------------------------------
 
@@ -375,14 +404,34 @@ void SCM<T, E>::refine_schedule() {
 // currently no other way to set that time; it might be cleaner to add an
 // odelia::ode::Solver::set_time and call set_time(0) explicitly here.
 template <typename T, typename E> void SCM<T, E>::reset() {
-  patch.reset();
   node_schedule.reset();
-  // Seed the solver's owned system from the freshly reset patch, then reset
-  // the solver's time/step state and sync the snapshot back.
-  solver.get_system_ref() = patch;
-  solver.reset();
-  patch = solver.get_system_ref();
+  if constexpr (std::is_same_v<typename T::value_type, double>) {
+    // Double resident path (unchanged): reset the `patch` snapshot, copy it
+    // into the solver's owned system (this is how run_mutant's overwritten
+    // strategies reach the solver), reset the solver, sync the snapshot back.
+    patch.reset();
+    solver.get_system_ref() = patch;
+    solver.reset();
+    patch = solver.get_system_ref();
+  } else {
+    // Active twin: the gradient driver has seeded the solver's owned system in
+    // place (get_system_ref().ad_parameters()). Reset that system from its own
+    // seeded parameters -- solver.reset() calls its system's reset() (Patch::
+    // reset, which re-freezes the derived quantities, AD-2). Copying the
+    // unseeded `patch` snapshot over it here would clobber the seed.
+    solver.reset();
+  }
   history.clear();
+}
+
+template <typename T, typename E>
+template <class S2>
+SCM<typename rebind_strategy<T, S2>::type, E> SCM<T, E>::rebind_from() const {
+  using strategy2 = typename rebind_strategy<T, S2>::type;
+  // Reuse the (double) environment -- invasion reads it frozen -- and control;
+  // the active SCM ctor rebuilds node_schedule from the lifted parameters.
+  return SCM<strategy2, E>(rebind_parameters<S2>(parameters),
+                           patch.r_environment(), control);
 }
 
 template <typename T, typename E> bool SCM<T, E>::complete() const {
