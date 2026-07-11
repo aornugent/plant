@@ -19,6 +19,10 @@ public:
   typedef E             environment_type;
   typedef std::shared_ptr<Strategy> ptr;
 
+  // Scalar the cohort state and physiology use: double for every strategy but
+  // FF16, which templates it (FF16_Strategy_<S>) so trait gradients can be taken.
+  using value_type = double;
+
   // update this when the length of state_names changes
   static size_t state_size ();
   // update this when the length of aux_names changes

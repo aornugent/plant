@@ -27,6 +27,7 @@ public:
   typedef Individual<T,E>  individual_type;
   typedef Node<T,E> node_type;
   typedef typename strategy_type::ptr strategy_type_ptr;
+  using value_type = typename strategy_type::value_type;
   Species(strategy_type s);
 
   // ODE plumbing and the per-element serialisers are inherited from SpeciesBase

@@ -17,6 +17,7 @@ public:
   typedef E        environment_type;
   typedef Individual<T,E> individual_type;
   typedef typename strategy_type::ptr strategy_type_ptr;
+  using value_type = typename strategy_type::value_type;
   Node(strategy_type_ptr s);
 
   void compute_rates(const environment_type& environment, double pr_patch_survival);

@@ -16,6 +16,9 @@ public:
   typedef T strategy_type;
   typedef E environment_type;
   typedef typename strategy_type::ptr strategy_type_ptr;
+  // Scalar the cohort state is held and differentiated in; double for the
+  // resident model, an active scalar when a trait gradient is taken.
+  using value_type = typename strategy_type::value_type;
   // for the time being...
   Individual(strategy_type_ptr s) : strategy(s) {
     if (strategy->aux_index.size() != s->aux_size()) {
@@ -32,16 +35,16 @@ public:
   }
   
   // useage: state(HEIGHT_INDEX)
-  double state(std::string name) const {
+  value_type state(std::string name) const {
     return vars.state(strategy->state_index.at(name));
   }
-  double state(int i) const { return vars.state(i); }
-  
+  value_type state(int i) const { return vars.state(i); }
+
   // useage:_rate("area_heartwood")
-  double rate(std::string name) const {
+  value_type rate(std::string name) const {
     return vars.rate(strategy->state_index.at(name));
   }
-  double rate(int i) const { return vars.rate(i); }
+  value_type rate(int i) const { return vars.rate(i); }
 
   // useage: set_state("height", 2.0)
   void set_state(std::string name, double v) {
@@ -55,18 +58,18 @@ public:
   }
 
   // aux vars by name and index
-  double aux(std::string name) const {
+  value_type aux(std::string name) const {
     return vars.aux(strategy->aux_index.at(name));
   }
-  double aux(int i) const { return vars.aux(i); }
+  value_type aux(int i) const { return vars.aux(i); }
 
   // set # consumable resources based on env. variables
   void resize_consumption_rates(int i) {
     vars.resize_consumption_rates(i);
   }
-  double consumption_rate(int i) const { return vars.consumption_rate(i); }
+  value_type consumption_rate(int i) const { return vars.consumption_rate(i); }
 
-  double compute_competition(double z) const {
+  value_type compute_competition(double z) const {
     return strategy->compute_competition(z, vars);
   }
 
@@ -88,7 +91,7 @@ public:
     return strategy->establishment_probability(environment);
   }
 
-  double net_mass_production_dt(const environment_type &environment) {
+  value_type net_mass_production_dt(const environment_type &environment) {
     // TODO(#483):  maybe reuse intervals? default false
     return strategy->net_mass_production_dt(environment, vars);
   }
@@ -172,12 +175,12 @@ public:
 
   // ! External R code depends on knowing r internals for like growing plant to
   // ! height or something
-  Internals r_internals() const { return vars; }
+  Internals_<value_type> r_internals() const { return vars; }
   const Control &control() const { return strategy->control; }
 
 private:
   strategy_type_ptr strategy;
-  Internals vars;
+  Internals_<value_type> vars;
 };
 
 template <typename T, typename E> Individual<T,E> make_individual(T s) {
