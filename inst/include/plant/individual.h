@@ -107,20 +107,27 @@ public:
   size_t aux_size() const { return strategy->aux_size(); }
   std::vector<std::string> aux_names() { return strategy->aux_names(); }
 
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it) {
+  // Templated on the state iterator so the cohort state flows at whatever scalar
+  // the ODE vector holds: double for the resident, an active scalar under a
+  // gradient. vars is Internals_<value_type>, so the slot type matches the
+  // iterator's element type and no active->double narrowing occurs.
+  template <class It>
+  It set_ode_state(It it) {
     for (size_t i = 0; i < vars.state_size; i++) {
       vars.states[i] = *it++;
       strategy->update_dependent_aux(i, vars);
     }
     return it;
   }
-  odelia::ode::iterator ode_state(odelia::ode::iterator it) const {
+  template <class It>
+  It ode_state(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.states[i];
     }
     return it;
   }
-  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const {
+  template <class It>
+  It ode_rates(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.rates[i];
     }

@@ -80,9 +80,9 @@ public:
   // +2 for log_density and offspring_production_dt
   static size_t ode_size() { return strategy_type::state_size() + 2; }
   size_t aux_size() const { return individual.aux_size(); }
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it);
-  odelia::ode::iterator       ode_state(odelia::ode::iterator it) const;
-  odelia::ode::iterator       ode_rates(odelia::ode::iterator it) const;
+  template <class It> It set_ode_state(It it);
+  template <class It> It ode_state(It it) const;
+  template <class It> It ode_rates(It it) const;
   odelia::ode::iterator       ode_aux(odelia::ode::iterator it) const;
 
   static std::vector<std::string> ode_names() {
@@ -240,17 +240,25 @@ double Node<T,E>::compute_competition(double height_) const {
 
 // ODE interface -- note that the don't care about time in the node;
 // only Patch and above does.
+// Templated on the state iterator so the individual's cohort state flows at the
+// ODE vector's scalar. The two node-level bookkeeping equations
+// (offspring_produced_survival_weighted, log_density) are held as double -- their
+// rates are already reduced to double in compute_rates -- so an active slot is
+// read through ad_value; a plain double is the identity, so the resident path is
+// bit-unchanged.
 template <typename T, typename E>
-odelia::ode::const_iterator Node<T,E>::set_ode_state(odelia::ode::const_iterator it) {
+template <class It>
+It Node<T,E>::set_ode_state(It it) {
   for (size_t i = 0; i < individual.ode_size(); i++) {
     individual.set_state(i, *it++);
   }
-  offspring_produced_survival_weighted = *it++;
-  set_log_density(*it++);
+  offspring_produced_survival_weighted = ad_value(*it++);
+  set_log_density(ad_value(*it++));
   return it;
 }
 template <typename T, typename E>
-odelia::ode::iterator Node<T,E>::ode_state(odelia::ode::iterator it) const {
+template <class It>
+It Node<T,E>::ode_state(It it) const {
   for (size_t i = 0; i < individual.ode_size(); i++) {
     *it++ = individual.state(i);
   }
@@ -259,7 +267,8 @@ odelia::ode::iterator Node<T,E>::ode_state(odelia::ode::iterator it) const {
   return it;
 }
 template <typename T, typename E>
-odelia::ode::iterator Node<T,E>::ode_rates(odelia::ode::iterator it) const {
+template <class It>
+It Node<T,E>::ode_rates(It it) const {
   for (size_t i = 0; i < individual.ode_size(); i++) {
     *it++ = individual.rate(i);
   }

@@ -10,10 +10,26 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <type_traits>
+#include <utility>
 
 using namespace Rcpp;
 
 namespace plant {
+
+template <typename T, typename E> class SCM;
+
+namespace detail {
+// Carries the SCM `rebind` alias (double -> active mould) only for AD-liftable
+// strategies, mirroring PatchRebind: the double-only strategies (TF24, K93) get
+// no rebind, so nothing probes a strategy that cannot lift.
+template <class T, class E, bool = strategy_is_ad<T>::value>
+struct SCMRebind {};
+template <class T, class E>
+struct SCMRebind<T, E, true> {
+  template <class S2> using rebind = SCM<typename T::template rebind<S2>, E>;
+};
+}
 
 // SCM: the "Solver for Characteristics Method" driver.
 //
@@ -25,7 +41,8 @@ namespace plant {
 // The patch owns all of the ecology (fitness, offspring, competition, error
 // computations); the SCM is the time-stepping/scheduling layer on top of it.
 // Most r_* members are thin facades that expose the C++ API to R via RcppR6.
-template <typename T, typename E> class SCM {
+template <typename T, typename E>
+class SCM : public detail::SCMRebind<T, E> {
 public:
   // ---- Type aliases ------------------------------------------------------
   typedef T                strategy_type;
@@ -35,9 +52,49 @@ public:
   typedef Species<T, E>    species_type;
   typedef Patch<T, E>      patch_type;
   typedef Parameters<T, E> parameters_type;
+  // Scalar the cohort trajectory is stepped in: double for the resident, an
+  // active scalar when a trait gradient replays the run.
+  using value_type = typename T::value_type;
 
   // ---- Construction ------------------------------------------------------
   SCM(parameters_type p, environment_type e, plant::Control c);
+
+  // Copyable so RcppR6 can hold the SCM by pointer (it copies on wrap). The tape
+  // is rebuildable amortization scratch, not part of the SCM's value, so a copy
+  // starts with it empty (mirrors odelia's Solver copy). The implicit copy would
+  // otherwise be deleted by the unique_ptr tape member.
+  SCM(const SCM& o)
+    : collect(o.collect), collect_refinement_errors(o.collect_refinement_errors),
+      history(o.history), parameters(o.parameters), control(o.control),
+      patch(o.patch), node_schedule(o.node_schedule), solver(o.solver) {}
+  SCM& operator=(const SCM& o) {
+    collect = o.collect; collect_refinement_errors = o.collect_refinement_errors;
+    history = o.history; parameters = o.parameters; control = o.control;
+    patch = o.patch; node_schedule = o.node_schedule; solver = o.solver;
+    tape.reset();
+    return *this;
+  }
+  SCM(SCM&&) = default;
+  SCM& operator=(SCM&&) = default;
+
+  // ---- Differentiable-runnable surface -----------------------------------
+  // The odelia gradient driver (compute_jacobian) drives the SCM as its runnable:
+  // it reaches the active parameters/initial state and the functional reads the
+  // cohorts through this handle, and manages `tape` (creates it once, reuses it
+  // across the Jacobian's rows). See §3 of the AD implementation spec.
+  patch_type& get_system_ref() { return solver.get_system_ref(); }
+
+  // Config-only lift of this SCM onto the active scalar S2: the traits carry
+  // across via ad_value, the environment stays double (an invasion reads it
+  // frozen), and the schedule is rebuilt from the lifted parameters (node_schedule
+  // stays double -- introduction times are constants). The gradient driver builds
+  // the active twin with this before seeding and replaying. Gated to S2 !=
+  // value_type (self-lift is a copy) so the stiff-Jacobian probe stays double.
+  template <class S2, class = std::enable_if_t<!std::is_same_v<S2, value_type>>>
+  auto rebind_from() const {
+    return typename detail::SCMRebind<T, E>::template rebind<S2>(
+        parameters.template rebind_from<S2>(), patch.r_environment(), control);
+  }
 
   // ---- Simulation lifecycle ----------------------------------------------
 
@@ -110,6 +167,11 @@ public:
   bool collect;                    // record a patch snapshot after each step
   bool collect_refinement_errors;  // accumulate competition errors during run
   std::vector<patch_type> history; // per-step patch snapshots when collect
+
+  // Reverse tape the gradient driver creates once and reuses across a Jacobian's
+  // rows. Its type is forwarded from the inner Solver, so no XAD tape primitive is
+  // named in plant source; on the resident (double) path it is never created.
+  decltype(std::declval<odelia::ode::Solver<patch_type>>().tape) tape;
 
 private:
   // Upwind bisection: insert the midpoint of the interval below each flagged
@@ -231,11 +293,18 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
     if (node_schedule.using_ode_times()) {
       util::stop("Resuming from an initial state is not supported for "
                  "ode-time replay / mutant runs");
-    } else if (control.fixed_time_step > 0.0) {
-      solver.advance_euler(
-          uniform_euler_times(t0, e.time_introduction(), control.fixed_time_step));
+    } else if constexpr (std::is_same_v<value_type, double>) {
+      // Adaptive / forward-Euler stepping is the resident (double) path only:
+      // odelia's step-size controller is double-typed, so an active gradient
+      // replay must use a pinned ode-times schedule (the branch above).
+      if (control.fixed_time_step > 0.0) {
+        solver.advance_euler(
+            uniform_euler_times(t0, e.time_introduction(), control.fixed_time_step));
+      } else {
+        solver.advance_adaptive({solver.time(), e.time_introduction()});
+      }
     } else {
-      solver.advance_adaptive({solver.time(), e.time_introduction()});
+      util::stop("An active (gradient) SCM replay requires a pinned ode-times schedule");
     }
     if (sync_patch) {
       patch = sys;
@@ -276,11 +345,18 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
                  "ode-time replay / mutant runs");
     }
     solver.advance_fixed(e.times);
-  } else if (control.fixed_time_step > 0.0) {
-    solver.advance_euler(
-        uniform_euler_times(t0, e.time_end(), control.fixed_time_step));
+  } else if constexpr (std::is_same_v<value_type, double>) {
+    // Adaptive / forward-Euler stepping is the resident (double) path only:
+    // odelia's step-size controller is double-typed, so an active gradient replay
+    // must use a pinned ode-times schedule (the branch above).
+    if (control.fixed_time_step > 0.0) {
+      solver.advance_euler(
+          uniform_euler_times(t0, e.time_end(), control.fixed_time_step));
+    } else {
+      solver.advance_adaptive({solver.time(), e.time_end()});
+    }
   } else {
-    solver.advance_adaptive({solver.time(), e.time_end()});
+    util::stop("An active (gradient) SCM replay requires a pinned ode-times schedule");
   }
 
   if (sync_patch) {
@@ -375,13 +451,22 @@ void SCM<T, E>::refine_schedule() {
 // currently no other way to set that time; it might be cleaner to add an
 // odelia::ode::Solver::set_time and call set_time(0) explicitly here.
 template <typename T, typename E> void SCM<T, E>::reset() {
-  patch.reset();
-  node_schedule.reset();
-  // Seed the solver's owned system from the freshly reset patch, then reset
-  // the solver's time/step state and sync the snapshot back.
-  solver.get_system_ref() = patch;
-  solver.reset();
-  patch = solver.get_system_ref();
+  if constexpr (std::is_same_v<value_type, double>) {
+    patch.reset();
+    node_schedule.reset();
+    // Seed the solver's owned system from the freshly reset patch, then reset
+    // the solver's time/step state and sync the snapshot back.
+    solver.get_system_ref() = patch;
+    solver.reset();
+    patch = solver.get_system_ref();
+  } else {
+    // Active path: the solver's own system holds the driver's seed. Re-initialise
+    // it in place (solver.reset() calls Patch::reset, which re-derives cohort state
+    // from the seeded parameters) rather than copying the stored double `patch`
+    // snapshot over it, which would clobber the seed.
+    node_schedule.reset();
+    solver.reset();
+  }
   history.clear();
 }
 

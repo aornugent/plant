@@ -8,6 +8,7 @@
 #include <odelia/ode_interface.hpp>
 #include <plant/internals.h>
 #include <plant/util.h>
+#include <plant/ad_value.h>
 #include <unordered_map>
 #include <Rcpp.h>
 #include <plant/extrinsic_drivers.h>
@@ -35,21 +36,28 @@ public:
   size_t ode_size() const { return vars.state_size; }
   virtual void compute_rates(std::vector<double> const& resource_depletion){};
 
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it) {
+  // Templated on the state iterator so the environment threads through an active
+  // ODE vector. The environment stays double (an invasion reads it frozen), so a
+  // read from an active slot is taken through ad_value (identity for double, so
+  // the resident path is bit-unchanged). No-op where the environment has no state.
+  template <class It>
+  It set_ode_state(It it) {
     for (size_t i = 0; i < vars.state_size; i++) {
-      vars.states[i] = *it++;
+      vars.states[i] = ad_value(*it++);
     }
     return it;
   }
 
-  odelia::ode::iterator ode_state(odelia::ode::iterator it) const {
+  template <class It>
+  It ode_state(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.states[i];
     }
     return it;
   }
 
-  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const {
+  template <class It>
+  It ode_rates(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.rates[i];
     }

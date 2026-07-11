@@ -46,19 +46,30 @@ public:
 
   size_t size_individuals() const { return nodes.size(); }
 
-  // * ODE interface -- delegates to the shared odelia free functions over the
-  // derived class's chosen element range (all nodes, or the living subset).
+  // * ODE interface -- iterate the derived class's chosen element range (all
+  // nodes, or the living subset). Templated on the state iterator so the range
+  // can be serialised at either scalar (odelia's free functions are double-only);
+  // for the double resident this is the same walk they perform.
   size_t ode_size() const {
     return odelia::ode::ode_size(d().node_begin(), d().node_end());
   }
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it) {
-    return odelia::ode::set_ode_state(d().node_begin(), d().node_end(), it);
+  template <class It>
+  It set_ode_state(It it) {
+    auto first = d().node_begin(), last = d().node_end();
+    for (; first != last; ++first) { it = first->set_ode_state(it); }
+    return it;
   }
-  odelia::ode::iterator ode_state(odelia::ode::iterator it) const {
-    return odelia::ode::ode_state(d().node_begin(), d().node_end(), it);
+  template <class It>
+  It ode_state(It it) const {
+    auto first = d().node_begin(), last = d().node_end();
+    for (; first != last; ++first) { it = first->ode_state(it); }
+    return it;
   }
-  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const {
-    return odelia::ode::ode_rates(d().node_begin(), d().node_end(), it);
+  template <class It>
+  It ode_rates(It it) const {
+    auto first = d().node_begin(), last = d().node_end();
+    for (; first != last; ++first) { it = first->ode_rates(it); }
+    return it;
   }
 
   // Serialise one element's ODE state / aux into an R matrix column. Generic
