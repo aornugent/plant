@@ -55,7 +55,7 @@ public:
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
   std::vector<double> net_reproduction_ratio_by_node() const;
   // Per-node lifetime offspring, weighted by patch-age density and S_D.
-  std::vector<double> net_reproduction_ratio_by_node_weighted() const;
+  std::vector<value_type> net_reproduction_ratio_by_node_weighted() const;
   // Introduction times of each node (the integration x-axis for fitness).
   std::vector<double> node_times() const;
 
@@ -266,8 +266,9 @@ std::vector<double> Species<T,E>::net_reproduction_ratio_by_node() const {
 }
 
 template <typename T, typename E>
-std::vector<double> Species<T,E>::net_reproduction_ratio_by_node_weighted() const {
-  std::vector<double> ret;
+std::vector<typename Species<T,E>::value_type>
+Species<T,E>::net_reproduction_ratio_by_node_weighted() const {
+  std::vector<value_type> ret;
   ret.reserve(size());
   for (auto& c : nodes) {
     ret.push_back(c.weighted_fecundity(strategy->pars.S_D));

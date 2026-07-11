@@ -1,5 +1,8 @@
 #include <plant/models/ff16_strategy.h>
 #include <plant/models/ff16_production_kernel.h>
+#include <plant/individual.h>
+#include <plant/patch.h>
+#include <odelia/ode_solver.hpp>
 #include <XAD/XAD.hpp>
 #include <algorithm>
 #include <cmath>
@@ -689,4 +692,10 @@ FF16_Strategy::ptr make_strategy_ptr(FF16_Strategy s) {
 // completed once the crown quadrature and environment run at the active scalar.
 template class FF16_Strategy_<double>;
 template class FF16_Strategy_<xad::fwd<double>::active_type>;
+
+// Reverse-mode active scalar via odelia's Solver alias (plant names no XAD
+// reverse primitive); emits FF16's out-of-line virtuals for the active vtable.
+using ad_reverse =
+    odelia::ode::Solver<Patch<FF16_Strategy_<double>, FF16_Environment>>::active_scalar;
+template class FF16_Strategy_<ad_reverse>;
 }

@@ -4220,6 +4220,14 @@ node_schedule_times_default <- function(max_time) {
     .Call('_plant_node_schedule_times_default', PACKAGE = 'plant', max_time)
 }
 
+invasion_gradient_cpp <- function(scm, metrics, traits, species, strategy) {
+    .Call('_plant_invasion_gradient_cpp', PACKAGE = 'plant', scm, metrics, traits, species, strategy)
+}
+
+stand_gradient_cpp <- function(scm, metrics, traits, species, strategy) {
+    .Call('_plant_stand_gradient_cpp', PACKAGE = 'plant', scm, metrics, traits, species, strategy)
+}
+
 FF16_strategy_expand_allometry <- function(s, height, area_heartwood, mass_heartwood) {
     .Call('_plant_FF16_strategy_expand_allometry', PACKAGE = 'plant', s, height, area_heartwood, mass_heartwood)
 }

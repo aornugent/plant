@@ -56,9 +56,9 @@ public:
     pr_patch_survival_at_birth = pr_patch_survival;
   }
 
-  // Lifetime offspring of this node, weighted by the probability of
-  // landing in a patch of the node's age and by survival during dispersal.
-  double weighted_fecundity(double S_D) const {
+  // Lifetime offspring of this node (patch-age density and dispersal survival
+  // weighted). Scalar-templated so a seeded S_D carries its derivative.
+  value_type weighted_fecundity(value_type S_D) const {
     return offspring_produced_survival_weighted * patch_density_at_birth * S_D;
   }
 

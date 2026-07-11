@@ -11802,6 +11802,36 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// invasion_gradient_cpp
+Rcpp::List invasion_gradient_cpp(SEXP scm, std::vector<std::string> metrics, std::vector<std::string> traits, int species, std::string strategy);
+RcppExport SEXP _plant_invasion_gradient_cpp(SEXP scmSEXP, SEXP metricsSEXP, SEXP traitsSEXP, SEXP speciesSEXP, SEXP strategySEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type scm(scmSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type metrics(metricsSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type traits(traitsSEXP);
+    Rcpp::traits::input_parameter< int >::type species(speciesSEXP);
+    Rcpp::traits::input_parameter< std::string >::type strategy(strategySEXP);
+    rcpp_result_gen = Rcpp::wrap(invasion_gradient_cpp(scm, metrics, traits, species, strategy));
+    return rcpp_result_gen;
+END_RCPP
+}
+// stand_gradient_cpp
+Rcpp::List stand_gradient_cpp(SEXP scm, std::vector<std::string> metrics, std::vector<std::string> traits, int species, std::string strategy);
+RcppExport SEXP _plant_stand_gradient_cpp(SEXP scmSEXP, SEXP metricsSEXP, SEXP traitsSEXP, SEXP speciesSEXP, SEXP strategySEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type scm(scmSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type metrics(metricsSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type traits(traitsSEXP);
+    Rcpp::traits::input_parameter< int >::type species(speciesSEXP);
+    Rcpp::traits::input_parameter< std::string >::type strategy(strategySEXP);
+    rcpp_result_gen = Rcpp::wrap(stand_gradient_cpp(scm, metrics, traits, species, strategy));
+    return rcpp_result_gen;
+END_RCPP
+}
 // FF16_strategy_expand_allometry
 Rcpp::List FF16_strategy_expand_allometry(plant::FF16_Strategy s, Rcpp::NumericVector height, Rcpp::NumericVector area_heartwood, Rcpp::NumericVector mass_heartwood);
 RcppExport SEXP _plant_FF16_strategy_expand_allometry(SEXP sSEXP, SEXP heightSEXP, SEXP area_heartwoodSEXP, SEXP mass_heartwoodSEXP) {
@@ -13000,6 +13030,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_node_schedule_default__Parameters___K93__K93_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___K93__K93_Env, 1},
     {"_plant_make_node_schedule__Parameters___K93__K93_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___K93__K93_Env, 1},
     {"_plant_node_schedule_times_default", (DL_FUNC) &_plant_node_schedule_times_default, 1},
+    {"_plant_invasion_gradient_cpp", (DL_FUNC) &_plant_invasion_gradient_cpp, 5},
+    {"_plant_stand_gradient_cpp", (DL_FUNC) &_plant_stand_gradient_cpp, 5},
     {"_plant_FF16_strategy_expand_allometry", (DL_FUNC) &_plant_FF16_strategy_expand_allometry, 4},
     {"_plant_TF24_strategy_expand_allometry", (DL_FUNC) &_plant_TF24_strategy_expand_allometry, 4},
     {"_plant_TF24f_strategy_expand_allometry", (DL_FUNC) &_plant_TF24f_strategy_expand_allometry, 4},
