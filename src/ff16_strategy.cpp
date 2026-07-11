@@ -1,6 +1,7 @@
 #include <plant/models/ff16_strategy.h>
 #include <plant/models/ff16_production_kernel.h>
 #include <XAD/XAD.hpp>  // xad::value, the one sanctioned active -> double read
+#include <type_traits>  // if constexpr dispatch of the crown integral
 
 namespace plant {
 
@@ -65,7 +66,8 @@ S FF16_Strategy_<S>::area_stem(S area_bark, S area_sapwood,
 
 template <class S>
 S FF16_Strategy_<S>::diameter_stem(S area_stem) const {
-  return std::sqrt(4 * area_stem / M_PI);
+  using std::sqrt;  // std::sqrt for double; xad::sqrt by ADL for an active scalar
+  return sqrt(4 * area_stem / M_PI);
 }
 
 // [eqn 7] Mass of (fine) roots
@@ -167,15 +169,25 @@ S FF16_Strategy_<S>::assimilation_deep_crown(const FF16_Environment& environment
   // capped get_environment_at_height() overload rather than re-reading
   // spline.max() at every quadrature point.
   const double canopy_top = environment.max_environment_height();
-  auto f = [&](double z) -> double {
+  // One integrand typed on S: at S=double it is the original double closure
+  // (bit-identical); at an active scalar the quadrature abscissa z is active,
+  // so the light is read at the plant's own active depth and q carries the
+  // crown-ratio derivative. Materialise z*height_inverse to S before q() so
+  // template deduction sees the scalar, not an XAD expression.
+  auto f = [&](S z) -> S {
+    const S u = z * height_inverse;
     return assimilation_leaf(environment.get_environment_at_height(z, canopy_top)) *
-      canopy_shape.q(z * height_inverse, z);
+      canopy_shape.q(u, z);
   };
 
-  // Integrate over crown depth using using Gauss-Kronrod quadrature.
-  // The number of points used in the integration is determined by the control parameter
-  // function_integration_rule. Rules defined in qk_rules.cpp
-  A = function_integrator.integrate(f, 0.0, height);
+  // Integrate over crown depth using Gauss-Kronrod quadrature. The active bound
+  // (the plant's height) propagates through the moving nodes via integrate_ad;
+  // the double path keeps the original integrate() (rule and result unchanged).
+  if constexpr (std::is_same_v<S, double>) {
+    A = function_integrator.integrate(f, 0.0, height);
+  } else {
+    A = function_integrator.integrate_ad(f, S(0.0), height);
+  }
 
   return area_leaf * A;
 }
@@ -194,11 +206,16 @@ S FF16_Strategy_<S>::assimilation_average_light(const FF16_Environment& environm
                                                  S area_leaf,
                                                  S height_inverse) {
   const double canopy_top = environment.max_environment_height();
-  auto f = [&](double z) -> double {
-    return environment.get_environment_at_height(z, canopy_top) *
-      canopy_shape.q(z * height_inverse, z);
+  auto f = [&](S z) -> S {
+    const S u = z * height_inverse;
+    return environment.get_environment_at_height(z, canopy_top) * canopy_shape.q(u, z);
   };
-  const double mean_light = function_integrator.integrate(f, 0.0, height);
+  S mean_light;
+  if constexpr (std::is_same_v<S, double>) {
+    mean_light = function_integrator.integrate(f, 0.0, height);
+  } else {
+    mean_light = function_integrator.integrate_ad(f, S(0.0), height);
+  }
   return area_leaf * assimilation_leaf(mean_light);
 }
 
@@ -214,7 +231,10 @@ S FF16_Strategy_<S>::assimilation_crown_top(const FF16_Environment& environment,
                                              S height,
                                              S area_leaf,
                                              S /* height_inverse */) {
-  const double E = environment.get_environment_at_height(height * eta_c);
+  // Materialise the crown-centre height to S so the active-query read (and, at
+  // S=double, the plain double read) sees a scalar rather than an expression.
+  const S z = height * eta_c;
+  const S E = environment.get_environment_at_height(z);
   return area_leaf * assimilation_leaf(E);
 }
 
@@ -521,7 +541,7 @@ S FF16_Strategy_<S>::mortality_dt(S productivity_area,
   // levels and the rate of change won't matter.  It is possible that
   // we will need to trim this to some large finite value, but for
   // now, just checking that the actual mortality rate is finite.
-  if (util::is_finite(cumulative_mortality)) {
+  if (util::is_finite(xad::value(cumulative_mortality))) {
     return
       mortality_growth_independent_dt() +
       mortality_growth_dependent_dt(productivity_area);

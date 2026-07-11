@@ -8,6 +8,7 @@
 #include <odelia/ode_interface.hpp>
 #include <plant/util.h>
 #include <algorithm> // std::max, for the resource-availability floor (#253)
+#include <type_traits> // active-query read overloads
 
 using namespace Rcpp;
 
@@ -86,6 +87,26 @@ public:
     // FF16/K93/TF24, and belongs here in plant rather than in the
     // general-purpose interpolator (which is migrating to odelia).
     return height <= cap ? std::max(0.0, spline(height)) : 1.0;
+  }
+
+  // Active-query reads: the resource value at an active height (a plant's own
+  // height under a trait gradient), with the spline's knots and values held
+  // fixed -- the derivative flows through the query, so a plant reading a
+  // frozen profile at its active height carries dvalue/dheight. Mirrors the
+  // double reads above (the same cap guard and the #253 zero floor, here a
+  // value-branch so it is a no-op at the operating point). Restricted to
+  // non-double S so the double reads stay the resident path.
+  template <typename S, typename = std::enable_if_t<!std::is_same_v<S, double>>>
+  S get_value_at_height(S height) const {
+    return get_value_at_height(height, spline.max());
+  }
+  template <typename S, typename = std::enable_if_t<!std::is_same_v<S, double>>>
+  S get_value_at_height(S height, double cap) const {
+    if (xad::value(height) > cap) {
+      return S(1.0);
+    }
+    S value = spline(height);
+    return xad::value(value) < 0.0 ? S(0.0) : value;
   }
 
   virtual void r_init_interpolators(const std::vector<double>& state) {

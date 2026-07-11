@@ -7,6 +7,7 @@
 #include <odelia/interpolator.hpp>
 #include <plant/canopy_shape.h> // ShadingModel, shading_model_from_string
 #include <cmath>                // std::log, std::exp, std::floor (PPA stepping)
+#include <type_traits>          // active-query read overloads
 
 using namespace Rcpp;
 
@@ -81,6 +82,20 @@ public:
     return step_light(light_availability.get_value_at_height(height, cap));
   }
 
+  // Active-query reads: the light at an active height, with the profile frozen.
+  // The value derivative w.r.t. the mutant trait is zero (the resident light is
+  // fixed), but the plant sampling the profile at its own active height carries
+  // dE/dheight -- the moving-node sensitivity the invasion FD gate needs.
+  // Restricted to non-double S so the double reads stay the resident path.
+  template <typename S, typename = std::enable_if_t<!std::is_same_v<S, double>>>
+  S get_environment_at_height(S height) const {
+    return step_light(light_availability.get_value_at_height(height));
+  }
+  template <typename S, typename = std::enable_if_t<!std::is_same_v<S, double>>>
+  S get_environment_at_height(S height, double cap) const {
+    return step_light(light_availability.get_value_at_height(height, cap));
+  }
+
   // Discretise a smooth light value into PPA canopy layers. For the smooth
   // models this is a single predicted branch returning the input unchanged, so
   // it adds no measurable cost to deep-crown/crown-centre. For PPA it maps the
@@ -98,6 +113,43 @@ public:
     }
     const double tau = -std::log(E);
     return std::exp(-layer_optical_depth * smooth_floor(tau / layer_optical_depth));
+  }
+
+  // Active-scalar step_light: identity for the smooth models (the FF16 default),
+  // so the invasion path is a single predicted branch. The stepped (PPA) path
+  // is expressed in S too -- the layer index is floor(value(tau)) (piecewise
+  // constant, zero derivative) and the smoothstep is active -- so it compiles
+  // for an active scalar even though the canonical FF16 case never takes it.
+  template <typename S, typename = std::enable_if_t<!std::is_same_v<S, double>>>
+  S step_light(S E) const {
+    using std::exp;
+    if (!light_profile_stepped || xad::value(E) >= 1.0) {
+      return E;
+    }
+    if (xad::value(E) <= 0.0) {
+      return S(0.0);
+    }
+    using std::log;
+    const S tau = -log(E);
+    // Materialise the quotient to S before smooth_floor so template deduction
+    // sees the active scalar, not an XAD expression type.
+    const S layers = tau / layer_optical_depth;
+    return exp(-layer_optical_depth * smooth_floor(layers));
+  }
+
+  template <typename S, typename = std::enable_if_t<!std::is_same_v<S, double>>>
+  S smooth_floor(S u) const {
+    const double n = std::floor(xad::value(u));
+    const double w = layer_smoothing;
+    if (w <= 0.0) {
+      return S(n);
+    }
+    const S f = u - n;
+    if (xad::value(f) <= 1.0 - w) {
+      return S(n);
+    }
+    const S t = (f - (1.0 - w)) / w;
+    return n + t * t * (3.0 - 2.0 * t);
   }
 
   // Monotone, C1-continuous smooth staircase. Each layer is flat over its lower

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <string>
 #include <stdexcept>
+#include <type_traits> // active-scalar q() overload
 
 namespace plant {
 
@@ -100,7 +101,8 @@ class CanopyShape {
 public:
   CanopyShape()
     : eta_(12.0), eta_inverse_(1.0 / 12.0), eta_c_(compute_eta_c(12.0)),
-      pow_eta_(&pow_eta_12), leaf_above_(&leaf_above_deep) {
+      pow_eta_(&pow_eta_12), leaf_above_(&leaf_above_deep),
+      shading_model_(ShadingModel::DeepCrown) {
   }
 
   explicit CanopyShape(double eta) {
@@ -112,6 +114,7 @@ public:
     eta_inverse_ = 1.0 / eta;
     eta_c_ = compute_eta_c(eta);
     pow_eta_ = select_pow_eta(eta);
+    shading_model_ = shading_model;  // so the active leaf_area_above can dispatch
     // Most models cast shade via the smooth Yokozawa Q (leaf_area_above == Q).
     // FlatTopBox collapses it to a hard step; FlatTopSoftBox to a smoothed step.
     switch (shading_model) {
@@ -132,6 +135,19 @@ public:
 
   double q(double z_over_height, double z) const {
     const double u_eta = pow_eta_(z_over_height, eta_);
+    return 2.0 * eta_ * (1.0 - u_eta) * u_eta / z;
+  }
+
+  // Active-scalar q: the same leaf-area density, but the crown coordinate carries
+  // a scalar S (the plant's own active height reaches here through the crown
+  // integral). eta_ is a fixed double, so u^eta is taken with the generic pow
+  // rather than the double mult-chain dispatch above -- the AD path is not the
+  // resident hot loop, and the value stays within FD tolerance of it.
+  // Restricted to non-double S so the double q above is the resident path.
+  template <typename S, typename = std::enable_if_t<!std::is_same_v<S, double>>>
+  S q(S z_over_height, S z) const {
+    using std::pow;
+    const S u_eta = pow(z_over_height, eta_);
     return 2.0 * eta_ * (1.0 - u_eta) * u_eta / z;
   }
 
@@ -156,6 +172,50 @@ public:
 
   double Qp(double x, double height) const {
     return std::pow(1.0 - std::sqrt(x), eta_inverse_) * height;
+  }
+
+  // ---- Active-scalar overloads (non-double S) --------------------------------
+  // The same shapes evaluated in an active scalar, so a plant's own height/crown
+  // coordinate carries a derivative. eta_ / eta_c_ stay fixed doubles; the
+  // profiles use the generic pow rather than the double mult-chain dispatch (the
+  // AD path is not the resident hot loop). The double methods above remain the
+  // resident path (non-template wins for double args).
+  template <typename S, typename = std::enable_if_t<!std::is_same_v<S, double>>>
+  S Q(S z_over_height) const {
+    if (z_over_height > 1.0) {  // active > double: compares values, returns bool
+      return S(0.0);
+    }
+    using std::pow;
+    const S tmp = 1.0 - pow(z_over_height, eta_);
+    return tmp * tmp;
+  }
+
+  template <typename S, typename = std::enable_if_t<!std::is_same_v<S, double>>>
+  S leaf_area_above(S z_over_height) const {
+    switch (shading_model_) {
+    case ShadingModel::FlatTopBox:
+      return z_over_height < eta_c_ ? S(1.0) : S(0.0);
+    case ShadingModel::FlatTopSoftBox: {
+      const double lo = eta_c_ > 0.5 ? 2.0 * eta_c_ - 1.0 : 0.0;
+      if (z_over_height <= lo) {
+        return S(1.0);
+      }
+      if (z_over_height >= 1.0) {
+        return S(0.0);
+      }
+      const S t = (z_over_height - lo) / (1.0 - lo);
+      return 1.0 - t * t * (3.0 - 2.0 * t);
+    }
+    default:
+      return Q(z_over_height);  // smooth Yokozawa
+    }
+  }
+
+  template <typename S, typename = std::enable_if_t<!std::is_same_v<S, double>>>
+  S Qp(S x, S height) const {
+    using std::pow;
+    using std::sqrt;
+    return pow(1.0 - sqrt(x), eta_inverse_) * height;
   }
 
 private:
@@ -253,6 +313,7 @@ private:
   double eta_c_;
   pow_eta_fn pow_eta_;
   leaf_above_fn leaf_above_;
+  ShadingModel shading_model_;  // so the active leaf_area_above can dispatch
 };
 
 }
