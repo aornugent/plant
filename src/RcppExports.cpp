@@ -11817,6 +11817,21 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// birth_rate_gradient_cpp
+Rcpp::List birth_rate_gradient_cpp(SEXP scm, std::vector<std::string> metrics, int species, std::string strategy, double scale);
+RcppExport SEXP _plant_birth_rate_gradient_cpp(SEXP scmSEXP, SEXP metricsSEXP, SEXP speciesSEXP, SEXP strategySEXP, SEXP scaleSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type scm(scmSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type metrics(metricsSEXP);
+    Rcpp::traits::input_parameter< int >::type species(speciesSEXP);
+    Rcpp::traits::input_parameter< std::string >::type strategy(strategySEXP);
+    Rcpp::traits::input_parameter< double >::type scale(scaleSEXP);
+    rcpp_result_gen = Rcpp::wrap(birth_rate_gradient_cpp(scm, metrics, species, strategy, scale));
+    return rcpp_result_gen;
+END_RCPP
+}
 // stand_gradient_cpp
 Rcpp::List stand_gradient_cpp(SEXP scm, std::vector<std::string> metrics, std::vector<std::string> traits, int species, std::string strategy);
 RcppExport SEXP _plant_stand_gradient_cpp(SEXP scmSEXP, SEXP metricsSEXP, SEXP traitsSEXP, SEXP speciesSEXP, SEXP strategySEXP) {
@@ -13031,6 +13046,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_make_node_schedule__Parameters___K93__K93_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___K93__K93_Env, 1},
     {"_plant_node_schedule_times_default", (DL_FUNC) &_plant_node_schedule_times_default, 1},
     {"_plant_invasion_gradient_cpp", (DL_FUNC) &_plant_invasion_gradient_cpp, 5},
+    {"_plant_birth_rate_gradient_cpp", (DL_FUNC) &_plant_birth_rate_gradient_cpp, 5},
     {"_plant_stand_gradient_cpp", (DL_FUNC) &_plant_stand_gradient_cpp, 5},
     {"_plant_FF16_strategy_expand_allometry", (DL_FUNC) &_plant_FF16_strategy_expand_allometry, 4},
     {"_plant_TF24_strategy_expand_allometry", (DL_FUNC) &_plant_TF24_strategy_expand_allometry, 4},

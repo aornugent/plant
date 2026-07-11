@@ -95,9 +95,16 @@ public:
     return ret;
   }
 
-  // Seedable initial state (initial size distribution). Empty for now -- IC
-  // sensitivity is a later target, not required by the contract.
-  std::vector<value_type*> ad_initial_state() { return {}; }
+  // Registered initial-state leaves the driver seeds via DifferentiationTargets
+  // ics: one active birth-rate scale per species, in species order. Seeding entry
+  // s differentiates the run w.r.t. species s's birth rate (the density-feedback
+  // axis). Size-distribution IC sensitivity stays a later target (Appendix A.4).
+  std::vector<value_type*> ad_initial_state() {
+    std::vector<value_type*> ret;
+    ret.reserve(species.size());
+    for (auto& s : species) ret.push_back(s.ad_birth_rate());
+    return ret;
+  }
 
   // Re-derive every species' prepare_strategy() quantities under the current
   // (seeded) parameters. This is the step that carries a seeded trait into the

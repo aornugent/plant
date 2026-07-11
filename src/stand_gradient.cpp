@@ -125,6 +125,75 @@ Rcpp::List gradient_impl(SEXP scm_sexp,
   return pack(result.first, result.second, metrics, traits);
 }
 
+// Reverse-mode gradient of the requested metrics w.r.t. a focal species' birth
+// rate, on the coupled resident replay (AD-8): the birth-rate scale is a single
+// registered initial-state leaf, seeded to `scale`, that multiplies the extrinsic
+// birth rate at every node introduction. It flows through the cohort density and,
+// because the canopy is recomputed live on the recorded knots, through the whole
+// stand -- so the feedback axis is present and can flip the sign of biomass.
+//
+// The seed multiplies the base rate, so d/d(scale) = base * d/d(birth_rate); the
+// reverse-mode row is divided by the base rate to report the derivative w.r.t. the
+// birth rate itself. `value` is the metric at the seeded scale, so a caller can
+// finite-difference the same frozen-knot replay by perturbing `scale`.
+template <class Strategy, class Env>
+Rcpp::List birth_rate_gradient_impl(SEXP scm_sexp,
+                                    const std::vector<std::string>& metrics,
+                                    size_t species_index,
+                                    double scale) {
+  using SCM_d = plant::SCM<Strategy, Env>;
+  using patch_type = plant::Patch<Strategy, Env>;
+  using active_scalar = typename odelia::ode::Solver<patch_type>::active_scalar;
+
+  plant::RcppR6::RcppR6<SCM_d> handle(scm_sexp);
+  SCM_d& resident = *handle;
+  patch_type& resident_patch = resident.get_system_ref();
+
+  if (species_index >= resident_patch.size()) {
+    util::stop("species index out of range for the birth-rate gradient");
+  }
+  const double base = resident_patch.at_species(species_index)
+                          .extrinsic_drivers()
+                          .evaluate("birth_rate", 0.0);
+  if (!(base > 0.0)) {
+    util::stop("birth-rate gradient needs a positive base birth rate");
+  }
+
+  odelia::ode::DifferentiationTargets targets;
+  targets.ics.push_back(static_cast<int>(species_index));
+  targets.values.push_back(scale);
+
+  auto active = resident.template rebind_from<active_scalar>();
+  auto& active_patch = active.get_system_ref();
+  active_patch.step_history = resident_patch.step_history;
+
+  NodeSchedule sched = active.r_node_schedule();
+  sched.r_set_ode_times(resident_patch.step_history);
+  sched.r_set_use_ode_times(true);
+  sched.reset();
+  active.r_set_node_schedule(sched);
+
+  active_patch.knot_history = resident_patch.knot_history;
+  active_patch.set_resident_replay();
+
+  EmergentFunctional functional(metrics);
+  auto result = odelia::ode::compute_jacobian(active, targets, functional);
+
+  const auto& values = result.first;
+  const auto& jac = result.second;
+  Rcpp::NumericVector value(values.begin(), values.end());
+  Rcpp::NumericVector grad(metrics.size());
+  for (size_t i = 0; i < metrics.size(); ++i) {
+    grad[i] = (i < jac.size() && !jac[i].empty()) ? jac[i][0] / base : NA_REAL;
+  }
+  Rcpp::CharacterVector names(metrics.begin(), metrics.end());
+  value.attr("names") = names;
+  grad.attr("names") = names;
+  return Rcpp::List::create(Rcpp::_["value"] = value,
+                            Rcpp::_["gradient"] = grad,
+                            Rcpp::_["birth_rate"] = base);
+}
+
 } // namespace gradient
 } // namespace plant
 
@@ -140,6 +209,23 @@ Rcpp::List invasion_gradient_cpp(SEXP scm,
         scm, metrics, traits, sp, plant::FF16_Pars::field_names(), true);
   }
   plant::util::stop("stand gradients are only available for the FF16 strategy; got: " +
+                    strategy);
+  return Rcpp::List();
+}
+
+// [[Rcpp::export]]
+Rcpp::List birth_rate_gradient_cpp(SEXP scm,
+                                   std::vector<std::string> metrics,
+                                   int species,
+                                   std::string strategy,
+                                   double scale) {
+  const size_t sp = species > 0 ? static_cast<size_t>(species - 1) : 0;
+  if (strategy == "FF16") {
+    return plant::gradient::birth_rate_gradient_impl<plant::FF16_Strategy,
+                                                     plant::FF16_Environment>(
+        scm, metrics, sp, scale);
+  }
+  plant::util::stop("birth-rate gradients are only available for the FF16 strategy; got: " +
                     strategy);
   return Rcpp::List();
 }

@@ -23,7 +23,7 @@ public:
   Node(strategy_type_ptr s);
 
   void compute_rates(const environment_type& environment, double pr_patch_survival);
-  void compute_initial_conditions(const environment_type& environment, double pr_patch_survival, double birth_rate);
+  void compute_initial_conditions(const environment_type& environment, double pr_patch_survival, value_type birth_rate);
 
   // Wrapper to growth_rate_gradient for testing
   double r_growth_rate_gradient(const environment_type& environment);
@@ -192,7 +192,7 @@ void Node<T,E>::compute_rates(const environment_type& environment,
 // defined on p 7 at the moment.
 template <typename T, typename E>
 void Node<T,E>::compute_initial_conditions(const environment_type& environment,
-                                             double pr_patch_survival, double birth_rate) {
+                                             double pr_patch_survival, value_type birth_rate) {
   pr_patch_survival_at_birth = pr_patch_survival;
   // Seed strategy-specific initial states (e.g. TF24f's tracked psi at its
   // optimum) before the first rates evaluation, so the birth growth rate uses
@@ -263,13 +263,13 @@ double Node<T,E>::growth_rate_gradient(const environment_type& environment) cons
 template <typename T, typename E>
 typename Node<T,E>::value_type
 Node<T,E>::growth_rate_gradient_active(const environment_type& environment) const {
-  thread_local std::optional<individual_type> scratch;
-  if (scratch.has_value()) {
-    *scratch = individual;
-  } else {
-    scratch.emplace(individual);
-  }
-  individual_type& p = *scratch;
+  // A fresh copy per call, not a thread_local scratch: an active Individual holds
+  // reverse-mode leaves tied to the current tape, so a scratch persisted across
+  // gradient calls would carry slots from an earlier, destroyed tape -- the forward
+  // value survives (the value is re-copied) but the reverse sweep then reads stale
+  // slots and returns NaN on every call after the first. The perturbation copy is
+  // cheap next to the reverse pass it feeds.
+  individual_type p(individual);
   auto fun = [&] (value_type h) -> value_type {
     return p.growth_rate_given_height_ad(h, environment);
   };

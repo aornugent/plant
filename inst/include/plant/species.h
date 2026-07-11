@@ -152,6 +152,16 @@ public:
   // strategy's FF16_Pars fields, in the strategy's fixed order.
   std::vector<value_type*> ad_parameters() { return strategy->ad_parameters(); }
 
+  // Active birth-rate scale: a registered leaf (Patch::ad_initial_state) the
+  // birth-rate gradient seeds. It multiplies the extrinsic birth rate at every
+  // node introduction, so a seed re-scales this species' cohort density and,
+  // through the recomputed resident canopy, re-shades the whole stand. Held on
+  // the species (not the shared strategy) so it survives reset and its handle is
+  // stable across the replay. 1.0 (identity) unless seeded -- at S = double it is
+  // always 1.0, so the resident numerics are bit-unchanged.
+  value_type birth_rate_scale = value_type(1.0);
+  value_type* ad_birth_rate() { return &birth_rate_scale; }
+
   // Re-derive the strategy's prepare_strategy() quantities under the (possibly
   // seeded) parameters, so a trait feeding eta_c/height_0/... carries its
   // derivative. The shared strategy is aliased by every cohort, so one call
@@ -313,7 +323,11 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   for (auto& c : nodes) {
     c.compute_rates(environment, pr_patch_survival);
   }
-  new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+  // Scale the birth rate by the active leaf before it sets the new node's initial
+  // density, so a birth-rate seed flows into the cohort density. At S = double the
+  // scale is exactly 1.0, so birth_rate * scale == birth_rate (bit-identical).
+  new_node.compute_initial_conditions(environment, pr_patch_survival,
+                                      birth_rate * birth_rate_scale);
 }
 
 template <typename T, typename E>

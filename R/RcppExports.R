@@ -4224,6 +4224,10 @@ invasion_gradient_cpp <- function(scm, metrics, traits, species, strategy) {
     .Call('_plant_invasion_gradient_cpp', PACKAGE = 'plant', scm, metrics, traits, species, strategy)
 }
 
+birth_rate_gradient_cpp <- function(scm, metrics, species, strategy, scale) {
+    .Call('_plant_birth_rate_gradient_cpp', PACKAGE = 'plant', scm, metrics, species, strategy, scale)
+}
+
 stand_gradient_cpp <- function(scm, metrics, traits, species, strategy) {
     .Call('_plant_stand_gradient_cpp', PACKAGE = 'plant', scm, metrics, traits, species, strategy)
 }

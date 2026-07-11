@@ -45,3 +45,20 @@ offspring_production_gradient <- function(scm, traits, species = 1L) {
   res <- invasion_gradient(scm, "offspring_production", traits, species)
   drop(res$gradient)
 }
+
+##' \code{birth_rate_gradient} differentiates the resident metrics with respect
+##' to a focal species' birth rate on the coupled (self-shading) replay: the
+##' canopy re-shades with the density the birth rate sets, so the derivative
+##' carries the demographic feedback (and can flip the sign of biomass relative
+##' to the identity \code{metric / birth_rate}). With \code{metrics =
+##' "net_reproduction_ratio"} this is \code{dR0/db}, the plant-side derivative for
+##' the equilibrium (\code{R0 = 1}) Newton solve.
+##'
+##' @rdname stand_gradient
+##' @export
+birth_rate_gradient <- function(scm, metrics, species = 1L) {
+  strategy <- extract_RcppR6_template_types(scm, "SCM")[[1]]
+  res <- birth_rate_gradient_cpp(scm, as.character(metrics), as.integer(species),
+                                 strategy, 1.0)
+  res[c("value", "gradient")]
+}
