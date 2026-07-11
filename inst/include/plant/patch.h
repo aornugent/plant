@@ -5,19 +5,43 @@
 #include <plant/parameters.h>
 #include <plant/species.h>
 #include <plant/util.h>
+#include <plant/ad_value.h>
 #include <odelia/ode_interface.hpp>
 
 #include <plant/disturbance_regime.h>
 
 #include <algorithm>
 #include <limits>
+#include <type_traits>
 
 using namespace Rcpp;
 
 namespace plant {
 
+template <typename T, typename E> class Patch;
+
+namespace detail {
+// A strategy is AD-liftable when it provides its own scalar rebind. Detected by
+// SFINAE so the double-only strategies (TF24, K93) are cleanly excluded.
+template <class T, class = void>
+struct strategy_is_ad : std::false_type {};
+template <class T>
+struct strategy_is_ad<T, std::void_t<typename T::template rebind<double>>>
+    : std::true_type {};
+
+// Carries the Patch `rebind` alias only for AD-liftable strategies, so odelia's
+// rebind_or_self / has_rebind_from probes fail by SFINAE (member absent) for the
+// double-only strategies instead of hard-erroring inside the alias expansion.
+template <class T, class E, bool = strategy_is_ad<T>::value>
+struct PatchRebind {};
+template <class T, class E>
+struct PatchRebind<T, E, true> {
+  template <class S2> using rebind = Patch<typename T::template rebind<S2>, E>;
+};
+}
+
 template <typename T, typename E>
-class Patch {
+class Patch : public detail::PatchRebind<T, E> {
 public:
   using value_type = typename T::value_type;
 
@@ -31,6 +55,55 @@ public:
   Patch(parameters_type p, environment_type e, plant::Control c);
   void reset();
   size_t size() const {return species.size();}
+
+  // odelia differentiable-System contract -----------------------------------
+  // The active scalar the cohort physiology carries is value_type (above). The
+  // environment stays double -- an invasion reads the competitive landscape
+  // frozen -- so the rebind keeps E and lifts only the strategy. The `rebind`
+  // alias itself is inherited from PatchRebind, present only for AD-liftable
+  // strategies (odelia detects it by SFINAE; AD is opt-in).
+  using PatchRebind_ = detail::PatchRebind<T, E>;
+
+  // Config-only copy of this patch onto the scalar S2: the parameters (traits)
+  // carry across via ad_value, the double environment and control are copied.
+  // The gradient driver lifts the resident (double) patch to the active scalar
+  // with this before seeding and running. Constrained to S2 != value_type: the
+  // lift is always to an active scalar, and self-rebind is just a copy. Gating
+  // it also keeps odelia's stiff RODAS Jacobian (which probes rebind_from at the
+  // system's own scalar) on the double path, so the build stays double-only
+  // until the active ODE stepper is wired.
+  template <class S2, class = std::enable_if_t<!std::is_same_v<S2, value_type>>>
+  auto rebind_from() const {
+    return typename PatchRebind_::template rebind<S2>(
+        parameters.template rebind_from<S2>(), environment, control);
+  }
+
+  // Handles to the differentiable trait parameters, concatenated across species
+  // (species-major, each in the strategy's fixed field order). Column j of a
+  // Jacobian is d(out)/d(handle j); the driver seeds a chosen subset by index.
+  // Every cohort aliases its species' one shared strategy, so seeding through
+  // these reaches all cohorts, including later introductions.
+  std::vector<value_type*> ad_parameters() {
+    std::vector<value_type*> ret;
+    for (auto& s : species) {
+      std::vector<value_type*> p = s.ad_parameters();
+      ret.insert(ret.end(), p.begin(), p.end());
+    }
+    return ret;
+  }
+
+  // Seedable initial state (initial size distribution). Empty for now -- IC
+  // sensitivity is a later target, not required by the contract.
+  std::vector<value_type*> ad_initial_state() { return {}; }
+
+  // Re-derive every species' prepare_strategy() quantities under the current
+  // (seeded) parameters. This is the step that carries a seeded trait into the
+  // otherwise-frozen derived quantities (eta_c, height_0, height_0_inverse,
+  // area_leaf_0, canopy_shape, the bound assimilation_fn); without it those
+  // differentiate to zero. reset() calls it on the active path.
+  void ad_prepare() {
+    for (auto& s : species) s.prepare_strategy();
+  }
 
   //Try using pointer in place of object itself
   double time() const {return environment.time;}
@@ -252,6 +325,16 @@ void Patch<T,E>::set_mutant() {
 
 template <typename T, typename E>
 void Patch<T,E>::reset() {
+  // Active path only: re-derive each strategy's prepare_strategy() quantities
+  // from its own (seeded) parameters before re-initialising cohorts, so a seeded
+  // trait reaches the frozen derived quantities and the new cohorts built below
+  // (trap 1). Cohort state is then rebuilt from these parameters, never an
+  // external double snapshot, so the seed survives reset (trap 2). The double
+  // resident path is untouched.
+  if constexpr (!std::is_same_v<value_type, double>) {
+    ad_prepare();
+  }
+
    for (auto& s : species) {
     s.clear();
     // allocate variables for tracking resource consumption

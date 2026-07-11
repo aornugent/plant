@@ -7,6 +7,7 @@
 #include <plant/qag.h>
 #include <plant/canopy_shape.h>
 #include <plant/models/ff16_production_kernel.h>
+#include <plant/ad_value.h>
 
 namespace plant {
 
@@ -97,6 +98,40 @@ struct FF16_Pars_ {
 
   // * Light capture parameters
   S k_I = 0.5;
+
+  // Differentiable-parameter handles in a FIXED, documented order -- this
+  // declaration order IS the AD column-order contract (a caller resolving trait
+  // names -> indices seeds and reads Jacobian columns in this order). field_names()
+  // lists the same order; both are the single source, so ad_parameters() and
+  // rebind() below can never drift from it.
+  std::vector<S*> field_ptrs() {
+    return {&lma,   &rho,   &hmat,  &omega, &eta,   &theta, &a_l1,  &a_l2,
+            &a_r1,  &a_b1,  &r_l,   &r_r,   &r_s,   &r_b,   &a_y,   &a_bio,
+            &k_l,   &k_b,   &k_s,   &k_r,   &a_p1,  &a_p2,  &a_f3,  &a_f1,
+            &a_f2,  &S_D,   &a_d0,  &d_I,   &a_dG1, &a_dG2, &recruitment_decay,
+            &k_I};
+  }
+  static std::vector<std::string> field_names() {
+    return {"lma",  "rho",  "hmat", "omega", "eta",  "theta", "a_l1", "a_l2",
+            "a_r1", "a_b1", "r_l",  "r_r",   "r_s",  "r_b",   "a_y",  "a_bio",
+            "k_l",  "k_b",  "k_s",  "k_r",   "a_p1", "a_p2",  "a_f3", "a_f1",
+            "a_f2", "S_D",  "a_d0", "d_I",   "a_dG1","a_dG2", "recruitment_decay",
+            "k_I"};
+  }
+
+  // Config-only copy onto another scalar (values via ad_value, no tape identity).
+  // Zips the two field lists so every parameter is carried and the order matches
+  // field_ptrs() exactly.
+  template <class S2>
+  FF16_Pars_<S2> rebind() const {
+    FF16_Pars_<S2> out;
+    std::vector<S*> src = const_cast<FF16_Pars_*>(this)->field_ptrs();
+    std::vector<S2*> dst = out.field_ptrs();
+    for (size_t i = 0; i < src.size(); ++i) {
+      *dst[i] = S2(ad_value(*src[i]));
+    }
+    return out;
+  }
 };
 
 // The double parameters cross the R boundary; the template default keeps this
@@ -218,6 +253,11 @@ public:
       vars.set_aux(HEIGHT_INVERSE_AUX_INDEX, 1.0 / height);
     }
   }
+
+  // FF16 carries no acclimating/tracked initial cohort state; this scalar-
+  // templated no-op overrides the (double-only) base so an active cohort's
+  // Internals_<S> is accepted. (TF24f, which carries one, provides its own.)
+  void set_initial_states(const FF16_Environment&, Internals_<S>&) {}
 
   // * Mass production
   // [eqn 12] Gross annual CO2 assimilation. Thin dispatcher: forwards to the
@@ -375,7 +415,10 @@ public:
   }
   S compute_competition_by_ratio(S z_over_height,
                                       S area_leaf_) const {
-    return pars.k_I * area_leaf_ * canopy_shape.leaf_area_above(z_over_height);
+    // canopy_shape is a precomputed double shape function; the height ratio feeds
+    // it as a double (its shape derivative is the resident self-shading term,
+    // added when the environment is templated on the scalar). area_leaf_ stays active.
+    return pars.k_I * area_leaf_ * canopy_shape.leaf_area_above(ad_value(z_over_height));
   }
   // Strategy-agnostic entry point used by Individual<FF16> (#266): reads the
   // cached competition_effect (= area_leaf) and height_inverse aux slots
@@ -399,6 +442,31 @@ public:
   // the templated Individual; here height_0 is derived in prepare_strategy().
   S initial_height() const { return height_0; }
 
+  // odelia differentiable-System handles ------------------------------------
+  // double -> active mould, and a config-only copy onto S2 (values via ad_value,
+  // no tape identity). The derived quantities (eta_c, height_0, ...) are
+  // re-derived when the rebound strategy is prepared, so they are not carried.
+  template <class S2> using rebind = FF16_Strategy_<S2>;
+
+  template <class S2>
+  FF16_Strategy_<S2> rebind_from() const {
+    FF16_Strategy_<S2> out;
+    out.pars = pars.template rebind<S2>();
+    out.control = control;
+    out.name = name;
+    out.birth_rate_x = birth_rate_x;
+    out.birth_rate_y = birth_rate_y;
+    out.is_variable_birth_rate = is_variable_birth_rate;
+    out.collect_all_auxiliary = collect_all_auxiliary;
+    out.refresh_indices();
+    return out;
+  }
+
+  // Handles to the differentiable trait fields of this one shared FF16_Pars, in
+  // the fixed order documented on FF16_Pars_::field_ptrs(). Every cohort aliases
+  // this strategy, so seeding through these reaches all of them.
+  std::vector<S*> ad_parameters() { return pars.field_ptrs(); }
+
   // Biological (user-settable) parameters; see FF16_Pars above.
   FF16_Pars_<S> pars;
 
@@ -420,6 +488,16 @@ public:
 using FF16_Strategy = FF16_Strategy_<double>;
 
 FF16_Strategy::ptr make_strategy_ptr(FF16_Strategy s);
+
+// Active strategies are instantiated only where a trait gradient is taken, so
+// their prepare-then-share construction lives here as a template. Overload
+// resolution prefers the non-template above for the double resident, leaving that
+// path (and its bit-identical numerics) untouched.
+template <class S>
+typename FF16_Strategy_<S>::ptr make_strategy_ptr(FF16_Strategy_<S> s) {
+  s.prepare_strategy();
+  return std::make_shared<FF16_Strategy_<S>>(s);
+}
 
 }
 

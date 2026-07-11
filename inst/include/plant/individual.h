@@ -7,6 +7,7 @@
 #include <vector>
 #include <plant/internals.h>
 #include <plant/uniroot.h>
+#include <plant/ad_value.h>
 
 
 namespace plant {
@@ -47,12 +48,14 @@ public:
   value_type rate(int i) const { return vars.rate(i); }
 
   // useage: set_state("height", 2.0)
-  void set_state(std::string name, double v) {
+  // Takes value_type so a seeded (active) initial height carries its derivative
+  // into the cohort state; a plain double argument still converts through.
+  void set_state(std::string name, value_type v) {
     int i = strategy->state_index.at(name);
     vars.set_state(i, v);
     strategy->update_dependent_aux(i, vars);
   }
-  void set_state(int i, double v) {
+  void set_state(int i, value_type v) {
     vars.set_state(i, v);
     strategy->update_dependent_aux(i, vars);
   }
@@ -88,7 +91,7 @@ public:
   }
   
   double establishment_probability(const environment_type &environment) {
-    return strategy->establishment_probability(environment);
+    return ad_value(strategy->establishment_probability(environment));
   }
 
   value_type net_mass_production_dt(const environment_type &environment) {
@@ -144,7 +147,7 @@ public:
     // "height" string-map lookup (see #466).
     set_state(HEIGHT_INDEX, height);
     compute_rates(environment);
-    return rate(HEIGHT_INDEX);
+    return ad_value(rate(HEIGHT_INDEX));
   }
 
   double resource_compensation_point() {

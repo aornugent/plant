@@ -117,6 +117,16 @@ public:
 
   ExtrinsicDrivers extrinsic_drivers() const {return strategy->extrinsic_drivers;}
 
+  // Handles to this species' differentiable trait parameters -- the one shared
+  // strategy's FF16_Pars fields, in the strategy's fixed order.
+  std::vector<value_type*> ad_parameters() { return strategy->ad_parameters(); }
+
+  // Re-derive the strategy's prepare_strategy() quantities under the (possibly
+  // seeded) parameters, so a trait feeding eta_c/height_0/... carries its
+  // derivative. The shared strategy is aliased by every cohort, so one call
+  // reaches them all.
+  void prepare_strategy() { strategy->prepare_strategy(); }
+
 private:
   // Storage (strategy, nodes) and control() live in SpeciesBase; the
   // using-declarations let the unqualified references below resolve through the

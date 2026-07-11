@@ -77,6 +77,36 @@ struct Parameters {
   std::vector<double> initial_pr_patch_survival;
   double initial_time;
 
+  // Config-only copy onto another scalar S2 (the strategies carry their trait
+  // values across via ad_value; the schedule/patch fields are plain doubles).
+  // Used by Patch::rebind_from to lift the whole configuration to the active
+  // scalar. The returned Parameters is validated (disturbance + node schedule).
+  // Deduced return type: the body (which needs T::rebind) is instantiated only
+  // when used, so strategies without a rebind still form a valid Parameters.
+  template <class S2>
+  auto rebind_from() const {
+    Parameters<typename T::template rebind<S2>, E> out;
+    out.patch_area = patch_area;
+    out.n_patches = n_patches;
+    out.patch_type = patch_type;
+    out.max_patch_lifetime = max_patch_lifetime;
+    for (const auto& s : strategies) {
+      out.strategies.push_back(s.template rebind_from<S2>());
+    }
+    out.strategy_default = strategy_default.template rebind_from<S2>();
+    out.node_schedule_times_default = node_schedule_times_default;
+    out.node_schedule_times = node_schedule_times;
+    out.ode_times = ode_times;
+    out.initial_state = initial_state;
+    out.n_initial_cohorts = n_initial_cohorts;
+    out.initial_node_times = initial_node_times;
+    out.initial_patch_density = initial_patch_density;
+    out.initial_pr_patch_survival = initial_pr_patch_survival;
+    out.initial_time = initial_time;
+    out.validate();
+    return out;
+  }
+
   // Some little query functions for use on the C side:
   size_t size() const;
   void validate();

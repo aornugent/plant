@@ -4,6 +4,7 @@
 
 #include <plant/environment.h>
 #include <plant/gradient.h>
+#include <plant/ad_value.h>
 #include <odelia/ode_interface.hpp>
 #include <optional>
 #include <limits> // std::numeric_limits
@@ -26,7 +27,7 @@ public:
   // Wrapper to growth_rate_gradient for testing
   double r_growth_rate_gradient(const environment_type& environment);
 
-  double height() const {return individual.state(HEIGHT_INDEX);}
+  double height() const {return ad_value(individual.state(HEIGHT_INDEX));}
   double compute_competition(double z) const;
   double fecundity() const {return offspring_produced_survival_weighted;}
 
@@ -96,7 +97,7 @@ public:
   }
 
   double consumption_rate(int i) const {
-    return individual.consumption_rate(i) * density;
+    return ad_value(individual.consumption_rate(i)) * density;
   }
 
   individual_type individual;
@@ -138,10 +139,10 @@ void Node<T,E>::compute_rates(const environment_type& environment,
   // need mortality_dt() that's always going to be the case.
   log_density_dt =
     - growth_rate_gradient(environment)
-    - individual.rate(MORTALITY_INDEX);
+    - ad_value(individual.rate(MORTALITY_INDEX));
   // survival_individual: converts from the mean of the poisson process (on
   // [0,Inf)) to a probability (on [0,1]).
-  double survival_individual = exp(-individual.state(MORTALITY_INDEX));
+  double survival_individual = exp(-ad_value(individual.state(MORTALITY_INDEX)));
   if (!util::is_finite(survival_individual)) {
     // This is caused by NaN values in plant.mortality and log
     // density; this should only be an issue when density is so low
@@ -151,7 +152,7 @@ void Node<T,E>::compute_rates(const environment_type& environment,
   }
 
   offspring_produced_survival_weighted_dt =
-    individual.rate(FECUNDITY_INDEX) * survival_individual *
+    ad_value(individual.rate(FECUNDITY_INDEX)) * survival_individual *
     pr_patch_survival / pr_patch_survival_at_birth;
 }
 
@@ -173,7 +174,7 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
 
   const double pr_estab = individual.establishment_probability(environment);
   individual.set_state("mortality", -log(pr_estab));
-  const double g = individual.rate(HEIGHT_INDEX);
+  const double g = ad_value(individual.rate(HEIGHT_INDEX));
   // NOTE: log(0.0) -> -Inf, which should behave fine.
   set_log_density(g > 0 ? log(birth_rate * pr_estab / g) : log(0.0));
 
@@ -212,10 +213,11 @@ double Node<T,E>::growth_rate_gradient(const environment_type& environment) cons
   const Control& control = individual.control();
   const double eps = control.node_gradient_eps;
   if (control.node_gradient_richardson) {
-    return util::gradient_richardson(fun,  individual.state(HEIGHT_INDEX), eps,
+    return util::gradient_richardson(fun,  ad_value(individual.state(HEIGHT_INDEX)), eps,
                                      control.node_gradient_richardson_depth);
   } else {
-    return util::gradient_fd(fun, individual.state(HEIGHT_INDEX), eps, individual.rate(HEIGHT_INDEX),
+    return util::gradient_fd(fun, ad_value(individual.state(HEIGHT_INDEX)), eps,
+                             ad_value(individual.rate(HEIGHT_INDEX)),
                              control.node_gradient_direction);
   }
 }
@@ -233,7 +235,7 @@ double Node<T,E>::r_growth_rate_gradient(const environment_type& environment) {
 
 template <typename T, typename E>
 double Node<T,E>::compute_competition(double height_) const {
-  return density * individual.compute_competition(height_);
+  return density * ad_value(individual.compute_competition(height_));
 }
 
 // ODE interface -- note that the don't care about time in the node;

@@ -1,5 +1,8 @@
 #include <plant/models/ff16_strategy.h>
 #include <plant/models/ff16_production_kernel.h>
+#include <XAD/XAD.hpp>
+#include <algorithm>
+#include <cmath>
 
 namespace plant {
 
@@ -64,7 +67,8 @@ S FF16_Strategy_<S>::area_stem(S area_bark, S area_sapwood,
 
 template <class S>
 S FF16_Strategy_<S>::diameter_stem(S area_stem) const {
-  return std::sqrt(4 * area_stem / M_PI);
+  using std::sqrt;  // ADL picks up XAD's sqrt for the active scalar
+  return sqrt(4 * area_stem / M_PI);
 }
 
 // [eqn 7] Mass of (fine) roots
@@ -165,16 +169,20 @@ S FF16_Strategy_<S>::assimilation_deep_crown(const FF16_Environment& environment
   // is invariant across the quadrature, so fetch it once and pass it into the
   // capped get_environment_at_height() overload rather than re-reading
   // spline.max() at every quadrature point.
+  // The crown integral runs in double: the light profile is frozen (invasion)
+  // and canopy_shape/QK are the precomputed double machinery. area_leaf carries
+  // the active derivative; the integrand's own trait/height sensitivity is
+  // recovered once the crown quadrature runs at the active scalar.
   const double canopy_top = environment.max_environment_height();
   auto f = [&](double z) -> double {
-    return assimilation_leaf(environment.get_environment_at_height(z, canopy_top)) *
-      canopy_shape.q(z * height_inverse, z);
+    return ad_value(assimilation_leaf(environment.get_environment_at_height(z, canopy_top))) *
+      canopy_shape.q(ad_value(z * height_inverse), z);
   };
 
   // Integrate over crown depth using using Gauss-Kronrod quadrature.
   // The number of points used in the integration is determined by the control parameter
   // function_integration_rule. Rules defined in qk_rules.cpp
-  A = function_integrator.integrate(f, 0.0, height);
+  A = function_integrator.integrate(f, 0.0, ad_value(height));
 
   return area_leaf * A;
 }
@@ -195,9 +203,9 @@ S FF16_Strategy_<S>::assimilation_average_light(const FF16_Environment& environm
   const double canopy_top = environment.max_environment_height();
   auto f = [&](double z) -> double {
     return environment.get_environment_at_height(z, canopy_top) *
-      canopy_shape.q(z * height_inverse, z);
+      canopy_shape.q(ad_value(z * height_inverse), z);
   };
-  const double mean_light = function_integrator.integrate(f, 0.0, height);
+  const double mean_light = function_integrator.integrate(f, 0.0, ad_value(height));
   return area_leaf * assimilation_leaf(mean_light);
 }
 
@@ -213,7 +221,7 @@ S FF16_Strategy_<S>::assimilation_crown_top(const FF16_Environment& environment,
                                              S height,
                                              S area_leaf,
                                              S /* height_inverse */) {
-  const double E = environment.get_environment_at_height(height * eta_c);
+  const double E = environment.get_environment_at_height(ad_value(height * eta_c));
   return area_leaf * assimilation_leaf(E);
 }
 
@@ -520,7 +528,7 @@ S FF16_Strategy_<S>::mortality_dt(S productivity_area,
   // levels and the rate of change won't matter.  It is possible that
   // we will need to trim this to some large finite value, but for
   // now, just checking that the actual mortality rate is finite.
-  if (util::is_finite(cumulative_mortality)) {
+  if (util::is_finite(ad_value(cumulative_mortality))) {
     return
       mortality_growth_independent_dt() +
       mortality_growth_dependent_dt(productivity_area);
@@ -566,7 +574,7 @@ S FF16_Strategy_<S>::establishment_probability(const FF16_Environment& environme
 // the leaf mass would be found).
 template <class S>
 S FF16_Strategy_<S>::Qp(S x, S height) const { // x in [0,1], unchecked.
-  return canopy_shape.Qp(x, height);
+  return canopy_shape.Qp(ad_value(x), ad_value(height));
 }
 
 // The aim is to find a plant height that gives the correct seed mass.
@@ -580,17 +588,39 @@ S FF16_Strategy_<S>::height_seed(void) const {
   // values for LMA or height-leaf area scaling. Could instead use some
   // absolute maximum height for new seedling, e.g. 1m?
   const double
-    h0 = height_given_mass_leaf(std::numeric_limits<double>::min()),
-    h1 = height_given_mass_leaf(pars.omega);
+    h0 = ad_value(height_given_mass_leaf(std::numeric_limits<double>::min())),
+    h1 = ad_value(height_given_mass_leaf(pars.omega));
 
   const double tol = control.offspring_production_tol;
   const size_t max_iterations = control.offspring_production_iterations;
 
+  // Converge the seed height in double -- the bracketing and convergence test
+  // are genuine double control-flow. mass_live_given_height stays at the active
+  // scalar so its value is exact; ad_value takes the passive residual the
+  // bisection compares.
   auto target = [&] (double x) mutable -> double {
-    return mass_live_given_height(x) - pars.omega;
+    return ad_value(mass_live_given_height(x) - pars.omega);
   };
 
-  return util::uniroot(target, h0, h1, tol, max_iterations);
+  const double h_root = util::uniroot(target, h0, h1, tol, max_iterations);
+
+  if constexpr (std::is_same_v<S, double>) {
+    return h_root;
+  } else {
+    // Reattach the trait derivative the double solve discards, by the implicit
+    // function theorem. The root h*(theta) solves g(h*, theta) =
+    // mass_live_given_height(h*) - omega = 0, so dh*/dtheta = -(dg/dtheta) /
+    // (dg/dh). Evaluated at the converged root g's value is ~0, so the corrected
+    // scalar keeps h_root's value while carrying the seed's derivative. dg/dh is
+    // a passive slope from a central difference in double.
+    const double dh = std::max(std::abs(h_root), 1.0) * 1e-6;
+    const double dg_dh =
+      (ad_value(mass_live_given_height(h_root + dh)) -
+       ad_value(mass_live_given_height(h_root - dh))) / (2.0 * dh);
+    const S g = mass_live_given_height(h_root) - pars.omega;
+    const S g_deriv = g - ad_value(g);
+    return S(h_root) - g_deriv / dg_dh;
+  }
 }
 
 template <class S>
@@ -608,8 +638,11 @@ void FF16_Strategy_<S>::prepare_strategy() {
   const ShadingModel shading_model =
     shading_model_from_string(control.shading_model, ShadingModel::DeepCrown);
   // canopy_shape also selects the competition contribution: smooth Q for every
-  // model except flat-top-box, which casts a step (see CanopyShape).
-  canopy_shape.initialise(pars.eta, shading_model);
+  // model except flat-top-box, which casts a step (see CanopyShape). It is the
+  // precomputed double shape; its eta derivative is the resident self-shading
+  // term added when the environment is templated on the scalar. eta_c above
+  // keeps the active eta for the mass cascade.
+  canopy_shape.initialise(ad_value(pars.eta), shading_model);
   switch (shading_model) {
   case ShadingModel::DeepCrown:
     assimilation_fn = &FF16_Strategy_<S>::assimilation_deep_crown;
@@ -648,7 +681,12 @@ FF16_Strategy::ptr make_strategy_ptr(FF16_Strategy s) {
   return std::make_shared<FF16_Strategy>(s);
 }
 
-// Only the double numerics are instantiated here; the active scalar is
-// instantiated where a trait gradient is taken.
+// The resident numerics cross the R boundary at double. The forward-mode active
+// scalar is instantiated here too, so plant.so carries the differentiable FF16
+// physiology: prepare_strategy -> height_seed and the mass cascade differentiate
+// exactly w.r.t. traits; the crown integral and canopy shape carry the physiology
+// derivative with the double-frozen light, their own integral/shape derivatives
+// completed once the crown quadrature and environment run at the active scalar.
 template class FF16_Strategy_<double>;
+template class FF16_Strategy_<xad::fwd<double>::active_type>;
 }
