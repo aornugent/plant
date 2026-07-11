@@ -30,6 +30,12 @@ public:
 
   double height() const {return ad_value(individual.state(HEIGHT_INDEX));}
   double compute_competition(double z) const;
+  // Active-scalar competition (density * per-plant leaf area above z), for the
+  // resident replay's canopy recompute; keeps the trait derivative the double
+  // overload strips. Identity at S = double.
+  value_type compute_competition_ad(double z) const {
+    return get_density_ad() * individual.compute_competition(z);
+  }
   double fecundity() const {return ad_value(offspring_produced_survival_weighted);}
 
   // Bookkeeping recorded at the moment the node is introduced, so that

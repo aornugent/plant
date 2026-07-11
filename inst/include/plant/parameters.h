@@ -85,7 +85,8 @@ struct Parameters {
   // when used, so strategies without a rebind still form a valid Parameters.
   template <class S2>
   auto rebind_from() const {
-    Parameters<typename T::template rebind<S2>, E> out;
+    Parameters<typename T::template rebind<S2>,
+               typename E::template rebind<S2>> out;
     out.patch_area = patch_area;
     out.n_patches = n_patches;
     out.patch_type = patch_type;

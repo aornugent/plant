@@ -52,6 +52,11 @@ public:
 
   double height_max() const;
   double compute_competition(double height) const;
+  // Active-scalar competition trapezium: mirrors compute_competition but keeps
+  // the model scalar (active cohort heights and per-plant leaf area, active
+  // density) so the resident replay's recomputed canopy carries the self-shading
+  // derivative. Bit-identical value to compute_competition at S = double.
+  value_type compute_competition_ad(double height) const;
 
   // Descending-height trapezium of density * psi(individual) over the active
   // cohorts plus the pending-seed tail, at the model scalar. Mirrors
@@ -257,6 +262,44 @@ double Species<T,E>::compute_competition(double height) const {
 
   if (size() == 1 || f_h1 > 0) {
     const double h0 = new_node.height(), f_h0 = new_node.compute_competition(height);
+    tot += (h1 - h0) * (f_h1 + f_h0);
+  }
+
+  return tot / 2;
+}
+
+// Active-scalar mirror of compute_competition. Same trapezium structure and
+// early-exit, but the heights, per-plant leaf area and density stay active so
+// the recomputed resident canopy differentiates w.r.t. the trait. The value
+// tracks the double version bit-for-bit at S = double.
+template <typename T, typename E>
+typename Species<T,E>::value_type
+Species<T,E>::compute_competition_ad(double height) const {
+  if (size() == 0 || height_max() < height) {
+    return value_type(0.0);
+  }
+  nodes_const_iterator it = nodes.begin();
+  value_type h1 = it->individual.state(HEIGHT_INDEX);
+  value_type f_h1 = it->compute_competition_ad(height);
+  value_type tot(0.0);
+
+  for (++it; it != nodes.end(); ++it) {
+    const value_type h0 = it->individual.state(HEIGHT_INDEX);
+    const value_type f_h0 = it->compute_competition_ad(height);
+    if (!util::is_finite(ad_value(f_h0))) {
+      util::stop("Detected non-finite contribution");
+    }
+    tot += (h1 - h0) * (f_h1 + f_h0);
+    h1 = h0;
+    f_h1 = f_h0;
+    if (ad_value(h0) < height) {
+      break;
+    }
+  }
+
+  if (size() == 1 || ad_value(f_h1) > 0) {
+    const value_type h0 = new_node.individual.state(HEIGHT_INDEX);
+    const value_type f_h0 = new_node.compute_competition_ad(height);
     tot += (h1 - h0) * (f_h1 + f_h0);
   }
 

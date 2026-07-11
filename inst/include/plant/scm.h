@@ -27,7 +27,9 @@ template <class T, class E, bool = strategy_is_ad<T>::value>
 struct SCMRebind {};
 template <class T, class E>
 struct SCMRebind<T, E, true> {
-  template <class S2> using rebind = SCM<typename T::template rebind<S2>, E>;
+  template <class S2>
+  using rebind = SCM<typename T::template rebind<S2>,
+                     typename E::template rebind<S2>>;
 };
 }
 
@@ -93,7 +95,8 @@ public:
   template <class S2, class = std::enable_if_t<!std::is_same_v<S2, value_type>>>
   auto rebind_from() const {
     return typename detail::SCMRebind<T, E>::template rebind<S2>(
-        parameters.template rebind_from<S2>(), patch.r_environment(), control);
+        parameters.template rebind_from<S2>(),
+        patch.r_environment().template rebind_from<S2>(), control);
   }
 
   // ---- Simulation lifecycle ----------------------------------------------

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <string>
 #include <stdexcept>
+#include <plant/ad_value.h>
 
 namespace plant {
 
@@ -128,6 +129,25 @@ public:
   // indirect call with no branch.
   double leaf_area_above(double z_over_height) const {
     return leaf_above_(*this, z_over_height);
+  }
+
+  // Active leaf-area-above for the resident self-shading channel: the smooth
+  // Yokozawa Q evaluated at the active height-ratio z/H, so a plant's own height
+  // carries the derivative of the shade it casts (a trait re-shades the stand
+  // through the crown profile, not only through area_leaf). The (near-)step box
+  // models have zero derivative a.e., so they read frozen; deep-crown -- the
+  // default and every gated case -- carries it. eta_ stays the frozen double (a
+  // seeded eta is out of this path, matching q_active); pow resolves to XAD by ADL.
+  template <class S>
+  S leaf_area_above_active(S z_over_height) const {
+    if (leaf_above_ == &leaf_above_deep) {
+      if (ad_value(z_over_height) > 1.0) {
+        return S(0.0);
+      }
+      const S tmp = S(1.0) - pow(z_over_height, S(eta_));
+      return tmp * tmp;
+    }
+    return S(leaf_area_above(ad_value(z_over_height)));
   }
 
   double q(double z_over_height, double z) const {

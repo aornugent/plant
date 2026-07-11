@@ -240,7 +240,7 @@ public:
   S mass_above_ground(S mass_leaf, S mass_bark,
                            S mass_sapwood, S mass_heartwood) const;
 
-  void compute_rates(const FF16_Environment& environment,
+  void compute_rates(const FF16_Environment_<S>& environment,
                 Internals_<S>& vars);
 
   // Inline (header): called per state-set / ODE-state update from templated
@@ -257,14 +257,14 @@ public:
   // FF16 carries no acclimating/tracked initial cohort state; this scalar-
   // templated no-op overrides the (double-only) base so an active cohort's
   // Internals_<S> is accepted. (TF24f, which carries one, provides its own.)
-  void set_initial_states(const FF16_Environment&, Internals_<S>&) {}
+  void set_initial_states(const FF16_Environment_<S>&, Internals_<S>&) {}
 
   // * Mass production
   // [eqn 12] Gross annual CO2 assimilation. Thin dispatcher: forwards to the
   // shading-model implementation bound once in prepare_strategy(), so the
   // choice of crown model costs a single predicted indirect call per
   // derivative evaluation and never a string comparison.
-  S assimilation(const FF16_Environment& environment, S height,
+  S assimilation(const FF16_Environment_<S>& environment, S height,
                       S area_leaf, S height_inverse) {
     return (this->*assimilation_fn)(environment, height, area_leaf,
                                     height_inverse);
@@ -276,19 +276,19 @@ public:
   //                both crown-centre and PPA; they differ only in how the patch
   //                light profile is built (smooth vs stepped), which this read
   //                picks up transparently through the environment.
-  S assimilation_deep_crown(const FF16_Environment& environment,
+  S assimilation_deep_crown(const FF16_Environment_<S>& environment,
                                  S height, S area_leaf,
                                  S height_inverse);
   //  - average light: integrate the light over crown depth to a leaf-area-
   //                weighted mean, then a single photosynthesis evaluation.
-  S assimilation_average_light(const FF16_Environment& environment,
+  S assimilation_average_light(const FF16_Environment_<S>& environment,
                                     S height, S area_leaf,
                                     S height_inverse);
-  S assimilation_crown_top(const FF16_Environment& environment,
+  S assimilation_crown_top(const FF16_Environment_<S>& environment,
                                 S height, S area_leaf,
                                 S height_inverse);
 
-  typedef S (FF16_Strategy_::*assimilation_fn_t)(const FF16_Environment&,
+  typedef S (FF16_Strategy_::*assimilation_fn_t)(const FF16_Environment_<S>&,
                                                      S, S, S);
   // Bound once in prepare_strategy(); defaults to the deep-crown integral.
   assimilation_fn_t assimilation_fn = &FF16_Strategy_::assimilation_deep_crown;
@@ -317,22 +317,22 @@ public:
   S net_mass_production_dt_A(S assimilation, S respiration,
                                   S turnover) const;
 
-  virtual S net_mass_production_dt(const FF16_Environment& environment,
+  virtual S net_mass_production_dt(const FF16_Environment_<S>& environment,
                                 S height, S area_leaf_);
-  S net_mass_production_dt(const FF16_Environment& environment,
+  S net_mass_production_dt(const FF16_Environment_<S>& environment,
                                 S height, S area_leaf_,
                                 S height_inverse);
   // Worker overload that also reports the sapwood intermediates so callers
   // (compute_rates) can reuse them instead of recomputing. Bit-identical: the
   // out-refs receive exactly the values the body already computed.
-  S net_mass_production_dt(const FF16_Environment& environment,
+  S net_mass_production_dt(const FF16_Environment_<S>& environment,
                                 S height, S area_leaf_,
                                 S height_inverse,
                                 S& area_sapwood_, S& mass_sapwood_);
   // Strategy-agnostic entry point used by Individual<FF16> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know FF16's state/aux layout.
-  S net_mass_production_dt(const FF16_Environment& environment,
+  S net_mass_production_dt(const FF16_Environment_<S>& environment,
                                 const Internals_<S>& vars) {
     return net_mass_production_dt(environment, vars.state(HEIGHT_INDEX),
                                   vars.aux(COMPETITION_EFFECT_AUX_INDEX),
@@ -399,7 +399,7 @@ public:
   S mortality_growth_independent_dt()const ;
   S mortality_growth_dependent_dt(S productivity_area) const;
   // [eqn 20] Survival of seedlings during establishment
-  S establishment_probability(const FF16_Environment& environment);
+  S establishment_probability(const FF16_Environment_<S>& environment);
 
   // * Competitive environment
   // [eqn 11] total projected leaf area above height above height `z` for given plant
@@ -415,10 +415,17 @@ public:
   }
   S compute_competition_by_ratio(S z_over_height,
                                       S area_leaf_) const {
-    // canopy_shape is a precomputed double shape function; the height ratio feeds
-    // it as a double (its shape derivative is the resident self-shading term,
-    // added when the environment is templated on the scalar). area_leaf_ stays active.
-    return pars.k_I * area_leaf_ * canopy_shape.leaf_area_above(ad_value(z_over_height));
+    if constexpr (std::is_same_v<S, double>) {
+      // Resident double path: the precomputed double shape function, unchanged.
+      return pars.k_I * area_leaf_ * canopy_shape.leaf_area_above(z_over_height);
+    } else {
+      // Resident self-shading (AD): the height-normalised ratio z/H carries the
+      // plant's own-height derivative into the shade it casts, so a trait
+      // re-shades the stand through the crown profile as well as through
+      // area_leaf. area_leaf_ stays active alongside.
+      return pars.k_I * area_leaf_ *
+             canopy_shape.template leaf_area_above_active<S>(z_over_height);
+    }
   }
   // Strategy-agnostic entry point used by Individual<FF16> (#266): reads the
   // cached competition_effect (= area_leaf) and height_inverse aux slots

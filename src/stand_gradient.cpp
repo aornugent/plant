@@ -55,10 +55,10 @@ Rcpp::List pack(const std::vector<double>& values,
 }
 
 // Reverse-mode Jacobian of the requested emergent metrics w.r.t. the requested
-// traits: unwrap the resident SCM, lift it to the active scalar, hand over the
-// recording for the frozen-canopy (invasion) replay, and drive compute_jacobian.
-// Only the invasion workflow is wired; the resident recompute needs the active
-// environment.
+// traits: unwrap the resident SCM, lift it (strategy AND environment) to the
+// active scalar, hand over the recording, and drive compute_jacobian. The two
+// workflows differ by exactly one bit -- whether the canopy is read frozen
+// (invasion) or recomputed live on the recorded knots (resident).
 template <class Strategy, class Env>
 Rcpp::List gradient_impl(SEXP scm_sexp,
                          const std::vector<std::string>& metrics,
@@ -69,11 +69,6 @@ Rcpp::List gradient_impl(SEXP scm_sexp,
   using SCM_d = plant::SCM<Strategy, Env>;
   using patch_type = plant::Patch<Strategy, Env>;
   using active_scalar = typename odelia::ode::Solver<patch_type>::active_scalar;
-
-  if (!invasion) {
-    util::stop("the resident (self-shading feedback) stand gradient is not "
-               "available yet; use invasion_gradient for the frozen-canopy gradient");
-  }
 
   plant::RcppR6::RcppR6<SCM_d> handle(scm_sexp);
   SCM_d& resident = *handle;
@@ -88,20 +83,42 @@ Rcpp::List gradient_impl(SEXP scm_sexp,
   odelia::ode::DifferentiationTargets targets =
       resolve_targets(traits, field_names, species_index, param_values);
 
-  // Lift to the active twin and hand over the recording: the resident's step
-  // schedule and frozen environment, patch switched to mutant mode, schedule
-  // pinned to the recorded ode times (the active replay needs a fixed schedule).
+  // Lift to the active twin (strategy + environment) and pin the schedule to the
+  // recorded ode times -- both replays need a fixed schedule.
   auto active = resident.template rebind_from<active_scalar>();
   auto& active_patch = active.get_system_ref();
   active_patch.step_history = resident_patch.step_history;
-  active_patch.environment_history = resident_patch.environment_history;
-  active_patch.set_mutant();
 
   NodeSchedule sched = active.r_node_schedule();
   sched.r_set_ode_times(resident_patch.step_history);
   sched.r_set_use_ode_times(true);
   sched.reset();
   active.r_set_node_schedule(sched);
+
+  if (invasion) {
+    // Frozen-canopy replay: lift the recorded resident environments to the active
+    // scalar as passive constants (derivative through the canopy is zero) and
+    // switch to mutant mode. L3 populated -> derivs reads the field frozen.
+    active_patch.environment_history.reserve(
+        resident_patch.environment_history.size());
+    for (const auto& row : resident_patch.environment_history) {
+      typename std::decay_t<decltype(active_patch.environment_history)>::value_type
+          arow;
+      arow.reserve(row.size());
+      for (const auto& e : row) {
+        arow.push_back(e.template rebind_from<active_scalar>());
+      }
+      active_patch.environment_history.push_back(std::move(arow));
+    }
+    active_patch.set_mutant();
+  } else {
+    // Resident (self-shading) replay: hand over the recorded knot POSITIONS and
+    // rebuild the canopy on them with the active cohorts. L3 stays empty
+    // (has_recorded_field() false), so a trait re-shades the stand through
+    // area_leaf and the self-shading cross term flows.
+    active_patch.knot_history = resident_patch.knot_history;
+    active_patch.set_resident_replay();
+  }
 
   EmergentFunctional functional(metrics);
   auto result = odelia::ode::compute_jacobian(active, targets, functional);

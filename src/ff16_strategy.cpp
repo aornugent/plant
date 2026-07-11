@@ -105,7 +105,7 @@ S FF16_Strategy_<S>::mass_above_ground(S mass_leaf, S mass_bark,
 // one-shot update of the scm variables
 // i.e. setting rates of ode vars from the state and updating aux vars
 template <class S>
-void FF16_Strategy_<S>::compute_rates(const FF16_Environment& environment,  Internals_<S>& vars) {
+void FF16_Strategy_<S>::compute_rates(const FF16_Environment_<S>& environment,  Internals_<S>& vars) {
 
   S height = vars.state(HEIGHT_INDEX);
   S area_leaf_ = vars.aux(COMPETITION_EFFECT_AUX_INDEX);
@@ -157,7 +157,7 @@ void FF16_Strategy_<S>::compute_rates(const FF16_Environment& environment,  Inte
 // Integrate photosynthesis over crown depth: for a given height in the crown,
 // take photosynthesis at that depth multiplied by the amount of leaf there.
 template <class S>
-S FF16_Strategy_<S>::assimilation_deep_crown(const FF16_Environment& environment,
+S FF16_Strategy_<S>::assimilation_deep_crown(const FF16_Environment_<S>& environment,
                                               S height,
                                               S area_leaf,
                                               S height_inverse) {
@@ -175,16 +175,17 @@ S FF16_Strategy_<S>::assimilation_deep_crown(const FF16_Environment& environment
     };
     return area_leaf * function_integrator.integrate(f, 0.0, ad_value(height));
   } else {
-    // Invasion (gradient) path: moving-node Gauss-Kronrod over [0, height] so the
-    // active height bound, crown shape and light-sampling point all carry the
-    // trait derivative. The recorded canopy stays off-tape -- its value is read
-    // frozen and linearised in z (frozen value + frozen slope * (z - z_value)),
-    // so only the mutant's own height->light channel flows, not the canopy shape.
+    // Gradient path: moving-node Gauss-Kronrod over [0, height] so the active
+    // height bound, crown shape and light-sampling point all carry the trait
+    // derivative. The light value comes straight off the (active) canopy: for the
+    // invasion twin it is a frozen constant so only the mutant's own height->light
+    // channel flows; for the resident twin it carries the self-shading derivative
+    // recomputed on the frozen knots. Its slope stays passive (linearised in z).
     auto f = [&](S z) -> S {
       const double zv = ad_value(z);
-      const double lv = environment.get_environment_at_height(zv, canopy_top);
+      const S lv = environment.get_environment_at_height(zv, canopy_top);
       const double ld = environment.get_environment_deriv_at_height(zv, canopy_top);
-      const S light = S(lv) + S(std::isfinite(ld) ? ld : 0.0) * (z - S(zv));
+      const S light = lv + S(std::isfinite(ld) ? ld : 0.0) * (z - S(zv));
       const S u = z * height_inverse;
       return assimilation_leaf(light) * canopy_shape.q_active(u, z);
     };
@@ -201,13 +202,13 @@ S FF16_Strategy_<S>::assimilation_deep_crown(const FF16_Environment& environment
 // captures the mean light exactly but ignores the curvature of photosynthesis
 // across the within-crown light distribution.
 template <class S>
-S FF16_Strategy_<S>::assimilation_average_light(const FF16_Environment& environment,
+S FF16_Strategy_<S>::assimilation_average_light(const FF16_Environment_<S>& environment,
                                                  S height,
                                                  S area_leaf,
                                                  S height_inverse) {
   const double canopy_top = environment.max_environment_height();
   auto f = [&](double z) -> double {
-    return environment.get_environment_at_height(z, canopy_top) *
+    return ad_value(environment.get_environment_at_height(z, canopy_top)) *
       canopy_shape.q(ad_value(z * height_inverse), z);
   };
   const double mean_light = function_integrator.integrate(f, 0.0, ad_value(height));
@@ -222,11 +223,11 @@ S FF16_Strategy_<S>::assimilation_average_light(const FF16_Environment& environm
 // profile, so the only difference between them lives in the environment build.
 // (height_inverse is unused but kept for a common dispatch signature.)
 template <class S>
-S FF16_Strategy_<S>::assimilation_crown_top(const FF16_Environment& environment,
+S FF16_Strategy_<S>::assimilation_crown_top(const FF16_Environment_<S>& environment,
                                              S height,
                                              S area_leaf,
                                              S /* height_inverse */) {
-  const double E = environment.get_environment_at_height(ad_value(height * eta_c));
+  const S E = environment.get_environment_at_height(ad_value(height * eta_c));
   return area_leaf * assimilation_leaf(E);
 }
 
@@ -311,14 +312,14 @@ S FF16_Strategy_<S>::net_mass_production_dt_A(S assimilation, S respiration,
 // One shot calculation of net_mass_production_dt
 // Used by establishment_probability() and compute_rates().
 template <class S>
-S FF16_Strategy_<S>::net_mass_production_dt(const FF16_Environment& environment,
+S FF16_Strategy_<S>::net_mass_production_dt(const FF16_Environment_<S>& environment,
                                 S height, S area_leaf_) {
   return net_mass_production_dt(environment, height, area_leaf_,
                                 1.0 / height);
 }
 
 template <class S>
-S FF16_Strategy_<S>::net_mass_production_dt(const FF16_Environment& environment,
+S FF16_Strategy_<S>::net_mass_production_dt(const FF16_Environment_<S>& environment,
                                 S height, S area_leaf_,
                                 S height_inverse) {
   S area_sapwood_, mass_sapwood_;
@@ -327,7 +328,7 @@ S FF16_Strategy_<S>::net_mass_production_dt(const FF16_Environment& environment,
 }
 
 template <class S>
-S FF16_Strategy_<S>::net_mass_production_dt(const FF16_Environment& environment,
+S FF16_Strategy_<S>::net_mass_production_dt(const FF16_Environment_<S>& environment,
                                 S height, S area_leaf_,
                                 S height_inverse,
                                 S& area_sapwood_, S& mass_sapwood_) {
@@ -557,7 +558,7 @@ S FF16_Strategy_<S>::mortality_growth_dependent_dt(S productivity_area) const {
 
 // [eqn 20] Survival of seedlings during establishment
 template <class S>
-S FF16_Strategy_<S>::establishment_probability(const FF16_Environment& environment) {
+S FF16_Strategy_<S>::establishment_probability(const FF16_Environment_<S>& environment) {
 
   S decay_over_time = exp(-pars.recruitment_decay * environment.time);
 

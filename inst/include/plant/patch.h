@@ -36,7 +36,9 @@ template <class T, class E, bool = strategy_is_ad<T>::value>
 struct PatchRebind {};
 template <class T, class E>
 struct PatchRebind<T, E, true> {
-  template <class S2> using rebind = Patch<typename T::template rebind<S2>, E>;
+  template <class S2>
+  using rebind = Patch<typename T::template rebind<S2>,
+                       typename E::template rebind<S2>>;
 };
 }
 
@@ -75,7 +77,8 @@ public:
   template <class S2, class = std::enable_if_t<!std::is_same_v<S2, value_type>>>
   auto rebind_from() const {
     return typename PatchRebind_::template rebind<S2>(
-        parameters.template rebind_from<S2>(), environment, control);
+        parameters.template rebind_from<S2>(),
+        environment.template rebind_from<S2>(), control);
   }
 
   // Handles to the differentiable trait parameters, concatenated across species
@@ -111,6 +114,10 @@ public:
   double height_max() const;
 
   double compute_competition(double height) const;
+  // Active-scalar total competition at height, summed over species. The resident
+  // replay's canopy recompute builds the light spline from this, so a trait
+  // re-shades the stand through area_leaf. Bit-identical value at S = double.
+  value_type compute_competition_ad(double height) const;
 
   // * Lifetime fitness / offspring production
   // These are patch-level quantities: each integrates the per-node weighted
@@ -213,14 +220,24 @@ public:
   std::vector<std::vector<environment_type>> environment_history;
   std::vector<environment_type> environment_cache;
 
+  // L2 slice: the light-spline knot POSITIONS per accepted step, recorded on the
+  // double pass independently of the L3 field cache above. The active resident
+  // replay rebuilds the canopy on these frozen positions with the active cohorts.
+  std::vector<std::vector<double>> knot_history;
+  std::vector<double> knot_cache;    // stage-0 knots of the step being recorded
+  std::vector<double> current_knots; // this step's frozen knots, on the replay
+
   // odelia Replayable hooks: record_stage/record_ode_step cache the environment
-  // during a resident run; replay_step locates the frozen step on a mutant replay.
+  // (L3) and knot positions (L2) during a resident run; replay_step locates the
+  // frozen step on a mutant replay or loads its knots on the resident replay.
   void record_stage(int step);
   void record_ode_step();
   void replay_step();
 
   // The has_recorded_field() query odelia's derivs dispatches on: true while a
   // mutant replays the frozen environment (set by set_mutant once it is recorded).
+  // Empty on the resident replay, so derivs recomputes the canopy with the active
+  // cohorts (the self-shading channel) instead of reading it frozen.
   bool has_recorded_field() const { return use_cached_environment; }
 
   // Record-mode flag: caches environment history during a resident run.
@@ -229,6 +246,16 @@ public:
   bool use_cached_environment = false;
 
   bool is_mutant_run = false;
+
+  // Resident (self-shading) replay: rebuild the canopy live on the recorded knots
+  // with the active cohorts. L3 stays empty (has_recorded_field() false), so the
+  // trait re-shades the stand. Distinct from set_mutant (frozen-field read).
+  bool replay_knots = false;
+  void set_resident_replay() {
+    replay_knots = true;
+    save_RK45_cache = false;
+    idx = 0;
+  }
 
   void set_mutant();
   void add_strategies(std::vector<strategy_type> strategies);
@@ -527,6 +554,18 @@ double Patch<T,E>::compute_competition(double height) const {
 }
 
 template <typename T, typename E>
+typename Patch<T,E>::value_type
+Patch<T,E>::compute_competition_ad(double height) const {
+  value_type tot(0.0);
+  for (size_t i = 0; i < species.size(); ++i) {
+    if (!is_mutant_run) {
+      tot += species[i].compute_competition_ad(height) / area;
+    }
+  }
+  return tot;
+}
+
+template <typename T, typename E>
 std::vector<double> Patch<T,E>::r_compute_competition_effect_error_by_node_for_species_i(size_t species_index) const {
   const double tot_competition_effect = compute_competition(0.0);
   return species[species_index].r_compute_competition_effect_by_nodes_error(tot_competition_effect);
@@ -645,12 +684,28 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 // Creates splines of resource availability
 template <typename T, typename E>
 void Patch<T,E>::compute_environment(bool rescale) {
-  
-  // Define an anonymous function to use in creation of environment
-  auto f = [&](double x) -> double { return compute_competition(x); };
 
-  if (size() > 0 & !is_mutant_run) {
+  if (!(size() > 0) || is_mutant_run) {
+    return;
+  }
+
+  if constexpr (std::is_same_v<value_type, double>) {
+    // Resident (double) path: fit the light spline to the double competition,
+    // adaptively or by rescale -- unchanged.
+    auto f = [&](double x) -> double { return compute_competition(x); };
     environment.compute_environment(f, height_max(), rescale);
+  } else {
+    // Active path: the competition carries the trait derivative through
+    // area_leaf. On the resident replay the canopy is rebuilt on the frozen
+    // recorded knots (self-shading flows without moving a node); before any step
+    // is replayed (empty knots) or off the replay it falls back to the adaptive
+    // build. The invasion twin never reaches here (is_mutant_run above).
+    auto f = [&](double x) -> value_type { return compute_competition_ad(x); };
+    if (replay_knots && !current_knots.empty()) {
+      environment.compute_environment_fixed(f, current_knots);
+    } else {
+      environment.compute_environment(f, height_max(), rescale);
+    }
   }
 }
 
@@ -825,16 +880,22 @@ void Patch<T,E>::record_ode_step() {
   if(save_RK45_cache) {
     step_history.push_back(time());
     environment_history.push_back(environment_cache);
+    knot_history.push_back(knot_cache);
   }
 }
 
-// Cache the environment at one RK stage. odelia calls this per stage; stage 0
-// starts a fresh cache. A no-op unless recording.
+// Cache the environment at one RK stage (L3) and, at stage 0, the light-spline
+// knot positions for this step (L2). odelia calls this per stage; a no-op unless
+// recording. light_knots() is only present on light-profile environments, so the
+// knot capture is guarded (a no-op for environments without one).
 template <typename T, typename E>
 void Patch<T,E>::record_stage(int step) {
   if(save_RK45_cache) {
     if(step == 0) {
       environment_cache.clear();
+      if constexpr (requires (const environment_type& e) { e.light_knots(); }) {
+        knot_cache = environment.light_knots();
+      }
     }
     environment_cache.push_back(environment);
   }
@@ -844,30 +905,35 @@ void Patch<T,E>::record_stage(int step) {
 // before each fixed step; the (it, stage) set_ode_state then reads by idx.
 template <typename T, typename E>
 void Patch<T,E>::replay_step() {
-  if (use_cached_environment)
-  {
-    // Minor optimization to check the current and next index before doing a search, as the most common case is that the ODE solver is stepping through the cached environments in order. If the call sequence was not strictly sequential, we fallback to a search through the step history to find the correct environment.
+  // Both the mutant (frozen field) and resident (frozen knots) replays locate
+  // this step in the recorded history; the resident additionally loads the step's
+  // knot positions so the stages recompute the canopy on them.
+  if (!use_cached_environment && !replay_knots) {
+    return;
+  }
 
-    const double t = time();
-    const size_t n = step_history.size();
+  // Minor optimization to check the current and next index before doing a search, as the most common case is that the ODE solver is stepping through the cached environments in order. If the call sequence was not strictly sequential, we fallback to a search through the step history to find the correct environment.
+  const double t = time();
+  const size_t n = step_history.size();
 
-    // Fast path: step_to() advances through ode_times in order, so this is
-    // usually either the current cached step index or the next one.
-    if (static_cast<size_t>(idx) < n && util::identical(step_history[idx], t)) {
-      return;
-    }
-    if (static_cast<size_t>(idx + 1) < n &&
-        util::identical(step_history[idx + 1], t)) {
-      ++idx;
-      return;
-    }
-
+  // Fast path: step_to() advances through ode_times in order, so this is
+  // usually either the current cached step index or the next one.
+  if (static_cast<size_t>(idx) < n && util::identical(step_history[idx], t)) {
+    // idx already points at this step.
+  } else if (static_cast<size_t>(idx + 1) < n &&
+             util::identical(step_history[idx + 1], t)) {
+    ++idx;
+  } else {
     // Fallback to search if the call sequence was not strictly sequential.
     auto step = std::find(step_history.begin(), step_history.end(), t);
     if (step == step_history.end()) {
       util::stop("ODE time not found in step history");
     }
     idx = static_cast<int>(std::distance(step_history.begin(), step));
+  }
+
+  if (replay_knots && static_cast<size_t>(idx) < knot_history.size()) {
+    current_knots = knot_history[idx];
   }
 }
 
