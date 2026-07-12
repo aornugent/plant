@@ -19,7 +19,7 @@ namespace plant {
 template <typename T, typename E>
 class Patch {
 public:
-  using value_type = double;
+  using value_type = typename T::value_type;
 
   typedef T                 strategy_type;
   typedef E                 environment_type;
@@ -90,11 +90,11 @@ public:
   double ode_time() const;
 
   // Retrieve ode state from patch and save into the ode solver
-  odelia::ode::iterator ode_state(odelia::ode::iterator it) const;
+  template <typename It> It ode_state(It it) const;
   // Retrieve ode rates from patch and save into the ode solver
-  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const;
+  template <typename It> It ode_rates(It it) const;
   // Retrieve auxillary variables and save into the ode solver
-  odelia::ode::iterator ode_aux(odelia::ode::iterator it) const;
+  template <typename It> It ode_aux(It it) const;
 
   // Returns state in structure format as opposed to single 
   // vector as given by ode_state
@@ -104,8 +104,8 @@ public:
   // odelia::ode::derivs on has_recorded_field():
   //   - (it, time):  resident -- recompute the environment at this time.
   //   - (it, index): mutant   -- read the recorded environment for this RK stage.
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it, double time);
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it, int index);
+  template <typename It> It set_ode_state(It it, double time);
+  template <typename It> It set_ode_state(It it, int index);
 
   // * R interface
   // Data accessors:
@@ -689,9 +689,9 @@ double Patch<T,E>::ode_time() const {
 
 // First set_ode_state function is for resident runs. Second is for mutant runs
 template <typename T, typename E>
-odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterator it,
-                                              double time) {
-  
+template <typename It>
+It Patch<T,E>::set_ode_state(It it, double time) {
+
   // Set ode states
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
   it = environment.set_ode_state(it);
@@ -717,8 +717,8 @@ odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterato
 // -- differs from above in that an index is passed in as argument
 // -- environments are loaded from ODE history, instead of being calculated 
 template <typename T, typename E>
-odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterator it,
-                                              int index) {
+template <typename It>
+It Patch<T,E>::set_ode_state(It it, int index) {
 
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
 
@@ -788,7 +788,8 @@ void Patch<T,E>::replay_step() {
 }
 
 template <typename T, typename E>
-odelia::ode::iterator Patch<T,E>::ode_state(odelia::ode::iterator it) const {
+template <typename It>
+It Patch<T,E>::ode_state(It it) const {
   it = odelia::ode::ode_state(species.begin(), species.end(), it);
   it = environment.ode_state(it);
   return it;
@@ -812,14 +813,16 @@ Rcpp::List Patch<T, E>::r_get_state() const
 }
 
 template <typename T, typename E>
-odelia::ode::iterator Patch<T,E>::ode_rates(odelia::ode::iterator it) const {
+template <typename It>
+It Patch<T,E>::ode_rates(It it) const {
   it = odelia::ode::ode_rates(species.begin(), species.end(), it);
   it = environment.ode_rates(it);
   return it;
 }
 
 template <typename T, typename E>
-odelia::ode::iterator Patch<T,E>::ode_aux(odelia::ode::iterator it) const {
+template <typename It>
+It Patch<T,E>::ode_aux(It it) const {
   it = odelia::ode::ode_aux(species.begin(), species.end(), it);
   return it;
 }

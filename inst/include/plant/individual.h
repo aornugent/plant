@@ -16,6 +16,9 @@ public:
   typedef T strategy_type;
   typedef E environment_type;
   typedef typename strategy_type::ptr strategy_type_ptr;
+  // The scalar this individual's state and rates carry, taken from the strategy
+  // (double on the production path; active when a trait is seeded).
+  using value_type = typename strategy_type::value_type;
   // for the time being...
   Individual(strategy_type_ptr s) : strategy(s) {
     if (strategy->aux_index.size() != s->aux_size()) {
@@ -30,43 +33,43 @@ public:
     vars.resize(strategy_type::state_size(), s->aux_size()); // = Internals(strategy_type::state_size());
     set_state("height", strategy->initial_height());
   }
-  
+
   // useage: state(HEIGHT_INDEX)
-  double state(std::string name) const {
+  value_type state(std::string name) const {
     return vars.state(strategy->state_index.at(name));
   }
-  double state(int i) const { return vars.state(i); }
-  
+  value_type state(int i) const { return vars.state(i); }
+
   // useage:_rate("area_heartwood")
-  double rate(std::string name) const {
+  value_type rate(std::string name) const {
     return vars.rate(strategy->state_index.at(name));
   }
-  double rate(int i) const { return vars.rate(i); }
+  value_type rate(int i) const { return vars.rate(i); }
 
   // useage: set_state("height", 2.0)
-  void set_state(std::string name, double v) {
+  void set_state(std::string name, value_type v) {
     int i = strategy->state_index.at(name);
     vars.set_state(i, v);
     strategy->update_dependent_aux(i, vars);
   }
-  void set_state(int i, double v) {
+  void set_state(int i, value_type v) {
     vars.set_state(i, v);
     strategy->update_dependent_aux(i, vars);
   }
 
   // aux vars by name and index
-  double aux(std::string name) const {
+  value_type aux(std::string name) const {
     return vars.aux(strategy->aux_index.at(name));
   }
-  double aux(int i) const { return vars.aux(i); }
+  value_type aux(int i) const { return vars.aux(i); }
 
   // set # consumable resources based on env. variables
   void resize_consumption_rates(int i) {
     vars.resize_consumption_rates(i);
   }
-  double consumption_rate(int i) const { return vars.consumption_rate(i); }
+  value_type consumption_rate(int i) const { return vars.consumption_rate(i); }
 
-  double compute_competition(double z) const {
+  value_type compute_competition(double z) const {
     return strategy->compute_competition(z, vars);
   }
 
@@ -83,12 +86,12 @@ public:
     }
     strategy->compute_rates(environment, vars);
   }
-  
-  double establishment_probability(const environment_type &environment) {
+
+  value_type establishment_probability(const environment_type &environment) {
     return strategy->establishment_probability(environment);
   }
 
-  double net_mass_production_dt(const environment_type &environment) {
+  value_type net_mass_production_dt(const environment_type &environment) {
     // TODO(#483):  maybe reuse intervals? default false
     return strategy->net_mass_production_dt(environment, vars);
   }
@@ -101,27 +104,34 @@ public:
   size_t aux_size() const { return strategy->aux_size(); }
   std::vector<std::string> aux_names() { return strategy->aux_names(); }
 
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it) {
+  // The ODE-serialization seam is templated on the iterator so the state flows
+  // at whatever scalar the solver drives -- vector<double>::iterator on the
+  // production pass, vector<active>::iterator on a gradient pass.
+  template <typename It>
+  It set_ode_state(It it) {
     for (size_t i = 0; i < vars.state_size; i++) {
       vars.states[i] = *it++;
       strategy->update_dependent_aux(i, vars);
     }
     return it;
   }
-  odelia::ode::iterator ode_state(odelia::ode::iterator it) const {
+  template <typename It>
+  It ode_state(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.states[i];
     }
     return it;
   }
-  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const {
+  template <typename It>
+  It ode_rates(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.rates[i];
     }
     return it;
   }
 
-  odelia::ode::iterator ode_aux(odelia::ode::iterator it) const {
+  template <typename It>
+  It ode_aux(It it) const {
     for (size_t i = 0; i < vars.aux_size; i++) {
       *it++ = vars.auxs[i];
     }
@@ -131,11 +141,11 @@ public:
   // Single individual methods
 
   // Used in the stochastic model:
-  double mortality_probability() const { return 1 - exp(-state(MORTALITY_INDEX)); }
-  
+  value_type mortality_probability() const { return 1 - exp(-state(MORTALITY_INDEX)); }
+
   void reset_mortality() { set_state("mortality", 0.0); }
 
-  double growth_rate_given_height(double height, const environment_type& environment) {
+  value_type growth_rate_given_height(double height, const environment_type& environment) {
     // Called repeatedly from the finite-difference gradient (Node::
     // growth_rate_gradient), so address height by integer slot rather than the
     // "height" string-map lookup (see #466).
@@ -172,12 +182,12 @@ public:
 
   // ! External R code depends on knowing r internals for like growing plant to
   // ! height or something
-  Internals r_internals() const { return vars; }
+  Internals_<value_type> r_internals() const { return vars; }
   const Control &control() const { return strategy->control; }
 
 private:
   strategy_type_ptr strategy;
-  Internals vars;
+  Internals_<value_type> vars;
 };
 
 template <typename T, typename E> Individual<T,E> make_individual(T s) {

@@ -69,7 +69,7 @@ public:
   double consumption_rate(int i) const;
   std::vector<double> consumption_rate_by_node_rev(int i) const;
 
-  odelia::ode::iterator       ode_aux(odelia::ode::iterator it) const;
+  template <typename It> It ode_aux(It it) const;
 
   Rcpp::NumericMatrix r_get_state() const;
 
@@ -307,7 +307,8 @@ size_t Species<T,E>::aux_size() const {
 }
 
 template <typename T, typename E>
-odelia::ode::iterator Species<T,E>::ode_aux(odelia::ode::iterator it) const {
+template <typename It>
+It Species<T,E>::ode_aux(It it) const {
   return odelia::ode::ode_aux(nodes.begin(), nodes.end(), it);
 }
 

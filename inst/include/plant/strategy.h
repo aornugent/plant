@@ -13,11 +13,16 @@
 
 namespace plant {
 
-template <typename E> 
+template <typename E>
 class Strategy {
 public:
   typedef E             environment_type;
   typedef std::shared_ptr<Strategy> ptr;
+
+  // The scalar the strategy's physiology runs at. double is the production path;
+  // a strategy templated on S overrides this so a trait derivative flows through
+  // Individual/Node/Species/Patch, which read it as value_type.
+  using value_type = double;
 
   // update this when the length of state_names changes
   static size_t state_size ();

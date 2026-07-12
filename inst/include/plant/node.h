@@ -17,6 +17,9 @@ public:
   typedef E        environment_type;
   typedef Individual<T,E> individual_type;
   typedef typename strategy_type::ptr strategy_type_ptr;
+  // The scalar the node's demographic state (log_density, offspring) carries,
+  // taken from the individual it wraps.
+  using value_type = typename individual_type::value_type;
   Node(strategy_type_ptr s);
 
   void compute_rates(const environment_type& environment, double pr_patch_survival);
@@ -40,7 +43,7 @@ public:
   double introduction_time() const {return node_introduction_time;}
   double patch_density() const {return patch_density_at_birth;}
   double get_pr_patch_survival_at_birth() const {return pr_patch_survival_at_birth;}
-  double get_log_density_rate() const {return log_density_dt;}
+  value_type get_log_density_rate() const {return log_density_dt;}
 
   // Restore birth bookkeeping for a node imported from an exported patch state,
   // without re-running compute_initial_conditions (which would overwrite the
@@ -61,11 +64,11 @@ public:
   }
 
   // Unfortunate, but need a get_ here because of name shadowing...
-  double get_log_density() const {return log_density;}
+  value_type get_log_density() const {return log_density;}
   // exp(log_density); can overflow to +Inf when the SCM density equation runs
   // away (see Patch::check_finite_node_densities).
-  double get_density() const {return density;}
-  void set_log_density(double x) {
+  value_type get_density() const {return density;}
+  void set_log_density(value_type x) {
     log_density = x;
     density = exp(log_density);
   }
@@ -78,10 +81,10 @@ public:
   // +2 for log_density and offspring_production_dt
   static size_t ode_size() { return strategy_type::state_size() + 2; }
   size_t aux_size() const { return individual.aux_size(); }
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it);
-  odelia::ode::iterator       ode_state(odelia::ode::iterator it) const;
-  odelia::ode::iterator       ode_rates(odelia::ode::iterator it) const;
-  odelia::ode::iterator       ode_aux(odelia::ode::iterator it) const;
+  template <typename It> It set_ode_state(It it);
+  template <typename It> It ode_state(It it) const;
+  template <typename It> It ode_rates(It it) const;
+  template <typename It> It ode_aux(It it) const;
 
   static std::vector<std::string> ode_names() {
     std::vector<std::string> names = strategy_type::state_names();
@@ -104,11 +107,11 @@ private:
   // This is the gradient of growth rate with respect to height:
   double growth_rate_gradient(const environment_type& environment) const;
 
-  double log_density;
-  double log_density_dt;
-  double density; // hmm...
-  double offspring_produced_survival_weighted;
-  double offspring_produced_survival_weighted_dt;
+  value_type log_density;
+  value_type log_density_dt;
+  value_type density; // hmm...
+  value_type offspring_produced_survival_weighted;
+  value_type offspring_produced_survival_weighted_dt;
   double pr_patch_survival_at_birth;
 
   // Recorded at introduction (see set_introduction).
@@ -140,7 +143,7 @@ void Node<T,E>::compute_rates(const environment_type& environment,
     - individual.rate(MORTALITY_INDEX);
   // survival_individual: converts from the mean of the poisson process (on
   // [0,Inf)) to a probability (on [0,1]).
-  double survival_individual = exp(-individual.state(MORTALITY_INDEX));
+  value_type survival_individual = exp(-individual.state(MORTALITY_INDEX));
   if (!util::is_finite(survival_individual)) {
     // This is caused by NaN values in plant.mortality and log
     // density; this should only be an issue when density is so low
@@ -170,11 +173,11 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   individual.set_initial_states(environment);
   compute_rates(environment, pr_patch_survival);
 
-  const double pr_estab = individual.establishment_probability(environment);
+  const value_type pr_estab = individual.establishment_probability(environment);
   individual.set_state("mortality", -log(pr_estab));
-  const double g = individual.rate(HEIGHT_INDEX);
+  const value_type g = individual.rate(HEIGHT_INDEX);
   // NOTE: log(0.0) -> -Inf, which should behave fine.
-  set_log_density(g > 0 ? log(birth_rate * pr_estab / g) : log(0.0));
+  set_log_density(g > 0 ? log(birth_rate * pr_estab / g) : log(value_type(0.0)));
 
   // Need to check that the rates are valid after setting the
   // mortality value here (can go to -Inf and that requires squashing
@@ -238,7 +241,8 @@ double Node<T,E>::compute_competition(double height_) const {
 // ODE interface -- note that the don't care about time in the node;
 // only Patch and above does.
 template <typename T, typename E>
-odelia::ode::const_iterator Node<T,E>::set_ode_state(odelia::ode::const_iterator it) {
+template <typename It>
+It Node<T,E>::set_ode_state(It it) {
   for (size_t i = 0; i < individual.ode_size(); i++) {
     individual.set_state(i, *it++);
   }
@@ -247,7 +251,8 @@ odelia::ode::const_iterator Node<T,E>::set_ode_state(odelia::ode::const_iterator
   return it;
 }
 template <typename T, typename E>
-odelia::ode::iterator Node<T,E>::ode_state(odelia::ode::iterator it) const {
+template <typename It>
+It Node<T,E>::ode_state(It it) const {
   for (size_t i = 0; i < individual.ode_size(); i++) {
     *it++ = individual.state(i);
   }
@@ -256,7 +261,8 @@ odelia::ode::iterator Node<T,E>::ode_state(odelia::ode::iterator it) const {
   return it;
 }
 template <typename T, typename E>
-odelia::ode::iterator Node<T,E>::ode_rates(odelia::ode::iterator it) const {
+template <typename It>
+It Node<T,E>::ode_rates(It it) const {
   for (size_t i = 0; i < individual.ode_size(); i++) {
     *it++ = individual.rate(i);
   }
@@ -266,7 +272,8 @@ odelia::ode::iterator Node<T,E>::ode_rates(odelia::ode::iterator it) const {
 }
 
 template <typename T, typename E>
-odelia::ode::iterator Node<T,E>::ode_aux(odelia::ode::iterator it) const {
+template <typename It>
+It Node<T,E>::ode_aux(It it) const {
   for (size_t i = 0; i < individual.aux_size(); i++) {
     *it++ = individual.aux(i);
   }
