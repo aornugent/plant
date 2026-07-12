@@ -6,7 +6,7 @@
 #include <plant/models/ff16_environment.h>
 #include <plant/qag.h>
 #include <plant/canopy_shape.h>
-#include <plant/models/ff16_production_kernel.h>
+#include <cmath>
 
 namespace plant {
 
@@ -162,10 +162,7 @@ public:
   // Inline (header) so it can inline into the hot competition/assimilation
   // paths that reach it from templated Individual<FF16> code (no LTO build).
   double area_leaf(double height) const {
-    // Single source: scalar-templated kernel (#472 scope B). Bit-identical to
-    // the previous std::pow(height/a_l1, 1/a_l2); validated by the FF16
-    // reference-comparison test.
-    return ff16_area_leaf(pars.a_l1, pars.a_l2, height);
+    return std::pow(height / pars.a_l1, 1.0 / pars.a_l2);
   }
 
   // [eqn 1] mass_leaf (inverse of [eqn 2])

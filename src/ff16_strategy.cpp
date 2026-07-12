@@ -1,5 +1,4 @@
 #include <plant/models/ff16_strategy.h>
-#include <plant/models/ff16_production_kernel.h>
 
 namespace plant {
 
@@ -203,17 +202,17 @@ double FF16_Strategy::assimilation_crown_top(const FF16_Environment& environment
 // Photosynthetic rate per leaf area
 // `x` is openness, ranging from 0 to 1.
 double FF16_Strategy::assimilation_leaf(double x) const {
-  // Single source: scalar-templated kernel (#472 scope B, Milestone A).
-  return ff16_assimilation_leaf(pars.a_p1, pars.a_p2, x);
+  return pars.a_p1 * x / (x + pars.a_p2);
 }
 
 // [eqn 13] Total maintenance respiration
 // NOTE: In contrast with Falster ref model, we do not normalise by pars.a_y*pars.a_bio.
 double FF16_Strategy::respiration(double mass_leaf, double mass_sapwood,
                              double mass_bark, double mass_root) const {
-  // Single source: scalar-templated kernel (#472 scope B, Milestone A).
-  return ff16_respiration(mass_leaf, mass_sapwood, mass_bark, mass_root,
-                          pars.r_l, pars.r_s, pars.r_b, pars.r_r);
+  return respiration_leaf(mass_leaf) +
+         respiration_bark(mass_bark) +
+         respiration_sapwood(mass_sapwood) +
+         respiration_root(mass_root);
 }
 
 double FF16_Strategy::respiration_leaf(double mass) const {
@@ -235,9 +234,10 @@ double FF16_Strategy::respiration_root(double mass) const {
 // [eqn 14] Total turnover
 double FF16_Strategy::turnover(double mass_leaf, double mass_bark,
                           double mass_sapwood, double mass_root) const {
-   // Single source: scalar-templated kernel (#472 scope B, Milestone A).
-   return ff16_turnover(mass_leaf, mass_bark, mass_sapwood, mass_root,
-                        pars.k_l, pars.k_b, pars.k_s, pars.k_r);
+   return turnover_leaf(mass_leaf) +
+          turnover_bark(mass_bark) +
+          turnover_sapwood(mass_sapwood) +
+          turnover_root(mass_root);
 }
 
 double FF16_Strategy::turnover_leaf(double mass) const {
@@ -262,8 +262,7 @@ double FF16_Strategy::turnover_root(double mass) const {
 // before the minus sign is SCM's N, our `net_mass_production_dt` is SCM's P.
 double FF16_Strategy::net_mass_production_dt_A(double assimilation, double respiration,
                                 double turnover) const {
-  // Single source: scalar-templated kernel (#472 scope B, Milestone A).
-  return ff16_net_production_A(pars.a_bio, pars.a_y, assimilation, respiration, turnover);
+  return pars.a_bio * pars.a_y * (assimilation - respiration) - turnover;
 }
 
 // One shot calculation of net_mass_production_dt

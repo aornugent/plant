@@ -14,9 +14,13 @@
 // TODO(#483): extra_state bounds, upper and lower limits
 namespace plant {
 
-class Internals {
+// Per-individual state/rate/aux storage, carried at the scalar S so a trait
+// derivative flows through the ODE state. S = double is the production path;
+// the `Internals` alias below is that instantiation.
+template <class S = double>
+class Internals_ {
 public:
-  Internals(size_t s_size=0, size_t a_size=0, size_t r_size=0)
+  Internals_(size_t s_size=0, size_t a_size=0, size_t r_size=0)
       :
       state_size(s_size),
       aux_size(a_size),
@@ -32,20 +36,20 @@ public:
 
 
   // Perhaps make these private so the () overloads below have some use
-  std::vector<double> states;
-  std::vector<double> rates;
-  std::vector<double> auxs;
-  std::vector<double> consumption_rates;  // not quite as pithy
+  std::vector<S> states;
+  std::vector<S> rates;
+  std::vector<S> auxs;
+  std::vector<S> consumption_rates;  // not quite as pithy
 
-  double state(int i) const { return states[i]; }
-  double rate(int i) const { return rates[i]; }
-  double aux(int i) const { return auxs[i]; }
-  double consumption_rate(int i) const { return consumption_rates[i]; }
+  S state(int i) const { return states[i]; }
+  S rate(int i) const { return rates[i]; }
+  S aux(int i) const { return auxs[i]; }
+  S consumption_rate(int i) const { return consumption_rates[i]; }
 
-  void set_state(int i, double v) { states[i] = v; }
-  void set_rate(int i, double v) { rates[i] = v; }
-  void set_aux(int i, double v) { auxs[i] = v; }
-  void set_consumption_rate(int i, double v) { consumption_rates[i] = v; }
+  void set_state(int i, S v) { states[i] = v; }
+  void set_rate(int i, S v) { rates[i] = v; }
+  void set_aux(int i, S v) { auxs[i] = v; }
+  void set_consumption_rate(int i, S v) { consumption_rates[i] = v; }
 
   void resize(size_t new_size, size_t new_aux_size) {
     state_size = new_size;
@@ -60,6 +64,10 @@ public:
     consumption_rates.resize(new_resource_size, NA_REAL);
   }
 };
+
+// The double instantiation is the production path and what every current
+// caller means by `Internals`.
+using Internals = Internals_<double>;
 
 } // namespace plant
 
