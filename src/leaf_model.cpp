@@ -24,6 +24,15 @@ template <typename T>
 T hydraulic_cost_ad(T psi_stem, double b, double c, double g1, double beta2) {
   return g1 * pow(1.0 - exp(-pow(psi_stem / b, c)), beta2);
 }
+// As assim_colimited_ad but with vcmax (and R_d) also templated, so forward-mode
+// AD can seed the trait as the active input (used by Leaf::dprofit_dvcmax25).
+template <typename T>
+T assim_colimited_full(T ci, T vcmax, T et, T gstar_Pa, T km, T R_d, T curv) {
+  T ar = vcmax * (ci - gstar_Pa) / (ci + km);
+  T ae = et / 4.0 * (ci - gstar_Pa) / (ci + 2.0 * gstar_Pa);
+  T s = ar + ae;
+  return (s - sqrt(s * s - 4.0 * curv * ar * ae)) / (2.0 * curv) - R_d;
+}
 }  // namespace
 Leaf::Leaf()
     :
@@ -953,6 +962,48 @@ double Leaf::dprofit_droot_collar_psi(double opt_root_psi) {
 
   const double dci_dpsi = dci_dpsistem * dpsistem_dpsi + dci_dpsi_expl;
   return A_prime * dci_dpsi - C_prime * dpsistem_dpsi;
+}
+
+// Exact d(profit*)/d(vcmax_25) at the OPTIMISED operating point opt_root_psi. By
+// the envelope theorem the optimal collar potential is held fixed (dprofit/dcollar
+// = 0 at the optimum), so psi_stem is fixed and the hydraulic cost (vcmax-
+// independent) does not move; only assimilation responds through ci. With the
+// stomatal residual g(ci) = A(ci) umol_to_mol - gc (ca-ci)/(atm kPa) the only
+// vcmax-dependent term is A, so by the IFT
+//   dci/dvcmax = -(dA/dvcmax umol_to_mol) / (A'(ci) umol_to_mol + gc/(atm kPa)),
+//   dprofit/dvcmax = dA/dvcmax + A'(ci) dci/dvcmax,
+// and vcmax_ scales linearly with vcmax_25, d vcmax_/d vcmax_25 = vcmax_/vcmax_25.
+// A'/dA-dvcmax are forward-AD of the colimitation algebra. Returns a plain double
+// partial -- the leaf's forward-mode trait sensitivity, re-attached to the reverse
+// tape by the TF24 net-production kernel.
+double Leaf::dprofit_dvcmax25(double opt_root_psi) {
+  using AD = xad::fwd<double>::active_type;
+  const double psi = opt_root_psi;
+  const double gstar_Pa = gamma_ * umol_per_mol_to_Pa;
+  const double psi_stem = find_psi_stem_from_psi_root(-psi, psi_soil_inverted_);
+  const double ci = psi_stem_to_ci(psi_stem, psi);
+  if (!std::isfinite(psi_stem) || !std::isfinite(ci)) {
+    return 0.0;  // shut-down / infeasible
+  }
+  // A'(ci) and dA/dvcmax via forward AD of the colimitation algebra.
+  AD ci_ad = ci; xad::derivative(ci_ad) = 1.0;
+  const double A_prime = xad::derivative(assim_colimited_full<AD>(
+      ci_ad, AD(vcmax_), AD(electron_transport_), AD(gstar_Pa), AD(km_),
+      AD(R_d_), AD(curv_fact_colim)));
+  // R_d = 0.015 * vcmax (set_physiology), so seed R_d as a function of vcmax too.
+  AD vc_ad = vcmax_; xad::derivative(vc_ad) = 1.0;
+  const double A_vcmax = xad::derivative(assim_colimited_full<AD>(
+      AD(ci), vc_ad, AD(electron_transport_), AD(gstar_Pa), AD(km_),
+      0.015 * vc_ad, AD(curv_fact_colim)));
+  // IFT on the stomatal-conductance residual (gc fixed: psi_stem frozen).
+  const double gc_const =
+      atm_kpa_ * kg_to_mol_h2o / atm_vpd_ / H2O_CO2_stom_diff_ratio;
+  const double gc = gc_const * transpiration(psi_stem, psi);
+  const double inv_atm = 1.0 / (atm_kpa_ * kPa_to_Pa);
+  const double g_ci = A_prime * umol_to_mol + gc * inv_atm;
+  const double dci_dvcmax = -(A_vcmax * umol_to_mol) / g_ci;
+  const double dprofit_dvcmax = A_vcmax + A_prime * dci_dvcmax;
+  return dprofit_dvcmax * (vcmax_ / vcmax_25);  // chain vcmax_ -> vcmax_25 (linear)
 }
 
 // Analytic d(E_up_)/d(P_x_r): the signed-collar-potential derivative of the

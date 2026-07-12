@@ -208,7 +208,19 @@ Rcpp::List invasion_gradient_cpp(SEXP scm,
     return plant::gradient::gradient_impl<plant::FF16_Strategy, plant::FF16_Environment>(
         scm, metrics, traits, sp, plant::FF16_Pars::field_names(), true);
   }
-  plant::util::stop("stand gradients are only available for the FF16 strategy; got: " +
+  if (strategy == "TF24") {
+    // TF24 invasion (frozen-canopy) census gradient: the leaf edge injects the
+    // off-tape optimum's trait/size sensitivity, so the reverse sweep traverses
+    // density->optimum->trait natively (AD-9 / PROTO-2).
+    return plant::gradient::gradient_impl<plant::TF24_Strategy, plant::TF24_Environment>(
+        scm, metrics, traits, sp, plant::TF24_Pars::field_names(), true);
+  }
+  if (strategy == "TF24f") {
+    plant::util::stop(
+        "TF24f trait gradients are out of v1: the tracked-leaf coupling is stiff "
+        "and the fixed-step replay drifts (see AD design). Use TF24.");
+  }
+  plant::util::stop("stand gradients are only available for the FF16 and TF24 strategies; got: " +
                     strategy);
   return Rcpp::List();
 }
@@ -240,6 +252,11 @@ Rcpp::List stand_gradient_cpp(SEXP scm,
   if (strategy == "FF16") {
     return plant::gradient::gradient_impl<plant::FF16_Strategy, plant::FF16_Environment>(
         scm, metrics, traits, sp, plant::FF16_Pars::field_names(), false);
+  }
+  if (strategy == "TF24f") {
+    plant::util::stop(
+        "TF24f resident (coupled) gradients are out of v1: the log_density<->canopy "
+        "loop is stiff and the fixed-step replay drifts (see AD design).");
   }
   plant::util::stop("stand gradients are only available for the FF16 strategy; got: " +
                     strategy);

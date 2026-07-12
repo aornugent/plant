@@ -5,6 +5,7 @@
 
 #include <plant/environment.h>
 #include <plant/resource_spline.h>
+#include <plant/ad_value.h>
 #include <odelia/interpolator.hpp>
 #include <limits>
 #include <cmath>
@@ -13,14 +14,19 @@ using namespace Rcpp;
 
 namespace plant {
 
-class TF24_Environment : public Environment {
+// Templated on the scalar S of the light values (knot positions and the soil-water
+// balance stay double). At S = double this is the resident numerics (bit-identical,
+// the RcppR6 alias below). The invasion path lifts a frozen (passive) environment
+// through the same template so a mutant reads a constant canopy.
+template <class S = double>
+class TF24_Environment_ : public Environment {
 public:
   // constructor for R interface - default settings can be modified
   // except for soil_number_of_depths
   // which are only updated on construction
   
-  TF24_Environment(bool light_availability_spline_rescale_usually = true,
-                   int soil_number_of_depths = 5, 
+  TF24_Environment_(bool light_availability_spline_rescale_usually = true,
+                   int soil_number_of_depths = 5,
                    double delta_z = 9999, // not using this
                    double soil_moist_sat = 0.428, // saturated soil moisture content (m3 water m^-3 soil) 
                    double K_sat = 163.0411, //saturated hydraulic conductivity of soil
@@ -43,7 +49,7 @@ public:
 
 
     // Shading defaults have lower tolerance which are overwritten for speed
-    light_availability = ResourceSpline(
+    light_availability = ResourceSpline_<S>(
                    1e-4,  // light_availability_spline_tol,
                    17,    // light_availability_spline_nbase,
                    16,    // light_availability_spline_max_depth,
@@ -130,7 +136,7 @@ public:
                  atm_o2_kpa_cache_time_ = NAN_TIME_, atm_kpa_cache_time_ = NAN_TIME_;
 
   // A ResourceSpline used for storing light availbility (0-1)
-  ResourceSpline light_availability;
+  ResourceSpline_<S> light_availability;
 
   // Light interface
   bool canopy_rescale_usually;
@@ -167,7 +173,7 @@ public:
     set_fixed_environment(value, height_max);
   }
 
-  double get_environment_at_height(double height) const {
+  S get_environment_at_height(double height) const {
     return light_availability.get_value_at_height(height);
   }
 
@@ -177,8 +183,14 @@ public:
     return light_availability.max_height();
   }
 
-  double get_environment_at_height(double height, double cap) const {
+  S get_environment_at_height(double height, double cap) const {
     return light_availability.get_value_at_height(height, cap);
+  }
+
+  // Knot positions of the current light spline (always double). Recorded per
+  // accepted step so a resident replay could rebuild the canopy on them.
+  std::vector<double> light_knots() const {
+    return light_availability.get_knots();
   }
 
   virtual void r_init_interpolators(const std::vector<double> &state)
@@ -357,7 +369,7 @@ public:
     // Define an anonymous function to use in creation of light_availability spline
     // Note: extinction coefficient was already applied in strategy, so
     // f_compute_competition gives sum of projected leaf area (k L) across species. Just need to apply Beer's law, E = exp(- (k L))
-    auto f_light_availability = [&](double height) -> double
+    auto f_light_availability = [&](double height) -> S
     { return exp(-f_compute_competition(height)); };
 
     // Calculates the light_availability spline, by fitting to the function
@@ -365,8 +377,45 @@ public:
     light_availability.compute_environment(f_light_availability, height_max, rescale);
   }
 
+  // Rebuild the canopy on frozen knot positions with the (active) competition (the
+  // resident replay's L2 recompute); mirrors FF16_Environment_.
+  template <typename Function>
+  void compute_environment_fixed(Function f_compute_competition,
+                                 const std::vector<double>& knots) {
+    auto f_light_availability = [&](double height) -> S
+    { return exp(-f_compute_competition(height)); };
+    light_availability.compute_environment_fixed(f_light_availability, knots);
+  }
+
   virtual void clear_environment() {
     light_availability.clear();
+  }
+
+  // double -> active mould (so the Patch/SCM rebind lifts the environment too),
+  // and a config-only copy onto S2 carrying the recorded canopy and soil-water
+  // state across as passive constants for the invasion (frozen-canopy) replay.
+  template <class S2> using rebind = TF24_Environment_<S2>;
+
+  template <class S2>
+  TF24_Environment_<S2> rebind_from() const {
+    TF24_Environment_<S2> out;
+    out.time = time;
+    out.extrinsic_drivers = extrinsic_drivers;
+    out.species_arriving_index = species_arriving_index;
+    out.canopy_rescale_usually = canopy_rescale_usually;
+    out.depth = depth;
+    out.soil_moist_sat = soil_moist_sat;
+    out.K_sat = K_sat;
+    out.a_psi = a_psi;
+    out.n_psi = n_psi;
+    out.a_infil = a_infil;
+    out.b_infil = b_infil;
+    out.soil_moist_residual = soil_moist_residual;
+    out.set_soil_number_of_depths(soil_number_of_depths);
+    out.vars = vars;
+    out.water_flux = water_flux;
+    out.light_availability = light_availability.template rebind_from<S2>();
+    return out;
   }
 
   virtual Rcpp::List r_get_state() const
@@ -392,6 +441,11 @@ public:
     );
   }
   };
+
+// S = double crosses the R boundary (the RcppR6 name_cpp is this alias) and is
+// the invasion (frozen-canopy) environment; the active twin is instantiated only
+// where a trait gradient runs the SCM at the active scalar.
+using TF24_Environment = TF24_Environment_<double>;
 }
 
 #endif
