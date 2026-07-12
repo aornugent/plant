@@ -4,7 +4,6 @@
 #define PLANT_PLANT_RESOURCE_SPLINE_H_
 
 #include <odelia/interpolator.hpp>
-#include <plant/adaptive_interpolator.h>
 #include <odelia/ode_interface.hpp>
 #include <plant/util.h>
 #include <algorithm> // std::max, for the resource-availability floor (#253)
@@ -26,17 +25,18 @@ public:
   }
 
   void setup(double tol, size_t nbase, size_t max_depth, bool rescale_usually) {
-
-    // Initialise adaptive interpolator. This object can create an interpolator spline
-    spline_construction =
-        interpolator::AdaptiveInterpolator(tol, tol, nbase, max_depth);
-    // Create an actual spline, For initalisation
-    // Provide a dummy function and construct
-    // This will be over-written later with actual function
-    spline = spline_construction.construct(
-        [&](double height) { return get_value_at_height(height); }, 0,
-        1); // these are update with init(x, y) when patch is created
-    
+    // Adaptive-refinement controls, handed to the odelia interpolator's
+    // construct() from compute_environment (the interpolator owns the refiner).
+    spline_tol = tol;
+    spline_nbase = nbase;
+    spline_max_depth = max_depth;
+    // Initialise to a flat, fully-open spline (light = 1 everywhere over [0,1]),
+    // matching an empty environment; over-written by the first
+    // compute_environment() before any real light read. A constant target
+    // reproduces the previous dummy (which read the not-yet-built spline and so
+    // saw the open value 1.0) without reading the spline as it is built.
+    spline.construct([](double) { return 1.0; }, 0.0, 1.0,
+                     spline_tol, spline_tol, spline_nbase, spline_max_depth);
     spline_rescale_usually = rescale_usually;
   };
 
@@ -104,12 +104,15 @@ public:
     spline.init(state_x, state_y);
   }
 
-  // This object will store an interpolator spline of 
-  // resource availability as a function of size
+  // Stores the interpolator spline of resource availability as a function of
+  // size. The odelia interpolator owns the adaptive refiner (construct); the
+  // controls below are handed to it.
   odelia::interpolator::Interpolator spline;
 
-  // This object can create an interpolator spline via adaptive refinement
-  interpolator::AdaptiveInterpolator spline_construction;
+  // Adaptive-refinement controls for spline.construct().
+  double spline_tol;
+  size_t spline_nbase;
+  size_t spline_max_depth;
 
   // flag, do we try to rescale the spline when possible? this is quicker
   bool spline_rescale_usually;
@@ -144,8 +147,8 @@ private:
     const double lower_bound = 0.0;
     double upper_bound = height_max;
 
-    spline =
-      spline_construction.construct(f_compute_competition, lower_bound, upper_bound);
+    spline.construct(f_compute_competition, lower_bound, upper_bound,
+                     spline_tol, spline_tol, spline_nbase, spline_max_depth);
   }
 
   template <typename Function>

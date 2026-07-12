@@ -126,7 +126,7 @@ test_that("flat-top-box cannot build a light environment (discontinuous competit
   p1 <- add_strategies(p0, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar, birth_rate = list(20))
   ctrl <- Control(); ctrl$shading_model <- "flat-top-box"
   expect_error(run_scm(p1, Environment("FF16"), ctrl),
-               "Interpolated function as refined as currently possible")
+               "refined as far as max_depth allows")
 })
 
 test_that("under uniform light, the integrate-based models all agree", {
