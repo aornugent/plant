@@ -100,12 +100,10 @@ public:
   // vector as given by ode_state
   Rcpp::List r_get_state() const;
 
-  // Set state of patch, based on estimate of future state estimated by the solver
-  // There are two implementations.
-  //   - first function is for resident runs.
-  //   - second is for mutant runs.
-  // The second does not calculate environment when states are updated, as mutants only experience the environment
-  // The decision which to use is determined by `use_cached_environment` below
+  // Set patch state from the solver's estimate. Two overloads, chosen by
+  // odelia::ode::derivs on has_recorded_field():
+  //   - (it, time):  resident -- recompute the environment at this time.
+  //   - (it, index): mutant   -- read the recorded environment for this RK stage.
   odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it, double time);
   odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it, int index);
 
@@ -139,21 +137,36 @@ public:
     compute_rates();
   }
 
-  // env. cache for assembly
-  std::vector<double> step_history{0.0};  // always start at zero
-  std::vector<std::vector<environment_type>> environment_history;
-  std::vector<environment_type> environment_cache;
+  // Recorded environment for mutant replay. The resident (recording) pass stores
+  // the accepted step times and, per step, a whole-environment snapshot at each of
+  // the six RK stages; the mutant (replay) pass reads them back as fixed doubles.
+  // step_history[0] == 0.
+  std::vector<double> step_history{0.0};
+  std::vector<std::vector<environment_type>> environment_history;  // [step][RK stage]
+  std::vector<environment_type> environment_cache;                 // this step's stages
 
-  void cache_ode_step();
-  void cache_RK45_step(int step);
-  void load_ode_step();
-  
-  // used cache_ode_step for mutant runs
-  bool save_RK45_cache;
+  // The odelia::ode::Replayable hooks the Solver drives: record_stage per RK
+  // stage, record_ode_step per accepted step, replay_step per step on the replay
+  // pass. record_* append only while recording; replay_step only when a recording
+  // is present.
+  void record_stage(int stage);
+  void record_ode_step();
+  void replay_step();
 
-  // used in load_ode_step for mutant runs
-  bool use_cached_environment = false;
+  // Is the recorded environment populated for replay? True on a mutant pass (a
+  // recording is present and this pass is not the one producing it), false while a
+  // resident records or when nothing was recorded. odelia::ode::derivs reads this
+  // to route between the recompute and replay set_ode_state overloads.
+  bool has_recorded_field() const {
+    return !recording && !environment_history.empty();
+  }
 
+  // Set while a resident produces the recording: enabled up front for a resident
+  // that will be replayed, cleared by set_mutant() so the mutant reads it back.
+  bool recording;
+
+  // A mutant (invasion) run: the focal strategy reads the recorded background and
+  // does not shape the field (no self-shading).
   bool is_mutant_run = false;
 
   void set_mutant();
@@ -207,7 +220,7 @@ Patch<T,E>::Patch(parameters_type p, environment_type e, Control c)
   
   parameters.validate();
 
-  save_RK45_cache = control.save_RK45_cache;
+  recording = control.save_RK45_cache;
   survival_weighting = p.disturbance;
 
   // Configure the light profile's shading model before the first
@@ -245,8 +258,7 @@ void Patch<T,E>::set_mutant() {
     }
 
     is_mutant_run = true;
-    save_RK45_cache = false;
-    use_cached_environment = true;
+    recording = false;  // stop recording so has_recorded_field() reads it back
   idx = 0;
 }
 
@@ -722,32 +734,33 @@ odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterato
   return it;
 }
 
-// called from ode_solver->cache
-// saves cached set of environments(6) from each ODE step to the step history
+// Per accepted ODE step: commit this step's stage snapshots and its time to the
+// recording (resident pass only).
 template <typename T, typename E>
-void Patch<T,E>::cache_ode_step() {
-  if(save_RK45_cache) { 
+void Patch<T,E>::record_ode_step() {
+  if (recording) {
     step_history.push_back(time());
     environment_history.push_back(environment_cache);
   }
 }
 
-// called from ode_step->cache
-// saves environment at each RK45 step to the environment cache
+// Per RK stage: snapshot the environment into this step's stage buffer; stage 0
+// starts a fresh buffer (resident pass only).
 template <typename T, typename E>
-void Patch<T,E>::cache_RK45_step(int step) {
-  if(save_RK45_cache) {  
-    if(step == 0) {
+void Patch<T,E>::record_stage(int stage) {
+  if (recording) {
+    if (stage == 0) {
       environment_cache.clear();
     }
     environment_cache.push_back(environment);
   }
 }
 
-// called from ode_solver->load, only gets called for mutant runs
+// Per step on the replay pass: advance the recording cursor to this step's time
+// so the mutant set_ode_state reads the right stage snapshots.
 template <typename T, typename E>
-void Patch<T,E>::load_ode_step() {
-  if (use_cached_environment)
+void Patch<T,E>::replay_step() {
+  if (has_recorded_field())
   {
     // Minor optimization to check the current and next index before doing a search, as the most common case is that the ODE solver is stepping through the cached environments in order. If the call sequence was not strictly sequential, we fallback to a search through the step history to find the correct environment.
 
