@@ -12,16 +12,21 @@ using namespace Rcpp;
 
 namespace plant {
 
-class FF16_Environment : public Environment {
+// FF16's environment: a single light field, no ODE state (ode_size() == 0).
+// Templated on the scalar S of the light knot values; S = double is the
+// production path (the `FF16_Environment` alias below). Base members are reached
+// through this-> because Environment_<S> is a dependent base.
+template <class S = double>
+class FF16_Environment_ : public Environment_<S> {
 public:
   // constructor for R interface - default settings can be modified
   // except for light_availability_spline_rescale_usually
   // which are only updated on construction
-  FF16_Environment() {
-    time = 0.0;
+  FF16_Environment_() {
+    this->time = 0.0;
 
     // Shading defaults have lower tolerance which are overwritten for speed
-    light_availability = ResourceSpline(
+    light_availability = ResourceSpline_<S>(
         1e-4, // light_availability_spline_tol,
         17,   // light_availability_spline_nbase,
         16,   // light_availability_spline_max_depth,
@@ -31,7 +36,7 @@ public:
   };
 
   // A ResourceSpline used for storing light availbility (0-1)
-  ResourceSpline light_availability;
+  ResourceSpline_<S> light_availability;
 
   // PPA: when true, the light a plant experiences is the stepped (layered)
   // profile rather than the smooth one stored in light_availability. The
@@ -67,7 +72,7 @@ public:
     set_fixed_environment(value, height_max);
   }
 
-  double get_environment_at_height(double height) const {
+  S get_environment_at_height(S height) const {
     return step_light(light_availability.get_value_at_height(height));
   }
 
@@ -77,7 +82,7 @@ public:
     return light_availability.max_height();
   }
 
-  double get_environment_at_height(double height, double cap) const {
+  S get_environment_at_height(S height, S cap) const {
     return step_light(light_availability.get_value_at_height(height, cap));
   }
 
@@ -87,17 +92,17 @@ public:
   // optical depth tau = -log(E) onto a smoothed integer number of layers of
   // thickness layer_optical_depth and back-transforms:
   //   E_step = exp(-d * smooth_floor(tau / d)).
-  double step_light(double E) const {
+  S step_light(S E) const {
     if (!light_profile_stepped || E >= 1.0) {
       return E;
     }
     // Guard the log: the smooth spline can undershoot to <= 0, which would make
     // tau non-finite. Such a point is fully shaded, so return 0.
     if (E <= 0.0) {
-      return 0.0;
+      return static_cast<S>(0.0);
     }
-    const double tau = -std::log(E);
-    return std::exp(-layer_optical_depth * smooth_floor(tau / layer_optical_depth));
+    const S tau = -log(E);
+    return exp(-layer_optical_depth * smooth_floor(tau / layer_optical_depth));
   }
 
   // Monotone, C1-continuous smooth staircase. Each layer is flat over its lower
@@ -105,18 +110,19 @@ public:
   // over its top layer_smoothing fraction. C1 at the joins because smoothstep
   // has zero slope at both ends, so the resulting light profile is smooth enough
   // for the adaptive ODE solver. With layer_smoothing -> 0 this recovers the
-  // hard floor (and its instability).
-  double smooth_floor(double u) const {
-    const double n = std::floor(u);
+  // hard floor (and its instability). The integer floor is a piecewise-constant
+  // selector (derivative zero), so it is taken on the double value.
+  S smooth_floor(S u) const {
+    const double n = std::floor(xad::value(u));
     const double w = layer_smoothing;
     if (w <= 0.0) {
-      return n; // hard step
+      return static_cast<S>(n); // hard step
     }
-    const double f = u - n; // fractional position within the layer, [0, 1)
-    if (f <= 1.0 - w) {
-      return n; // flat lower part of the layer
+    const S f = u - n; // fractional position within the layer, [0, 1)
+    if (xad::value(f) <= 1.0 - w) {
+      return static_cast<S>(n); // flat lower part of the layer
     }
-    const double t = (f - (1.0 - w)) / w; // [0, 1] across the transition
+    const S t = (f - (1.0 - w)) / w; // [0, 1] across the transition
     return n + t * t * (3.0 - 2.0 * t);    // cubic smoothstep
   }
 
@@ -135,7 +141,10 @@ public:
             );
   }
 
-  // Pre-compute resources available in the environment, as a function of height
+  // Pre-compute resources available in the environment, as a function of height.
+  // The field CONSTRUCTION stays double (adaptive knot placement + a double
+  // competition function); an active resident light field is rebuilt on the
+  // recorded knots later (the deferred L2 path).
   template <typename Function>
   void compute_environment(Function f_compute_competition, double height_max, bool rescale) {
 
@@ -155,6 +164,9 @@ public:
   }
 };
 
+// The double instantiation is the production path bound by RcppR6 as
+// `plant::FF16_Environment`.
+using FF16_Environment = FF16_Environment_<double>;
 
 }
 

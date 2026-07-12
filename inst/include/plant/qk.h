@@ -14,6 +14,7 @@
 #include <vector>
 #include <cmath> // std::abs, std::isnan
 #include <RcppCommon.h> // SEXP
+#include <XAD/XAD.hpp> // xad::value (narrow the error estimate to double)
 #include <plant/util.h> // util::stop
 
 namespace plant {
@@ -23,8 +24,15 @@ class QK {
 public:
   QK();
   QK(size_t rule);
-  template <typename Function>
-  double integrate(Function f, double a, double b);
+  // Fixed Gauss-Kronrod rule templated on the scalar S of the integrand/bounds.
+  // A fixed rule places its nodes as a deterministic affine function of the
+  // bounds, so an active bound tapes exactly (the integral value carries S,
+  // including the half-length Jacobian). The error estimate is diagnostic and
+  // off the differentiated path, so it is computed in double via xad::value.
+  // S = double is the production path and is bit-identical to the pre-template
+  // code. (Cluster 4 / plan §4.4.)
+  template <typename S, typename Function>
+  S integrate(Function f, S a, S b);
 
   // These two provide very low level access to the integration
   // routines.
@@ -58,19 +66,27 @@ private:
 
 // Skipping dealing with Functors by just requiring something
 // callable using templates.
-template <typename Function>
-double QK::integrate(Function f, double a, double b) {
-  const double center          = 0.5 * (a + b);
-  const double half_length     = 0.5 * (b - a);
-  const double abs_half_length = std::abs(half_length);
-  const double f_center        = f(center);
-  if (std::isnan(f_center)) {
-    util::stop("Integrand returned NaN at x=" + std::to_string(center));
+//
+// The integral accumulators and the (bound-dependent) nodes carry S so an
+// active bound differentiates through exactly; the abs/error-estimate machinery
+// (result_abs/result_asc/last_error, the fv1/fv2 scratch) stays double via
+// xad::value, both because it is diagnostic and to keep abs()'s kink off the
+// tape. At S = double, xad::value is the identity, so this is bit-identical to
+// the previous double-only body.
+template <typename S, typename Function>
+S QK::integrate(Function f, S a, S b) {
+  const S      center          = 0.5 * (a + b);
+  const S      half_length     = 0.5 * (b - a);
+  const double abs_half_length = std::abs(xad::value(half_length));
+  const S      f_center        = f(center);
+  if (std::isnan(xad::value(f_center))) {
+    util::stop("Integrand returned NaN at x=" +
+               std::to_string(xad::value(center)));
   }
 
-  double result_gauss = 0;
-  double result_kronrod = f_center * wgk[n - 1];
-  double result_abs = std::abs(result_kronrod);
+  S result_gauss = 0;
+  S result_kronrod = f_center * wgk[n - 1];
+  double result_abs = std::abs(xad::value(result_kronrod));
 
   if (n % 2 == 0) {
     result_gauss = f_center * wg[n / 2 - 1];
@@ -78,31 +94,33 @@ double QK::integrate(Function f, double a, double b) {
 
   for (size_t j = 0; j < (n - 1) / 2; j++) {
     const size_t jtw = j * 2 + 1;  /* in original fortran j=1,2,3 jtw=2,4,6 */
-    const double abscissa = half_length * xgk[jtw];
-    const double fval1 = f(center - abscissa);
-    const double fval2 = f(center + abscissa);
-    const double fsum = fval1 + fval2;
-    fv1[jtw] = fval1;
-    fv2[jtw] = fval2;
+    const S abscissa = half_length * xgk[jtw];
+    const S fval1 = f(center - abscissa);
+    const S fval2 = f(center + abscissa);
+    const S fsum = fval1 + fval2;
+    fv1[jtw] = xad::value(fval1);
+    fv2[jtw] = xad::value(fval2);
     result_gauss   += wg[j] * fsum;
     result_kronrod += wgk[jtw] * fsum;
-    result_abs     += wgk[jtw] * (std::abs(fval1) + std::abs(fval2));
+    result_abs     += wgk[jtw] * (std::abs(xad::value(fval1)) +
+                                  std::abs(xad::value(fval2)));
   }
 
   for (size_t j = 0; j < n / 2; j++) {
     size_t jtwm1 = j * 2;
-    const double abscissa = half_length * xgk[jtwm1];
-    const double fval1 = f(center - abscissa);
-    const double fval2 = f(center + abscissa);
-    fv1[jtwm1] = fval1;
-    fv2[jtwm1] = fval2;
+    const S abscissa = half_length * xgk[jtwm1];
+    const S fval1 = f(center - abscissa);
+    const S fval2 = f(center + abscissa);
+    fv1[jtwm1] = xad::value(fval1);
+    fv2[jtwm1] = xad::value(fval2);
     result_kronrod += wgk[jtwm1] * (fval1 + fval2);
-    result_abs     += wgk[jtwm1] * (std::abs(fval1) + std::abs(fval2));
+    result_abs     += wgk[jtwm1] * (std::abs(xad::value(fval1)) +
+                                    std::abs(xad::value(fval2)));
   };
 
-  const double mean = result_kronrod * 0.5;
+  const double mean = xad::value(result_kronrod) * 0.5;
 
-  double result_asc = wgk[n - 1] * std::abs(f_center - mean);
+  double result_asc = wgk[n - 1] * std::abs(xad::value(f_center) - mean);
 
   for (size_t j = 0; j < n - 1; j++) {
     result_asc += wgk[j] * (std::abs(fv1[j] - mean) +
@@ -111,23 +129,24 @@ double QK::integrate(Function f, double a, double b) {
 
   /* scale by the width of the integration region */
 
-  const double err = (result_kronrod - result_gauss) * half_length;
+  const S err = (result_kronrod - result_gauss) * half_length;
 
   result_kronrod *= half_length;
   result_abs *= abs_half_length;
   result_asc *= abs_half_length;
 
-  last_result     = result_kronrod;
+  last_result     = xad::value(result_kronrod);
   last_result_abs = result_abs;
   last_result_asc = result_asc;
-  last_error      = rescale_error(err, result_abs, result_asc);
+  last_error      = rescale_error(xad::value(err), result_abs, result_asc);
 
   if (std::isnan(last_result)) {
     util::stop("Integrand produced NaN result over [" +
-               std::to_string(a) + ", " + std::to_string(b) + "]");
+               std::to_string(xad::value(a)) + ", " +
+               std::to_string(xad::value(b)) + "]");
   }
 
-  return last_result;
+  return result_kronrod;
 }
 
 }

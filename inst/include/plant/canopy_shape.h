@@ -100,7 +100,7 @@ class CanopyShape {
 public:
   CanopyShape()
     : eta_(12.0), eta_inverse_(1.0 / 12.0), eta_c_(compute_eta_c(12.0)),
-      pow_eta_(&pow_eta_12), leaf_above_(&leaf_above_deep) {
+      pow_eta_kind_(PowEtaKind::P12), leaf_above_kind_(LeafAboveKind::Deep) {
   }
 
   explicit CanopyShape(double eta) {
@@ -111,148 +111,133 @@ public:
     eta_ = eta;
     eta_inverse_ = 1.0 / eta;
     eta_c_ = compute_eta_c(eta);
-    pow_eta_ = select_pow_eta(eta);
+    pow_eta_kind_ = select_pow_eta_kind(eta);
     // Most models cast shade via the smooth Yokozawa Q (leaf_area_above == Q).
     // FlatTopBox collapses it to a hard step; FlatTopSoftBox to a smoothed step.
     switch (shading_model) {
-    case ShadingModel::FlatTopBox:     leaf_above_ = &leaf_above_box;     break;
-    case ShadingModel::FlatTopSoftBox: leaf_above_ = &leaf_above_softbox; break;
-    default:                           leaf_above_ = &leaf_above_deep;    break;
+    case ShadingModel::FlatTopBox:     leaf_above_kind_ = LeafAboveKind::Box;     break;
+    case ShadingModel::FlatTopSoftBox: leaf_above_kind_ = LeafAboveKind::SoftBox; break;
+    default:                           leaf_above_kind_ = LeafAboveKind::Deep;    break;
     }
   }
+
+  // The profile methods below are templated on the position scalar Z: Z = double
+  // is the production path (bit-identical -- the eta-specialised multiply chains
+  // and the profile expressions are unchanged, only the double(*)(...) dispatch
+  // is replaced by a switch on a stored kind), while an active Z tapes the crown
+  // integral's moving quadrature nodes (plan §4.4). The shape coefficients
+  // (eta_, eta_c_) stay double: the profile is not differentiated w.r.t. eta.
 
   // [eqn 11] Fraction of projected leaf area above the height-normalised
   // coordinate u = z / H -- the shading a plant casts at u. Smooth Yokozawa Q
-  // for every model except FlatTopBox, which uses a step at the crown centre.
-  // Bound once in initialise(), so the competition hot path makes one predicted
-  // indirect call with no branch.
-  double leaf_area_above(double z_over_height) const {
-    return leaf_above_(*this, z_over_height);
+  // for every model except FlatTopBox (a hard step) and FlatTopSoftBox (smoothed).
+  template <class Z>
+  Z leaf_area_above(Z z_over_height) const {
+    switch (leaf_above_kind_) {
+    case LeafAboveKind::Box:     return z_over_height < eta_c_ ? Z(1.0) : Z(0.0);
+    case LeafAboveKind::SoftBox: return leaf_above_softbox(z_over_height);
+    default:                     return Q(z_over_height); // Deep
+    }
   }
 
-  double q(double z_over_height, double z) const {
-    const double u_eta = pow_eta_(z_over_height, eta_);
+  template <class Z>
+  Z q(Z z_over_height, Z z) const {
+    const Z u_eta = pow_eta(z_over_height);
     return 2.0 * eta_ * (1.0 - u_eta) * u_eta / z;
   }
 
-  double q_from_height(double z, double height) const {
+  template <class Z>
+  Z q_from_height(Z z, Z height) const {
     return q(z / height, z);
   }
 
-  double Q(double z_over_height) const {
+  template <class Z>
+  Z Q(Z z_over_height) const {
     if (z_over_height > 1.0) {
-      return 0.0;
+      return Z(0.0);
     }
-    const double tmp = 1.0 - pow_eta_(z_over_height, eta_);
+    const Z tmp = 1.0 - pow_eta(z_over_height);
     return tmp * tmp;
   }
 
-  double Q_from_height(double z, double height) const {
+  template <class Z>
+  Z Q_from_height(Z z, Z height) const {
     if (z > height) {
-      return 0.0;
+      return Z(0.0);
     }
     return Q(z / height);
   }
 
+  // Qp is an R-facing/diagnostic inverse, off the differentiated rate path, so
+  // it stays double.
   double Qp(double x, double height) const {
     return std::pow(1.0 - std::sqrt(x), eta_inverse_) * height;
   }
 
 private:
-  typedef double (*pow_eta_fn)(double, double);
-  typedef double (*leaf_above_fn)(const CanopyShape&, double);
+  enum class PowEtaKind { P1, P2, P4, P8, P10, P12, General };
+  enum class LeafAboveKind { Deep, Box, SoftBox };
 
   static double compute_eta_c(double eta) {
     return 1.0 - 2.0 / (1.0 + eta) + 1.0 / (1.0 + 2.0 * eta);
-  }
-
-  // Smooth Yokozawa profile -- the correct shading a crown casts.
-  static double leaf_above_deep(const CanopyShape& c, double z_over_height) {
-    return c.Q(z_over_height);
-  }
-
-  // FlatTopBox: all leaf area collapsed into the thin crown-centre layer, so the
-  // crown fully shades everything below z = H*eta_c and nothing above. A step.
-  static double leaf_above_box(const CanopyShape& c, double z_over_height) {
-    return z_over_height < c.eta_c_ ? 1.0 : 0.0;
   }
 
   // FlatTopSoftBox: the hard step softened into a monotone C1 drop, full shade up
   // to lo = max(0, 2*eta_c - 1) then a cubic-smoothstep fall to zero at the crown
   // top (so the transition is centred on the crown centre eta_c and the profile
   // is continuous -- buildable -- but still box-like, not the Yokozawa taper).
-  static double leaf_above_softbox(const CanopyShape& c, double z_over_height) {
-    const double lo = c.eta_c_ > 0.5 ? 2.0 * c.eta_c_ - 1.0 : 0.0;
+  template <class Z>
+  Z leaf_above_softbox(Z z_over_height) const {
+    const double lo = eta_c_ > 0.5 ? 2.0 * eta_c_ - 1.0 : 0.0;
     if (z_over_height <= lo) {
-      return 1.0;
+      return Z(1.0);
     }
     if (z_over_height >= 1.0) {
-      return 0.0;
+      return Z(0.0);
     }
-    const double t = (z_over_height - lo) / (1.0 - lo);
+    const Z t = (z_over_height - lo) / (1.0 - lo);
     return 1.0 - t * t * (3.0 - 2.0 * t);
   }
 
-  static pow_eta_fn select_pow_eta(double eta) {
+  static PowEtaKind select_pow_eta_kind(double eta) {
     if (eta == 1.0) {
-      return &pow_eta_1;
+      return PowEtaKind::P1;
     } else if (eta == 2.0) {
-      return &pow_eta_2;
+      return PowEtaKind::P2;
     } else if (eta == 4.0) {
-      return &pow_eta_4;
+      return PowEtaKind::P4;
     } else if (eta == 8.0) {
-      return &pow_eta_8;
+      return PowEtaKind::P8;
     } else if (eta == 10.0) {
-      return &pow_eta_10;
+      return PowEtaKind::P10;
     } else if (eta == 12.0) {
-      return &pow_eta_12;
+      return PowEtaKind::P12;
     } else {
-      return &pow_eta_general;
+      return PowEtaKind::General;
     }
   }
 
-  static double pow_eta_general(double u, double eta) {
-    return std::pow(u, eta);
-  }
-
-  static double pow_eta_1(double u, double) {
-    return u;
-  }
-
-  static double pow_eta_2(double u, double) {
-    return u * u;
-  }
-
-  static double pow_eta_4(double u, double) {
-    const double u2 = u * u;
-    return u2 * u2;
-  }
-
-  static double pow_eta_8(double u, double) {
-    const double u2 = u * u;
-    const double u4 = u2 * u2;
-    return u4 * u4;
-  }
-
-  static double pow_eta_10(double u, double) {
-    const double u2 = u * u;
-    const double u4 = u2 * u2;
-    const double u8 = u4 * u4;
-    return u8 * u2;
-  }
-
-  static double pow_eta_12(double u, double) {
-    const double u2 = u * u;
-    const double u4 = u2 * u2;
-    const double u8 = u4 * u4;
-    return u8 * u4;
+  // u^eta via the eta-specialised multiply chains (bit-identical to the former
+  // pow_eta_* function pointers); the general case is std::pow, made ADL-friendly
+  // so an active Z resolves to xad::pow.
+  template <class Z>
+  Z pow_eta(Z u) const {
+    switch (pow_eta_kind_) {
+    case PowEtaKind::P1:  return u;
+    case PowEtaKind::P2:  return u * u;
+    case PowEtaKind::P4:  { const Z u2 = u * u; return u2 * u2; }
+    case PowEtaKind::P8:  { const Z u2 = u * u; const Z u4 = u2 * u2; return u4 * u4; }
+    case PowEtaKind::P10: { const Z u2 = u * u; const Z u4 = u2 * u2; const Z u8 = u4 * u4; return u8 * u2; }
+    case PowEtaKind::P12: { const Z u2 = u * u; const Z u4 = u2 * u2; const Z u8 = u4 * u4; return u8 * u4; }
+    default:             { using std::pow; return pow(u, eta_); }
+    }
   }
 
   double eta_;
   double eta_inverse_;
   double eta_c_;
-  pow_eta_fn pow_eta_;
-  leaf_above_fn leaf_above_;
+  PowEtaKind pow_eta_kind_;
+  LeafAboveKind leaf_above_kind_;
 };
 
 }
