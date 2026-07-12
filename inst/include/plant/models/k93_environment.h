@@ -9,15 +9,20 @@ using namespace Rcpp;
 
 namespace plant {
 
-class K93_Environment : public Environment {
+// K93's environment: a single light field, no ODE state (ode_size() == 0).
+// Templated on the scalar S of the light knot values; S = double is the
+// production path (the `K93_Environment` alias below). Base members are reached
+// through this-> because Environment_<S> is a dependent base.
+template <class S = double>
+class K93_Environment_ : public Environment_<S> {
 public:
-  K93_Environment() {
-    time = 0.0;
+  K93_Environment_() {
+    this->time = 0.0;
     // Match FF16: loosen the light-availability spline tolerance from the
     // ResourceSpline default (1e-6) to 1e-4 for speed. The spline is rebuilt
     // every ODE step, so its construction dominates K93 runtime; 1e-6 was 100x
     // tighter than FF16 for no comparable accuracy need.
-    light_availability = ResourceSpline(
+    light_availability = ResourceSpline_<S>(
         1e-4, // light_availability_spline_tol
         17,   // light_availability_spline_nbase
         16,   // light_availability_spline_max_depth
@@ -26,7 +31,7 @@ public:
   };
 
   // Light interface
-  ResourceSpline light_availability;
+  ResourceSpline_<S> light_availability;
 
   void set_fixed_environment(double value, double height_max) {
     light_availability.set_fixed_value(value, height_max);
@@ -37,7 +42,7 @@ public:
     set_fixed_environment(value, height_max);
   }
 
-  double get_environment_at_height(double height) const {
+  S get_environment_at_height(S height) const {
     return light_availability.get_value_at_height(height);
   }
 
@@ -48,7 +53,7 @@ public:
 
   virtual Rcpp::List r_get_state() const
   {
-    return Rcpp::List::create(_["light_availability"] = time); //      light_availability);
+    return Rcpp::List::create(_["light_availability"] = this->time); //      light_availability);
   }
 
   // Core functions
@@ -72,6 +77,10 @@ public:
   }
 
 };
+
+// The double instantiation is the production path bound by RcppR6 as
+// `plant::K93_Environment`.
+using K93_Environment = K93_Environment_<double>;
 
 }
 

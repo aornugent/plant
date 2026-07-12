@@ -15,8 +15,20 @@ using namespace Rcpp;
 
 namespace plant {
 
-class Environment {
+// The environment a plant couples to (light, and for TF24 soil water). Templated
+// on the scalar S carried by its ODE state / knot values; S = double is the
+// production path (the `Environment` alias below). FF16/K93 carry no environment
+// ODE state (ode_size() == 0), so their seam methods are pass-throughs; TF24's
+// soil state rides these on the double alias. The ODE-serialisation seam is
+// templated on the iterator so the state flows at whatever scalar the solver
+// drives.
+template <class S = double>
+class Environment_ {
 public:
+  // The scalar the environment's ODE state / light values carry. Read by the
+  // Coupling concept and by Patch when threading value_type.
+  using value_type = S;
+
   template <typename Function>
   void compute_environment(Function f, double height_max, bool rescale);
 
@@ -34,21 +46,24 @@ public:
   size_t ode_size() const { return vars.state_size; }
   virtual void compute_rates(std::vector<double> const& resource_depletion){};
 
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it) {
+  template <typename It>
+  It set_ode_state(It it) {
     for (size_t i = 0; i < vars.state_size; i++) {
       vars.states[i] = *it++;
     }
     return it;
   }
 
-  odelia::ode::iterator ode_state(odelia::ode::iterator it) const {
+  template <typename It>
+  It ode_state(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.states[i];
     }
     return it;
   }
 
-  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const {
+  template <typename It>
+  It ode_rates(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.rates[i];
     }
@@ -70,15 +85,15 @@ public:
 
   virtual void r_init_interpolators(const std::vector<double>& state) {}
 
-  double get_environment_at_height(double height) const { return 0.0; };
+  S get_environment_at_height(S height) const { return static_cast<S>(0.0); };
 
-  virtual ~Environment() = default;
+  virtual ~Environment_() = default;
 
   double time;
 
   size_t species_arriving_index;
 
-  Internals vars;
+  Internals_<S> vars;
   ExtrinsicDrivers extrinsic_drivers;
 
   // The
@@ -106,7 +121,11 @@ public:
   {
     return extrinsic_drivers.evaluate_range(driver_name, x);
   }
-  
+
 };
+
+// The double instantiation is the production path and what every current caller
+// (TF24_Environment, and the FF16/K93 environments' base) means by `Environment`.
+using Environment = Environment_<double>;
 }
 #endif
