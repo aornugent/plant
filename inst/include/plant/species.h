@@ -116,6 +116,13 @@ public:
 
   ExtrinsicDrivers extrinsic_drivers() const {return strategy->extrinsic_drivers;}
 
+  // The low-level strategy parameters the gradient is taken with respect to
+  // (§8.1). All cohorts of this species share one strategy, so a species
+  // contributes a single parameter block regardless of node count.
+  std::vector<typename base_type::value_type*> ad_parameters() {
+    return strategy->field_ptrs();
+  }
+
 private:
   // Storage (strategy, nodes) and control() live in SpeciesBase; the
   // using-declarations let the unqualified references below resolve through the

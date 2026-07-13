@@ -107,6 +107,21 @@ public:
   template <typename It> It set_ode_state(It it, double time);
   template <typename It> It set_ode_state(It it, int index);
 
+  // The differentiable inputs the gradient driver seeds a subset of (§8.1):
+  // species-major, each species' low-level strategy parameters. A resident
+  // patch's cohort birth states are taped intermediates of the population (set
+  // by compute_initial_conditions each step), not independent inputs, so it
+  // seeds no initial state of its own.
+  std::vector<value_type*> ad_parameters() {
+    std::vector<value_type*> ptrs;
+    for (auto& sp : species) {
+      auto block = sp.ad_parameters();
+      ptrs.insert(ptrs.end(), block.begin(), block.end());
+    }
+    return ptrs;
+  }
+  std::vector<value_type*> ad_initial_state() { return {}; }
+
   // * R interface
   // Data accessors:
   double r_density(double time) const {return survival_weighting->r_density(time);}
