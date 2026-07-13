@@ -251,13 +251,22 @@ Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
       return p.growth_rate_given_height(value_type(h), environment);
     };
     const double h0 = xad::value(individual.state(HEIGHT_INDEX));
-    if (control.node_gradient_richardson) {
-      return util::gradient_richardson(fun, h0, eps,
-                                       control.node_gradient_richardson_depth);
-    } else {
-      return util::gradient_fd(fun, h0, eps, fun(h0),
-                               control.node_gradient_direction);
-    }
+    value_type dgdh = control.node_gradient_richardson
+      ? util::gradient_richardson(fun, h0, eps, control.node_gradient_richardson_depth)
+      : util::gradient_fd(fun, h0, eps, fun(h0), control.node_gradient_direction);
+    // Deferred (candidate B): drop the parameter-derivative of dg/dh, keeping its
+    // value. Differentiating the FD stencil on the outer tape is unreliable -- for
+    // a suppressed cohort the backward stencil straddles the size_dt growth clamp,
+    // so d(dg/dh)/dtheta = (dg/dtheta(h0) - dg/dtheta(h0-eps))/eps picks up the
+    // kink and /eps amplifies it (measured: the two-cohort resident gradient blows
+    // to ~2.3x FD, while dropping the term lands a clean, consistent 0.96x across
+    // every seeded parameter -- the residual IS this dropped d2g/dh.dtheta). The
+    // correct fix is to compute dg/dh off-tape (double) and inject its parameter
+    // partials via odelia::supplied_derivative (Kind B, ad-implementation §15) --
+    // the same seam TF24 needs when g re-runs a non-retapeable leaf optimiser.
+    // Until then the single-cohort gradient is exact and the multi-cohort one
+    // carries this bounded ~4% underestimate.
+    return value_type(xad::value(dgdh));
   }
 }
 
