@@ -27,6 +27,8 @@ public:
   typedef Individual<T,E>  individual_type;
   typedef Node<T,E> node_type;
   typedef typename strategy_type::ptr strategy_type_ptr;
+  // The scalar this species' demographic state carries (double / active).
+  using value_type = typename base_type::value_type;
   Species(strategy_type s);
 
   // ODE plumbing and the per-element serialisers are inherited from SpeciesBase
@@ -50,7 +52,7 @@ public:
   void introduce_new_node(double time, double patch_density);
 
   double height_max() const;
-  double compute_competition(double height) const;
+  value_type compute_competition(double height) const;
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
   std::vector<double> net_reproduction_ratio_by_node() const;
   // Per-node lifetime offspring, weighted by patch-age density and S_D.
@@ -172,7 +174,9 @@ void Species<T,E>::introduce_new_node() {
 // tall as a seed.
 template <typename T, typename E>
 double Species<T,E>::height_max() const {
-  return nodes.empty() ? new_node.height() : nodes.front().height();
+  // The stand's field-domain top: a frozen double L2 position (§5.5), never a
+  // differentiated quantity, so narrow the tallest node's height.
+  return xad::value(nodes.empty() ? new_node.height() : nodes.front().height());
 }
 
 // Because of nodes are always ordered from largest to smallest, we
@@ -201,17 +205,22 @@ double Species<T,E>::height_max() const {
 // also needed if the last looked at plant was still contributing to
 // the integral).
 template <typename T, typename E>
-double Species<T,E>::compute_competition(double height) const {
+typename Species<T,E>::value_type
+Species<T,E>::compute_competition(double height) const {
+  // The competition integral is the resident self-shading channel: the node
+  // heights and per-node competition carry value_type on a gradient pass, so a
+  // trait re-shades the stand. The query height and the domain guard stay double
+  // (height_max is a frozen L2 domain position, §5.5).
   if (size() == 0 || height_max() < height) {
-    return 0.0;
+    return value_type(0.0);
   }
-  double tot = 0.0;
+  value_type tot = 0.0;
   nodes_const_iterator it = nodes.begin();
-  double h1 = it->height(), f_h1 = it->compute_competition(height);
+  value_type h1 = it->height(), f_h1 = it->compute_competition(height);
 
   // Loop over nodes
   for (++it; it != nodes.end(); ++it) {
-    const double h0 = it->height(), f_h0 = it->compute_competition(height);
+    const value_type h0 = it->height(), f_h0 = it->compute_competition(height);
     if (!util::is_finite(f_h0)) {
       util::stop("Detected non-finite contribution");
     }
@@ -226,7 +235,7 @@ double Species<T,E>::compute_competition(double height) const {
   }
 
   if (size() == 1 || f_h1 > 0) {
-    const double h0 = new_node.height(), f_h0 = new_node.compute_competition(height);
+    const value_type h0 = new_node.height(), f_h0 = new_node.compute_competition(height);
     tot += (h1 - h0) * (f_h1 + f_h0);
   }
 
@@ -302,7 +311,7 @@ std::vector<double> Species<T,E>::consumption_rate_by_node_rev(int i) const {
   std::vector<double> ret;
   ret.reserve(size());
   for(auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
-    ret.push_back(it->consumption_rate(i));
+    ret.push_back(xad::value(it->consumption_rate(i)));  // R-facing: double only
   }
   return ret;
 }
@@ -354,7 +363,7 @@ std::vector<double> Species<T,E>::r_heights() const {
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin();
        it != nodes.end(); ++it) {
-    ret.push_back(it->height());
+    ret.push_back(xad::value(it->height()));  // R-facing: double only
   }
   return ret;
 }
@@ -365,7 +374,7 @@ std::vector<double> Species<T,E>::r_heights_rev() const {
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin();
        it != nodes.end(); ++it) {
-    ret.push_back(it->height());
+    ret.push_back(xad::value(it->height()));  // R-facing: double only
   }
   std::reverse(ret.begin(), ret.end());
   return ret;
@@ -404,7 +413,7 @@ std::vector<double> Species<T,E>::r_log_densities() const {
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin();
        it != nodes.end(); ++it) {
-    ret.push_back(it->get_log_density());
+    ret.push_back(xad::value(it->get_log_density()));  // R-facing: double only
   }
   return ret;
 }

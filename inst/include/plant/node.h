@@ -28,8 +28,8 @@ public:
   // Wrapper to growth_rate_gradient for testing
   double r_growth_rate_gradient(const environment_type& environment);
 
-  double height() const {return individual.state(HEIGHT_INDEX);}
-  double compute_competition(double z) const;
+  value_type height() const {return individual.state(HEIGHT_INDEX);}
+  value_type compute_competition(double z) const;
   double fecundity() const {return offspring_produced_survival_weighted;}
 
   // Bookkeeping recorded at the moment the node is introduced, so that
@@ -97,15 +97,19 @@ public:
     individual.resize_consumption_rates(i);
   }
 
-  double consumption_rate(int i) const {
+  value_type consumption_rate(int i) const {
     return individual.consumption_rate(i) * density;
   }
 
   individual_type individual;
 
 private:
-  // This is the gradient of growth rate with respect to height:
-  double growth_rate_gradient(const environment_type& environment) const;
+  // This is the gradient of growth rate with respect to height. The result
+  // carries value_type: the finite-difference stencil (abscissa/step) is a
+  // double primitive, but the growth rate is evaluated on the active parameters,
+  // so its parameter-derivative flows into log_density_dt (the density-transport
+  // term) instead of being dropped (§0.5).
+  value_type growth_rate_gradient(const environment_type& environment) const;
 
   value_type log_density;
   value_type log_density_dt;
@@ -177,7 +181,11 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   individual.set_state("mortality", -log(pr_estab));
   const value_type g = individual.rate(HEIGHT_INDEX);
   // NOTE: log(0.0) -> -Inf, which should behave fine.
-  set_log_density(g > 0 ? log(birth_rate * pr_estab / g) : log(value_type(0.0)));
+  // Collapse both arms to value_type: at an active scalar the two log(...)
+  // expressions have different XAD expression types, which a raw ?: cannot
+  // reconcile. This is the log-density birth kink (recorded in the manifest).
+  set_log_density(g > 0 ? value_type(log(birth_rate * pr_estab / g))
+                        : value_type(log(value_type(0.0))));
 
   // Need to check that the rates are valid after setting the
   // mortality value here (can go to -Inf and that requires squashing
@@ -192,7 +200,8 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
 }
 
 template <typename T, typename E>
-double Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
+typename Node<T,E>::value_type
+Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
   // Finite-differencing the growth rate needs a mutable Individual to perturb
   // height on, but it must not disturb this node's already-computed state and
   // rates. Rather than copy-construct a fresh Individual (and its four
@@ -207,17 +216,20 @@ double Node<T,E>::growth_rate_gradient(const environment_type& environment) cons
     scratch.emplace(individual);
   }
   individual_type& p = *scratch;
-  auto fun = [&] (double h) -> double {
+  // The abscissa is a double stencil point; growth_rate_given_height evaluates
+  // the rate on the active parameters, so it returns value_type.
+  auto fun = [&] (double h) -> value_type {
     return p.growth_rate_given_height(h, environment);
   };
 
   const Control& control = individual.control();
   const double eps = control.node_gradient_eps;
+  const double h0 = xad::value(individual.state(HEIGHT_INDEX));
   if (control.node_gradient_richardson) {
-    return util::gradient_richardson(fun,  individual.state(HEIGHT_INDEX), eps,
+    return util::gradient_richardson(fun, h0, eps,
                                      control.node_gradient_richardson_depth);
   } else {
-    return util::gradient_fd(fun, individual.state(HEIGHT_INDEX), eps, individual.rate(HEIGHT_INDEX),
+    return util::gradient_fd(fun, h0, eps, individual.rate(HEIGHT_INDEX),
                              control.node_gradient_direction);
   }
 }
@@ -230,11 +242,12 @@ double Node<T,E>::r_growth_rate_gradient(const environment_type& environment) {
   // be taken care of because of the calling order of
   // compute_rates / growth_rate_gradient.
   individual.compute_rates(environment);
-  return growth_rate_gradient(environment);
+  return xad::value(growth_rate_gradient(environment));  // R-facing: double only
 }
 
 template <typename T, typename E>
-double Node<T,E>::compute_competition(double height_) const {
+typename Node<T,E>::value_type
+Node<T,E>::compute_competition(double height_) const {
   return density * individual.compute_competition(height_);
 }
 

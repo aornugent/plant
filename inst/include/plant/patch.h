@@ -37,7 +37,7 @@ public:
   double get_area() const { return area;}
   double height_max() const;
 
-  double compute_competition(double height) const;
+  value_type compute_competition(double height) const;
 
   // * Lifetime fitness / offspring production
   // These are patch-level quantities: each integrates the per-node weighted
@@ -415,9 +415,9 @@ void Patch<T,E>::check_finite_ode_state() const {
         util::stop("Non-finite cohort density in the SCM size-density "
                    "(characteristic) equations: species " +
                    util::to_string(i + 1) + " has a node with density=" +
-                   util::to_string(it->get_density()) + " (log_density=" +
-                   util::to_string(it->get_log_density()) + ", height=" +
-                   util::to_string(it->height()) + ") at time=" +
+                   util::to_string(xad::value(it->get_density())) + " (log_density=" +
+                   util::to_string(xad::value(it->get_log_density())) + ", height=" +
+                   util::to_string(xad::value(it->height())) + ") at time=" +
                    util::to_string(environment.time) +
                    ". The density derivative -d(growth)/d(height) - mortality "
                    "can grow without bound when growth rate falls steeply with "
@@ -432,11 +432,11 @@ void Patch<T,E>::check_finite_ode_state() const {
   // environments (size 0 for light-only environments like FF16, so this loop is
   // a no-op there and cannot false-positive). For TF24 these are the per-depth
   // soil-water states.
-  const Internals& env_vars = environment.vars;
+  const auto& env_vars = environment.vars;  // Internals_<value_type>
   for (size_t i = 0; i < env_vars.state_size; ++i) {
-    if (!util::is_finite(env_vars.states[i])) {
+    if (!util::is_finite(env_vars.states[i])) {  // finiteness guard (Kind A)
       util::stop("Non-finite environment state (index " + util::to_string(i) +
-                 " = " + util::to_string(env_vars.states[i]) + ") at time=" +
+                 " = " + util::to_string(xad::value(env_vars.states[i])) + ") at time=" +
                  util::to_string(environment.time) +
                  ". For TF24 this is a soil-water state driven non-finite by the "
                  "density-weighted resource uptake as a cohort density runs away "
@@ -459,8 +459,12 @@ double Patch<T,E>::height_max() const {
 }
 
 template <typename T, typename E>
-double Patch<T,E>::compute_competition(double height) const {
-  double tot = 0.0;
+typename Patch<T,E>::value_type
+Patch<T,E>::compute_competition(double height) const {
+  // Resident self-shading: the stand competition carries value_type so a trait
+  // re-shades the environment. (At the double instantiation this is double, so
+  // the R-facing signature is unchanged.)
+  value_type tot = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
     if (!is_mutant_run) {
       tot += species[i].compute_competition(height) / area;
@@ -471,7 +475,7 @@ double Patch<T,E>::compute_competition(double height) const {
 
 template <typename T, typename E>
 std::vector<double> Patch<T,E>::r_compute_competition_effect_error_by_node_for_species_i(size_t species_index) const {
-  const double tot_competition_effect = compute_competition(0.0);
+  const double tot_competition_effect = xad::value(compute_competition(0.0));
   return species[species_index].r_compute_competition_effect_by_nodes_error(tot_competition_effect);
 }
 
@@ -589,8 +593,10 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 template <typename T, typename E>
 void Patch<T,E>::compute_environment(bool rescale) {
   
-  // Define an anonymous function to use in creation of environment
-  auto f = [&](double x) -> double { return compute_competition(x); };
+  // Define an anonymous function to use in creation of environment. It returns
+  // value_type: the light spline is built from active stand competition, so on a
+  // resident gradient pass the field knots carry the self-shading derivative.
+  auto f = [&](double x) -> value_type { return compute_competition(x); };
 
   if (size() > 0 & !is_mutant_run) {
     environment.compute_environment(f, height_max(), rescale);

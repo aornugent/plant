@@ -11,39 +11,45 @@ namespace plant {
 namespace util {
 
 // A. One-shot
+//
+// The evaluation abscissa and step stay `double` -- the finite-difference
+// stencil is a double primitive (§0.5). The result type is whatever the
+// function returns: at an active scalar f returns value_type (the rate
+// evaluated on active parameters), so the gradient carries value_type and its
+// parameter-derivative is not silently dropped.
 
 // 1. Forward difference:
 template <typename Function>
-double gradient_fd_forward(Function f, double x, double dx) {
+auto gradient_fd_forward(Function f, double x, double dx) {
   return gradient_fd_forward(f, x, dx, f(x));
 }
-template <typename Function>
-double gradient_fd_forward(Function f, double x, double dx, double fx) {
+template <typename Function, typename Value>
+Value gradient_fd_forward(Function f, double x, double dx, Value fx) {
   return (f(x + dx) - fx) / dx;
 }
 
 // 2. Backward difference (just wraps around forward difference with
 // the direction flipped)
 template <typename Function>
-double gradient_fd_backward(Function f, double x, double dx) {
+auto gradient_fd_backward(Function f, double x, double dx) {
   return gradient_fd_forward(f, x, -dx);
 }
 
-template <typename Function>
-double gradient_fd_backward(Function f, double x, double dx, double fx) {
+template <typename Function, typename Value>
+Value gradient_fd_backward(Function f, double x, double dx, Value fx) {
   return gradient_fd_forward(f, x, -dx, fx);
 }
 
 // 3. Centre (can't use f(x))
 template <typename Function>
-double gradient_fd_centre(Function f, double x, double dx) {
+auto gradient_fd_centre(Function f, double x, double dx) {
   const double dx2 = dx / 2;
   return (f(x + dx2) - f(x - dx2)) / dx;
 }
 
 // 4. Wrapper:
 template <typename Function>
-double gradient_fd(Function f, double x, double dx, int direction) {
+auto gradient_fd(Function f, double x, double dx, int direction) {
   if (direction < 0) {
     return gradient_fd_backward(f, x, dx);
   } else if (direction == 0) {
@@ -53,8 +59,8 @@ double gradient_fd(Function f, double x, double dx, int direction) {
   }
 }
 
-template <typename Function>
-double gradient_fd(Function f, double x, double dx, double fx, int direction) {
+template <typename Function, typename Value>
+Value gradient_fd(Function f, double x, double dx, Value fx, int direction) {
   if (direction < 0) {
     return gradient_fd_backward(f, x, dx, fx);
   } else if (direction == 0) {
@@ -96,21 +102,23 @@ double gradient_fd(Function f, double x, double dx, double fx, int direction) {
 //
 //-------------------------------------------------------------------------
 template <typename Function>
-double gradient_richardson(Function f, double x, double d, size_t r) {
+auto gradient_richardson(Function f, double x, double d, size_t r) {
+  using Value = decltype(f(x));  // value_type on an active pass; double otherwise
   const size_t v = 2; // this value is required by scheme (above)
   const double zero_tol = sqrt(std::numeric_limits<double>::epsilon())/7e-7;
 
-  // Initial offset (see above).
+  // Initial offset (see above). The step h stays double (the stencil); the
+  // extrapolation table carries the function's value type.
   double h = std::abs(d * x) + d * (std::abs(x) < zero_tol);
 
-  std::vector<double> a;
+  std::vector<Value> a;
   for (size_t i = 0; i < r; i++, h /= v) {
     a.push_back((f(x + h) - f(x - h))/(2*h));
   }
 
   for (size_t m = 1; m < r; ++m) {
     const double four_m = pow(4.0, m);
-    std::vector<double> a_next;
+    std::vector<Value> a_next;
     for (size_t i = 0; i < r - m; ++i) {
       a_next.push_back((a[i+1]*four_m - a[i])/(four_m - 1));
     }

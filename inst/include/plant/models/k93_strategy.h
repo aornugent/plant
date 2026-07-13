@@ -202,8 +202,10 @@ public:
   template <typename R>
   S compute_competition_by_ratio(R z_over_size,
                                  S whole_plant_competition) const {
-    // Competition only felt if plant bigger than target size z.
-    return whole_plant_competition * canopy_shape.Q(z_over_size);
+    // Competition only felt if plant bigger than target size z. Collapse the
+    // ratio to a concrete S so canopy_shape.Q's single template parameter does
+    // not deduce an XAD expression type at an active scalar.
+    return whole_plant_competition * canopy_shape.Q(static_cast<S>(z_over_size));
   }
   // Strategy-agnostic entry point used by Individual<K93> (#266): reads the
   // cached competition_effect and height_inverse aux slots itself.

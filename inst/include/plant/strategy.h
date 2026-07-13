@@ -65,7 +65,11 @@ public:
   // acclimating/tracked state (e.g. TF24f, #525) override this to initialise it at
   // its optimum so there is no birth transient. Resolved on the concrete strategy
   // type by Individual<T,E>, so overriding it here is not required to be virtual.
-  void set_initial_states(const environment_type& environment, Internals& vars) {
+  // Templated on the Internals scalar so the concrete strategy's value_type
+  // (double or active) flows through this inherited no-op; a strategy that
+  // carries a tracked state overrides it at its own scalar.
+  template <typename V>
+  void set_initial_states(const environment_type& environment, Internals_<V>& vars) {
     (void)environment;
     (void)vars;
   }

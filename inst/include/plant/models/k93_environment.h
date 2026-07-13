@@ -63,7 +63,9 @@ public:
     // Define an anonymous function to use in creation of light_availability spline
     // Note: extinction coefficient was already applied in strategy, so
     // f_compute_competition gives sum of projected leaf area (k L) across species. Just need to apply Beer's law, E = exp(- (k L))
-    auto f_light_availability = [&](double height) -> double
+    // Returns S: the competition is active on a resident gradient pass, so the
+    // light-availability knots carry the self-shading derivative (Beer's law).
+    auto f_light_availability = [&](double height) -> S
     { return exp(-f_compute_competition(height)); };
 
     // Calculates the light_availability spline, by fitting to the function
