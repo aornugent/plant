@@ -96,6 +96,32 @@ public:
     return strategy->net_mass_production_dt(environment, vars);
   }
 
+  // The low-level strategy parameters this individual's rates depend on, as
+  // pointers for the gradient driver to seed active (§8.1). Forwarded from the
+  // strategy and valid for the individual's lifetime. Only instantiated for a
+  // strategy whose IndividualRunner is actually differentiated, so a strategy
+  // without field_ptrs() is not forced to grow one.
+  std::vector<value_type*> ad_parameters() { return strategy->field_ptrs(); }
+
+  // Re-run the strategy's one-time precomputation so its derived quantities are
+  // recomputed from the current parameters. Needed on a gradient pass, where the
+  // parameters are seeded active *after* construction: without this the cached
+  // derived quantities (e.g. area_leaf_0) stay constant w.r.t. the seed and their
+  // contribution to the gradient is silently dropped.
+  void prepare_strategy() { strategy->prepare_strategy(); }
+
+  // Restore the birth ODE state: the strategy-derived initial height, every other
+  // state zero. Mirrors construction, but explicitly zeros first (resize only
+  // clears newly-added slots) so it also re-inits an already-grown individual for
+  // a fresh replay from a re-prepared strategy.
+  void set_birth_state() {
+    vars.resize(strategy_type::state_size(), strategy->aux_size());
+    for (size_t i = 0; i < strategy_type::state_size(); i++) {
+      set_state(static_cast<int>(i), value_type(0.0));
+    }
+    set_state(HEIGHT_INDEX, strategy->initial_height());
+  }
+
   // * ODE interface
   static size_t ode_size() { return strategy_type::state_size(); }
   static std::vector<std::string> ode_names() { return strategy_type::state_names(); }

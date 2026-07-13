@@ -104,6 +104,16 @@ struct FF16_Pars_ {
 
 using FF16_Pars = FF16_Pars_<double>;
 
+// The single list of low-level FF16 parameters the gradient is taken with
+// respect to (§8.1): field_ptrs() and field_names() on FF16_Strategy_ both
+// expand it, so a parameter can never appear in one and not the other, and no
+// field count is hand-typed.
+#define FF16_AD_FIELDS(X)                                              \
+  X(lma) X(rho) X(hmat) X(omega) X(eta) X(theta) X(a_l1) X(a_l2)       \
+  X(a_r1) X(a_b1) X(r_l) X(r_r) X(r_s) X(r_b) X(a_y) X(a_bio) X(k_l)   \
+  X(k_b) X(k_s) X(k_r) X(a_p1) X(a_p2) X(a_f3) X(a_f1) X(a_f2) X(S_D)  \
+  X(a_d0) X(d_I) X(a_dG1) X(a_dG2) X(recruitment_decay) X(k_I)
+
 // The FF16 (Falster et al 2016) strategy. Templated on the scalar S carried by
 // its physiology; S = double is the production path (the `FF16_Strategy` alias
 // below). All method bodies are defined here (inline template members) so the
@@ -332,8 +342,11 @@ public:
     // Hoist the light-spline upper bound (canopy top) out of the integrand.
     const double canopy_top = environment.max_environment_height();
     auto f = [&](S z) -> S {
+      // Collapse the XAD expression z * height_inverse to a concrete S so both
+      // arguments of the templated q(Z, Z) deduce the same Z at an active scalar.
+      const S z_over_height = z * height_inverse;
       return assimilation_leaf(environment.get_environment_at_height(z, static_cast<S>(canopy_top))) *
-        canopy_shape.q(z * height_inverse, z);
+        canopy_shape.q(z_over_height, z);
     };
 
     // Integrate over crown depth using Gauss-Kronrod quadrature. A fixed rule,
@@ -352,8 +365,9 @@ public:
                                S height, S area_leaf, S height_inverse) {
     const double canopy_top = environment.max_environment_height();
     auto f = [&](S z) -> S {
+      const S z_over_height = z * height_inverse;
       return environment.get_environment_at_height(z, static_cast<S>(canopy_top)) *
-        canopy_shape.q(z * height_inverse, z);
+        canopy_shape.q(z_over_height, z);
     };
     const S mean_light = function_integrator.integrate(f, static_cast<S>(0.0), height);
     return area_leaf * assimilation_leaf(mean_light);
@@ -753,6 +767,19 @@ public:
 
   // Biological (user-settable) parameters; see FF16_Pars above.
   FF16_Pars_<S> pars;
+
+  // Pointers to the low-level parameters the gradient is taken with respect to
+  // (§8.1), in FF16_AD_FIELDS order; field_names() gives the matching column
+  // labels. Both are generated from the one FF16_AD_FIELDS list, so they cannot
+  // disagree in membership or order.
+#define PLANT_AD_PTR(f) &pars.f,
+#define PLANT_AD_NAME(f) #f,
+  std::vector<S*> field_ptrs() { return { FF16_AD_FIELDS(PLANT_AD_PTR) }; }
+  static std::vector<std::string> field_names() {
+    return { FF16_AD_FIELDS(PLANT_AD_NAME) };
+  }
+#undef PLANT_AD_PTR
+#undef PLANT_AD_NAME
 
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
   // Crown shape factor, precomputed from pars.eta
