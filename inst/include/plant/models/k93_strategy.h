@@ -39,6 +39,15 @@ struct K93_Pars_ {
 
 using K93_Pars = K93_Pars_<double>;
 
+// The single list of low-level K93 parameters the gradient is taken with respect
+// to (§8.1): field_ptrs() and field_names() on K93_Strategy_ both expand it, so a
+// parameter can never appear in one and not the other. height_0 is a direct
+// parameter here (the seedling size), so the birth height is seedable without an
+// height_seed lift.
+#define K93_AD_FIELDS(X)                                              \
+  X(height_0) X(b_0) X(b_1) X(b_2) X(c_0) X(c_1) X(d_0) X(d_1)        \
+  X(S_D) X(eta) X(k_I)
+
 // The K93 (Kohyama 1993) strategy. Templated on the scalar S carried by its
 // physiology; S = double is the production path (the `K93_Strategy` alias
 // below). Closed-form rates -- no iteration, no quadrature -- so this is the
@@ -258,6 +267,19 @@ public:
 
   // Biological (user-settable) parameters; see K93_Pars above.
   K93_Pars_<S> pars;
+
+  // Pointers to the low-level parameters the gradient is taken with respect to
+  // (§8.1), in K93_AD_FIELDS order; field_names() gives the matching column
+  // labels. Both generated from the one K93_AD_FIELDS list, so they cannot
+  // disagree in membership or order.
+#define PLANT_AD_PTR(f) &pars.f,
+#define PLANT_AD_NAME(f) #f,
+  std::vector<S*> field_ptrs() { return { K93_AD_FIELDS(PLANT_AD_PTR) }; }
+  static std::vector<std::string> field_names() {
+    return { K93_AD_FIELDS(PLANT_AD_NAME) };
+  }
+#undef PLANT_AD_PTR
+#undef PLANT_AD_NAME
 
   // Derived / precomputed in prepare_strategy() (NOT user-set)
   CanopyShape canopy_shape;
