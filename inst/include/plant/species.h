@@ -414,7 +414,10 @@ std::vector<double> Species<T,E>::r_log_density_rates() const {
   std::vector<double> ret;
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
-    ret.push_back(it->get_log_density_rate());
+    // R-facing diagnostic (only double crosses to R): narrow the density rate,
+    // which is value_type on a gradient pass. check_initial_density_rates reads
+    // it as a threshold guard -- off the differentiated value.
+    ret.push_back(xad::value(it->get_log_density_rate()));
   }
   return ret;
 }
