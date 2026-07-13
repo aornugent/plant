@@ -761,8 +761,4 @@ void TF24_Strategy::prepare_strategy() {
               beta_R_V);
 }
 
-TF24_Strategy::ptr make_strategy_ptr(TF24_Strategy s) {
-  s.prepare_strategy();
-  return std::make_shared<TF24_Strategy>(s);
-}
 }

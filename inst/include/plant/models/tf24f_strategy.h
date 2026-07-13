@@ -78,8 +78,6 @@ public:
   bool initializing_ = false;
 };
 
-TF24f_Strategy::ptr make_strategy_ptr(TF24f_Strategy s);
-
 }
 
 #endif

@@ -5,7 +5,6 @@
 #include <plant/parameters.h>
 #include <plant/species.h>
 #include <plant/util.h>
-#include <plant/coupling.h>
 #include <odelia/ode_interface.hpp>
 
 #include <plant/disturbance_regime.h>
@@ -28,14 +27,6 @@ public:
   typedef Node<T,E>         node_type;
   typedef Species<T,E>      species_type;
   typedef Parameters<T,E>   parameters_type;
-
-  // The environment must satisfy the coupling contract at the scalar this Patch
-  // is instantiated with (double on the production path, the active scalar on a
-  // gradient pass). Caught here, at the seam, rather than deep in the <It> pass.
-  static_assert(Coupling<environment_type>,
-                "Patch environment_type must satisfy the Coupling concept "
-                "(plant/coupling.h): value_type, get_environment_at_height, "
-                "ode_size, the templated ode seam, and compute_rates.");
 
   Patch(parameters_type p, environment_type e, plant::Control c);
   void reset();

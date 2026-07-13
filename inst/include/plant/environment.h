@@ -25,10 +25,6 @@ namespace plant {
 template <class S = double>
 class Environment_ {
 public:
-  // The scalar the environment's ODE state / light values carry. Read by the
-  // Coupling concept and by Patch when threading value_type.
-  using value_type = S;
-
   template <typename Function>
   void compute_environment(Function f, double height_max, bool rescale);
 

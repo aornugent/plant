@@ -96,6 +96,14 @@ public:
   ExtrinsicDrivers extrinsic_drivers;
 };
 
+// Prepare a strategy and hand back a shared pointer. Generic over the concrete
+// strategy type (double or scalar-templated), so each strategy needs no bespoke
+// overload -- Individual/Node/Species construct through this one entry point.
+template <class Strat>
+typename Strat::ptr make_strategy_ptr(Strat s) {
+  s.prepare_strategy();
+  return std::make_shared<Strat>(s);
+}
 
 }
 

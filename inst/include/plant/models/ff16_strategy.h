@@ -770,12 +770,6 @@ public:
 
 using FF16_Strategy = FF16_Strategy_<double>;
 
-template <class S>
-typename FF16_Strategy_<S>::ptr make_strategy_ptr(FF16_Strategy_<S> s) {
-  s.prepare_strategy();
-  return std::make_shared<FF16_Strategy_<S>>(s);
-}
-
 }
 
 #endif

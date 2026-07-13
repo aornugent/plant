@@ -265,12 +265,6 @@ public:
 
 using K93_Strategy = K93_Strategy_<double>;
 
-template <class S>
-typename K93_Strategy_<S>::ptr make_strategy_ptr(K93_Strategy_<S> s) {
-  s.prepare_strategy();
-  return std::make_shared<K93_Strategy_<S>>(s);
-}
-
 }
 
 #endif

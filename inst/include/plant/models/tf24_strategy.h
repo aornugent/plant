@@ -376,8 +376,6 @@ public:
   std::vector<double> mass_root_prop_;
 };
 
-TF24_Strategy::ptr make_strategy_ptr(TF24_Strategy s);
-
 }
 
 #endif

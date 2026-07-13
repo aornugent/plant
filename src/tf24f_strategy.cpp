@@ -113,9 +113,4 @@ void TF24f_Strategy::set_initial_states(const TF24_Environment& environment,
   vars.set_state(state_idx_opt_root_psi_state, -leaf.root_collar_psi_);
 }
 
-TF24f_Strategy::ptr make_strategy_ptr(TF24f_Strategy s) {
-  s.prepare_strategy();
-  return std::make_shared<TF24f_Strategy>(s);
-}
-
 }
