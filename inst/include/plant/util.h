@@ -36,6 +36,19 @@ inline bool is_finite(double x) {
   return std::isfinite(x);
 }
 
+// Finiteness is a property of the value, not its derivative, so an active
+// intermediate is checked the same way -- read through to the value, never the
+// tape. ADL resolves isfinite to xad::isfinite for an active scalar and
+// std::isfinite for a plain arithmetic one; a `double` argument keeps selecting
+// the exact non-template overload above, so its path is bit-identical. This is
+// how a rate-path guard stays active-safe at its definition, with no xad::value
+// wrap at the call site.
+template <typename T>
+inline bool is_finite(const T& x) {
+  using std::isfinite;
+  return isfinite(x);
+}
+
 void check_length(size_t received, size_t expected);
 size_t check_bounds_r(size_t idx, size_t size);
 void check_dimensions(size_t recieved_rows, size_t recieved_cols,
