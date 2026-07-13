@@ -753,6 +753,7 @@ public:
     height_0 = height_seed();
     height_0_inverse = 1.0 / height_0;
     area_leaf_0 = area_leaf(height_0);
+    initial_height_ = lift_birth_height(height_0);
 
     if (this->is_variable_birth_rate) {
       this->extrinsic_drivers.set_variable("birth_rate", this->birth_rate_x, this->birth_rate_y);
@@ -762,8 +763,34 @@ public:
   }
 
   // Birth height of a (germinated) seed. Strategy-agnostic accessor used by
-  // the templated Individual; here height_0 is derived in prepare_strategy().
-  S initial_height() const { return height_0; }
+  // the templated Individual; derived in prepare_strategy() and lifted to carry
+  // its parameter derivative (see lift_birth_height).
+  S initial_height() const { return initial_height_; }
+
+  // Lift the double birth height to S carrying its parameter derivative. The
+  // birth height solves g(h,theta) = mass_live_given_height(h) - omega = 0, whose
+  // root is found in double (height_seed). mass_live_given_height is retapeable,
+  // so one Newton step from that root evaluated at the active parameters yields
+  // both the exact value (the double path is bit-identical) and the implicit-
+  // function-theorem derivative dh*/dtheta = -(dg/dtheta)/(dg/dh) for every
+  // parameter at once. dg/dh is a double central difference at the root.
+  S lift_birth_height(double h_star) const {
+    if constexpr (std::is_same_v<S, double>) {
+      return h_star;
+    } else {
+      // dg/dh at the root, as a double constant (central difference; g is smooth
+      // and near-linear in h here, so a 2-point rule is not the accuracy limit).
+      const double eps = 1e-6 * (h_star + 1.0);
+      auto gv = [&](double h) { return xad::value(mass_live_given_height(S(h))); };
+      const double dgdh = (gv(h_star + eps) - gv(h_star - eps)) / (2.0 * eps);
+      // Newton correction from the double root. Subtract its own value so the
+      // birth height's *value* stays exactly h_star -- bit-identical, and no value
+      // shift to perturb the gradient of parameters that height does not depend on
+      // -- while its derivative is the IFT term dh*/dtheta = -(dg/dtheta)/(dg/dh).
+      const S corr = (mass_live_given_height(S(h_star)) - pars.omega) / dgdh;
+      return S(h_star) - corr + xad::value(corr);
+    }
+  }
 
   // Biological (user-settable) parameters; see FF16_Pars above.
   FF16_Pars_<S> pars;
@@ -790,6 +817,9 @@ public:
   double height_0  = NA_REAL;
   double height_0_inverse = NA_REAL;
   S area_leaf_0;
+  // Birth height lifted to S (value == height_0; carries the parameter
+  // derivative on a gradient pass). Returned by initial_height().
+  S initial_height_ = NA_REAL;
 
   // For integrating functions with using Gauss-Kronrod quadrature
   quadrature::QK function_integrator;

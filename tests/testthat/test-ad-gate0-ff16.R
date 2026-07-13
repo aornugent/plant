@@ -44,22 +44,29 @@ test_that("FF16 IndividualRunner AD gradient matches finite difference (Gate 0)"
                                    conditionMessage(e)); FALSE })
   skip_if_not(built, "sourceCpp build unavailable in this session")
 
-  # Parameters whose derivative is fully on the taped rate path (directly, or via
-  # a prepare_strategy-cached S quantity that reset() recomputes, e.g. eta ->
-  # eta_c). These must match to well within FD accuracy.
-  for (p in c("a_p1", "a_p2", "k_l", "eta")) {
-    r <- ff16_gate0_fd_check(p, t_end = 5.0, delta = 1e-5)
+  # Parameters that act ONLY on the taped rate path -- no inner solve on the
+  # metric's graph, so the FD oracle is itself exact and AD matches it to machine
+  # precision (~1e-11).
+  for (p in c("a_p1", "a_p2", "k_l")) {
+    r <- ff16_gate0_fd_check(p, t_end = 5.0, delta = 1e-4)
     expect_equal(r$ad_grad, r$fd_grad, tolerance = 1e-4,
                  info = sprintf("d(height)/d(%s): ad=%.8g fd=%.8g", p,
                                 r$ad_grad, r$fd_grad))
   }
 
-  # lma / a_l1 additionally act through the birth height (height_0), which is a
-  # double root-find until the height_seed supplied_derivative seam (§7.2) lands.
-  # AD captures the rate-path part; the birth-height part is the known Stage-B
-  # residual, so they are NOT expected to match yet -- asserting the machinery
-  # runs for them (finite, correct sign) without demanding the deferred term.
-  r_lma <- ff16_gate0_fd_check("lma", t_end = 5.0, delta = 1e-5)
-  expect_true(is.finite(r_lma$ad_grad))
-  expect_lt(r_lma$ad_grad, 0)  # more leaf mass per area slows height growth
+  # Parameters that also act through the birth height h*(theta): a different
+  # parameter gives a different-sized seedling (lma and a_l1 through the allometry;
+  # eta through eta_c in the sapwood/bark mass). h* is a double root-find whose
+  # parameter derivative is lifted onto the tape by the implicit function theorem
+  # (FF16_Strategy_::lift_birth_height). The AD value is EXACT and invariant to the
+  # FD step; the looser tolerance reflects the FD ORACLE, which re-solves h* per
+  # perturbation, so a small delta is dominated by its ~1e-8 root noise (see the
+  # FD-verification note in ad-implementation.md §15). delta=1e-3 sits in the
+  # oracle's clean band for all three; a delta-sweep confirms FD -> AD there.
+  for (p in c("lma", "a_l1", "eta")) {
+    r <- ff16_gate0_fd_check(p, t_end = 5.0, delta = 1e-3)
+    expect_equal(r$ad_grad, r$fd_grad, tolerance = 1e-3,
+                 info = sprintf("d(height)/d(%s): ad=%.8g fd=%.8g", p,
+                                r$ad_grad, r$fd_grad))
+  }
 })
