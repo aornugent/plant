@@ -165,8 +165,15 @@ public:
     S height = vars.state(HEIGHT_INDEX);
 
     // suppression integral mapped [0, 1] using adaptive spline
-    // back transform to basal area and add suppression from self
-    S competition = environment.get_environment_at_height(height);
+    // back transform to basal area and add suppression from self.
+    // Read the light field at the FROZEN operating-point height (§15 Gate 1
+    // finding): the interpolant's analytic tangent w.r.t. the cohort's own
+    // evolving height is an unreliable estimate of the smooth field's slope and,
+    // recorded on the tape, compounds a spurious dE/dh term across the fixed-step
+    // replay. Parameter sensitivity still flows through the (active) knot values
+    // (resident self-shading) and the explicit height terms below; only the
+    // within-step query tangent is dropped (Kind A). Bit-identical on double.
+    S competition = environment.get_environment_at_height(S(xad::value(height)));
 
     S cumulative_basal_area = -log(competition) / pars.k_I;
 

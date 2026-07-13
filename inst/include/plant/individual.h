@@ -171,10 +171,13 @@ public:
 
   void reset_mortality() { set_state("mortality", 0.0); }
 
-  value_type growth_rate_given_height(double height, const environment_type& environment) {
+  value_type growth_rate_given_height(value_type height, const environment_type& environment) {
     // Called repeatedly from the finite-difference gradient (Node::
     // growth_rate_gradient), so address height by integer slot rather than the
-    // "height" string-map lookup (see #466).
+    // "height" string-map lookup (see #466). `height` carries value_type so the
+    // active pass can perturb around an ACTIVE abscissa (the cohort's current
+    // height, which depends on the seeded parameters); the double path passes a
+    // plain double as before.
     set_state(HEIGHT_INDEX, height);
     compute_rates(environment);
     return rate(HEIGHT_INDEX);

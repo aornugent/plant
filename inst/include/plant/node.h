@@ -7,6 +7,7 @@
 #include <odelia/ode_interface.hpp>
 #include <optional>
 #include <limits> // std::numeric_limits
+#include <type_traits> // std::is_same_v
 
 namespace plant {
 
@@ -202,35 +203,54 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
 template <typename T, typename E>
 typename Node<T,E>::value_type
 Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
-  // Finite-differencing the growth rate needs a mutable Individual to perturb
-  // height on, but it must not disturb this node's already-computed state and
-  // rates. Rather than copy-construct a fresh Individual (and its four
-  // Internals vectors) on every call, reuse a thread-local scratch: copy
-  // assignment reuses the existing vector storage, so steady-state calls do
-  // not allocate. The scratch is per (strategy, environment) instantiation and
-  // is never used re-entrantly, so a single thread-local is sufficient.
-  thread_local std::optional<individual_type> scratch;
-  if (scratch.has_value()) {
-    *scratch = individual;
-  } else {
-    scratch.emplace(individual);
-  }
-  individual_type& p = *scratch;
-  // The abscissa is a double stencil point; growth_rate_given_height evaluates
-  // the rate on the active parameters, so it returns value_type.
-  auto fun = [&] (double h) -> value_type {
-    return p.growth_rate_given_height(h, environment);
-  };
-
   const Control& control = individual.control();
   const double eps = control.node_gradient_eps;
-  const double h0 = xad::value(individual.state(HEIGHT_INDEX));
-  if (control.node_gradient_richardson) {
-    return util::gradient_richardson(fun, h0, eps,
-                                     control.node_gradient_richardson_depth);
+
+  if constexpr (std::is_same_v<value_type, double>) {
+    // Production / R-facing path: unchanged. Finite-difference the growth rate
+    // on a thread-local scratch (copy assignment reuses the vector storage, so
+    // steady-state calls don't allocate), reusing the already-computed rate as
+    // fx and honouring the direction / Richardson controls.
+    thread_local std::optional<individual_type> scratch;
+    if (scratch.has_value()) { *scratch = individual; }
+    else                     { scratch.emplace(individual); }
+    individual_type& p = *scratch;
+    auto fun = [&] (double h) -> double {
+      return p.growth_rate_given_height(h, environment);
+    };
+    const double h0 = individual.state(HEIGHT_INDEX);
+    if (control.node_gradient_richardson) {
+      return util::gradient_richardson(fun, h0, eps,
+                                       control.node_gradient_richardson_depth);
+    } else {
+      return util::gradient_fd(fun, h0, eps, individual.rate(HEIGHT_INDEX),
+                               control.node_gradient_direction);
+    }
   } else {
-    return util::gradient_fd(fun, h0, eps, individual.rate(HEIGHT_INDEX),
-                             control.node_gradient_direction);
+    // Active pass: a CENTRED difference around an ACTIVE abscissa. Two choices
+    // matter for the parameter-derivative (both were harmless shortcuts on the
+    // double path but drop information on the tape):
+    //   * Centred, not one-sided: both stencil points are evaluated on the same
+    //     fresh scratch, so their parameter-derivatives flow through the same
+    //     tape subgraph and the difference is a clean d2g/dh.dtheta. A one-sided
+    //     stencil reusing the real node's cached rate as fx mixes two different
+    //     subgraphs; the /eps then amplifies their O(eps) mismatch into garbage.
+    //   * Active abscissa (h0 carries value_type, not xad::value(h0)): the
+    //     operating-point height depends on the seeded parameters, so perturbing
+    //     around the ACTIVE height keeps dh/dtheta. The total derivative of the
+    //     characteristic term is d/dtheta[dg/dh] = d2g/dh.dtheta + d2g/dh2 . dh/dtheta;
+    //     freezing the abscissa to a double drops the second term (~2x error).
+    // Fresh copy-CONSTRUCT records `p = individual` onto the live tape so the
+    // perturbed rates link back to the real active parameters.
+    // NOTE (TF24 retrofit trigger): this differentiates the growth rate on the
+    // outer tape, which is only valid while g is retapeable. When TF24 makes g
+    // re-run a non-retapeable leaf optimiser at the perturbed height, dg/dh must
+    // instead be computed off-tape and injected via odelia::supplied_derivative
+    // (Kind B). See docs/ad-implementation.md.
+    individual_type p = individual;
+    const double h0 = xad::value(individual.state(HEIGHT_INDEX));
+    return (p.growth_rate_given_height(value_type(h0 + eps), environment) -
+            p.growth_rate_given_height(value_type(h0 - eps), environment)) / (2.0 * eps);
   }
 }
 
