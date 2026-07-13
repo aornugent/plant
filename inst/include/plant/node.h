@@ -220,13 +220,15 @@ typename Node<T,E>::value_type
 Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
   // dg/dh (the McKendrick density-transport term). Its VALUE always comes from the
   // finite-difference stencil, on both the double and active passes. Two reasons:
-  //   1. STABILITY. The exact analytic dg/dh is steep at the size_dt growth clamp;
-  //      fed into log_density_dt it destabilises the SCM density transport (cohort
-  //      density runs away, competition goes out of bounds). The FD stencil is a
-  //      mild, stabilising regularisation of the spatial derivative -- so it defines
-  //      the production trajectory. Machine-precision census therefore needs the
-  //      clamp regularised (a smooth clamp) BEFORE analytic dg/dh can define the
-  //      trajectory; until then FD is the trajectory value (docs §15 limitation).
+  //   1. STABILITY. The one-sided FD stencil is the UPWIND discretisation of the
+  //      advection (transport) term d(log_density)/dt = -dg/dh - mortality. Upwinding
+  //      is the standard stabilisation for hyperbolic transport on a coarse grid; the
+  //      exact analytic dg/dh is the centred/exact scheme, which is numerically
+  //      unstable here -- fed into log_density_dt it drives the density transport out
+  //      of bounds once cohorts shade each other (verified: the analytic trajectory
+  //      only stays bounded with a growth clamp smoothed to eps ~ 5e-2, a ~6% change
+  //      to the K93 demography). So the FD stencil DEFINES the production trajectory
+  //      and it is not merely a clamp-corner workaround (plant#39).
   //   2. CONSISTENCY. The active forward pass must reproduce the double trajectory
   //      (a different dg/dh value forks it once cohorts shade each other), so the
   //      active pass keeps the same FD value.
@@ -267,10 +269,17 @@ Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
       // constant is zero). Build a scratch at Fwd = FReal<value_type>, promote params
       // + state value-preservingly, read the field frozen at the cohort's current
       // competition (query-derivative dropped per the rate-path rule; resident-feedback
-      // / parameter derivative preserved). Away from the clamp analytic == FD to
-      // O(eps); at the clamp the FD-defined trajectory is not cleanly differentiable,
-      // leaving a bounded ~few-% bias (the residual in the two-cohort census check) --
-      // closed only once the clamp is regularised (docs §15).
+      // / parameter derivative preserved). This injects the derivative of the
+      // CENTRED/exact scheme onto a trajectory defined by the UPWIND scheme, so value
+      // and derivative come from different discretisations: the two-cohort census
+      // gradient carries a bounded ~1.5% inconsistency. Smoothing the clamp
+      // (util::smooth_positive) makes this analytic derivative kink-free and fixes an
+      // interpolator-refinement failure on the growth params, but does NOT close the
+      // residual -- the residual is the scheme inconsistency, not the clamp corner
+      // (plant#39 upwind finding; docs section 15). A consistent machine-precise
+      // gradient needs either an analytic trajectory (stable only at large clamp
+      // smoothing, which changes the biology) or a transport scheme that is both
+      // stable and cleanly differentiable.
       using Fwd = odelia::ad::tangent_of<value_type>;
       using strat_fwd_t = typename strategy_type::template rebind<Fwd>;
       using env_fwd_t   = typename environment_type::template rebind<Fwd>;

@@ -80,6 +80,15 @@ public:
   static constexpr int COMPETITION_EFFECT_AUX_INDEX = 0;
   static constexpr int HEIGHT_INVERSE_AUX_INDEX = 1;
 
+  // Corner radii for the smooth positive-part surrogates (util::smooth_positive)
+  // that replace the hard growth/mortality clamps. Chosen small relative to the
+  // scale of each rate so the biology is essentially unchanged away from the
+  // corner, while removing the kink that made the analytic dg/dh unstable in the
+  // SCM trajectory (ad-implementation.md §11). growth is O(size * b_0) ~ 0.1 cm/yr;
+  // mortality mu is O(c_0) ~ 0.01 /yr.
+  static constexpr double growth_eps = 1e-4;
+  static constexpr double mortality_eps = 1e-5;
+
   // update this when the length of state_names changes
   static size_t state_size () { return 3; }
   // update this when the length of aux_names changes
@@ -232,11 +241,11 @@ public:
 
     S growth = size * (pars.b_0 - pars.b_1 * log(size) - pars.b_2 * cumulative_basal_area);
 
-    if(growth < 0.0) {
-      growth = 0.0;
-    }
-
-    return growth;
+    // Smooth positive part instead of a hard `if (growth < 0) growth = 0;`
+    // clamp, so the rate has no kink at growth = 0 and the analytic
+    // dg/dh density-transport derivative is stable in-trajectory
+    // (ad-implementation.md §11). eps sets the corner radius.
+    return util::smooth_positive(growth, growth_eps);
   }
 
   // [eqn 12] Reproduction
@@ -253,7 +262,8 @@ public:
     // behaviour.
     if (util::is_finite(cumulative_mortality)) {
       S mu = -pars.c_0 + pars.c_1 * cumulative_basal_area;
-      return (mu > 0)? mu : static_cast<S>(0.0);
+      // Smooth positive part instead of `(mu > 0) ? mu : 0` (see size_dt).
+      return util::smooth_positive(mu, mortality_eps);
    } else {
       return 0.0;
     }
