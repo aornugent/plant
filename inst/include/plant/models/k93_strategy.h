@@ -58,6 +58,10 @@ class K93_Strategy_ : public Strategy<K93_Environment_<S>> {
 public:
   using environment_type = K93_Environment_<S>;
   using value_type = S;
+  // Same strategy at a different scalar U (e.g. the nested forward-over-reverse
+  // type for dg/dh, plant#39). Lets generic code name K93_Strategy_<U> from an
+  // instantiation at S.
+  template <class U> using rebind = K93_Strategy_<U>;
   typedef std::shared_ptr<K93_Strategy_<S>> ptr;
 
   K93_Strategy_() {
@@ -165,15 +169,11 @@ public:
     S height = vars.state(HEIGHT_INDEX);
 
     // suppression integral mapped [0, 1] using adaptive spline
-    // back transform to basal area and add suppression from self.
-    // Read the light field at the FROZEN operating-point height (§15 Gate 1
-    // finding): the interpolant's analytic tangent w.r.t. the cohort's own
-    // evolving height is an unreliable estimate of the smooth field's slope and,
-    // recorded on the tape, compounds a spurious dE/dh term across the fixed-step
-    // replay. Parameter sensitivity still flows through the (active) knot values
-    // (resident self-shading) and the explicit height terms below; only the
-    // within-step query tangent is dropped (Kind A). Bit-identical on double.
-    S competition = environment.get_environment_at_height(S(xad::value(height)));
+    // back transform to basal area and add suppression from self. The query-height
+    // derivative is frozen inside get_environment_at_height (§15 Gate 1 finding);
+    // this call stays scalar-generic, so it also compiles at the nested
+    // forward-over-reverse type used for dg/dh.
+    S competition = environment.get_environment_at_height(height);
 
     S cumulative_basal_area = -log(competition) / pars.k_I;
 
@@ -261,7 +261,10 @@ public:
 
   // useful for pre-computing expensive objects
   void prepare_strategy() {
-    canopy_shape.initialise(xad::value(pars.eta));
+    // eta is not a differentiation target for the canopy profile (eta_/eta_c_
+    // stay double); strip ALL AD layers so this also compiles at the nested
+    // forward-over-reverse type (xad::value peels only one -- odelia#35).
+    canopy_shape.initialise(odelia::util::to_passive(pars.eta));
 
     if (this->is_variable_birth_rate) {
       this->extrinsic_drivers.set_variable("birth_rate", this->birth_rate_x, this->birth_rate_y);

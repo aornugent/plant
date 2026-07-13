@@ -16,6 +16,10 @@ namespace plant {
 template <class S = double>
 class K93_Environment_ : public Environment_<S> {
 public:
+  // Same environment at a different scalar U (nested forward-over-reverse for
+  // dg/dh, plant#39).
+  template <class U> using rebind = K93_Environment_<U>;
+
   K93_Environment_() {
     this->time = 0.0;
     // Match FF16: loosen the light-availability spline tolerance from the
@@ -42,8 +46,24 @@ public:
     set_fixed_environment(value, height_max);
   }
 
+  // Fix the light field to a scalar value that may carry AD derivatives (e.g. the
+  // resident-feedback derivative of the competition a cohort sees). Unlike
+  // set_fixed_environment(double), which would strip those derivatives, this keeps
+  // them. Used to build the frozen environment for the forward-over-reverse dg/dh
+  // evaluation (plant#39): the query is frozen, so a field fixed at the cohort's
+  // current competition reproduces the read while preserving d(competition)/dtheta.
+  void set_fixed_environment_scalar(S value, double height_max) {
+    light_availability.set_fixed_value_scalar(value, height_max);
+  }
+
   S get_environment_at_height(S height) const {
-    return light_availability.get_value_at_height(height);
+    // Freeze the query-height derivative on the rate path (§15 Gate 1 finding):
+    // the query height is a cohort's evolving ODE state, and the interpolant's
+    // analytic tangent w.r.t. it is an unreliable slope that compounds across the
+    // replay. Knot-value derivatives (resident self-shading) are still carried.
+    // Also nested-type safe, so the forward-over-reverse dg/dh evaluation reads
+    // the same frozen field.
+    return light_availability.get_value_at_height_frozen_query(height);
   }
 
   virtual void r_init_interpolators(const std::vector<double> &state)

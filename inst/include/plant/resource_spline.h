@@ -65,6 +65,16 @@ public:
     spline.init(x, y);
   }
 
+  // Fix the spline to a scalar value that may carry AD derivatives (the knot
+  // values are the given S, not a stripped double). See
+  // K93_Environment::set_fixed_environment_scalar / plant#39.
+  void set_fixed_value_scalar(S value, double height_max) {
+    std::vector<double> x = {0, height_max/2.0, height_max};
+    std::vector<S> y = {value, value, value};
+    clear();
+    spline.init(x, y);
+  }
+
   void clear() {
     spline.clear();
   }
@@ -96,6 +106,20 @@ public:
     // general-purpose interpolator (which is migrating to odelia).
     return height <= cap ? std::max(static_cast<S>(0.0), spline(height))
                          : static_cast<S>(1.0);
+  }
+
+  // Read with the query-point derivative FROZEN: index the spline at the fully
+  // stripped (passive double) height, so d(value)/d(height) is dropped while the
+  // knot-value derivatives are kept. Used on the rate path, where the query
+  // height is an evolving ODE state and the interpolant's analytic tangent is an
+  // unreliable, compounding slope (§15 Gate 1 finding / plant#39). Nested-type
+  // safe (odelia::util::to_passive strips every AD layer), so it also works when
+  // S is FReal<AReal<double>> for the forward-over-reverse dg/dh. Bit-identical
+  // to get_value_at_height on the double path.
+  S get_value_at_height_frozen_query(S height) const {
+    const double h = odelia::util::to_passive(height);
+    return h <= spline.max() ? std::max(static_cast<S>(0.0), spline(h))
+                             : static_cast<S>(1.0);
   }
 
   virtual void r_init_interpolators(const std::vector<double>& state) {

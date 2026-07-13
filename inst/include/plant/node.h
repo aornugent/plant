@@ -5,6 +5,7 @@
 #include <plant/environment.h>
 #include <plant/gradient.h>
 #include <odelia/ode_interface.hpp>
+#include <odelia/directional_derivative.hpp>
 #include <optional>
 #include <limits> // std::numeric_limits
 #include <type_traits> // std::is_same_v
@@ -203,14 +204,13 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
 template <typename T, typename E>
 typename Node<T,E>::value_type
 Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
-  const Control& control = individual.control();
-  const double eps = control.node_gradient_eps;
-
   if constexpr (std::is_same_v<value_type, double>) {
     // Production / R-facing path: unchanged. Finite-difference the growth rate
     // on a thread-local scratch (copy assignment reuses the vector storage, so
     // steady-state calls don't allocate), reusing the already-computed rate as
     // fx and honouring the direction / Richardson controls.
+    const Control& control = individual.control();
+    const double eps = control.node_gradient_eps;
     thread_local std::optional<individual_type> scratch;
     if (scratch.has_value()) { *scratch = individual; }
     else                     { scratch.emplace(individual); }
@@ -227,49 +227,80 @@ Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
                                control.node_gradient_direction);
     }
   } else {
-    // Active pass: replicate the double path's stencil EXACTLY (same direction /
-    // Richardson controls, same eps, same frozen abscissa h0 = value(height)) so
-    // the growth-gradient VALUE is bit-identical to the double replay -- the
-    // active forward pass must reproduce the double trajectory, and dg/dh feeds
-    // log_density -> density -> competition, so a different stencil here silently
-    // forks the trajectory once cohorts shade each other. The ONE change: source
-    // fx from the scratch (fun(h0)) rather than the real node's cached rate. The
-    // value is the same (p is a copy, so p.growth_rate_given_height(h0) equals
-    // individual.rate(HEIGHT_INDEX)), but both stencil points now flow through
-    // the SAME tape subgraph, so their difference is a clean parameter-derivative.
-    // Reusing the real node's rate as fx instead mixes two subgraphs whose O(eps)
-    // value match hides an O(1) derivative mismatch that /eps amplifies to garbage.
-    // Fresh copy-CONSTRUCT records `p = individual` onto the live tape so the
-    // perturbed rates link back to the real active parameters.
-    // NOTE (TF24 retrofit trigger): this differentiates the growth rate on the
-    // outer tape, which is only valid while g is retapeable. When TF24 makes g
-    // re-run a non-retapeable leaf optimiser at the perturbed height, dg/dh must
-    // instead be computed off-tape and injected via odelia::supplied_derivative
-    // (Kind B). See docs/ad-implementation.md.
-    individual_type p = individual;
-    auto fun = [&] (double h) -> value_type {
-      return p.growth_rate_given_height(value_type(h), environment);
+    // Active pass: dg/dh by forward-over-reverse AD (plant#39). dg/dh is a
+    // derivative of differentiable code, so we get it exactly -- not by finite
+    // difference -- while keeping it active on the outer reverse (parameter) tape,
+    // so the reverse pass differentiates it into the correct d2g/dh.dtheta. This
+    // replaces the deferred approach that dropped that term (a ~4% two-cohort
+    // underestimate) and the on-tape FD-stencil differentiation that blew up
+    // ~2.3x when a suppressed cohort's stencil straddled the size_dt growth clamp;
+    // forward mode handles the clamp exactly (the tangent of the clamped-constant
+    // branch is zero) with no eps and no straddling.
+    //
+    // Build a scratch individual at the nested tangent-over-adjoint scalar
+    // Fwd = FReal<value_type>, promote the parameters and state (value-preserving:
+    // the outer adjoint is kept, forward tangent zero), and read the light field
+    // frozen at the cohort's current competition (its query derivative is dropped
+    // per the rate-path rule, but its resident-feedback derivative is preserved).
+    // Then odelia::ad::directional_derivative seeds the height direction and
+    // returns dg/dh as a value_type on the outer tape.
+    //
+    // TF24 note: this works because K93/FF16 g is differentiable code. TF24's g
+    // re-runs a non-differentiable leaf optimiser at the perturbed height, so
+    // there dg/dh must instead be injected via odelia::supplied_derivative (a
+    // different barrier kind; see docs/ad-implementation.md).
+    using Fwd = odelia::ad::tangent_of<value_type>;
+    using strat_fwd_t = typename strategy_type::template rebind<Fwd>;
+    using env_fwd_t   = typename environment_type::template rebind<Fwd>;
+
+    strat_fwd_t strat_fwd;
+    {
+      auto strat_src = individual.r_get_strategy();  // copy of the live strategy (const-safe)
+      auto src = strat_src.field_ptrs();             // value_type* into that copy
+      auto dst = strat_fwd.field_ptrs();             // Fwd* into the scratch strategy
+      for (std::size_t i = 0; i < dst.size(); ++i) {
+        *dst[i] = odelia::ad::constant(*src[i]);
+      }
+    }
+    strat_fwd.prepare_strategy();
+
+    Individual<strat_fwd_t, env_fwd_t> scratch(make_strategy_ptr(strat_fwd));
+    for (std::size_t i = 0; i < individual.ode_size(); ++i) {
+      scratch.set_state(static_cast<int>(i),
+                        odelia::ad::constant(individual.state(static_cast<int>(i))));
+    }
+
+    env_fwd_t env_fwd;
+    const value_type competition =
+        environment.get_environment_at_height(individual.state(HEIGHT_INDEX));
+    env_fwd.set_fixed_environment_scalar(odelia::ad::constant(competition),
+                                         environment.light_availability.max_height());
+
+    const value_type dgdh = odelia::ad::directional_derivative(
+        individual.state(HEIGHT_INDEX),
+        [&](Fwd h) { return scratch.growth_rate_given_height(h, env_fwd); });
+
+    // Rebase the VALUE to the production finite-difference dg/dh so the active
+    // forward trajectory stays bit-identical to the double replay (the SCM's
+    // trajectory is defined by the FD dg/dh; a different value here would fork it
+    // once cohorts shade each other). Keep the exact analytic DERIVATIVE from
+    // forward-over-reverse -- the FD value and the analytic derivative differ only
+    // by O(eps) away from the clamp, and at the clamp the analytic derivative is
+    // the correct (finite) one the FD-of-FD blew up on. `dgdh - value(dgdh)` has
+    // value 0 and carries the analytic adjoint; adding the double FD value fixes
+    // the value without touching the derivative.
+    const Control& control = individual.control();
+    const double eps = control.node_gradient_eps;
+    individual_type p = individual;                     // active copy for the FD value
+    auto fun_d = [&] (double h) -> double {
+      return xad::value(p.growth_rate_given_height(value_type(h), environment));
     };
     const double h0 = xad::value(individual.state(HEIGHT_INDEX));
-    value_type dgdh = control.node_gradient_richardson
-      ? util::gradient_richardson(fun, h0, eps, control.node_gradient_richardson_depth)
-      : util::gradient_fd(fun, h0, eps, fun(h0), control.node_gradient_direction);
-    // Deferred (candidate B): drop the parameter-derivative of dg/dh, keeping its
-    // value. Differentiating the FD stencil on the outer tape is unreliable -- for
-    // a suppressed cohort the backward stencil straddles the size_dt growth clamp,
-    // so d(dg/dh)/dtheta = (dg/dtheta(h0) - dg/dtheta(h0-eps))/eps picks up the
-    // kink and /eps amplifies it (measured: the two-cohort resident gradient blows
-    // to ~2.3x FD, while dropping the term lands a clean, consistent 0.96x across
-    // every seeded parameter -- the residual IS this dropped d2g/dh.dtheta). The
-    // correct fix is forward-over-reverse AD (plant#39): evaluate g with the
-    // height direction seeded in forward (tangent) mode over the reverse active
-    // type, so dg/dh is exact (the clamp is a clean one-point kink, no eps) and
-    // its parameter-derivative flows on the outer tape. g here is differentiable
-    // code, so this does NOT want supplied_derivative -- that seam is for TF24,
-    // whose g re-runs a non-differentiable leaf optimiser. Until fwd_adj lands
-    // the single-cohort gradient is exact and the multi-cohort one carries this
-    // bounded ~4% underestimate.
-    return value_type(xad::value(dgdh));
+    const double fd_value = control.node_gradient_richardson
+      ? util::gradient_richardson(fun_d, h0, eps, control.node_gradient_richardson_depth)
+      : util::gradient_fd(fun_d, h0, eps, fun_d(h0), control.node_gradient_direction);
+
+    return dgdh - xad::value(dgdh) + fd_value;
   }
 }
 
