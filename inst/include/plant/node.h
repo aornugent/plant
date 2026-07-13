@@ -227,19 +227,18 @@ Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
                                control.node_gradient_direction);
     }
   } else {
-    // Active pass: a CENTRED difference around an ACTIVE abscissa. Two choices
-    // matter for the parameter-derivative (both were harmless shortcuts on the
-    // double path but drop information on the tape):
-    //   * Centred, not one-sided: both stencil points are evaluated on the same
-    //     fresh scratch, so their parameter-derivatives flow through the same
-    //     tape subgraph and the difference is a clean d2g/dh.dtheta. A one-sided
-    //     stencil reusing the real node's cached rate as fx mixes two different
-    //     subgraphs; the /eps then amplifies their O(eps) mismatch into garbage.
-    //   * Active abscissa (h0 carries value_type, not xad::value(h0)): the
-    //     operating-point height depends on the seeded parameters, so perturbing
-    //     around the ACTIVE height keeps dh/dtheta. The total derivative of the
-    //     characteristic term is d/dtheta[dg/dh] = d2g/dh.dtheta + d2g/dh2 . dh/dtheta;
-    //     freezing the abscissa to a double drops the second term (~2x error).
+    // Active pass: replicate the double path's stencil EXACTLY (same direction /
+    // Richardson controls, same eps, same frozen abscissa h0 = value(height)) so
+    // the growth-gradient VALUE is bit-identical to the double replay -- the
+    // active forward pass must reproduce the double trajectory, and dg/dh feeds
+    // log_density -> density -> competition, so a different stencil here silently
+    // forks the trajectory once cohorts shade each other. The ONE change: source
+    // fx from the scratch (fun(h0)) rather than the real node's cached rate. The
+    // value is the same (p is a copy, so p.growth_rate_given_height(h0) equals
+    // individual.rate(HEIGHT_INDEX)), but both stencil points now flow through
+    // the SAME tape subgraph, so their difference is a clean parameter-derivative.
+    // Reusing the real node's rate as fx instead mixes two subgraphs whose O(eps)
+    // value match hides an O(1) derivative mismatch that /eps amplifies to garbage.
     // Fresh copy-CONSTRUCT records `p = individual` onto the live tape so the
     // perturbed rates link back to the real active parameters.
     // NOTE (TF24 retrofit trigger): this differentiates the growth rate on the
@@ -248,9 +247,17 @@ Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
     // instead be computed off-tape and injected via odelia::supplied_derivative
     // (Kind B). See docs/ad-implementation.md.
     individual_type p = individual;
+    auto fun = [&] (double h) -> value_type {
+      return p.growth_rate_given_height(value_type(h), environment);
+    };
     const double h0 = xad::value(individual.state(HEIGHT_INDEX));
-    return (p.growth_rate_given_height(value_type(h0 + eps), environment) -
-            p.growth_rate_given_height(value_type(h0 - eps), environment)) / (2.0 * eps);
+    if (control.node_gradient_richardson) {
+      return util::gradient_richardson(fun, h0, eps,
+                                       control.node_gradient_richardson_depth);
+    } else {
+      return util::gradient_fd(fun, h0, eps, fun(h0),
+                               control.node_gradient_direction);
+    }
   }
 }
 
