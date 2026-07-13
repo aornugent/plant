@@ -261,11 +261,14 @@ Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
     // kink and /eps amplifies it (measured: the two-cohort resident gradient blows
     // to ~2.3x FD, while dropping the term lands a clean, consistent 0.96x across
     // every seeded parameter -- the residual IS this dropped d2g/dh.dtheta). The
-    // correct fix is to compute dg/dh off-tape (double) and inject its parameter
-    // partials via odelia::supplied_derivative (Kind B, ad-implementation §15) --
-    // the same seam TF24 needs when g re-runs a non-retapeable leaf optimiser.
-    // Until then the single-cohort gradient is exact and the multi-cohort one
-    // carries this bounded ~4% underestimate.
+    // correct fix is forward-over-reverse AD (plant#39): evaluate g with the
+    // height direction seeded in forward (tangent) mode over the reverse active
+    // type, so dg/dh is exact (the clamp is a clean one-point kink, no eps) and
+    // its parameter-derivative flows on the outer tape. g here is differentiable
+    // code, so this does NOT want supplied_derivative -- that seam is for TF24,
+    // whose g re-runs a non-differentiable leaf optimiser. Until fwd_adj lands
+    // the single-cohort gradient is exact and the multi-cohort one carries this
+    // bounded ~4% underestimate.
     return value_type(xad::value(dgdh));
   }
 }
