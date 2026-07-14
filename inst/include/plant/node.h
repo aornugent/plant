@@ -45,7 +45,16 @@ public:
   double r_growth_rate_gradient(const environment_type& environment);
 
   value_type height() const {return individual.state(HEIGHT_INDEX);}
+  // Growth rate dh/dt (the characteristic velocity g). Exposed so Species can
+  // build the geometric compression -∂ₓg from neighbouring cohorts (Tier 1).
+  value_type growth_rate() const {return individual.rate(HEIGHT_INDEX);}
   value_type compute_competition(double z) const;
+
+  value_type mortality_rate() const {return individual.rate(MORTALITY_INDEX);}
+  // Tier 1: Species computes the log-density transport rate from the geometric
+  // compression across neighbouring cohorts (it needs the neighbour list) and
+  // sets it here. See Species::compute_rates.
+  void set_log_density_dt(value_type v) {log_density_dt = v;}
   double fecundity() const {return offspring_produced_survival_weighted;}
 
   // Bookkeeping recorded at the moment the node is introduced, so that
@@ -158,9 +167,28 @@ void Node<T,E>::compute_rates(const environment_type& environment,
 
   // NOTE: This must be called *after* compute_rates, but given we
   // need mortality_dt() that's always going to be the case.
-  log_density_dt =
-    - growth_rate_gradient(environment)
-    - individual.rate(MORTALITY_INDEX);
+  bool geometric = false;
+  if constexpr (strategy_has_rebind<strategy_type>::value)
+    geometric = individual.control().node_geometric_compression;
+  if (geometric) {
+    // Tier 1: the log-density transport rate -∂ₓg - mortality is set by
+    // Species::compute_rates from cohort neighbour spacings (the geometric
+    // compression, which needs the neighbour list). Seed to zero here; Species
+    // overrides every node that has >= 2 cohorts. This swaps the per-node
+    // finite-difference-stencil-plus-analytic-injection path (the pre-Tier-1
+    // census-gradient seam) for a single neighbour-difference operator that
+    // matches the competition-quadrature geometry and so cancels ∂ₓg on the AD
+    // tape, giving well-conditioned census gradients.
+    log_density_dt = value_type(0.0);
+  } else {
+    // Default path (flag off, and always for FF16/TF24/TF24f): the
+    // finite-difference stencil. Those strategies' differentiated metrics do
+    // not route through ∂ₓg (docs §15), so Tier 1 offers them nothing; with the
+    // flag off the published models are bit-for-bit unchanged.
+    log_density_dt =
+      - growth_rate_gradient(environment)
+      - individual.rate(MORTALITY_INDEX);
+  }
   // survival_individual: converts from the mean of the poisson process (on
   // [0,Inf)) to a probability (on [0,1]).
   value_type survival_individual = exp(-individual.state(MORTALITY_INDEX));

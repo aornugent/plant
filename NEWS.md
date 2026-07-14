@@ -148,6 +148,18 @@ were not previously recorded here:
 
 ### New features
 
+* **Differentiable census gradients for K93** via `control$node_geometric_compression`
+  (default `FALSE`). When enabled, the log-density transport term `-∂ₓg` uses the
+  geometric neighbour difference of the growth rate across adjacent cohorts — the
+  same discrete operator that weights the competition-integral quadrature — so the
+  two appearances of `∂ₓg` cancel on the reverse-mode AD tape and census-functional
+  gradients become well-conditioned (machine-exact vs finite difference, versus an
+  `O(1)` error for every coupling parameter otherwise). It very slightly moves the
+  forward trajectory off the default upwind finite-difference stencil (~0.2% on K93
+  offspring production), so it is opt-in: ordinary simulations reproduce the
+  published model bit-for-bit, and differentiable runs enable the flag (their
+  forward is then self-consistent with the gradient). Applies to forward-mode
+  instantiable strategies (currently K93 only); FF16/TF24/TF24f are unaffected.
 * `run_scm()` can start a patch from **pre-existing nodes** rather than always
   growing from empty — to resume an exported run or to seed an arbitrary initial
   size distribution at patch age 0 (#499, revives #304). New

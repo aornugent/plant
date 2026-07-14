@@ -60,6 +60,19 @@ struct Control {
   bool   node_gradient_richardson;
   size_t node_gradient_richardson_depth;
 
+  // Tier 1 geometric compression (rebind strategies, currently K93 only). When
+  // true, the log-density transport term -∂ₓg is the geometric neighbour
+  // difference of the growth rate across adjacent cohorts, the SAME discrete
+  // operator that weights the competition-integral quadrature. This makes the
+  // two appearances of ∂ₓg cancel on the reverse-mode AD tape, so census
+  // gradients are well-conditioned (machine-exact vs finite difference). It
+  // very slightly moves the forward trajectory off the default upwind
+  // finite-difference stencil (~0.2% on K93 offspring production), so it is
+  // OFF by default: ordinary simulations reproduce the published model exactly,
+  // and differentiable runs opt in (their forward is then self-consistent with
+  // the gradient). See node.h / species.h.
+  bool   node_geometric_compression;
+
   double ode_step_size_initial;
   double ode_step_size_min;
   double ode_step_size_max;

@@ -250,6 +250,35 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
     c.compute_rates(environment, pr_patch_survival);
   }
   new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+
+  // Tier 1 geometric compression (rebind strategies only; others keep the
+  // stencil inside Node::compute_rates). Each node's log-density transport term
+  // -∂ₓg is the neighbour difference of the characteristic velocity g over the
+  // SAME cohort spacings that weight the competition-integral trapezoids
+  // (compute_competition above). Because both appearances of ∂ₓg -- the one in
+  // the log-density ODE and the one implicit in the evolving quadrature spacings
+  // -- are now the same discrete operator, their parameter-derivatives cancel on
+  // the reverse tape, giving well-conditioned census gradients. Nodes are ordered
+  // tallest-to-shortest, so height decreases with index; the difference quotient
+  // is sign-correct for interior (centred) and boundary (one-sided) nodes alike.
+  if constexpr (strategy_has_rebind<T>::value)
+  if (!nodes.empty() && nodes[0].individual.control().node_geometric_compression) {
+    const std::size_t n = nodes.size();
+    for (std::size_t i = 0; i < n; ++i) {
+      if (n < 2) break;  // geometric compression undefined for a lone cohort
+      value_type dgdh;
+      if (i == 0)                 // tallest: one-sided towards the next node
+        dgdh = (nodes[0].growth_rate()   - nodes[1].growth_rate())
+             / (nodes[0].height()        - nodes[1].height());
+      else if (i + 1 == n)        // shortest: one-sided towards the previous
+        dgdh = (nodes[i-1].growth_rate() - nodes[i].growth_rate())
+             / (nodes[i-1].height()      - nodes[i].height());
+      else                        // interior: centred over both neighbours
+        dgdh = (nodes[i-1].growth_rate() - nodes[i+1].growth_rate())
+             / (nodes[i-1].height()      - nodes[i+1].height());
+      nodes[i].set_log_density_dt(-dgdh - nodes[i].mortality_rate());
+    }
+  }
 }
 
 template <typename T, typename E>
