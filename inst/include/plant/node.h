@@ -298,17 +298,45 @@ Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
         scratch.set_state(static_cast<int>(i),
                           odelia::ad::constant(individual.state(static_cast<int>(i))));
 
+      // The environment scalar the forward (tangent) sweep sees carries TWO pieces
+      // of information, so the tangent of g is the TOTAL spatial derivative
+      // dg/dh = ∂g/∂h|_E + ∂g/∂E·(dE/dh), not just the fixed-environment partial:
+      //   value(competition_fwd)      = E(h0)                     -- competition here;
+      //   derivative(competition_fwd) = dE/dh via the SECANT      -- how competition
+      //                                 (E(h0) − E(h0−eps))/eps      changes with height.
+      // The secant (over the same eps the production stencil uses) is the ROBUST
+      // channel for dE/dh -- deliberately NOT the interpolator's analytic query
+      // tangent, which is the unreliable, compounding channel frozen on the rate
+      // path (plant#39 / the query-derivative note).
+      //
+      // Crucial subtlety [plant#39, dE/dh experiment]: we inject the dE/dh *value*
+      // but DETACH its θ-sensitivity (`value_type(xad::value(...))` drops the outer
+      // tape link). Reason: the θ-derivative of a secant taken over a tiny fixed step
+      // eps≪(cohort spacing) is `(E_θ(h0) − E_θ(h0−eps))/eps`, an ill-conditioned
+      // finite difference that blows the census gradient up ~2.3× on-tape (an
+      // eps≪Δx "staircase" artifact); its true contribution is <0.5%. So we keep the
+      // well-conditioned secant value and differentiate the tamer surrogate (a frozen
+      // dE/dh), which lands the two-cohort growth-parameter census gradient within
+      // ~0.5% of FD (b_1 to ~0.03%) -- versus 1.5% low if the whole coupling term is
+      // dropped, or 2.3× high if the secant's θ-derivative is taped.
+      const value_type h0v = individual.state(HEIGHT_INDEX);
+      const value_type E_h  = environment.get_environment_at_height(h0v);
+      const value_type E_hm =
+          environment.get_environment_at_height(h0v - value_type(eps));
+      const value_type dEdh_secant = (E_h - E_hm) / eps;  // backward, matches production
+
       env_fwd_t env_fwd;
-      const value_type competition =
-          environment.get_environment_at_height(individual.state(HEIGHT_INDEX));
-      env_fwd.set_fixed_environment_scalar(odelia::ad::constant(competition),
+      Fwd competition_fwd = odelia::ad::constant(E_h);    // value = E(h0), tangent = 0
+      xad::derivative(competition_fwd) =                  // tangent = dE/dh value only
+          value_type(xad::value(dEdh_secant));            //   (θ-sensitivity detached)
+      env_fwd.set_fixed_environment_scalar(competition_fwd,
                                            environment.light_availability.max_height());
 
       const value_type dgdh = odelia::ad::directional_derivative(
-          individual.state(HEIGHT_INDEX),
-          [&](Fwd h) { return scratch.growth_rate_given_height(h, env_fwd); });
+          h0v, [&](Fwd h) { return scratch.growth_rate_given_height(h, env_fwd); });
 
-      // value = fd_value (matches the double trajectory), derivative = analytic.
+      // value = fd_value (matches the double trajectory bit-for-bit -> stable, no
+      // fork), derivative = the total analytic dg/dh parameter-sensitivity.
       return dgdh - xad::value(dgdh) + fd_value;
     } else {
       // Strategy not yet forward-mode-instantiable (FF16/TF24/TF24f): FD value with
