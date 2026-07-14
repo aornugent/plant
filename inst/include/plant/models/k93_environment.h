@@ -66,6 +66,14 @@ public:
     return light_availability.get_value_at_height_frozen_query(height);
   }
 
+  // d(light)/d(height) by secant -- the coupling channel for the density-transport
+  // dg/dh (plant#39 / design B). The field owns its slope; the dg/dh seam reads this
+  // rather than hand-rolling a secant, with step+direction from the same Control the
+  // production stencil uses.
+  S get_environment_slope_at_height(S height, double step, int direction) const {
+    return light_availability.slope_at_height(height, step, direction);
+  }
+
   virtual void r_init_interpolators(const std::vector<double> &state)
   {
     light_availability.r_init_interpolators(state);

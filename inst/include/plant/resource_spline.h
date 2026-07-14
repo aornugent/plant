@@ -122,6 +122,23 @@ public:
                              : static_cast<S>(1.0);
   }
 
+  // d(value)/d(height) by SECANT (the robust field-slope channel, plant#39 / design
+  // B), delegating to the interpolator's single owner of that quantity. `step` and
+  // `direction` come from the same Control the finite-difference value stencil uses,
+  // so this slope matches the stencil's implicit d(light)/d(height) by construction.
+  // Above the spline cap the field is the constant open value (1.0), so the slope is
+  // zero there -- mirroring get_value_at_height_frozen_query's cap branch. The <=cap
+  // branch reads the raw interpolant secant; the resource floor (#253) is a value
+  // guard that only bites on spurious undershoot, so its effect on the slope is a
+  // negligible, documented bias (the dg/dh VALUE on the trajectory still floors, via
+  // the production stencil -- only the injected derivative's coupling term reads this
+  // slope). Nested-type safe.
+  S slope_at_height(S height, double step, int direction) const {
+    const double h = odelia::util::to_passive(height);
+    return h <= spline.max() ? spline.slope(height, step, direction)
+                             : static_cast<S>(0.0);
+  }
+
   virtual void r_init_interpolators(const std::vector<double>& state) {
     // See issue #144; this is important as we have to at least refine
     // the light environment, but doing this is better because it means

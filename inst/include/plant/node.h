@@ -260,26 +260,18 @@ Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
       : util::gradient_fd(fun_d, h0, eps, fun_d(h0), control.node_gradient_direction);
 
     if constexpr (strategy_has_rebind<strategy_type>::value) {
-      // Forward-mode-instantiable strategy (K93): keep the FD value but inject the
-      // EXACT analytic PARAMETER-derivative of dg/dh by forward-over-reverse
-      // (plant#39). dg/dh is a derivative of differentiable code, so differentiating
-      // the FD stencil on the outer tape (which blew up ~2.3x at the clamp) is
-      // replaced by seeding the height direction in forward (tangent) mode over the
-      // reverse scalar; the clamp is a clean one-point kink (tangent of the clamped
-      // constant is zero). Build a scratch at Fwd = FReal<value_type>, promote params
-      // + state value-preservingly, read the field frozen at the cohort's current
-      // competition (query-derivative dropped per the rate-path rule; resident-feedback
-      // / parameter derivative preserved). This injects the derivative of the
-      // CENTRED/exact scheme onto a trajectory defined by the UPWIND scheme, so value
-      // and derivative come from different discretisations: the two-cohort census
-      // gradient carries a bounded ~1.5% inconsistency. Smoothing the clamp
-      // (util::smooth_positive) makes this analytic derivative kink-free and fixes an
-      // interpolator-refinement failure on the growth params, but does NOT close the
-      // residual -- the residual is the scheme inconsistency, not the clamp corner
-      // (plant#39 upwind finding; docs section 15). A consistent machine-precise
-      // gradient needs either an analytic trajectory (stable only at large clamp
-      // smoothing, which changes the biology) or a transport scheme that is both
-      // stable and cleanly differentiable.
+      // Forward-mode-instantiable strategy (K93): keep the FD value on the
+      // trajectory but INJECT the exact analytic parameter-derivative of dg/dh by
+      // forward-over-reverse (plant#39). dg/dh is a derivative of differentiable
+      // code, so instead of differentiating the FD stencil on the outer tape (which
+      // blew up near the growth clamp) we seed the height direction in forward
+      // (tangent) mode over the reverse scalar; the smoothed clamp
+      // (util::smooth_positive) makes it kink-free. Build a scratch at
+      // Fwd = FReal<value_type>, promote params + state value-preservingly, and give
+      // the forward sweep an environment fixed at this cohort's competition whose
+      // tangent carries dE/dh (below), so the tangent of g is the TOTAL spatial
+      // derivative. With the coupling term included this closes the two-cohort
+      // growth-parameter census gradient to sub-percent (plant#39, dE/dh experiment).
       using Fwd = odelia::ad::tangent_of<value_type>;
       using strat_fwd_t = typename strategy_type::template rebind<Fwd>;
       using env_fwd_t   = typename environment_type::template rebind<Fwd>;
@@ -301,34 +293,33 @@ Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
       // The environment scalar the forward (tangent) sweep sees carries TWO pieces
       // of information, so the tangent of g is the TOTAL spatial derivative
       // dg/dh = ∂g/∂h|_E + ∂g/∂E·(dE/dh), not just the fixed-environment partial:
-      //   value(competition_fwd)      = E(h0)                     -- competition here;
-      //   derivative(competition_fwd) = dE/dh via the SECANT      -- how competition
-      //                                 (E(h0) − E(h0−eps))/eps      changes with height.
-      // The secant (over the same eps the production stencil uses) is the ROBUST
-      // channel for dE/dh -- deliberately NOT the interpolator's analytic query
-      // tangent, which is the unreliable, compounding channel frozen on the rate
-      // path (plant#39 / the query-derivative note).
+      //   value(competition_fwd)      = E(h0)     -- competition here;
+      //   derivative(competition_fwd) = dE/dh     -- how competition changes with height.
+      // dE/dh comes from the environment's OWNED secant slope (design B): step and
+      // direction are the same Control the production stencil uses, so this coupling
+      // slope matches the stencil's implicit d(light)/d(height) by construction --
+      // not the interpolator's analytic query tangent, which is the unreliable,
+      // compounding channel frozen on the rate path (plant#39).
       //
       // Crucial subtlety [plant#39, dE/dh experiment]: we inject the dE/dh *value*
       // but DETACH its θ-sensitivity (`value_type(xad::value(...))` drops the outer
-      // tape link). Reason: the θ-derivative of a secant taken over a tiny fixed step
-      // eps≪(cohort spacing) is `(E_θ(h0) − E_θ(h0−eps))/eps`, an ill-conditioned
-      // finite difference that blows the census gradient up ~2.3× on-tape (an
-      // eps≪Δx "staircase" artifact); its true contribution is <0.5%. So we keep the
-      // well-conditioned secant value and differentiate the tamer surrogate (a frozen
-      // dE/dh), which lands the two-cohort growth-parameter census gradient within
-      // ~0.5% of FD (b_1 to ~0.03%) -- versus 1.5% low if the whole coupling term is
-      // dropped, or 2.3× high if the secant's θ-derivative is taped.
+      // tape link). Reason: the θ-derivative of the secant over a tiny fixed step
+      // eps≪(cohort spacing) is an ill-conditioned finite difference that blows the
+      // census gradient up ~2.3× on-tape (an eps≪Δx "staircase" artifact); its true
+      // contribution is <0.5%. So we keep the well-conditioned secant value and
+      // differentiate the tamer surrogate (a frozen dE/dh) -- the bias-ledger entry
+      // for this seam. Lands the two-cohort growth-parameter census gradient within
+      // ~0.5% of FD (b_1 to ~0.03%), vs 1.5% low if the coupling is dropped or 2.3×
+      // high if the secant's θ-derivative is taped.
       const value_type h0v = individual.state(HEIGHT_INDEX);
-      const value_type E_h  = environment.get_environment_at_height(h0v);
-      const value_type E_hm =
-          environment.get_environment_at_height(h0v - value_type(eps));
-      const value_type dEdh_secant = (E_h - E_hm) / eps;  // backward, matches production
+      const value_type E_h = environment.get_environment_at_height(h0v);
+      const value_type dEdh = environment.get_environment_slope_at_height(
+          h0v, eps, control.node_gradient_direction);
 
       env_fwd_t env_fwd;
       Fwd competition_fwd = odelia::ad::constant(E_h);    // value = E(h0), tangent = 0
       xad::derivative(competition_fwd) =                  // tangent = dE/dh value only
-          value_type(xad::value(dEdh_secant));            //   (θ-sensitivity detached)
+          value_type(xad::value(dEdh));                   //   (θ-sensitivity detached)
       env_fwd.set_fixed_environment_scalar(competition_fwd,
                                            environment.light_availability.max_height());
 
