@@ -250,6 +250,16 @@ public:
   // when net_mass_production_dt is reused unchanged by the subclass.
   virtual void solve_leaf();
 
+  // Leaf-seam hooks for a variant whose leaf operates OFF the optimum. Base TF24
+  // solves to the optimum, where the envelope theorem gives d(profit)/d(psi*) = 0,
+  // so there is no collar-psi channel (nullptr / 0). TF24f runs the leaf at a
+  // tracked collar-psi ODE state where d(profit)/d(psi) != 0; it returns the
+  // active tracked-state value to seed and the partial d(profit)/d(psi) (the same
+  // gradient its acclimation rate uses), so the leaf supplied_derivative seam adds
+  // that channel. Called from net_mass_production_dt after the leaf solve.
+  virtual S* seam_collar_psi_input() { return nullptr; }
+  virtual double seam_collar_psi_partial() const { return 0.0; }
+
   // Reconstruct a throwaway double Leaf from a (possibly perturbed) double
   // parameter set and the frozen crown context, evaluate carbon profit at the
   // FROZEN optimum collar psi (no re-optimise -- the envelope theorem makes the

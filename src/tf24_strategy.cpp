@@ -567,6 +567,21 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         }
       }
 
+      // Collar-psi channel: for a variant whose leaf runs at a tracked (non-
+      // optimum) collar psi (TF24f), the frozen-psi FD above is only the partial
+      // d(profit)/d(theta) at fixed psi; the total also needs
+      // d(profit)/d(psi) * d(psi_tracked)/d(theta). The tracked psi is an active
+      // ODE state, so d(psi_tracked)/d(theta) is already on the tape; inject the
+      // partial d(profit)/d(psi) (the leaf's analytic gradient, the same one the
+      // acclimation rate uses) onto it. Base TF24 returns nullptr (at the optimum
+      // this term is zero by the envelope theorem).
+      if (S* collar = seam_collar_psi_input()) {
+        if (collar->shouldRecord()) {
+          inputs.push_back(collar);
+          partials.push_back(seam_collar_psi_partial());
+        }
+      }
+
       if (!inputs.empty()) {
         profit_s = odelia::ode::supplied_derivative(*tape, profit0, inputs, partials);
       }
