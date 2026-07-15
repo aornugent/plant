@@ -534,9 +534,14 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
 
       // Per-parameter central FD at the frozen optimum. Only seeded inputs (valid
       // tape slot) are wired; the rest are the mutant/background frozen inputs the
-      // §7.4 pair-filter drops. Every field gets a partial computed, so a seeded
-      // parameter is never an implicit zero (M1).
+      // §7.4 pair-filter drops. Gate the FD on shouldRecord() *before* the two leaf
+      // solves: an un-seeded field's partial is discarded anyway, so computing it
+      // was pure waste -- and it dominated the active-replay cost (~2*|fields| leaf
+      // solves per node per step, of which typically one field is seeded). Skipping
+      // it leaves the wired (inputs, partials) bit-identical; seeded fields still
+      // get a real partial, so M1 completeness is unchanged (#44).
       for (std::size_t i = 0; i < ap.size(); ++i) {
+        if (!ap[i]->shouldRecord()) continue;
         const double base = *pdp[i];
         const double hstep = 1e-6 * (std::abs(base) + 1e-6);
         *pdp[i] = base + hstep;
@@ -544,10 +549,8 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         *pdp[i] = base - hstep;
         const double pminus = profit_frozen();
         *pdp[i] = base;
-        if (ap[i]->shouldRecord()) {
-          inputs.push_back(ap[i]);
-          partials.push_back((pplus - pminus) / (2.0 * hstep));
-        }
+        inputs.push_back(ap[i]);
+        partials.push_back((pplus - pminus) / (2.0 * hstep));
       }
 
       // Height channel: the leaf profit depends on the current height state
