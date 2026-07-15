@@ -55,7 +55,15 @@ double TF24_Strategy_<S>::compute_average_light_environment(
 // assumes optimise_psi_stem_TF has been run for optimal psi_stem
 template <class S>
 S TF24_Strategy_<S>::evapotranspiration_dt(S area_leaf_, int soil_layer) {
-  return leaf.soil_consumption_[soil_layer] * area_leaf_;
+  // Tier-B: prefer the active per-layer uptake (carries theta/soil-psi
+  // sensitivity from the supplied_derivative seam); fall back to the frozen leaf
+  // value when the seam has not populated it (e.g. the double production path
+  // before net_mass_production_dt, or shading models without the single-solve seam).
+  const S uptake =
+      (soil_layer < static_cast<int>(soil_consumption_active_.size()))
+          ? soil_consumption_active_[soil_layer]
+          : S(leaf.soil_consumption_[soil_layer]);
+  return uptake * area_leaf_;
 }
 
 template <class S>
@@ -526,17 +534,37 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
       std::vector<S*> ap = field_ptrs();
       for (std::size_t i = 0; i < ap.size(); ++i) *pdp[i] = to_passive(*ap[i]);
 
-      auto profit_frozen = [&](void) {
+      // Tier-B soil coupling: baseline per-layer uptake at the operating point
+      // (the forward leaf already holds it) plus per-layer FD partials aligned
+      // with `inputs`. Every push_input() appends one entry to `partials` and to
+      // each uptake_partials[L], keeping all outputs aligned with `inputs`.
+      const int nsoil = static_cast<int>(soil_depths_.size());
+      const std::vector<double> uptake0 = leaf.soil_consumption_;
+      std::vector<std::vector<double>> uptake_partials(nsoil);
+      std::vector<double> up_p(nsoil), up_m(nsoil);
+
+      auto profit_frozen = [&](std::vector<double>* up) {
         return leaf_profit_frozen(scratch, pd, height_d, light_openness_double, PPFD,
                                   psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d,
                                   ca_d, leaf_temp_d, atm_o2_d, atm_kpa_d,
-                                  frozen_collar_psi);
+                                  frozen_collar_psi, up);
       };
 
       std::vector<S*> inputs;
       std::vector<double> partials;
       inputs.reserve(ap.size() + 1);
       partials.reserve(ap.size() + 1);
+
+      // Push one seeded input with its profit partial and its per-layer uptake
+      // partial, all from the same (plus, minus) frozen evaluations.
+      auto push_input = [&](S* in, double pplus, double pminus,
+                            const std::vector<double>& upp,
+                            const std::vector<double>& upm, double step) {
+        inputs.push_back(in);
+        partials.push_back((pplus - pminus) / (2.0 * step));
+        for (int L = 0; L < nsoil; ++L)
+          uptake_partials[L].push_back((upp[L] - upm[L]) / (2.0 * step));
+      };
 
       // Per-parameter central FD at the frozen optimum. Only seeded inputs (valid
       // tape slot) are wired; the rest are the mutant/background frozen inputs the
@@ -551,12 +579,11 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         const double base = *pdp[i];
         const double hstep = 1e-6 * (std::abs(base) + 1e-6);
         *pdp[i] = base + hstep;
-        const double pplus = profit_frozen();
+        const double pplus = profit_frozen(&up_p);
         *pdp[i] = base - hstep;
-        const double pminus = profit_frozen();
+        const double pminus = profit_frozen(&up_m);
         *pdp[i] = base;
-        inputs.push_back(ap[i]);
-        partials.push_back((pplus - pminus) / (2.0 * hstep));
+        push_input(ap[i], pplus, pminus, up_p, up_m, hstep);
       }
 
       // Height channel: the leaf profit depends on the current height state
@@ -567,12 +594,11 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         const double hstep = 1e-6 * (std::abs(hbase) + 1e-6);
         const double pplus = leaf_profit_frozen(scratch, pd, hbase + hstep, light_openness_double,
             PPFD, psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi);
+            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p);
         const double pminus = leaf_profit_frozen(scratch, pd, hbase - hstep, light_openness_double,
             PPFD, psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi);
-        inputs.push_back(&height);
-        partials.push_back((pplus - pminus) / (2.0 * hstep));
+            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m);
+        push_input(&height, pplus, pminus, up_p, up_m, hstep);
       }
 
       // Light channel (resident self-shading): the openness the leaf sees is
@@ -586,12 +612,11 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         const double lstep = 1e-6 * (std::abs(base) + 1e-6);
         const double pplus = leaf_profit_frozen(scratch, pd, height_d, base + lstep, PPFD,
             psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi);
+            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p);
         const double pminus = leaf_profit_frozen(scratch, pd, height_d, base - lstep, PPFD,
             psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi);
-        inputs.push_back(&light_active);
-        partials.push_back((pplus - pminus) / (2.0 * lstep));
+            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m);
+        push_input(&light_active, pplus, pminus, up_p, up_m, lstep);
       }
 
       // Soil-psi channel (resident soil coupling): on a resident pass each
@@ -610,14 +635,13 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
           psi_pert[L] = base + hstep;
           const double pplus = leaf_profit_frozen(scratch, pd, height_d, light_openness_double,
               PPFD, psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-              atm_o2_d, atm_kpa_d, frozen_collar_psi);
+              atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p);
           psi_pert[L] = base - hstep;
           const double pminus = leaf_profit_frozen(scratch, pd, height_d, light_openness_double,
               PPFD, psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-              atm_o2_d, atm_kpa_d, frozen_collar_psi);
+              atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m);
           psi_pert[L] = base;
-          inputs.push_back(const_cast<S*>(&psi_soil_S[L]));
-          partials.push_back((pplus - pminus) / (2.0 * hstep));
+          push_input(const_cast<S*>(&psi_soil_S[L]), pplus, pminus, up_p, up_m, hstep);
         }
       }
 
@@ -633,11 +657,23 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         if (collar->shouldRecord()) {
           inputs.push_back(collar);
           partials.push_back(seam_collar_psi_partial());
+          // d(uptake)/d(collar) is a secondary, TF24f-only term (the dominant soil
+          // coupling is the soil-psi channel above); deferred for this cut, so push
+          // 0 to keep uptake_partials aligned with `inputs`. See #47.
+          for (int L = 0; L < nsoil; ++L) uptake_partials[L].push_back(0.0);
         }
       }
 
+      soil_consumption_active_.clear();
       if (!inputs.empty()) {
         profit_s = odelia::ode::supplied_derivative(*tape, profit0, inputs, partials);
+        // Tier-B: each layer's uptake becomes an active leaf carrying its (theta,
+        // soil-psi) partials, so the soil ODE's dependence on traits and on the
+        // drying reservoir is on the reverse tape (read by evapotranspiration_dt).
+        soil_consumption_active_.resize(nsoil);
+        for (int L = 0; L < nsoil; ++L)
+          soil_consumption_active_[L] =
+              odelia::ode::supplied_derivative(*tape, uptake0[L], inputs, uptake_partials[L]);
       }
     }
   }
@@ -689,7 +725,7 @@ double TF24_Strategy_<S>::leaf_profit_frozen(
     const std::vector<double>& soil_depths_,
     const std::vector<double>& z_soil_mid_, double atm_vpd, double ca,
     double leaf_temp, double atm_o2_kpa, double atm_kpa,
-    double frozen_collar_psi) {
+    double frozen_collar_psi, std::vector<double>* uptake_out) {
 
   const int soil_number_of_depths_ = static_cast<int>(soil_depths_.size());
 
@@ -746,6 +782,10 @@ double TF24_Strategy_<S>::leaf_profit_frozen(
                    atm_vpd, ca, sapwood_volume_per_leaf_area, leaf_temp,
                    atm_o2_kpa, atm_kpa);
   L.evaluate_root_collar_psi(frozen_collar_psi);
+  // Tier-B: E_from_Soil_to_Root_Collar (called inside the collar solve) has
+  // populated L.soil_consumption_ at this operating point; hand it back so the
+  // seam can FD the per-layer uptake from the SAME evaluations it uses for profit.
+  if (uptake_out) *uptake_out = L.soil_consumption_;
   return L.profit_;
 }
 

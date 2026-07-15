@@ -285,7 +285,8 @@ public:
                             const std::vector<double>& z_soil_mid_,
                             double atm_vpd, double ca, double leaf_temp,
                             double atm_o2_kpa, double atm_kpa,
-                            double frozen_collar_psi);
+                            double frozen_collar_psi,
+                            std::vector<double>* uptake_out = nullptr);
 
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
@@ -431,6 +432,13 @@ public:
   // Always double: the Leaf is never templated on S (design 4.3); its parameter
   // sensitivity reaches the tape via supplied_derivative, not by templating.
   Leaf leaf;
+
+  // Per-layer water uptake carried as an ACTIVE scalar (Tier-B soil coupling): the
+  // leaf's soil_consumption_ is a frozen double, so its theta/soil-psi sensitivity
+  // is injected here via supplied_derivative in net_mass_production_dt (mirroring
+  // the profit seam) and read by evapotranspiration_dt. On the double path this is
+  // just the frozen leaf value (supplied_derivative collapses to the identity).
+  std::vector<S> soil_consumption_active_;
 
   // Hydraulic root parameters (not currently exposed to R; see review #9)
   double root_c = 2.680147;
