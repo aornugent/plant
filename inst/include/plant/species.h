@@ -68,7 +68,10 @@ public:
   size_t aux_size() const;
 
   void resize_consumption_rates(int i);
-  double consumption_rate(int i) const;
+  // Stand-total resource consumption for ODE channel i (e.g. TF24 soil-layer
+  // water uptake). Carries value_type so the resident soil coupling
+  // differentiates; the *_by_node_rev sibling stays double for the R interface.
+  value_type consumption_rate(int i) const;
   std::vector<double> consumption_rate_by_node_rev(int i) const;
 
   template <typename It> It ode_aux(It it) const;
@@ -323,13 +326,27 @@ void Species<T,E>::resize_consumption_rates(int r) {
 }
 
 template <typename T, typename E>
-double Species<T,E>::consumption_rate(int i) const {
+typename Species<T,E>::value_type Species<T,E>::consumption_rate(int i) const {
   // can't determine density for one node
   if(size() < 2) {
     return 0.0;
   } else {
-    // node heights are in descending order - we need ascending for integration
-    return util::trapezium(r_heights_rev(), consumption_rate_by_node_rev(i));
+    // node heights are in descending order - we need ascending for integration.
+    // Trapezium rule accumulated in value_type (util::trapezium narrows to
+    // double); the derivative w.r.t. traits flows through the node heights and
+    // per-node consumption rates. Reproduces the double path exactly.
+    std::vector<value_type> h, c;
+    h.reserve(size());
+    c.reserve(size());
+    for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
+      h.push_back(it->height());
+      c.push_back(it->consumption_rate(i));
+    }
+    value_type tot = 0.0;
+    for (std::size_t k = 1; k < h.size(); ++k) {
+      tot += (h[k] - h[k - 1]) * (c[k] + c[k - 1]);
+    }
+    return tot * 0.5;
   }
 }
 
