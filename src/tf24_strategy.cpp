@@ -1,6 +1,8 @@
 // Built from  src/ff16_strategy.cpp on Mon Feb 12 09:52:27 2024 using the scaffolder, from the strategy:  FF16
 #include <plant/models/tf24_strategy.h>
+#include <odelia/supplied_derivative.hpp> // envelope-theorem leaf seam (§7.3)
 #include <limits> // std::numeric_limits (height_seed bounds)
+#include <cmath>  // std::abs (FD step)
 
 namespace plant {
 
@@ -436,16 +438,23 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
   };
 
   // Aggregate the leaf submodel over the crown according to the shading model.
+  // single_solve models run one leaf optimisation at a scalar radiation; the
+  // active leaf seam below re-evaluates the leaf at that same radiation.
+  double radiation_used = NA_REAL;
+  bool single_solve = true;
   if (shading_model_ == ShadingModel::CrownCentre) {
-    optimise_at(radiation_at(to_passive(environment.get_environment_at_height(height * eta_c))));
+    radiation_used = radiation_at(to_passive(environment.get_environment_at_height(height * eta_c)));
+    optimise_at(radiation_used);
   } else if (shading_model_ == ShadingModel::MeanLight) {
     // Leaf-area-weighted mean canopy openness = integral of (light * q) over the
     // crown (q integrates to one).
     auto f = [&](double x) -> double {
       return compute_average_light_environment(x, height_d, environment);
     };
-    optimise_at(radiation_at(function_integrator.integrate(f, 0.0, height_d)));
+    radiation_used = radiation_at(function_integrator.integrate(f, 0.0, height_d));
+    optimise_at(radiation_used);
   } else { // DeepCrown
+    single_solve = false;
     const std::vector<double> nodes =
       function_integrator.integrate_vector_x(0.0, height_d);
     const size_t nn = nodes.size();
@@ -482,9 +491,95 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
 
   //TODO: one point constant ratio and integral width for daylength
   // convert assimilation per leaf area per second (umol m^-2 s^-1) to canopy-level total yearly assimilation (mol yr^-1)
-  // converts to canopy area, then years, then mols. leaf.profit_ is double; the
-  // S mass cascade re-enters here through the area_leaf_ factor.
-  const S assimilation_ = leaf.profit_ * area_leaf_* 60*60*12*365/1e6;
+  // converts to canopy area, then years, then mols. leaf.profit_ is double.
+  //
+  // The active leaf supplied_derivative seam (§7.3): the Leaf is double, so its
+  // profit carries no parameter derivative on its own. On the active path we wrap
+  // profit_ in a supplied_derivative carrying d(profit)/d(input) for every seeded
+  // input that reaches the leaf, obtained by central FD of leaf_profit_frozen at
+  // the FROZEN optimum collar psi (envelope theorem: d(profit)/d(psi*) = 0, so no
+  // re-optimise). The §7.4 pair-filter (shouldRecord()) drops frozen/mutant inputs
+  // whose slot is INVALID. The S mass cascade re-enters through the area_leaf_
+  // factor below, independent of this seam. On the double path this is exactly
+  // leaf.profit_ (to_passive/if constexpr collapse to the identity).
+  S profit_s = S(leaf.profit_);
+  if constexpr (!std::is_same_v<S, double>) {
+    auto* tape = xad::Tape<double>::getActive();
+    if (tape != nullptr && tape->isActive()) {
+      if (!single_solve) {
+        util::stop("TF24 active leaf gradient: the deep-crown seam is not yet "
+                   "implemented; use shading_model 'mean-light' or 'crown-centre'.");
+      }
+      const double frozen_collar_psi = -leaf.root_collar_psi_;
+      const double profit0 = leaf.profit_;
+      const double atm_vpd_d = environment.get_atm_vpd();
+      const double ca_d = environment.get_ca();
+      const double leaf_temp_d = environment.get_leaf_temp();
+      const double atm_o2_d = environment.get_atm_o2_kpa();
+      const double atm_kpa_d = environment.get_atm_kpa();
+      const std::vector<double> z_soil_mid_ = environment.get_soil_mid_depths();
+
+      // Baseline double parameter set + double field pointers, in the SAME
+      // TF24_AD_FIELDS order as field_ptrs(), so input i pairs with partial i.
+      TF24_Pars_<double> pd;
+#define PLANT_AD_PDPTR(f) &pd.f,
+      std::vector<double*> pdp = { TF24_AD_FIELDS(PLANT_AD_PDPTR) };
+#undef PLANT_AD_PDPTR
+      std::vector<S*> ap = field_ptrs();
+      for (std::size_t i = 0; i < ap.size(); ++i) *pdp[i] = to_passive(*ap[i]);
+
+      auto profit_frozen = [&](void) {
+        return leaf_profit_frozen(pd, height_d, radiation_used, psi_soil,
+                                  soil_depths_, z_soil_mid_, atm_vpd_d, ca_d,
+                                  leaf_temp_d, atm_o2_d, atm_kpa_d,
+                                  frozen_collar_psi);
+      };
+
+      std::vector<S*> inputs;
+      std::vector<double> partials;
+      inputs.reserve(ap.size() + 1);
+      partials.reserve(ap.size() + 1);
+
+      // Per-parameter central FD at the frozen optimum. Only seeded inputs (valid
+      // tape slot) are wired; the rest are the mutant/background frozen inputs the
+      // §7.4 pair-filter drops. Every field gets a partial computed, so a seeded
+      // parameter is never an implicit zero (M1).
+      for (std::size_t i = 0; i < ap.size(); ++i) {
+        const double base = *pdp[i];
+        const double hstep = 1e-6 * (std::abs(base) + 1e-6);
+        *pdp[i] = base + hstep;
+        const double pplus = profit_frozen();
+        *pdp[i] = base - hstep;
+        const double pminus = profit_frozen();
+        *pdp[i] = base;
+        if (ap[i]->shouldRecord()) {
+          inputs.push_back(ap[i]);
+          partials.push_back((pplus - pminus) / (2.0 * hstep));
+        }
+      }
+
+      // Height channel: the leaf profit depends on the current height state
+      // (conductance, sapwood volume, area_leaf), so the state coupling through
+      // the leaf must be on the tape. Perturb the frozen height directly.
+      if (height.shouldRecord()) {
+        const double hbase = height_d;
+        const double hstep = 1e-6 * (std::abs(hbase) + 1e-6);
+        const double pplus = leaf_profit_frozen(pd, hbase + hstep, radiation_used,
+            psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
+            atm_o2_d, atm_kpa_d, frozen_collar_psi);
+        const double pminus = leaf_profit_frozen(pd, hbase - hstep, radiation_used,
+            psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
+            atm_o2_d, atm_kpa_d, frozen_collar_psi);
+        inputs.push_back(&height);
+        partials.push_back((pplus - pminus) / (2.0 * hstep));
+      }
+
+      if (!inputs.empty()) {
+        profit_s = odelia::ode::supplied_derivative(*tape, profit0, inputs, partials);
+      }
+    }
+  }
+  const S assimilation_ = profit_s * area_leaf_* 60*60*12*365/1e6;
   // const double assimilation_ = assimilation(environment, height, area_leaf_);
   const S respiration_ =
     respiration(mass_leaf_, mass_sapwood_, mass_bark_, mass_root_);
@@ -497,6 +592,78 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
 template <class S>
 void TF24_Strategy_<S>::solve_leaf() {
   leaf.find_root_collar_psi();
+}
+
+// Lift the double birth height to S carrying its parameter derivative via the
+// implicit function theorem (§7.2). Mirrors FF16_Strategy_::lift_birth_height.
+template <class S>
+S TF24_Strategy_<S>::lift_birth_height(double h_star) const {
+  if constexpr (std::is_same_v<S, double>) {
+    return h_star;
+  } else {
+    // dg/dh at the root, as a double constant (central difference; g is smooth
+    // and near-linear in h here, so a 2-point rule is not the accuracy limit).
+    const double eps = 1e-6 * (h_star + 1.0);
+    auto gv = [&](double h) { return to_passive(mass_live_given_height(S(h))); };
+    const double dgdh = (gv(h_star + eps) - gv(h_star - eps)) / (2.0 * eps);
+    // Newton correction from the double root. Subtract its own value so the
+    // birth height's value stays exactly h_star (bit-identical), while its
+    // derivative is the IFT term dh*/dtheta = -(dg/dtheta)/(dg/dh).
+    const S corr = (mass_live_given_height(S(h_star)) - pars.omega) / dgdh;
+    return S(h_star) - corr + to_passive(corr);
+  }
+}
+
+// FD engine for the leaf supplied_derivative seam (§7.3). Reconstruct a
+// throwaway double Leaf from `pd` and the frozen crown context, evaluate profit
+// at the FROZEN optimum collar psi, and return it. Mirrors the single-solve
+// (mean-light / crown-centre) leaf setup in net_mass_production_dt exactly, but
+// with the parameters taken from `pd` (so a perturbed field flows through every
+// channel it reaches) and the collar psi held fixed at the forward optimum.
+template <class S>
+double TF24_Strategy_<S>::leaf_profit_frozen(
+    const TF24_Pars_<double>& pd, double height_d, double radiation,
+    const std::vector<double>& psi_soil_d,
+    const std::vector<double>& soil_depths_,
+    const std::vector<double>& z_soil_mid_, double atm_vpd, double ca,
+    double leaf_temp, double atm_o2_kpa, double atm_kpa,
+    double frozen_collar_psi) {
+
+  const int soil_number_of_depths_ = static_cast<int>(soil_depths_.size());
+
+  // Derived crown/allometry quantities recomputed from pd so a perturbed a_l1 /
+  // a_l2 / eta / theta / K_s / a_r1 / root_depth_shape_eta flows into the leaf.
+  const double eta_c_d = 1 - 2 / (1 + pd.eta) + 1 / (1 + 2 * pd.eta);
+  const double area_leaf_d = std::pow(height_d / pd.a_l1, 1.0 / pd.a_l2);
+  const double mass_root_d = pd.a_r1 * area_leaf_d;
+  const double leaf_specific_conductance_max =
+      pd.K_s * pd.theta / (height_d * eta_c_d);
+  const double sapwood_volume_per_leaf_area = pd.theta * (height_d * eta_c_d);
+
+  // Root-mass distribution across soil layers (mirrors net_mass_production_dt).
+  std::vector<double> mass_root_prop(soil_number_of_depths_, 0.0);
+  const double rooting_depth = std::min(height_d, rooting_depth_max);
+  const double root_mass_scale = root_mass_carbon_scale * mass_root_d;
+  double prev_q = 1.0;
+  for (int a = 0; a < soil_number_of_depths_; ++a) {
+    if (prev_q == 0) break;
+    const double qd = Q(soil_depths_[a], rooting_depth, pd.root_depth_shape_eta);
+    mass_root_prop[a] = root_mass_scale * (prev_q - qd);
+    prev_q = qd;
+  }
+
+  Leaf L(pd.vcmax_25, pd.c, pd.b, pd.psi_crit, root_c, root_b, root_psi_crit,
+         pd.beta2, pd.jmax_25, pd.a, pd.curv_fact_elec_trans,
+         pd.curv_fact_colim, GSS_tol_abs, vulnerability_curve_ncontrol,
+         ci_abs_tol, ci_niter, pd.g1_TF24, beta_R_H, beta_R_V);
+  L.z_soil_mid_ = z_soil_mid_;
+  L.use_precomputed_z_soil_mid_ = true;
+  L.set_physiology(area_leaf_d, mass_root_prop, pd.rho, pd.a_bio, radiation,
+                   psi_soil_d, soil_depths_, leaf_specific_conductance_max,
+                   atm_vpd, ca, sapwood_volume_per_leaf_area, leaf_temp,
+                   atm_o2_kpa, atm_kpa);
+  L.evaluate_root_collar_psi(frozen_collar_psi);
+  return L.profit_;
 }
 
 // [eqn 16] Fraction of production allocated to reproduction
@@ -792,10 +959,11 @@ void TF24_Strategy_<S>::prepare_strategy() {
   // NOTE: this pre-computes something to save a very small amount of time
   eta_c = 1 - 2/(1 + pars.eta) + 1/(1 + 2*pars.eta);
   // NOTE: Also pre-computing, though less trivial. Birth height is a double
-  // root-find lifted to S (its value is exact; the parameter derivative via the
-  // IFT seam is deferred to a later stage).
+  // root-find lifted to S; height_0 keeps the value, initial_height_ additionally
+  // carries the birth-height IFT derivative (§7.2, mirrors FF16).
   height_0 = height_seed();
   area_leaf_0 = area_leaf(height_0);
+  initial_height_ = lift_birth_height(to_passive(height_0));
 
   if (this->is_variable_birth_rate) {
     this->extrinsic_drivers.set_variable("birth_rate", this->birth_rate_x, this->birth_rate_y);

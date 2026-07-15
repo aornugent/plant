@@ -88,6 +88,22 @@ struct TF24_Pars_ {
 
 using TF24_Pars = TF24_Pars_<double>;
 
+// The single list of low-level TF24 parameters the gradient is taken with
+// respect to (§8.1): field_ptrs() and field_names() on TF24_Strategy_ both
+// expand it, so a parameter can never appear in one and not the other. These are
+// the stored low-level fields (the partial holds hyperpar-derived quantities
+// fixed), so c/b/psi_crit/jmax_25 are seeded as independent inputs, not through
+// p_50/vcmax_25.
+#define TF24_AD_FIELDS(X)                                                  \
+  X(lma) X(rho) X(hmat) X(omega) X(eta) X(theta) X(a_l1) X(a_l2)           \
+  X(a_r1) X(a_b1) X(r_s) X(r_b) X(r_r) X(r_l) X(a_y) X(a_bio) X(k_l)       \
+  X(k_b) X(k_s) X(k_r) X(a_p1) X(a_p2) X(a_f3) X(a_f1) X(a_f2) X(S_D)      \
+  X(a_d0) X(d_I) X(a_dG1) X(a_dG2) X(k_I) X(vcmax_25) X(p_50) X(K_s)       \
+  X(c) X(b) X(psi_crit) X(beta1) X(beta2) X(g1_TF24) X(jmax_25) X(a)       \
+  X(curv_fact_elec_trans) X(curv_fact_colim) X(var_sapwood_volume_cost)    \
+  X(nmass_l) X(nmass_s) X(nmass_b) X(nmass_r) X(dmass_dN)                  \
+  X(root_depth_shape_eta) X(recruitment_decay)
+
 // The TF24 strategy. Templated on the scalar S carried by its physiology; S =
 // double is the production path (the `TF24_Strategy` alias below). Method bodies
 // live in tf24_strategy.cpp with explicit instantiations for double and the
@@ -239,6 +255,22 @@ public:
   // net_mass_production_dt, so it must be virtual to dispatch to the override
   // when net_mass_production_dt is reused unchanged by the subclass.
   virtual void solve_leaf();
+
+  // Reconstruct a throwaway double Leaf from a (possibly perturbed) double
+  // parameter set and the frozen crown context, evaluate carbon profit at the
+  // FROZEN optimum collar psi (no re-optimise -- the envelope theorem makes the
+  // frozen evaluation first-order exact), and return it. This is the
+  // finite-difference engine behind the active leaf supplied_derivative seam
+  // (§7.3): d(profit)/d(param) is a central difference of this at fixed psi*.
+  double leaf_profit_frozen(const TF24_Pars_<double>& pd, double height_d,
+                            double radiation,
+                            const std::vector<double>& psi_soil_d,
+                            const std::vector<double>& soil_depths_,
+                            const std::vector<double>& z_soil_mid_,
+                            double atm_vpd, double ca, double leaf_temp,
+                            double atm_o2_kpa, double atm_kpa,
+                            double frozen_collar_psi);
+
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
@@ -335,8 +367,18 @@ public:
   void prepare_strategy();
 
   // Birth height of a (germinated) seed. Strategy-agnostic accessor used by
-  // the templated Individual; here height_0 is derived in prepare_strategy().
-  S initial_height() const { return height_0; }
+  // the templated Individual; derived in prepare_strategy() and lifted to carry
+  // its parameter derivative (see lift_birth_height).
+  S initial_height() const { return initial_height_; }
+
+  // Lift the double birth height to S carrying its parameter derivative. The
+  // birth height solves mass_live_given_height(h) - omega = 0, whose root is
+  // found in double (height_seed). mass_live_given_height is retapeable, so one
+  // Newton step from that root at the active parameters yields both the exact
+  // value (the double path is bit-identical) and the implicit-function-theorem
+  // derivative dh*/dtheta = -(dg/dtheta)/(dg/dh) for every parameter at once;
+  // dg/dh is a double central difference at the root (§7.2). Mirrors FF16.
+  S lift_birth_height(double h_star) const;
 
   // Crown shading model, resolved once from control.shading_model in
   // prepare_strategy(). TF24 supports deep-crown, mean-light (its default)
@@ -346,11 +388,28 @@ public:
   // Biological (user-settable) parameters; see TF24_Pars above.
   TF24_Pars_<S> pars;
 
+  // Pointers to the low-level parameters the gradient is taken with respect to
+  // (§8.1), in TF24_AD_FIELDS order; field_names() gives the matching column
+  // labels. Both generated from the one TF24_AD_FIELDS list, so they cannot
+  // disagree in membership or order.
+#define PLANT_AD_PTR(f) &pars.f,
+#define PLANT_AD_NAME(f) #f,
+  std::vector<S*> field_ptrs() { return { TF24_AD_FIELDS(PLANT_AD_PTR) }; }
+  static std::vector<std::string> field_names() {
+    return { TF24_AD_FIELDS(PLANT_AD_NAME) };
+  }
+#undef PLANT_AD_PTR
+#undef PLANT_AD_NAME
+
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
   S eta_c     = NA_REAL; // crown shape factor, precomputed from pars.eta
-  // Height and leaf area of a (germinated) seed
+  // Height and leaf area of a (germinated) seed. height_0 is the double
+  // root-find value lifted to S (no parameter derivative); initial_height_ is
+  // the same value carrying the birth-height IFT derivative (returned by
+  // initial_height()).
   S height_0  = NA_REAL;
   S area_leaf_0;
+  S initial_height_ = NA_REAL;
 
   // Embedded leaf hydraulic/photosynthesis sub-model, built in prepare_strategy().
   // Always double: the Leaf is never templated on S (design 4.3); its parameter
