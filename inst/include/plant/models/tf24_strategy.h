@@ -89,7 +89,7 @@ struct TF24_Pars_ {
 using TF24_Pars = TF24_Pars_<double>;
 
 // The single list of low-level TF24 parameters the gradient is taken with
-// respect to (§8.1): field_ptrs() and field_names() on TF24_Strategy_ both
+// respect to: field_ptrs() and field_names() on TF24_Strategy_ both
 // expand it, so a parameter can never appear in one and not the other. These are
 // the stored low-level fields (the partial holds hyperpar-derived quantities
 // fixed), so c/b/psi_crit/jmax_25 are seeded as independent inputs, not through
@@ -261,11 +261,11 @@ public:
   virtual double seam_collar_psi_partial() const { return 0.0; }
 
   // Reconstruct a throwaway double Leaf from a (possibly perturbed) double
-  // parameter set and the frozen crown context, evaluate carbon profit at the
-  // FROZEN optimum collar psi (no re-optimise -- the envelope theorem makes the
-  // frozen evaluation first-order exact), and return it. This is the
-  // finite-difference engine behind the active leaf supplied_derivative seam
-  // (§7.3): d(profit)/d(param) is a central difference of this at fixed psi*.
+  // parameter set and the held crown context, evaluate carbon profit at the
+  // fixed optimum collar psi (no re-optimise -- the envelope theorem makes the
+  // held evaluation first-order exact), and return it. This is the
+  // finite-difference engine behind the active leaf supplied_derivative seam:
+  // d(profit)/d(param) is a central difference of this at fixed psi*.
   // light_openness (canopy openness 0-1) and PPFD are taken instead of the
   // absorbed radiation so the seam differentiates through k_I (radiation =
   // pd.k_I * max(light_openness, 1e-4) * PPFD, recomputed here) and through the
@@ -277,7 +277,7 @@ public:
   // interpolators are rebuilt (setup_transpiration) only when the curve-shaping
   // params c/b/psi_crit actually change. Caller seeds it as a copy of the
   // operating-point leaf before the FD loop.
-  double leaf_profit_frozen(Leaf& scratch, const TF24_Pars_<double>& pd,
+  double leaf_profit_at_fixed_collar(Leaf& scratch, const TF24_Pars_<double>& pd,
                             double height_d,
                             double light_openness, double PPFD,
                             const std::vector<double>& psi_soil_d,
@@ -285,7 +285,7 @@ public:
                             const std::vector<double>& z_soil_mid_,
                             double atm_vpd, double ca, double leaf_temp,
                             double atm_o2_kpa, double atm_kpa,
-                            double frozen_collar_psi,
+                            double held_collar_psi,
                             std::vector<double>* uptake_out = nullptr,
                             bool reoptimise_uptake = false);
 
@@ -395,7 +395,7 @@ public:
   // Newton step from that root at the active parameters yields both the exact
   // value (the double path is bit-identical) and the implicit-function-theorem
   // derivative dh*/dtheta = -(dg/dtheta)/(dg/dh) for every parameter at once;
-  // dg/dh is a double central difference at the root (§7.2). Mirrors FF16.
+  // dg/dh is a double central difference at the root. Mirrors FF16.
   S lift_birth_height(double h_star) const;
 
   // Crown shading model, resolved once from control.shading_model in
@@ -406,8 +406,8 @@ public:
   // Biological (user-settable) parameters; see TF24_Pars above.
   TF24_Pars_<S> pars;
 
-  // Pointers to the low-level parameters the gradient is taken with respect to
-  // (§8.1), in TF24_AD_FIELDS order; field_names() gives the matching column
+  // Pointers to the low-level parameters the gradient is taken with respect to,
+  // in TF24_AD_FIELDS order; field_names() gives the matching column
   // labels. Both generated from the one TF24_AD_FIELDS list, so they cannot
   // disagree in membership or order.
 #define PLANT_AD_PTR(f) &pars.f,
@@ -435,10 +435,10 @@ public:
   Leaf leaf;
 
   // Per-layer water uptake carried as an ACTIVE scalar (Tier-B soil coupling): the
-  // leaf's soil_consumption_ is a frozen double, so its theta/soil-psi sensitivity
+  // leaf's soil_consumption_ is a double, so its theta/soil-psi sensitivity
   // is injected here via supplied_derivative in net_mass_production_dt (mirroring
   // the profit seam) and read by evapotranspiration_dt. On the double path this is
-  // just the frozen leaf value (supplied_derivative collapses to the identity).
+  // just the leaf value (supplied_derivative collapses to the identity).
   std::vector<S> soil_consumption_active_;
 
   // Hydraulic root parameters (not currently exposed to R; see review #9)

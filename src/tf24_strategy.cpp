@@ -1,6 +1,6 @@
 // Built from  src/ff16_strategy.cpp on Mon Feb 12 09:52:27 2024 using the scaffolder, from the strategy:  FF16
 #include <plant/models/tf24_strategy.h>
-#include <odelia/supplied_derivative.hpp> // envelope-theorem leaf seam (§7.3)
+#include <odelia/supplied_derivative.hpp> // envelope-theorem leaf seam
 #include <limits> // std::numeric_limits (height_seed bounds)
 #include <cmath>  // std::abs (FD step)
 
@@ -56,7 +56,7 @@ double TF24_Strategy_<S>::compute_average_light_environment(
 template <class S>
 S TF24_Strategy_<S>::evapotranspiration_dt(S area_leaf_, int soil_layer) {
   // Tier-B: prefer the active per-layer uptake (carries theta/soil-psi
-  // sensitivity from the supplied_derivative seam); fall back to the frozen leaf
+  // sensitivity from the supplied_derivative seam); fall back to the leaf
   // value when the seam has not populated it (e.g. the double production path
   // before net_mass_production_dt, or shading models without the single-solve seam).
   const S uptake =
@@ -489,13 +489,13 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
   // convert assimilation per leaf area per second (umol m^-2 s^-1) to canopy-level total yearly assimilation (mol yr^-1)
   // converts to canopy area, then years, then mols. leaf.profit_ is double.
   //
-  // The active leaf supplied_derivative seam (§7.3): the Leaf is double, so its
+  // The active leaf supplied_derivative seam: the Leaf is double, so its
   // profit carries no parameter derivative on its own. On the active path we wrap
   // profit_ in a supplied_derivative carrying d(profit)/d(input) for every seeded
-  // input that reaches the leaf, obtained by central FD of leaf_profit_frozen at
-  // the FROZEN optimum collar psi (envelope theorem: d(profit)/d(psi*) = 0, so no
-  // re-optimise). The §7.4 pair-filter (shouldRecord()) drops frozen/mutant inputs
-  // whose slot is INVALID. The S mass cascade re-enters through the area_leaf_
+  // input that reaches the leaf, obtained by central FD of leaf_profit_at_fixed_collar at
+  // the fixed optimum collar psi (envelope theorem: d(profit)/d(psi*) = 0, so no
+  // re-optimise). The pair-filter (shouldRecord()) drops inputs whose tape slot
+  // is INVALID. The S mass cascade re-enters through the area_leaf_
   // factor below, independent of this seam. On the double path this is exactly
   // leaf.profit_ (to_passive/if constexpr collapse to the identity).
   S profit_s = S(leaf.profit_);
@@ -503,7 +503,7 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
   // reverse-mode machinery (tape slots, getSlot). Gate it on the *reverse*
   // active type specifically: double takes the production path, and the forward
   // (tangent) scalar -- used only as a verification oracle -- compiles with the
-  // seam absent, so its leaf profit is frozen (zero tangent), matching the
+  // seam absent, so its leaf profit is held fixed (zero tangent), matching the
   // intent that forward JVP is exact only for non-leaf channels.
   if constexpr (std::is_same_v<S, xad::adj<double>::active_type>) {
     auto* tape = xad::Tape<double>::getActive();
@@ -512,7 +512,7 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         util::stop("TF24 active leaf gradient: the deep-crown seam is not yet "
                    "implemented; use shading_model 'mean-light' or 'crown-centre'.");
       }
-      const double frozen_collar_psi = -leaf.root_collar_psi_;
+      const double held_collar_psi = -leaf.root_collar_psi_;
       const double profit0 = leaf.profit_;
       const double atm_vpd_d = environment.get_atm_vpd();
       const double ca_d = environment.get_ca();
@@ -544,16 +544,21 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
       std::vector<double> up_p(nsoil), up_m(nsoil);
       // Base TF24 optimises the collar (seam hook returns nullptr) -> uptake must
       // re-optimise the collar per FD point (model-as-run). TF24f tracks the collar
-      // as a state -> frozen uptake is exact (collar response via the collar-psi
+      // as a state -> the fixed-collar uptake is exact (collar response via the collar-psi
       // channel). Decides the collar treatment for every uptake evaluation below.
       const bool reopt = (seam_collar_psi_input() == nullptr);
 
-      auto profit_frozen = [&](std::vector<double>* up) {
-        return leaf_profit_frozen(scratch, pd, height_d, light_openness_double, PPFD,
-                                  psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d,
-                                  ca_d, leaf_temp_d, atm_o2_d, atm_kpa_d,
-                                  frozen_collar_psi, up, reopt);
+      // Fixed crown context is shared by every channel; only the perturbed
+      // height, openness, per-layer soil psi, and uptake sink vary, so route all
+      // of them through one closure at the held optimum collar psi.
+      auto profit_at = [&](double h, double light, const std::vector<double>& psi,
+                           std::vector<double>* up) {
+        return leaf_profit_at_fixed_collar(scratch, pd, h, light, PPFD, psi,
+                                  soil_depths_, z_soil_mid_, atm_vpd_d, ca_d,
+                                  leaf_temp_d, atm_o2_d, atm_kpa_d,
+                                  held_collar_psi, up, reopt);
       };
+      auto fd_step = [](double base) { return 1e-6 * (std::abs(base) + 1e-6); };
 
       std::vector<S*> inputs;
       std::vector<double> partials;
@@ -561,7 +566,7 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
       partials.reserve(ap.size() + 1);
 
       // Push one seeded input with its profit partial and its per-layer uptake
-      // partial, all from the same (plus, minus) frozen evaluations.
+      // partial, all from the same (plus, minus) evaluations.
       auto push_input = [&](S* in, double pplus, double pminus,
                             const std::vector<double>& upp,
                             const std::vector<double>& upm, double step) {
@@ -571,87 +576,74 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
           uptake_partials[L].push_back((upp[L] - upm[L]) / (2.0 * step));
       };
 
-      // Per-parameter central FD at the frozen optimum. Only seeded inputs (valid
-      // tape slot) are wired; the rest are the mutant/background frozen inputs the
-      // §7.4 pair-filter drops. Gate the FD on shouldRecord() *before* the two leaf
+      // Per-parameter central FD at the held optimum. Only seeded inputs (valid
+      // tape slot) are wired; the rest are the background inputs the
+      // pair-filter drops. Gate the FD on shouldRecord() *before* the two leaf
       // solves: an un-seeded field's partial is discarded anyway, so computing it
       // was pure waste -- and it dominated the active-replay cost (~2*|fields| leaf
       // solves per node per step, of which typically one field is seeded). Skipping
       // it leaves the wired (inputs, partials) bit-identical; seeded fields still
-      // get a real partial, so M1 completeness is unchanged (#44).
+      // get a real partial, so M1 completeness is unchanged (# (.
       for (std::size_t i = 0; i < ap.size(); ++i) {
         if (!ap[i]->shouldRecord()) continue;
         const double base = *pdp[i];
-        const double hstep = 1e-6 * (std::abs(base) + 1e-6);
-        *pdp[i] = base + hstep;
-        const double pplus = profit_frozen(&up_p);
-        *pdp[i] = base - hstep;
-        const double pminus = profit_frozen(&up_m);
+        const double step = fd_step(base);
+        *pdp[i] = base + step;
+        const double pplus = profit_at(height_d, light_openness_double, psi_soil, &up_p);
+        *pdp[i] = base - step;
+        const double pminus = profit_at(height_d, light_openness_double, psi_soil, &up_m);
         *pdp[i] = base;
-        push_input(ap[i], pplus, pminus, up_p, up_m, hstep);
+        push_input(ap[i], pplus, pminus, up_p, up_m, step);
       }
 
       // Height channel: the leaf profit depends on the current height state
       // (conductance, sapwood volume, area_leaf), so the state coupling through
-      // the leaf must be on the tape. Perturb the frozen height directly.
+      // the leaf must be on the tape. Perturb the held height directly.
       if (height.shouldRecord()) {
-        const double hbase = height_d;
-        const double hstep = 1e-6 * (std::abs(hbase) + 1e-6);
-        const double pplus = leaf_profit_frozen(scratch, pd, hbase + hstep, light_openness_double,
-            PPFD, psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p, reopt);
-        const double pminus = leaf_profit_frozen(scratch, pd, hbase - hstep, light_openness_double,
-            PPFD, psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m, reopt);
-        push_input(&height, pplus, pminus, up_p, up_m, hstep);
+        const double step = fd_step(height_d);
+        const double pplus = profit_at(height_d + step, light_openness_double, psi_soil, &up_p);
+        const double pminus = profit_at(height_d - step, light_openness_double, psi_soil, &up_m);
+        push_input(&height, pplus, pminus, up_p, up_m, step);
       }
 
       // Light channel (resident self-shading): the openness the leaf sees is
       // active on a resident pass (the light field is built from the stand's own
       // competition), so d(profit)/d(light_openness) must be on the tape. Perturb
-      // the frozen openness and FD the profit; inject onto the active openness,
+      // the held openness and FD the profit; inject onto the active openness,
       // whose slot connects to the resident light field. On the mutant pass the
-      // light is frozen (recorded double) -> INVALID slot -> §7.4 drops it.
+      // light is a recorded double -> INVALID slot -> the pair-filter drops it.
       if (light_active.shouldRecord()) {
         const double base = light_openness_double;
-        const double lstep = 1e-6 * (std::abs(base) + 1e-6);
-        const double pplus = leaf_profit_frozen(scratch, pd, height_d, base + lstep, PPFD,
-            psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p, reopt);
-        const double pminus = leaf_profit_frozen(scratch, pd, height_d, base - lstep, PPFD,
-            psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m, reopt);
-        push_input(&light_active, pplus, pminus, up_p, up_m, lstep);
+        const double step = fd_step(base);
+        const double pplus = profit_at(height_d, base + step, psi_soil, &up_p);
+        const double pminus = profit_at(height_d, base - step, psi_soil, &up_m);
+        push_input(&light_active, pplus, pminus, up_p, up_m, step);
       }
 
       // Soil-psi channel (resident soil coupling): on a resident pass each
       // layer's psi is active (a function of the integrated soil state), so the
-      // soil -> leaf feedback must be on the tape. Perturb each layer's frozen
+      // soil -> leaf feedback must be on the tape. Perturb each layer's held
       // psi and FD the profit; inject onto the active psi value, whose slot
       // connects back to the soil state through psi_from_soil_moist. On the
-      // mutant pass the soil is frozen (recorded double), so these slots are
-      // INVALID and the §7.4 filter drops them.
+      // mutant pass the soil is a recorded double, so these slots are
+      // INVALID and the pair-filter drops them.
       {
         std::vector<double> psi_pert = psi_soil;  // double copy to perturb
         for (std::size_t L = 0; L < psi_soil_S.size(); ++L) {
           if (!const_cast<S&>(psi_soil_S[L]).shouldRecord()) continue;
           const double base = psi_soil[L];
-          const double hstep = 1e-6 * (std::abs(base) + 1e-6);
-          psi_pert[L] = base + hstep;
-          const double pplus = leaf_profit_frozen(scratch, pd, height_d, light_openness_double,
-              PPFD, psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-              atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p, reopt);
-          psi_pert[L] = base - hstep;
-          const double pminus = leaf_profit_frozen(scratch, pd, height_d, light_openness_double,
-              PPFD, psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-              atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m, reopt);
+          const double step = fd_step(base);
+          psi_pert[L] = base + step;
+          const double pplus = profit_at(height_d, light_openness_double, psi_pert, &up_p);
+          psi_pert[L] = base - step;
+          const double pminus = profit_at(height_d, light_openness_double, psi_pert, &up_m);
           psi_pert[L] = base;
-          push_input(const_cast<S*>(&psi_soil_S[L]), pplus, pminus, up_p, up_m, hstep);
+          push_input(const_cast<S*>(&psi_soil_S[L]), pplus, pminus, up_p, up_m, step);
         }
       }
 
       // Collar-psi channel: for a variant whose leaf runs at a tracked (non-
-      // optimum) collar psi (TF24f), the frozen-psi FD above is only the partial
+      // optimum) collar psi (TF24f), the fixed-psi FD above is only the partial
       // d(profit)/d(theta) at fixed psi; the total also needs
       // d(profit)/d(psi) * d(psi_tracked)/d(theta). The tracked psi is an active
       // ODE state, so d(psi_tracked)/d(theta) is already on the tape; inject the
@@ -665,13 +657,13 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
           // d(uptake)/d(tracked collar) (#47), ANALYTIC per layer (a straight FD is
           // wrong here: E_from_Soil_to_Root_Collar is piecewise per soil layer, so a
           // collar step straddles layer-crossing kinks and undershoots ~3x). The
-          // tracked state = -root_collar_psi_ = frozen_collar_psi and E uses
-          // P_x_r = root_collar_psi_ = -frozen_collar_psi, so
+          // tracked state = -root_collar_psi_ = held_collar_psi and E uses
+          // P_x_r = root_collar_psi_ = -held_collar_psi, so
           // d(uptake)/d(tracked) = -d(soil_consumption_)/d(P_x_r). Kink layers (NaN)
           // fall back to 0 (measure-zero).
           std::vector<double> dEi_dPxr;
           leaf.dsoil_consumption_dpsi_collar_perlayer(
-              -frozen_collar_psi, leaf.psi_soil_inverted_, dEi_dPxr);
+              -held_collar_psi, leaf.psi_soil_inverted_, dEi_dPxr);
           for (int L = 0; L < nsoil; ++L) {
             const double v = (L < static_cast<int>(dEi_dPxr.size()) &&
                               std::isfinite(dEi_dPxr[L]))
@@ -711,7 +703,7 @@ void TF24_Strategy_<S>::solve_leaf() {
 }
 
 // Lift the double birth height to S carrying its parameter derivative via the
-// implicit function theorem (§7.2). Mirrors FF16_Strategy_::lift_birth_height.
+// implicit function theorem. Mirrors FF16_Strategy_::lift_birth_height.
 template <class S>
 S TF24_Strategy_<S>::lift_birth_height(double h_star) const {
   if constexpr (std::is_same_v<S, double>) {
@@ -730,20 +722,20 @@ S TF24_Strategy_<S>::lift_birth_height(double h_star) const {
   }
 }
 
-// FD engine for the leaf supplied_derivative seam (§7.3). Reconstruct a
-// throwaway double Leaf from `pd` and the frozen crown context, evaluate profit
-// at the FROZEN optimum collar psi, and return it. Mirrors the single-solve
+// FD engine for the leaf supplied_derivative seam. Reconstruct a
+// throwaway double Leaf from `pd` and the held crown context, evaluate profit
+// at the fixed optimum collar psi, and return it. Mirrors the single-solve
 // (mean-light / crown-centre) leaf setup in net_mass_production_dt exactly, but
 // with the parameters taken from `pd` (so a perturbed field flows through every
 // channel it reaches) and the collar psi held fixed at the forward optimum.
 template <class S>
-double TF24_Strategy_<S>::leaf_profit_frozen(
+double TF24_Strategy_<S>::leaf_profit_at_fixed_collar(
     Leaf& scratch, const TF24_Pars_<double>& pd, double height_d,
     double light_openness, double PPFD, const std::vector<double>& psi_soil_d,
     const std::vector<double>& soil_depths_,
     const std::vector<double>& z_soil_mid_, double atm_vpd, double ca,
     double leaf_temp, double atm_o2_kpa, double atm_kpa,
-    double frozen_collar_psi, std::vector<double>* uptake_out,
+    double held_collar_psi, std::vector<double>* uptake_out,
     bool reoptimise_uptake) {
 
   const int soil_number_of_depths_ = static_cast<int>(soil_depths_.size());
@@ -800,19 +792,19 @@ double TF24_Strategy_<S>::leaf_profit_frozen(
                    psi_soil_d, soil_depths_, leaf_specific_conductance_max,
                    atm_vpd, ca, sapwood_volume_per_leaf_area, leaf_temp,
                    atm_o2_kpa, atm_kpa);
-  L.evaluate_root_collar_psi(frozen_collar_psi);
-  const double profit_frozen_val = L.profit_;  // envelope: frozen collar is exact
+  L.evaluate_root_collar_psi(held_collar_psi);
+  const double profit_fixed_collar_val = L.profit_;  // envelope: the fixed collar is exact
   // Tier-B uptake. Uptake is NON-stationary in the collar, so freezing the collar
   // (correct for profit) drops the collar response for uptake. For base TF24 the
   // collar is optimised, so re-optimise it (model-as-run) to get d(uptake)/dtheta
   // including dcollar*/dtheta; for TF24f the collar is a tracked state and the
-  // frozen value is correct (its collar response rides the collar-psi channel).
+  // fixed-collar value is correct (its collar response rides the collar-psi channel).
   // Both share the expensive set_physiology above; only the collar solve differs.
   if (uptake_out) {
     if (reoptimise_uptake) L.find_root_collar_psi();
     *uptake_out = L.soil_consumption_;
   }
-  return profit_frozen_val;
+  return profit_fixed_collar_val;
 }
 
 // [eqn 16] Fraction of production allocated to reproduction
@@ -1113,7 +1105,7 @@ void TF24_Strategy_<S>::prepare_strategy() {
   eta_c = 1 - 2/(1 + pars.eta) + 1/(1 + 2*pars.eta);
   // NOTE: Also pre-computing, though less trivial. Birth height is a double
   // root-find lifted to S; height_0 keeps the value, initial_height_ additionally
-  // carries the birth-height IFT derivative (§7.2, mirrors FF16).
+  // carries the birth-height IFT derivative (mirrors FF16).
   height_0 = height_seed();
   area_leaf_0 = area_leaf(height_0);
   initial_height_ = lift_birth_height(to_passive(height_0));

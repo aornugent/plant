@@ -956,83 +956,37 @@ double Leaf::dprofit_droot_collar_psi(double opt_root_psi) {
 }
 
 // Analytic d(E_up_)/d(P_x_r): the signed-collar-potential derivative of the
-// soil->root-collar uptake, mirroring the general branch of
-// E_from_Soil_to_Root_Collar. Per layer, with span = |psi_soil[i] - P_x_r| and
-// integral = \int f_r over [P_src_min, P_src_max] (the cumulative-vulnerability
-// curve root_vuln_integral_from_psi, whose integrand is root_vuln_from_psi):
-//   E_i        = (psi_soil[i] - P_x_r - grav) / area_leaf / r_R,
-//   r_R        = r_R_H_min[i] * span / integral + r_R_V_sum[i],
-//   dspan/dP   = sign_var   (+1 if P_x_r is the upper bound, else -1),
-//   dinteg/dP  = sign_var * f_r(-P_x_r)  for P_x_r<0  (else sign_var, f_r==1),
-// and dE_i/dP follows by the quotient rule. Returns NaN on any branch kink so
-// the caller falls back to finite differences.
+// soil->root-collar uptake. E_up_ is the per-layer uptake summed and converted
+// to kg, so its derivative is the per-layer mol derivative summed and scaled by
+// kg_per_mol_h2o. Delegates to the per-layer body so the two share one
+// implementation. NaN in any layer (a branch kink) propagates through the sum,
+// so the caller still falls back to finite differences on a kink.
 double Leaf::dE_from_soil_dpsi_collar(double P_x_r, const std::vector<double>& psi_soil) {
-  const double inv_area_leaf = 1.0 / area_leaf_;
-  const double kink_tol = 1e-8;
+  std::vector<double> per_layer;
+  dsoil_consumption_dpsi_collar_perlayer(P_x_r, psi_soil, per_layer);
   double dEup_dr_mol = 0.0;
-
   for (int i = 0; i < max_soil_layer; i++) {
-    // Branch kinks: equal potentials, gravity-balance, and the psi==0 split of
-    // the vulnerability integral. The analytic general-branch derivative is not
-    // valid across these, so signal a fallback.
-    if (std::abs(P_x_r - psi_soil[i]) < kink_tol ||
-        std::abs((psi_soil[i] - P_x_r) - grav_head_z_[i]) < kink_tol ||
-        std::abs(P_x_r) < kink_tol) {
-      return std::numeric_limits<double>::quiet_NaN();
-    }
-
-    const double P_src_min = std::min(psi_soil[i], P_x_r);
-    const double P_src_max = std::max(psi_soil[i], P_x_r);
-    const double span = P_src_max - P_src_min;
-    const double sign_var = (P_x_r > psi_soil[i]) ? 1.0 : -1.0;  // = dspan/dP_x_r
-
-    // integral, replicated bit-for-bit from E_from_Soil_to_Root_Collar.
-    const double hi_neg = std::min(P_src_max, 0.0);
-    const double lo_pos = std::max(P_src_min, 0.0);
-    double integral = 0.0;
-    if (hi_neg > P_src_min) {
-      integral += root_vuln_integral_from_psi.eval(-P_src_min) -
-                  root_vuln_integral_from_psi.eval(-hi_neg);
-    }
-    if (P_src_max > lo_pos) {
-      integral += (P_src_max - lo_pos);
-    }
-
-    // d(integral)/d(P_x_r): for P_x_r<0 the moving bound is in the vulnerable
-    // region. The integrand is the derivative of the *same* cumulative spline
-    // that produced `integral` (root_vuln_integral_from_psi.deriv), NOT the
-    // separate root_vuln_from_psi spline: the two agree on the knot domain but
-    // extrapolate independently (both clamp-to-last-value, #527), so beyond the
-    // domain only the integral spline's own derivative stays consistent with its
-    // value. For P_x_r>0 the moving bound is in the above-atmospheric part
-    // (f_r==1), contributed linearly, so the slope is 1.
-    const double fr_at =
-        (P_x_r < 0.0) ? root_vuln_integral_from_psi.deriv(-P_x_r) : 1.0;
-    const double dinteg_dr = sign_var * fr_at;
-
-    const double r_R_H = r_R_H_min[i] * span / integral;
-    const double r_R = r_R_H + r_R_V_sum[i];
-    const double dr_R_H_dr =
-        r_R_H_min[i] * (sign_var * integral - span * dinteg_dr) / (integral * integral);
-    const double dr_R_dr = dr_R_H_dr;
-
-    const double num = (psi_soil[i] - P_x_r - grav_head_z_[i]) * inv_area_leaf;
-    const double dnum_dr = -inv_area_leaf;
-    // E_i = num / r_R  ->  quotient rule.
-    dEup_dr_mol += (dnum_dr * r_R - num * dr_R_dr) / (r_R * r_R);
+    dEup_dr_mol += per_layer[i];
   }
-
   return dEup_dr_mol * kg_per_mol_h2o;  // match E_up_'s kg units
 }
 
 // Per-layer analytic d(soil_consumption_[i])/d(P_x_r), in MOL units (matching the
 // per-layer soil_consumption_[i], which -- unlike the summed E_up_ -- is NOT
-// converted to kg; see the units note in E_from_Soil_to_Root_Collar). Same
-// general-branch quotient-rule derivative as dE_from_soil_dpsi_collar, but stored
-// per layer instead of summed. A layer at one of the three branch kinks (equal
-// potentials / gravity balance / psi==0 integral split) gets NaN in `out[i]`; the
-// caller falls back for those (measure-zero) layers. Used by the TF24f Tier-B
-// seam to inject d(uptake)/d(collar) exactly, replacing the piecewise-FD (#47).
+// converted to kg; see the units note in E_from_Soil_to_Root_Collar). This is the
+// single source for the collar-potential derivative; dE_from_soil_dpsi_collar
+// sums it. Mirrors the general branch of E_from_Soil_to_Root_Collar. Per layer,
+// with span = |psi_soil[i] - P_x_r| and integral = \int f_r over
+// [P_src_min, P_src_max] (the cumulative-vulnerability curve
+// root_vuln_integral_from_psi):
+//   E_i        = (psi_soil[i] - P_x_r - grav) / area_leaf / r_R,
+//   r_R        = r_R_H_min[i] * span / integral + r_R_V_sum[i],
+//   dspan/dP   = sign_var   (+1 if P_x_r is the upper bound, else -1),
+//   dinteg/dP  = sign_var * f_r(-P_x_r)  for P_x_r<0  (else sign_var, f_r==1),
+// and dE_i/dP follows by the quotient rule. A layer at one of the three branch
+// kinks (equal potentials / gravity balance / psi==0 integral split) gets NaN in
+// `out[i]`; the caller falls back for those (measure-zero) layers. Used by the
+// TF24f Tier-B seam to inject d(uptake)/d(collar) exactly.
 void Leaf::dsoil_consumption_dpsi_collar_perlayer(
     double P_x_r, const std::vector<double>& psi_soil, std::vector<double>& out) {
   const double inv_area_leaf = 1.0 / area_leaf_;
@@ -1061,6 +1015,10 @@ void Leaf::dsoil_consumption_dpsi_collar_perlayer(
     if (P_src_max > lo_pos) {
       integral += (P_src_max - lo_pos);
     }
+    // d(integral)/d(P_x_r): use the derivative of the *same* cumulative spline
+    // that produced `integral`, so value and slope stay consistent past the knot
+    // domain (both clamp-to-last-value on extrapolation). For P_x_r>0 the moving
+    // bound is above-atmospheric (f_r==1), so the slope is 1.
     const double fr_at =
         (P_x_r < 0.0) ? root_vuln_integral_from_psi.deriv(-P_x_r) : 1.0;
     const double dinteg_dr = sign_var * fr_at;
