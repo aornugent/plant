@@ -171,15 +171,11 @@ void Node<T,E>::compute_rates(const environment_type& environment,
   if constexpr (strategy_has_rebind<strategy_type>::value)
     geometric = individual.control().node_geometric_compression;
   if (geometric) {
-    // Tier 1: the log-density transport rate -∂ₓg - mortality is set by
-    // Species::compute_rates from cohort neighbour spacings (the geometric
-    // compression, which needs the neighbour list). Seed to zero here; Species
-    // overrides every node that has >= 2 cohorts. This swaps the per-node
-    // finite-difference-stencil-plus-analytic-injection path (the pre-Tier-1
-    // census-gradient seam) for a single neighbour-difference operator that
-    // matches the competition-quadrature geometry and so cancels ∂ₓg on the AD
-    // tape, giving well-conditioned census gradients.
-    log_density_dt = value_type(0.0);
+    // Species::compute_rates sets -dg/dx - mortality from cohort neighbour
+    // spacings for every node with a neighbour. Seed the mortality term here so
+    // a lone cohort (which Species leaves untouched) still decays; Species
+    // overwrites this for nodes with >= 2 cohorts.
+    log_density_dt = - individual.rate(MORTALITY_INDEX);
   } else {
     // Default path (flag off, and always for FF16/TF24/TF24f): the
     // finite-difference stencil. Those strategies' differentiated metrics do

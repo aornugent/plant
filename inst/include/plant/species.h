@@ -264,18 +264,16 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   if constexpr (strategy_has_rebind<T>::value)
   if (!nodes.empty() && nodes[0].individual.control().node_geometric_compression) {
     const std::size_t n = nodes.size();
+    if (n < 2) return;  // the neighbour difference is undefined for a lone cohort
     for (std::size_t i = 0; i < n; ++i) {
-      if (n < 2) break;  // geometric compression undefined for a lone cohort
-      value_type dgdh;
-      if (i == 0)                 // tallest: one-sided towards the next node
-        dgdh = (nodes[0].growth_rate()   - nodes[1].growth_rate())
-             / (nodes[0].height()        - nodes[1].height());
-      else if (i + 1 == n)        // shortest: one-sided towards the previous
-        dgdh = (nodes[i-1].growth_rate() - nodes[i].growth_rate())
-             / (nodes[i-1].height()      - nodes[i].height());
-      else                        // interior: centred over both neighbours
-        dgdh = (nodes[i-1].growth_rate() - nodes[i+1].growth_rate())
-             / (nodes[i-1].height()      - nodes[i+1].height());
+      // Nodes are ordered tallest-to-shortest. Pick the neighbour pair once:
+      // centred for interior nodes, one-sided at each end. Sign-correct in all
+      // three cases because height strictly decreases with index.
+      const std::size_t lo = (i == 0) ? 0 : i - 1;
+      const std::size_t hi = (i + 1 == n) ? i : i + 1;
+      const value_type dgdh =
+          (nodes[lo].growth_rate() - nodes[hi].growth_rate())
+        / (nodes[lo].height()      - nodes[hi].height());
       nodes[i].set_log_density_dt(-dgdh - nodes[i].mortality_rate());
     }
   }
