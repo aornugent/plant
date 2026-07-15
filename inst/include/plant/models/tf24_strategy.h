@@ -36,7 +36,7 @@ struct TF24_Pars_ {
   S a_b1      = 0.17;       // Ratio of bark area : sapwood area
   // * Production
   S r_s    = 4012.0 / 608.0; // Sapwood respiration per stem mass
-  S r_b    = 2.0 * (4012.0 / 608.0); // Bark respiration (assumed 2 x sapwood)
+  S r_b    = 2.0 * r_s; // Bark respiration (assumed 2 x sapwood)
   S r_r    = 217.0;          // Root respiration per mass
   S r_l    = 39.27 / 0.1978791; // Leaf dark respiration per leaf mass
   S a_y    = 0.7;            // Carbon conversion parameter
@@ -201,12 +201,6 @@ public:
   void update_dependent_aux(const int index, Internals_<S>& vars);
 
   // * Mass production
-  // [eqn 12] Gross annual CO2 assimilation
-  S assimilation(const environment_type& environment, S height,
-                 S area_leaf);
-  // [Appendix S6] Per-leaf photosynthetic rate.
-  S assimilation_leaf(S x) const;
-
   // [eqn 13] Total maintenance respiration
   S respiration(S mass_leaf, S mass_sapwood,
                 S mass_bark, S mass_root) const;

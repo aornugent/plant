@@ -241,40 +241,6 @@ void TF24_Strategy_<S>::compute_rates(const environment_type& environment,  Inte
 
 }
 
-// [eqn 12] Gross annual CO2 assimilation (!!not in use for TF24 model!!). Kept
-// double: it is off the rate path (net production uses the Leaf submodel), and
-// the light read is stripped so the unused overload compiles at an active S.
-template <class S>
-S TF24_Strategy_<S>::assimilation(const environment_type& environment,
-                                    S height,
-                                    S area_leaf) {
-
-
-  double A = 0.0;
-  const double height_d = to_passive(height);
-
-  // Define an anonymous function to integrate
-  // For given height in crown, take photosynthesis at depth multipled by
-  //   amount of leaf at that depth
-  std::function<double(double)> f = [&](double z) -> double {
-    return to_passive(assimilation_leaf(S(to_passive(environment.get_environment_at_height(S(z)))))) * q(z, height_d);
-  };
-
-  // Integrate over crown depth using using Gauss-Kronrod quadrature.
-  // The number of points used in the integration is determined by the control parameter
-  // function_integration_rule. Rules defined in qk_rules.cpp
-  A = function_integrator.integrate(f, 0.0, height_d);
-
-  return area_leaf * A;
-}
-
-// Photosynthetic rate per leaf area
-// `x` is openness, ranging from 0 to 1.
-template <class S>
-S TF24_Strategy_<S>::assimilation_leaf(S x) const {
-  return pars.a_p1 * x / (x + pars.a_p2);
-}
-
 // [eqn 13] Total maintenance respiration
 // NOTE: In contrast with Falster ref model, we do not normalise by pars.a_y*pars.a_bio.
 template <class S>
