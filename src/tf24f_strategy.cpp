@@ -5,17 +5,19 @@ namespace plant {
 // The base TF24_Strategy constructor sets collect_all_auxiliary and the name
 // and runs the *base* refresh_indices(); we re-run our own refresh_indices()
 // here so the appended state slot is registered, and set the reported name.
-TF24f_Strategy::TF24f_Strategy() {
-  name = "TF24f";
+template <class S>
+TF24f_Strategy_<S>::TF24f_Strategy_() {
+  this->name = "TF24f";
   refresh_indices();
 }
 
 // Build on the base index maps, then register the extra tracked state. The new
 // slot is appended after TF24's states, so its index is TF24's state_size().
-void TF24f_Strategy::refresh_indices() {
-  TF24_Strategy::refresh_indices();
-  const int idx = static_cast<int>(TF24_Strategy::state_size());
-  state_index["opt_root_psi_state"] = idx;
+template <class S>
+void TF24f_Strategy_<S>::refresh_indices() {
+  TF24_Strategy_<S>::refresh_indices();
+  const int idx = static_cast<int>(TF24_Strategy_<S>::state_size());
+  this->state_index["opt_root_psi_state"] = idx;
   state_idx_opt_root_psi_state = idx;
 }
 
@@ -23,8 +25,9 @@ void TF24f_Strategy::refresh_indices() {
 // to solve_leaf() (called from the reused net_mass_production_dt) via
 // tracked_root_psi_, and the resulting profit gradient comes back in
 // dprofit_dpsi_, which becomes the tracked state's rate (gradient ascent).
-void TF24f_Strategy::compute_rates(const TF24_Environment& environment,
-                                   Internals& vars) {
+template <class S>
+void TF24f_Strategy_<S>::compute_rates(const environment_type& environment,
+                                   Internals_<S>& vars) {
   // k_acclim is a user-settable gain; a negative value would silently turn the
   // gradient ascent into descent (away from the optimum) and a non-finite value
   // would poison the state rate, so fail fast on misconfiguration.
@@ -32,8 +35,10 @@ void TF24f_Strategy::compute_rates(const TF24_Environment& environment,
     util::stop("TF24f: k_acclim must be finite and >= 0 (got " +
                util::to_string(k_acclim) + ")");
   }
-  tracked_root_psi_ = vars.state(state_idx_opt_root_psi_state);
-  TF24_Strategy::compute_rates(environment, vars);
+  // The tracked state feeds the double Leaf, so strip AD off it (a no-op on the
+  // double path); its parameter sensitivity is a supplied_derivative concern.
+  tracked_root_psi_ = odelia::util::to_passive(vars.state(state_idx_opt_root_psi_state));
+  TF24_Strategy_<S>::compute_rates(environment, vars);
   vars.set_rate(state_idx_opt_root_psi_state, k_acclim * dprofit_dpsi_);
 }
 
@@ -47,11 +52,12 @@ void TF24f_Strategy::compute_rates(const TF24_Environment& environment,
 // compute_rates' aux reads expect. Two gradient methods are available
 // (use_ad_gradient): the exact AD/IFT gradient (default, #527) or a centred
 // finite difference (#526); see the branches below.
-void TF24f_Strategy::solve_leaf() {
+template <class S>
+void TF24f_Strategy_<S>::solve_leaf() {
   if (initializing_) {
     // Birth initialisation: run the full optimiser so set_initial_states can
     // read the optimum collar psi.
-    leaf.find_root_collar_psi();
+    this->leaf.find_root_collar_psi();
     return;
   }
   if (use_ad_gradient) {
@@ -60,10 +66,10 @@ void TF24f_Strategy::solve_leaf() {
     // No O(h) bias and no finite-difference step to tune.
     // Establish the operating point (and the clamped collar psi `used`) and leave
     // the leaf outputs there for compute_rates' aux reads.
-    leaf.evaluate_root_collar_psi(tracked_root_psi_);
-    const double used = -leaf.root_collar_psi_;
-    dprofit_dpsi_ = leaf.dprofit_droot_collar_psi(used);
-    leaf.evaluate_root_collar_psi(used);  // restore operating-point outputs
+    this->leaf.evaluate_root_collar_psi(tracked_root_psi_);
+    const double used = -this->leaf.root_collar_psi_;
+    dprofit_dpsi_ = this->leaf.dprofit_droot_collar_psi(used);
+    this->leaf.evaluate_root_collar_psi(used);  // restore operating-point outputs
   } else {
     // Centred finite-difference fallback (#526), perturbing about the clamped
     // operating value `used`. A one-sided difference biases the fixed point to
@@ -82,7 +88,7 @@ void TF24f_Strategy::solve_leaf() {
     // them per eval (the old four-evaluate_root_collar_psi form) was the ~29%
     // cost over the forward difference.
     double bound_a, bound_b;
-    if (!leaf.prepare_collar_solve(bound_a, bound_b)) {
+    if (!this->leaf.prepare_collar_solve(bound_a, bound_b)) {
       // Operating point fully determined by feasibility handling (shutdown /
       // assim<0 / collapsed interval); no interior interval to perturb in, so the
       // gradient is zero (matching the old form, where every clamped eval
@@ -94,10 +100,10 @@ void TF24f_Strategy::solve_leaf() {
     // `used` is the tracked state clamped into the feasible interval -- the same
     // value the old leading evaluate_root_collar_psi(tracked_root_psi_) produced.
     const double used = std::min(std::max(tracked_root_psi_, bound_a), bound_b);
-    const double p_plus  = leaf.profit_at_collar_psi(used + h, bound_a, bound_b);
-    const double p_minus = leaf.profit_at_collar_psi(used - h, bound_a, bound_b);
+    const double p_plus  = this->leaf.profit_at_collar_psi(used + h, bound_a, bound_b);
+    const double p_minus = this->leaf.profit_at_collar_psi(used - h, bound_a, bound_b);
     dprofit_dpsi_ = (p_plus - p_minus) / (2.0 * h);
-    leaf.profit_at_collar_psi(used, bound_a, bound_b);  // restore operating point
+    this->leaf.profit_at_collar_psi(used, bound_a, bound_b);  // restore operating point
   }
 }
 
@@ -105,12 +111,17 @@ void TF24f_Strategy::solve_leaf() {
 // initializing_ flag, which makes solve_leaf optimise rather than track) and
 // store the resulting collar psi as the initial state. leaf.root_collar_psi_ is
 // the signed (negative) potential; the tracked state is the positive magnitude.
-void TF24f_Strategy::set_initial_states(const TF24_Environment& environment,
-                                        Internals& vars) {
+template <class S>
+void TF24f_Strategy_<S>::set_initial_states(const environment_type& environment,
+                                        Internals_<S>& vars) {
   initializing_ = true;
-  net_mass_production_dt(environment, vars);
+  this->net_mass_production_dt(environment, vars);
   initializing_ = false;
-  vars.set_state(state_idx_opt_root_psi_state, -leaf.root_collar_psi_);
+  vars.set_state(state_idx_opt_root_psi_state, -this->leaf.root_collar_psi_);
 }
+
+// Explicit instantiations (see TF24_Strategy_): closed instantiation set.
+template class TF24f_Strategy_<double>;
+template class TF24f_Strategy_<xad::adj<double>::active_type>;
 
 }

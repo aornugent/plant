@@ -6,23 +6,34 @@
 #include <plant/environment.h>
 #include <plant/resource_spline.h>
 #include <odelia/interpolator.hpp>
+#include <odelia/ode_util.hpp> // odelia::util::to_passive (full AD strip, nesting-safe)
 #include <limits>
 #include <cmath>
+#include <type_traits> // std::is_same_v
 
 using namespace Rcpp;
 
 namespace plant {
 
-class TF24_Environment : public Environment {
+// TF24's environment: a light field plus a multi-layer soil-water state.
+// Templated on the scalar S carried by the light knot values and the soil ODE
+// state; S = double is the production path (the `TF24_Environment` alias below).
+// The soil retention/conductivity curves and the water-balance rate arithmetic
+// carry S so a trait derivative flows through the resident soil coupling; the
+// fixed grid geometry (z / z_mid / dz) and the R-facing narrowings stay double.
+// Base members are reached through this-> because Environment_<S> is a dependent
+// base.
+template <class S = double>
+class TF24_Environment_ : public Environment_<S> {
 public:
   // constructor for R interface - default settings can be modified
   // except for soil_number_of_depths
   // which are only updated on construction
-  
-  TF24_Environment(bool light_availability_spline_rescale_usually = true,
-                   int soil_number_of_depths = 5, 
+
+  TF24_Environment_(bool light_availability_spline_rescale_usually = true,
+                   int soil_number_of_depths = 5,
                    double delta_z = 9999, // not using this
-                   double soil_moist_sat = 0.428, // saturated soil moisture content (m3 water m^-3 soil) 
+                   double soil_moist_sat = 0.428, // saturated soil moisture content (m3 water m^-3 soil)
                    double K_sat = 163.0411, //saturated hydraulic conductivity of soil
                    double a_psi = 1.78e3, // not currently being used
                    double n_psi = 6.57, // not currently being used
@@ -38,40 +49,38 @@ public:
       b_infil(b_infil),
       depth(depth)
   {
-    time = 0.0;
+    this->time = 0.0;
 
 
 
     // Shading defaults have lower tolerance which are overwritten for speed
-    light_availability = ResourceSpline(
+    light_availability = ResourceSpline_<S>(
                    1e-4,  // light_availability_spline_tol,
                    17,    // light_availability_spline_nbase,
                    16,    // light_availability_spline_max_depth,
                    true //light_availability_spline_rescale_usually)
                   );
 
-    ExtrinsicDrivers extrinsic_drivers;
-
-    extrinsic_drivers_set_constant("PPFD",1800);
-    extrinsic_drivers_set_constant("rainfall",1);
-    extrinsic_drivers_set_constant("atm_vpd",1);
-    extrinsic_drivers_set_constant("ca",40);
-    extrinsic_drivers_set_constant("leaf_temp",25);
-    extrinsic_drivers_set_constant("atm_o2_kpa",21);
-    extrinsic_drivers_set_constant("atm_kpa",100.5);
+    this->extrinsic_drivers_set_constant("PPFD",1800);
+    this->extrinsic_drivers_set_constant("rainfall",1);
+    this->extrinsic_drivers_set_constant("atm_vpd",1);
+    this->extrinsic_drivers_set_constant("ca",40);
+    this->extrinsic_drivers_set_constant("leaf_temp",25);
+    this->extrinsic_drivers_set_constant("atm_o2_kpa",21);
+    this->extrinsic_drivers_set_constant("atm_kpa",100.5);
 
     set_soil_number_of_depths(soil_number_of_depths);
     set_soil_water_state(std::vector<double>(soil_number_of_depths, soil_moist_sat*0.5));
   };
-  
+
   // Number of cumulative auxilliary variables to track in soil moisture model
   static constexpr size_t aux_num = 4;
-  
+
   // Setup soil water distribtuion
   void set_soil_number_of_depths(int n) {
     soil_number_of_depths = n;
-    
-    vars = Internals(soil_number_of_depths + aux_num);
+
+    this->vars = Internals_<S>(soil_number_of_depths + aux_num);
 
     z.resize(soil_number_of_depths);
     z_mid.resize(soil_number_of_depths);
@@ -104,21 +113,26 @@ public:
   std::vector<double> get_soil_mid_depths() const { return z_mid; }
 
   // TODO: should we use auxilliary in internals
-  std::vector<double> water_flux;
+  // Per-layer gravitational drainage; carries S because it reads the active soil
+  // state through soil_K_from_soil_theta.
+  std::vector<S> water_flux;
   std::vector<double> z;
   std::vector<double> z_mid;
   std::vector<double> dz;
-  mutable std::vector<double> psi_soil_cache_;
-  mutable std::vector<double> psi_soil_cache_state_;
+  // Cached soil water potential per layer (carries S). On the active path the
+  // exact-compare memo is skipped (a value-only compare is blind to a changed
+  // derivative), so it is recomputed each read; see get_soil_water_potential_state.
+  mutable std::vector<S> psi_soil_cache_;
+  mutable std::vector<S> psi_soil_cache_state_;
   mutable bool psi_soil_cache_valid_ = false;
 
   // Per-driver memo for the time-varying extrinsic drivers (see get_* above).
   // cache_time NaN-initialised so the first call always misses (NaN != time).
   double cached_driver_(const std::string &name, double &cache_val,
                         double &cache_time) const {
-    if (cache_time != time) {
-      cache_val = extrinsic_drivers.evaluate(name, time);
-      cache_time = time;
+    if (cache_time != this->time) {
+      cache_val = this->extrinsic_drivers.evaluate(name, this->time);
+      cache_time = this->time;
     }
     return cache_val;
   }
@@ -130,7 +144,7 @@ public:
                  atm_o2_kpa_cache_time_ = NAN_TIME_, atm_kpa_cache_time_ = NAN_TIME_;
 
   // A ResourceSpline used for storing light availbility (0-1)
-  ResourceSpline light_availability;
+  ResourceSpline_<S> light_availability;
 
   // Light interface
   bool canopy_rescale_usually;
@@ -167,7 +181,7 @@ public:
     set_fixed_environment(value, height_max);
   }
 
-  double get_environment_at_height(double height) const {
+  S get_environment_at_height(S height) const {
     return light_availability.get_value_at_height(height);
   }
 
@@ -177,7 +191,7 @@ public:
     return light_availability.max_height();
   }
 
-  double get_environment_at_height(double height, double cap) const {
+  S get_environment_at_height(S height, S cap) const {
     return light_availability.get_value_at_height(height, cap);
   }
 
@@ -213,9 +227,14 @@ public:
   virtual void compute_rates(std::vector<double> const &resource_depletion)
   {
 
-    double water_input;
-    double rainfall = extrinsic_drivers.evaluate("rainfall", time);
-    double infiltration = rainfall*std::max(0.0, 1 - a_infil*std::pow(vars.state(0)/soil_moist_sat, b_infil));
+    S water_input;
+    double rainfall = this->extrinsic_drivers.evaluate("rainfall", this->time);
+    // saturation-excess runoff: 1 - a_infil*(theta_0/theta_sat)^b_infil, floored
+    // at 0. The floor is a max against a scalar, written as a select so it also
+    // holds at an active S.
+    const S runoff_factor =
+        1 - a_infil * pow(this->vars.state(0) / soil_moist_sat, b_infil);
+    S infiltration = rainfall * ((runoff_factor > 0.0) ? runoff_factor : S(0.0));
     double total_resource_depletion = 0;
 
 
@@ -234,7 +253,7 @@ public:
         water_input = water_flux[i-1];
       }
         // TODO: m3 m^-2
-      water_flux[i] = soil_K_from_soil_theta(vars.state(i));
+      water_flux[i] = soil_K_from_soil_theta(this->vars.state(i));
       // this function does runoff
 
       // Positivity guard (issue #485): a layer at or below the residual
@@ -243,43 +262,45 @@ public:
       // layer to theta <= 0, where the retention curve psi_from_soil_moist and
       // the conductivity curve soil_K_from_soil_theta go non-finite. Wetter
       // layers are unaffected, so non-drought runs are unchanged.
-      const double theta = vars.state(i);
-      double rate = (water_input - water_flux[i] - resource_depletion[i]) / dz[i];
+      const S theta = this->vars.state(i);
+      S rate = (water_input - water_flux[i] - resource_depletion[i]) / dz[i];
       if (theta <= soil_moist_residual && rate < 0.0) {
         rate = 0.0;
       }
-      vars.set_rate(i, rate);
+      this->vars.set_rate(i, rate);
       total_resource_depletion += resource_depletion[i];
     }
-      vars.set_rate(soil_number_of_depths, rainfall);
-      vars.set_rate(soil_number_of_depths + 1, infiltration);
-      vars.set_rate(soil_number_of_depths + 2, water_flux[soil_number_of_depths - 1]);
-      vars.set_rate(soil_number_of_depths + 3, total_resource_depletion);
+      this->vars.set_rate(soil_number_of_depths, rainfall);
+      this->vars.set_rate(soil_number_of_depths + 1, infiltration);
+      this->vars.set_rate(soil_number_of_depths + 2, water_flux[soil_number_of_depths - 1]);
+      this->vars.set_rate(soil_number_of_depths + 3, total_resource_depletion);
 
   }
 
   // calculate K from K_sat based on theta
-  double soil_K_from_soil_theta(double theta) {
+  S soil_K_from_soil_theta(S theta) {
     //Eq. 5 Zeng and Decker (2009), ref Clapp and Hornberger (1978)
     // Floor at 0: an intermediate explicit-RK stage can probe theta < 0, and
     // std::pow(negative, non-integer) is NaN. A non-positive layer simply
     // drains nothing (K = 0). See issue #485.
-  return K_sat * std::pow(std::max(theta, 0.0)/soil_moist_sat, 2*n_psi + 3);
+    const S t = (theta > 0.0) ? theta : S(0.0);
+    return K_sat * pow(t/soil_moist_sat, 2*n_psi + 3);
   }
 
 
   // convert soil moisture to soil water potential
-  double psi_from_soil_moist(double soil_moist_) const {
+  S psi_from_soil_moist(S soil_moist_) const {
     // Floor at the residual moisture: the retention curve (negative exponent)
     // diverges to +inf as theta->0, so an empty layer would otherwise yield a
     // non-finite potential. At/below theta_r the potential is large but finite
     // and the plant's root vulnerability curve has already shut uptake to ~0.
-    const double t = std::max(soil_moist_, soil_moist_residual);
-    return a_psi * std::pow(t/soil_moist_sat, -n_psi)/1e6; // convert from Pa to MPa
+    const S t = (soil_moist_ > soil_moist_residual) ? soil_moist_
+                                                    : S(soil_moist_residual);
+    return a_psi * pow(t/soil_moist_sat, -n_psi)/1e6; // convert from Pa to MPa
   }
 
   // convert soil water potential to soil moisture
-  double soil_moist_from_psi(double psi_soil_) const {
+  S soil_moist_from_psi(S psi_soil_) const {
     return pow((psi_soil_/a_psi), (-1/n_psi))*soil_moist_sat;
   }
 
@@ -300,14 +321,21 @@ public:
   double get_atm_kpa()    const { return cached_driver_("atm_kpa", atm_kpa_cache_, atm_kpa_cache_time_); }
 
 
-  std::vector<double> get_soil_water_state() const { return {vars.states.begin(), vars.states.end() - aux_num}; }
-  const std::vector<double>& get_soil_water_potential_state() const {
+  std::vector<S> get_soil_water_state() const { return {this->vars.states.begin(), this->vars.states.end() - aux_num}; }
+  const std::vector<S>& get_soil_water_potential_state() const {
     bool cache_stale = !psi_soil_cache_valid_ ||
       psi_soil_cache_state_.size() != static_cast<size_t>(soil_number_of_depths);
 
+    // On the active path a value-only exact compare cannot see a changed
+    // derivative, so never serve a cached psi: recompute at S each read (the
+    // curve is closed-form and cheap). The memo is a double-run-only speedup.
+    if constexpr (!std::is_same_v<S, double>) {
+      cache_stale = true;
+    }
+
     if (!cache_stale) {
       for (int i = 0; i < soil_number_of_depths; ++i) {
-        if (psi_soil_cache_state_[i] != vars.state(i)) {
+        if (psi_soil_cache_state_[i] != this->vars.state(i)) {
           cache_stale = true;
           break;
         }
@@ -318,7 +346,7 @@ public:
       psi_soil_cache_.resize(soil_number_of_depths);
       psi_soil_cache_state_.resize(soil_number_of_depths);
       for (int i = 0; i < soil_number_of_depths; ++i) {
-        const double soil_moist = vars.state(i);
+        const S soil_moist = this->vars.state(i);
         psi_soil_cache_state_[i] = soil_moist;
         psi_soil_cache_[i] = psi_from_soil_moist(soil_moist);
       }
@@ -327,24 +355,24 @@ public:
 
     return psi_soil_cache_;
   }
-  std::vector<double> get_soil_water_state_cumulative_flux() const { return {vars.states.end()-aux_num, vars.states.end()}; }
+  std::vector<S> get_soil_water_state_cumulative_flux() const { return {this->vars.states.end()-aux_num, this->vars.states.end()}; }
   std::vector<double> get_soil_depths() const { return z; }
   // double get_soil_depth(int layer) const { return z[layer]; }
 
 
   // TODO: I wonder if this needs a better name? See also environment.h
-  Internals r_internals() const { return vars; }
+  Internals_<S> r_internals() const { return this->vars; }
 
   // R interface
   void set_soil_water_state(std::vector<double> state) {
-    if(state.size() != (vars.state_size- aux_num)) {
+    if(state.size() != (this->vars.state_size- aux_num)) {
       throw std::invalid_argument("Input vector size does not match soil state size.");
     }
-    for (size_t i = 0; i < (vars.state_size); i++) {
+    for (size_t i = 0; i < (this->vars.state_size); i++) {
       if(i < soil_number_of_depths){
-        vars.set_state(i, state[i]);
+        this->vars.set_state(i, state[i]);
       } else {
-        vars.set_state(i, 0);
+        this->vars.set_state(i, 0);
       }
   }
     psi_soil_cache_valid_ = false;
@@ -371,16 +399,22 @@ public:
 
   virtual Rcpp::List r_get_state() const
   {
-    
+
     // Surely an easier way?
     auto const &soil_depth_list = get_soil_depths();
     auto rcpp_soil_depth_vec = Rcpp::NumericVector(soil_depth_list.begin(), soil_depth_list.end());
 
-    auto const &soil_moist_list = get_soil_water_state();
-    auto rcpp_soil_moist_vec = Rcpp::NumericVector(soil_moist_list.begin(), soil_moist_list.end());
+    // Only doubles cross to R; strip every AD layer off the (possibly active)
+    // soil state via to_passive (a no-op on the double path).
+    auto const soil_moist_list = get_soil_water_state();
+    Rcpp::NumericVector rcpp_soil_moist_vec(soil_moist_list.size());
+    for (size_t i = 0; i < soil_moist_list.size(); ++i)
+      rcpp_soil_moist_vec[i] = odelia::util::to_passive(soil_moist_list[i]);
 
-    auto const &soil_moist_cumulative_flux_list = get_soil_water_state_cumulative_flux();
-    auto rcpp_soil_moist_vec_cumulative_flux = Rcpp::NumericVector(soil_moist_cumulative_flux_list.begin(), soil_moist_cumulative_flux_list.end());
+    auto const soil_moist_cumulative_flux_list = get_soil_water_state_cumulative_flux();
+    Rcpp::NumericVector rcpp_soil_moist_vec_cumulative_flux(soil_moist_cumulative_flux_list.size());
+    for (size_t i = 0; i < soil_moist_cumulative_flux_list.size(); ++i)
+      rcpp_soil_moist_vec_cumulative_flux[i] = odelia::util::to_passive(soil_moist_cumulative_flux_list[i]);
 
     return Rcpp::List::create(
         // auto ret = get_state(environment.extrinsic_drivers, time);
@@ -392,6 +426,10 @@ public:
     );
   }
   };
+
+// The double instantiation is the production path bound by RcppR6 as
+// `plant::TF24_Environment`.
+using TF24_Environment = TF24_Environment_<double>;
 }
 
 #endif
