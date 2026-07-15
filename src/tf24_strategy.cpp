@@ -1069,14 +1069,8 @@ void TF24_Strategy_<S>::prepare_strategy() {
 
 // Explicit instantiations. TF24's dg/dh is delivered by supplied_derivative
 // (not the nested forward-over-reverse path), so the instantiation set is
-// closed: the double production path, the active reverse scalar for AD, and the
-// forward (tangent) scalar used only as an FD-free verification oracle -- the
-// dot-product identity <Jv,u> = <v,J^T u> against the reverse path. In forward
-// mode there is no active reverse tape, so the leaf seam self-disables (the
-// profit tangent is frozen); the oracle is therefore exact for channels that do
-// not flow through the leaf (respiration, allocation, geometry).
+// closed: the double production path and the active reverse scalar for AD.
 template class TF24_Strategy_<double>;
 template class TF24_Strategy_<xad::adj<double>::active_type>;
-template class TF24_Strategy_<xad::fwd<double>::active_type>;
 
 }
