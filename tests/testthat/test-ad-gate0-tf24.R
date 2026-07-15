@@ -48,7 +48,7 @@ test_that("TF24 IndividualRunner AD gradient matches finite difference (Gate 0)"
   # Leaf-hydraulic parameters: they act ONLY through the envelope-theorem leaf
   # seam (no birth-height channel), so the FD oracle is clean and the injected
   # partial matches it to the leaf FD floor.
-  for (p in c("vcmax_25", "jmax_25", "K_s")) {
+  for (p in c("vcmax_25", "jmax_25", "K_s", "k_I")) {
     r <- tf24_gate0_fd_check(p, t_end = 5.0, delta = 1e-5)
     expect_equal(r$ad_grad, r$fd_grad, tolerance = 1e-3,
                  info = sprintf("d(height)/d(%s): ad=%.8g fd=%.8g", p,
