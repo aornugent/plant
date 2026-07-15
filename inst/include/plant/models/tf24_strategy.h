@@ -276,7 +276,15 @@ public:
   // absorbed radiation so the seam differentiates through k_I (radiation =
   // pd.k_I * max(light_openness, 1e-4) * PPFD, recomputed here) and through the
   // resident light itself (the light channel injects d(profit)/d(light_openness)).
-  double leaf_profit_frozen(const TF24_Pars_<double>& pd, double height_d,
+  //
+  // `scratch` is a reusable double Leaf so the ~O(fields) FD evaluations per
+  // node/step do not each rebuild the (expensive) hydraulic interpolators: the
+  // photosynthesis params are reset from pd every call, and the vulnerability
+  // interpolators are rebuilt (setup_transpiration) only when the curve-shaping
+  // params c/b/psi_crit actually change. Caller seeds it as a copy of the
+  // operating-point leaf before the FD loop.
+  double leaf_profit_frozen(Leaf& scratch, const TF24_Pars_<double>& pd,
+                            double height_d,
                             double light_openness, double PPFD,
                             const std::vector<double>& psi_soil_d,
                             const std::vector<double>& soil_depths_,

@@ -443,7 +443,7 @@ std::vector<double> Species<T,E>::r_compute_competition_effect_by_nodes() const 
   std::vector<double> ret;
   ret.reserve(size());
   for (auto& c : nodes) {
-    ret.push_back(c.compute_competition(0.0));
+    ret.push_back(xad::value(c.compute_competition(0.0)));  // R-facing: double
   }
   return ret;
 }
