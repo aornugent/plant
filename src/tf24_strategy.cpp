@@ -542,12 +542,17 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
       const std::vector<double> uptake0 = leaf.soil_consumption_;
       std::vector<std::vector<double>> uptake_partials(nsoil);
       std::vector<double> up_p(nsoil), up_m(nsoil);
+      // Base TF24 optimises the collar (seam hook returns nullptr) -> uptake must
+      // re-optimise the collar per FD point (model-as-run). TF24f tracks the collar
+      // as a state -> frozen uptake is exact (collar response via the collar-psi
+      // channel). Decides the collar treatment for every uptake evaluation below.
+      const bool reopt = (seam_collar_psi_input() == nullptr);
 
       auto profit_frozen = [&](std::vector<double>* up) {
         return leaf_profit_frozen(scratch, pd, height_d, light_openness_double, PPFD,
                                   psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d,
                                   ca_d, leaf_temp_d, atm_o2_d, atm_kpa_d,
-                                  frozen_collar_psi, up);
+                                  frozen_collar_psi, up, reopt);
       };
 
       std::vector<S*> inputs;
@@ -594,10 +599,10 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         const double hstep = 1e-6 * (std::abs(hbase) + 1e-6);
         const double pplus = leaf_profit_frozen(scratch, pd, hbase + hstep, light_openness_double,
             PPFD, psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p);
+            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p, reopt);
         const double pminus = leaf_profit_frozen(scratch, pd, hbase - hstep, light_openness_double,
             PPFD, psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m);
+            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m, reopt);
         push_input(&height, pplus, pminus, up_p, up_m, hstep);
       }
 
@@ -612,10 +617,10 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         const double lstep = 1e-6 * (std::abs(base) + 1e-6);
         const double pplus = leaf_profit_frozen(scratch, pd, height_d, base + lstep, PPFD,
             psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p);
+            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p, reopt);
         const double pminus = leaf_profit_frozen(scratch, pd, height_d, base - lstep, PPFD,
             psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m);
+            atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m, reopt);
         push_input(&light_active, pplus, pminus, up_p, up_m, lstep);
       }
 
@@ -635,11 +640,11 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
           psi_pert[L] = base + hstep;
           const double pplus = leaf_profit_frozen(scratch, pd, height_d, light_openness_double,
               PPFD, psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-              atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p);
+              atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_p, reopt);
           psi_pert[L] = base - hstep;
           const double pminus = leaf_profit_frozen(scratch, pd, height_d, light_openness_double,
               PPFD, psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
-              atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m);
+              atm_o2_d, atm_kpa_d, frozen_collar_psi, &up_m, reopt);
           psi_pert[L] = base;
           push_input(const_cast<S*>(&psi_soil_S[L]), pplus, pminus, up_p, up_m, hstep);
         }
@@ -725,7 +730,8 @@ double TF24_Strategy_<S>::leaf_profit_frozen(
     const std::vector<double>& soil_depths_,
     const std::vector<double>& z_soil_mid_, double atm_vpd, double ca,
     double leaf_temp, double atm_o2_kpa, double atm_kpa,
-    double frozen_collar_psi, std::vector<double>* uptake_out) {
+    double frozen_collar_psi, std::vector<double>* uptake_out,
+    bool reoptimise_uptake) {
 
   const int soil_number_of_depths_ = static_cast<int>(soil_depths_.size());
 
@@ -782,11 +788,18 @@ double TF24_Strategy_<S>::leaf_profit_frozen(
                    atm_vpd, ca, sapwood_volume_per_leaf_area, leaf_temp,
                    atm_o2_kpa, atm_kpa);
   L.evaluate_root_collar_psi(frozen_collar_psi);
-  // Tier-B: E_from_Soil_to_Root_Collar (called inside the collar solve) has
-  // populated L.soil_consumption_ at this operating point; hand it back so the
-  // seam can FD the per-layer uptake from the SAME evaluations it uses for profit.
-  if (uptake_out) *uptake_out = L.soil_consumption_;
-  return L.profit_;
+  const double profit_frozen_val = L.profit_;  // envelope: frozen collar is exact
+  // Tier-B uptake. Uptake is NON-stationary in the collar, so freezing the collar
+  // (correct for profit) drops the collar response for uptake. For base TF24 the
+  // collar is optimised, so re-optimise it (model-as-run) to get d(uptake)/dtheta
+  // including dcollar*/dtheta; for TF24f the collar is a tracked state and the
+  // frozen value is correct (its collar response rides the collar-psi channel).
+  // Both share the expensive set_physiology above; only the collar solve differs.
+  if (uptake_out) {
+    if (reoptimise_uptake) L.find_root_collar_psi();
+    *uptake_out = L.soil_consumption_;
+  }
+  return profit_frozen_val;
 }
 
 // [eqn 16] Fraction of production allocated to reproduction

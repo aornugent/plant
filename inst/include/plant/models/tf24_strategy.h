@@ -286,7 +286,8 @@ public:
                             double atm_vpd, double ca, double leaf_temp,
                             double atm_o2_kpa, double atm_kpa,
                             double frozen_collar_psi,
-                            std::vector<double>* uptake_out = nullptr);
+                            std::vector<double>* uptake_out = nullptr,
+                            bool reoptimise_uptake = false);
 
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
