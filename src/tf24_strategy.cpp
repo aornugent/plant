@@ -491,7 +491,13 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
   // factor below, independent of this seam. On the double path this is exactly
   // leaf.profit_ (to_passive/if constexpr collapse to the identity).
   S profit_s = S(leaf.profit_);
-  if constexpr (!std::is_same_v<S, double>) {
+  // The seam delivers the leaf gradient via supplied_derivative, which is
+  // reverse-mode machinery (tape slots, getSlot). Gate it on the *reverse*
+  // active type specifically: double takes the production path, and the forward
+  // (tangent) scalar -- used only as a verification oracle -- compiles with the
+  // seam absent, so its leaf profit is frozen (zero tangent), matching the
+  // intent that forward JVP is exact only for non-leaf channels.
+  if constexpr (std::is_same_v<S, xad::adj<double>::active_type>) {
     auto* tape = xad::Tape<double>::getActive();
     if (tape != nullptr && tape->isActive()) {
       if (!single_solve) {
@@ -1059,8 +1065,14 @@ void TF24_Strategy_<S>::prepare_strategy() {
 
 // Explicit instantiations. TF24's dg/dh is delivered by supplied_derivative
 // (not the nested forward-over-reverse path), so the instantiation set is
-// closed: the double production path, and the active reverse scalar for AD.
+// closed: the double production path, the active reverse scalar for AD, and the
+// forward (tangent) scalar used only as an FD-free verification oracle -- the
+// dot-product identity <Jv,u> = <v,J^T u> against the reverse path. In forward
+// mode there is no active reverse tape, so the leaf seam self-disables (the
+// profit tangent is frozen); the oracle is therefore exact for channels that do
+// not flow through the leaf (respiration, allocation, geometry).
 template class TF24_Strategy_<double>;
 template class TF24_Strategy_<xad::adj<double>::active_type>;
+template class TF24_Strategy_<xad::fwd<double>::active_type>;
 
 }
