@@ -507,6 +507,10 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
       const double atm_kpa_d = environment.get_atm_kpa();
       const std::vector<double> z_soil_mid_ = environment.get_soil_mid_depths();
 
+      // One reusable scratch leaf for every FD evaluation (copy of the
+      // operating-point leaf, so its hydraulic interpolators are already built).
+      Leaf scratch = leaf;
+
       // Baseline double parameter set + double field pointers, in the SAME
       // TF24_AD_FIELDS order as field_ptrs(), so input i pairs with partial i.
       TF24_Pars_<double> pd;
@@ -517,7 +521,7 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
       for (std::size_t i = 0; i < ap.size(); ++i) *pdp[i] = to_passive(*ap[i]);
 
       auto profit_frozen = [&](void) {
-        return leaf_profit_frozen(pd, height_d, light_openness_double, PPFD,
+        return leaf_profit_frozen(scratch, pd, height_d, light_openness_double, PPFD,
                                   psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d,
                                   ca_d, leaf_temp_d, atm_o2_d, atm_kpa_d,
                                   frozen_collar_psi);
@@ -552,10 +556,10 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
       if (height.shouldRecord()) {
         const double hbase = height_d;
         const double hstep = 1e-6 * (std::abs(hbase) + 1e-6);
-        const double pplus = leaf_profit_frozen(pd, hbase + hstep, light_openness_double,
+        const double pplus = leaf_profit_frozen(scratch, pd, hbase + hstep, light_openness_double,
             PPFD, psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
             atm_o2_d, atm_kpa_d, frozen_collar_psi);
-        const double pminus = leaf_profit_frozen(pd, hbase - hstep, light_openness_double,
+        const double pminus = leaf_profit_frozen(scratch, pd, hbase - hstep, light_openness_double,
             PPFD, psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
             atm_o2_d, atm_kpa_d, frozen_collar_psi);
         inputs.push_back(&height);
@@ -571,10 +575,10 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
       if (light_active.shouldRecord()) {
         const double base = light_openness_double;
         const double lstep = 1e-6 * (std::abs(base) + 1e-6);
-        const double pplus = leaf_profit_frozen(pd, height_d, base + lstep, PPFD,
+        const double pplus = leaf_profit_frozen(scratch, pd, height_d, base + lstep, PPFD,
             psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
             atm_o2_d, atm_kpa_d, frozen_collar_psi);
-        const double pminus = leaf_profit_frozen(pd, height_d, base - lstep, PPFD,
+        const double pminus = leaf_profit_frozen(scratch, pd, height_d, base - lstep, PPFD,
             psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
             atm_o2_d, atm_kpa_d, frozen_collar_psi);
         inputs.push_back(&light_active);
@@ -595,11 +599,11 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
           const double base = psi_soil[L];
           const double hstep = 1e-6 * (std::abs(base) + 1e-6);
           psi_pert[L] = base + hstep;
-          const double pplus = leaf_profit_frozen(pd, height_d, light_openness_double,
+          const double pplus = leaf_profit_frozen(scratch, pd, height_d, light_openness_double,
               PPFD, psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
               atm_o2_d, atm_kpa_d, frozen_collar_psi);
           psi_pert[L] = base - hstep;
-          const double pminus = leaf_profit_frozen(pd, height_d, light_openness_double,
+          const double pminus = leaf_profit_frozen(scratch, pd, height_d, light_openness_double,
               PPFD, psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
               atm_o2_d, atm_kpa_d, frozen_collar_psi);
           psi_pert[L] = base;
@@ -671,8 +675,8 @@ S TF24_Strategy_<S>::lift_birth_height(double h_star) const {
 // channel it reaches) and the collar psi held fixed at the forward optimum.
 template <class S>
 double TF24_Strategy_<S>::leaf_profit_frozen(
-    const TF24_Pars_<double>& pd, double height_d, double light_openness,
-    double PPFD, const std::vector<double>& psi_soil_d,
+    Leaf& scratch, const TF24_Pars_<double>& pd, double height_d,
+    double light_openness, double PPFD, const std::vector<double>& psi_soil_d,
     const std::vector<double>& soil_depths_,
     const std::vector<double>& z_soil_mid_, double atm_vpd, double ca,
     double leaf_temp, double atm_o2_kpa, double atm_kpa,
@@ -705,10 +709,27 @@ double TF24_Strategy_<S>::leaf_profit_frozen(
     prev_q = qd;
   }
 
-  Leaf L(pd.vcmax_25, pd.c, pd.b, pd.psi_crit, root_c, root_b, root_psi_crit,
-         pd.beta2, pd.jmax_25, pd.a, pd.curv_fact_elec_trans,
-         pd.curv_fact_colim, GSS_tol_abs, vulnerability_curve_ncontrol,
-         ci_abs_tol, ci_niter, pd.g1_TF24, beta_R_H, beta_R_V);
+  // Reuse the scratch leaf. Photosynthesis params are cheap to reset each call;
+  // the hydraulic vulnerability interpolators (the expensive part) are rebuilt
+  // only when the curve-shaping params actually change (c / b / psi_crit).
+  Leaf& L = scratch;
+  L.vcmax_25 = pd.vcmax_25;
+  L.jmax_25 = pd.jmax_25;
+  L.a = pd.a;
+  L.curv_fact_elec_trans = pd.curv_fact_elec_trans;
+  L.curv_fact_colim = pd.curv_fact_colim;
+  L.g1_TF24 = pd.g1_TF24;
+  L.beta2 = pd.beta2;
+  // set_physiology caches vcmax_/jmax_ (and the other Arrhenius terms) keyed on
+  // (leaf_temp, atm_o2) only, so a perturbed vcmax_25/jmax_25 would otherwise be
+  // ignored on the reused leaf. Invalidate the cache so they are re-derived.
+  L.photo_temp_cached_ = false;
+  if (L.c != pd.c || L.b != pd.b || L.psi_crit != pd.psi_crit) {
+    L.c = pd.c;
+    L.b = pd.b;
+    L.psi_crit = pd.psi_crit;
+    L.setup_transpiration(vulnerability_curve_ncontrol);
+  }
   L.z_soil_mid_ = z_soil_mid_;
   L.use_precomputed_z_soil_mid_ = true;
   L.set_physiology(area_leaf_d, mass_root_prop, pd.rho, pd.a_bio, radiation,

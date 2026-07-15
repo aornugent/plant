@@ -35,6 +35,11 @@ public:
   typedef Species<T, E>    species_type;
   typedef Patch<T, E>      patch_type;
   typedef Parameters<T, E> parameters_type;
+  // The scalar the patch runs at (double / active). The adaptive, error-
+  // controlled stepper is double-only (OdeControl works in double), so an active
+  // SCM supports only fixed-time (recorded ode-time) replay -- the adaptive
+  // branches below are compiled out at an active scalar.
+  using value_type = typename patch_type::value_type;
 
   // ---- Construction ------------------------------------------------------
   SCM(parameters_type p, environment_type e, plant::Control c);
@@ -234,8 +239,10 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
     } else if (control.fixed_time_step > 0.0) {
       solver.advance_euler(
           uniform_euler_times(t0, e.time_introduction(), control.fixed_time_step));
-    } else {
+    } else if constexpr (std::is_same_v<value_type, double>) {
       solver.advance_adaptive({solver.time(), e.time_introduction()});
+    } else {
+      util::stop("active SCM: only fixed-time (ode-time) replay is supported");
     }
     if (sync_patch) {
       patch = sys;
@@ -279,8 +286,10 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
   } else if (control.fixed_time_step > 0.0) {
     solver.advance_euler(
         uniform_euler_times(t0, e.time_end(), control.fixed_time_step));
-  } else {
+  } else if constexpr (std::is_same_v<value_type, double>) {
     solver.advance_adaptive({solver.time(), e.time_end()});
+  } else {
+    util::stop("active SCM: only fixed-time (ode-time) replay is supported");
   }
 
   if (sync_patch) {
