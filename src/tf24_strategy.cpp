@@ -662,9 +662,12 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         if (collar->shouldRecord()) {
           inputs.push_back(collar);
           partials.push_back(seam_collar_psi_partial());
-          // d(uptake)/d(collar) is a secondary, TF24f-only term (the dominant soil
-          // coupling is the soil-psi channel above); deferred for this cut, so push
-          // 0 to keep uptake_partials aligned with `inputs`. See #47.
+          // d(uptake)/d(collar) for the TF24f tracked collar is deferred (#47): a
+          // naive FD of uptake on frozen_collar_psi, injected here, only closes the
+          // TF24f uptake gap to ~15-70% -- the tracked-collar/acclimation
+          // interaction with the on-tape collar-state derivative needs care. Push 0
+          // to keep uptake_partials aligned with `inputs` (base TF24 skips this
+          // block entirely; its uptake is fully verified via re-optimisation).
           for (int L = 0; L < nsoil; ++L) uptake_partials[L].push_back(0.0);
         }
       }
