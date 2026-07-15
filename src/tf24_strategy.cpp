@@ -999,7 +999,11 @@ S TF24_Strategy_<S>::compute_competition(double z, S area_leaf_,
   if (u > 1.0) {
     return 0.0;
   }
-  const S tmp = 1.0 - pow(u, pars.eta);
+  // At the ground query z==0 (u==0), pow(u, eta) is identically 0 for every
+  // eta>0, so tmp==1; but pow(active 0, active eta) yields a NaN *tangent* via
+  // log(base)=log(0) in XAD's derivative formula (0*(-Inf)). Short-circuit to the
+  // exact value (bit-identical on the double path) with the correct zero tangent.
+  const S tmp = (z == 0.0) ? S(1.0) : S(1.0 - pow(u, pars.eta));
   return pars.k_I * area_leaf_ * tmp * tmp;
 }
 
