@@ -342,6 +342,9 @@ public:
   // then falls back to a central difference. Used only on the TF24f acclimation
   // gradient path, not the base TF24 value path.
   double dE_from_soil_dpsi_collar(double P_x_r, const std::vector<double>& psi_soil);
+  // Per-layer (mol) version for the TF24f Tier-B collar-uptake seam (#47).
+  void dsoil_consumption_dpsi_collar_perlayer(
+      double P_x_r, const std::vector<double>& psi_soil, std::vector<double>& out);
   // Shut-down operating point used by the find_root_collar_psi early-exits: stem
   // held at psi_crit (no transpiration), paying only respiration + hydraulic
   // cost. Only root_collar_psi_ differs between the cases, so it is the argument.
