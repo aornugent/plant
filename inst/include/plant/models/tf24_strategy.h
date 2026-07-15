@@ -8,91 +8,109 @@
 #include <plant/qag.h>
 #include <plant/leaf_model.h>
 #include <plant/canopy_shape.h> // ShadingModel
+#include <odelia/ode_util.hpp>  // odelia::util::to_passive (Leaf boundary is double)
 
 namespace plant {
 
 // Biological (user-settable) parameters for the TF24 strategy. Held as a value
 // member `pars` on TF24_Strategy and exposed to R as a nested RcppR6 list class
-// (access as `s$pars$lma`). Only parameters that were previously exposed to R
-// live here; derived quantities (eta_c, height_0, ...), the embedded Leaf
-// model, solver tolerances and hard-coded hydraulic-root constants stay as
-// plain members on the strategy.
-struct TF24_Pars {
+// (access as `s$pars$lma`). Templated on the scalar S so a trait derivative
+// flows when a field is seeded; S = double is the production path (the `TF24_Pars`
+// alias below). Only parameters that were previously exposed to R live here;
+// derived quantities (eta_c, height_0, ...), the embedded Leaf model, solver
+// tolerances and hard-coded hydraulic-root constants stay as plain members on
+// the strategy.
+template <class S = double>
+struct TF24_Pars_ {
   // * Core traits
-  double lma       = 0.1978791;  // Leaf mass per area [kg / m2]
-  double rho       = 608.0;      // Wood density [kg/m3]
-  double hmat      = 16.5958691; // Height at maturation [m]
-  double omega     = 3.8e-5;     // Seed mass [kg]
+  S lma       = 0.1978791;  // Leaf mass per area [kg / m2]
+  S rho       = 608.0;      // Wood density [kg/m3]
+  S hmat      = 16.5958691; // Height at maturation [m]
+  S omega     = 3.8e-5;     // Seed mass [kg]
   // * Individual allometry
-  double eta       = 12.0;       // Canopy shape parameter [dimensionless]
-  double theta     = 1.0/4669;   // Sapwood area per leaf area [dimensionless]
-  double a_l1      = 5.44;       // height with 1m2 leaf [m]
-  double a_l2      = 0.306;      // scaling of height with leaf area
-  double a_r1      = 0.07;       // Root mass per leaf area [kg / m]
-  double a_b1      = 0.17;       // Ratio of bark area : sapwood area
+  S eta       = 12.0;       // Canopy shape parameter [dimensionless]
+  S theta     = 1.0/4669;   // Sapwood area per leaf area [dimensionless]
+  S a_l1      = 5.44;       // height with 1m2 leaf [m]
+  S a_l2      = 0.306;      // scaling of height with leaf area
+  S a_r1      = 0.07;       // Root mass per leaf area [kg / m]
+  S a_b1      = 0.17;       // Ratio of bark area : sapwood area
   // * Production
-  double r_s    = 4012.0 / 608.0; // Sapwood respiration per stem mass
-  double r_b    = 2.0 * r_s;      // Bark respiration (assumed 2 x sapwood)
-  double r_r    = 217.0;          // Root respiration per mass
-  double r_l    = 39.27 / 0.1978791; // Leaf dark respiration per leaf mass
-  double a_y    = 0.7;            // Carbon conversion parameter
-  double a_bio  = 2.45e-2;        // CO2 -> dry mass [kg / mol]
-  double k_l    = 0.4565855;      // Leaf turnover [/yr]
-  double k_b    = 0.2;            // Bark turnover [/yr]
-  double k_s    = 0.2;            // Sapwood turnover [/yr]
-  double k_r    = 1.0;            // Root turnover [/yr]
-  double a_p1   = 151.177775377968;   // LRC hyperbola [mol CO2 / yr / m2]
-  double a_p2   = 0.204716166503633;  // LRC hyperbola shape
+  S r_s    = 4012.0 / 608.0; // Sapwood respiration per stem mass
+  S r_b    = 2.0 * (4012.0 / 608.0); // Bark respiration (assumed 2 x sapwood)
+  S r_r    = 217.0;          // Root respiration per mass
+  S r_l    = 39.27 / 0.1978791; // Leaf dark respiration per leaf mass
+  S a_y    = 0.7;            // Carbon conversion parameter
+  S a_bio  = 2.45e-2;        // CO2 -> dry mass [kg / mol]
+  S k_l    = 0.4565855;      // Leaf turnover [/yr]
+  S k_b    = 0.2;            // Bark turnover [/yr]
+  S k_s    = 0.2;            // Sapwood turnover [/yr]
+  S k_r    = 1.0;            // Root turnover [/yr]
+  S a_p1   = 151.177775377968;   // LRC hyperbola [mol CO2 / yr / m2]
+  S a_p2   = 0.204716166503633;  // LRC hyperbola shape
   // * Seed production
-  double a_f3   = 3.0 *  3.8e-5;  // Accessory cost of reproduction [kg/seed]
-  double a_f1   = 1.0;            // Maximum allocation to reproduction
-  double a_f2   = 50;             // Size range across which individuals mature
+  S a_f3   = 3.0 *  3.8e-5;  // Accessory cost of reproduction [kg/seed]
+  S a_f1   = 1.0;            // Maximum allocation to reproduction
+  S a_f2   = 50;             // Size range across which individuals mature
   // * Mortality parameters
-  double S_D    = 0.25;           // Probability of survival during dispersal
-  double a_d0   = 0.1;            // Parameter for seedling survival
-  double d_I    = 0.01;           // Baseline intrinsic mortality [/yr]
-  double a_dG1  = 5.5;            // Baseline growth-related mortality [/yr]
-  double a_dG2  = 20.0;           // Risk coefficient for dry mass production
+  S S_D    = 0.25;           // Probability of survival during dispersal
+  S a_d0   = 0.1;            // Parameter for seedling survival
+  S d_I    = 0.01;           // Baseline intrinsic mortality [/yr]
+  S a_dG1  = 5.5;            // Baseline growth-related mortality [/yr]
+  S a_dG2  = 20.0;           // Risk coefficient for dry mass production
   // * Light capture
-  double k_I = 0.5;
+  S k_I = 0.5;
   // * Leaf hydraulic / photosynthesis traits (default Eucalyptus saligna)
-  double vcmax_25 = 96;
-  double p_50 = 1.85;
-  double K_s = 1;
-  double c = log(log(1-0.5)/log(1-0.88))/(log(p_50) - log(5.16));
-  double b = p_50 / std::pow(-log(1 - 50.0 / 100.0), 1 / c);
-  double psi_crit = b*std::pow(log(1/0.05),1/c); // derived from b and c
-  double beta1 = 20000;
-  double beta2 = 1.5;
-  double g1_TF24 = 7.5;
-  double jmax_25 = vcmax_25*1.64;
-  double a = 0.30; // effective quantum yield of electron transport
-  double curv_fact_elec_trans = 0.7;
-  double curv_fact_colim = 0.99;
-  double var_sapwood_volume_cost = 1;
+  S vcmax_25 = 96;
+  S p_50 = 1.85;
+  S K_s = 1;
+  S c = log(log(1-0.5)/log(1-0.88))/(log(p_50) - log(5.16));
+  S b = p_50 / pow(-log(1 - 50.0 / 100.0), 1 / c);
+  S psi_crit = b*pow(log(1/0.05),1/c); // derived from b and c
+  S beta1 = 20000;
+  S beta2 = 1.5;
+  S g1_TF24 = 7.5;
+  S jmax_25 = vcmax_25*1.64;
+  S a = 0.30; // effective quantum yield of electron transport
+  S curv_fact_elec_trans = 0.7;
+  S curv_fact_colim = 0.99;
+  S var_sapwood_volume_cost = 1;
   // nitrogen allocation traits (parameterised from Austraits 4.1.0)
-  double nmass_l = 13e-3; // kg N kg^-1 mass
-  double nmass_s = 1.98e-3; // kg N kg^-1 mass
-  double nmass_b = 3.40e-3; // kg N kg^-1 mass
-  double nmass_r = 3.35e-3; // kg N kg^-1 mass
-  double dmass_dN = 0; // change in mass per change in kg kg^-1 N
+  S nmass_l = 13e-3; // kg N kg^-1 mass
+  S nmass_s = 1.98e-3; // kg N kg^-1 mass
+  S nmass_b = 3.40e-3; // kg N kg^-1 mass
+  S nmass_r = 3.35e-3; // kg N kg^-1 mass
+  S dmass_dN = 0; // change in mass per change in kg kg^-1 N
   // shape exponent for the Q() root-fraction-with-depth profile
-  double root_depth_shape_eta = 0.2;
+  S root_depth_shape_eta = 0.2;
   // Germination
-  double recruitment_decay = 0.0;
+  S recruitment_decay = 0.0;
 };
 
-class TF24_Strategy: public Strategy<TF24_Environment> {
+using TF24_Pars = TF24_Pars_<double>;
+
+// The TF24 strategy. Templated on the scalar S carried by its physiology; S =
+// double is the production path (the `TF24_Strategy` alias below). Method bodies
+// live in tf24_strategy.cpp with explicit instantiations for double and the
+// active reverse scalar: TF24's density-transport dg/dh is delivered by
+// supplied_derivative (the leaf optimiser, envelope theorem), not the nested
+// forward-over-reverse path, so its instantiation set is closed (no rebind).
+// The embedded Leaf hydraulic sub-model stays double throughout; the S mass
+// cascade crosses to it via to_passive at the boundary. Base members of
+// Strategy<E> are reached through this-> because the base is dependent on S.
+template <class S = double>
+class TF24_Strategy_: public Strategy<TF24_Environment_<S>> {
 public:
-  typedef std::shared_ptr<TF24_Strategy> ptr;
-  TF24_Strategy();
+  using environment_type = TF24_Environment_<S>;
+  using value_type = S;
+  typedef std::shared_ptr<TF24_Strategy_<S>> ptr;
+  TF24_Strategy_();
 
   double compute_average_light_environment(double z, double height,
-                                           const TF24_Environment &environment);
+                                           const environment_type &environment);
 
   // calculate the amount of water transpired relativised by leaf area index.
 
-  double evapotranspiration_dt(double area_leaf_, int soil_layer);
+  S evapotranspiration_dt(S area_leaf_, int soil_layer);
 
 
   // Overrides ----------------------------------------------
@@ -127,7 +145,7 @@ public:
       "assimilation"
     });
     // add the associated computation to compute_rates and compute there
-    if (collect_all_auxiliary) {
+    if (this->collect_all_auxiliary) {
       ret.push_back("area_sapwood");
     }
     return ret;
@@ -135,7 +153,7 @@ public:
 
   // Translate generic methods to TF24 strategy leaf area methods
 
-  double competition_effect(double height) const {
+  S competition_effect(S height) const {
     return area_leaf(height);
   }
 
@@ -145,77 +163,74 @@ public:
   // TF24 Methods  ----------------------------------------------
 
   // [eqn 2] area_leaf (inverse of [eqn 3])
-  double area_leaf(double height) const;
+  S area_leaf(S height) const;
 
   // [eqn 1] mass_leaf (inverse of [eqn 2])
-  double mass_leaf(double area_leaf) const;
+  S mass_leaf(S area_leaf) const;
 
   // [eqn 4] area and mass of sapwood
-  double area_sapwood(double area_leaf) const;
-  double mass_sapwood(double area_sapwood, double height) const;
+  S area_sapwood(S area_leaf) const;
+  S mass_sapwood(S area_sapwood, S height) const;
 
   // [eqn 5] area and mass of bark
-  double area_bark(double area_leaf) const;
-  double mass_bark (double area_bark, double height) const;
+  S area_bark(S area_leaf) const;
+  S mass_bark (S area_bark, S height) const;
 
-  double area_stem(double area_bark, double area_sapwood,
-                            double area_heartwood) const;
-  double diameter_stem(double area_stem) const;
+  S area_stem(S area_bark, S area_sapwood,
+              S area_heartwood) const;
+  S diameter_stem(S area_stem) const;
 
   // [eqn 7] Mass of (fine) roots
-  double mass_root(double area_leaf) const;
+  S mass_root(S area_leaf) const;
 
   // [eqn 8] Total Mass
-  double mass_live(double mass_leaf, double mass_bark,
-                   double mass_sapwood, double mass_root) const;
+  S mass_live(S mass_leaf, S mass_bark,
+              S mass_sapwood, S mass_root) const;
 
-  double mass_total(double mass_leaf, double mass_bark, double mass_sapwood,
-                    double mass_heartwood, double mass_root) const;
+  S mass_total(S mass_leaf, S mass_bark, S mass_sapwood,
+               S mass_heartwood, S mass_root) const;
 
   // Above-ground mass = leaf + all stem components (bark + sapwood +
   // heartwood); excludes roots.
-  double mass_above_ground(double mass_leaf, double mass_bark,
-                           double mass_sapwood, double mass_heartwood) const;
+  S mass_above_ground(S mass_leaf, S mass_bark,
+                      S mass_sapwood, S mass_heartwood) const;
 
-  void compute_rates(const TF24_Environment& environment,
-                Internals& vars);
-  
-  void compute_roots(const TF24_Environment& environment,
-                Internals& vars);
+  void compute_rates(const environment_type& environment,
+                Internals_<S>& vars);
 
-  void update_dependent_aux(const int index, Internals& vars);
+  void update_dependent_aux(const int index, Internals_<S>& vars);
 
   // * Mass production
   // [eqn 12] Gross annual CO2 assimilation
-  double assimilation(const TF24_Environment& environment, double height,
-                      double area_leaf);
+  S assimilation(const environment_type& environment, S height,
+                 S area_leaf);
   // [Appendix S6] Per-leaf photosynthetic rate.
-  double assimilation_leaf(double x) const;
+  S assimilation_leaf(S x) const;
 
   // [eqn 13] Total maintenance respiration
-  double respiration(double mass_leaf, double mass_sapwood,
-                     double mass_bark, double mass_root) const;
+  S respiration(S mass_leaf, S mass_sapwood,
+                S mass_bark, S mass_root) const;
 
-  double respiration_leaf(double mass) const;
-  double respiration_bark(double mass) const;
-  double respiration_sapwood(double mass) const;
-  double respiration_root(double mass) const;
+  S respiration_leaf(S mass) const;
+  S respiration_bark(S mass) const;
+  S respiration_sapwood(S mass) const;
+  S respiration_root(S mass) const;
 
   // [eqn 14] Total turnover
-  double turnover(double mass_leaf, double mass_bark,
-                  double mass_sapwood, double mass_root) const;
-  double turnover_leaf(double mass) const;
-  double turnover_bark(double mass) const;
-  double turnover_sapwood(double mass) const;
-  double turnover_root(double mass) const;
+  S turnover(S mass_leaf, S mass_bark,
+             S mass_sapwood, S mass_root) const;
+  S turnover_leaf(S mass) const;
+  S turnover_bark(S mass) const;
+  S turnover_sapwood(S mass) const;
+  S turnover_root(S mass) const;
 
   // [eqn 15] Net production
-  double net_mass_production_dt_A(double assimilation, double respiration,
-                                  double turnover) const;
+  S net_mass_production_dt_A(S assimilation, S respiration,
+                             S turnover) const;
 
-  virtual double net_mass_production_dt(const TF24_Environment& environment,
-                                double height, double area_leaf_,
-                                double height_inverse);
+  virtual S net_mass_production_dt(const environment_type& environment,
+                                S height, S area_leaf_,
+                                S height_inverse);
 
   // Resolve the leaf operating point on the already-set-up `leaf` (i.e. after
   // leaf.set_physiology(...)). Base TF24 optimises the root-collar psi via
@@ -227,85 +242,88 @@ public:
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
-  double net_mass_production_dt(const TF24_Environment& environment,
-                                const Internals& vars) {
+  S net_mass_production_dt(const environment_type& environment,
+                           const Internals_<S>& vars) {
     return net_mass_production_dt(environment, vars.state(HEIGHT_INDEX),
                                   vars.aux(aux_idx_competition_effect),
                                   vars.aux(aux_idx_height_inverse));
   }
 
   // [eqn 16] Fraction of whole plan growth that is leaf
-  virtual double fraction_allocation_reproduction(double height) const;
-  double fraction_allocation_growth(double height) const;
+  virtual S fraction_allocation_reproduction(S height) const;
+  S fraction_allocation_growth(S height) const;
   // [eqn 17] Rate of offspring production
-  double fecundity_dt(double net_mass_production_dt,
-                      double fraction_allocation_reproduction) const;
+  S fecundity_dt(S net_mass_production_dt,
+                 S fraction_allocation_reproduction) const;
 
   // [eqn 18] Fraction of mass growth that is leaves
-  double darea_leaf_dmass_live(double area_leaf) const;
+  S darea_leaf_dmass_live(S area_leaf) const;
 
   // change in height per change in leaf area
-  double dheight_darea_leaf(double area_leaf) const;
+  S dheight_darea_leaf(S area_leaf) const;
   // Mass of leaf needed for new unit area leaf, d m_s / d a_l
-  double dmass_leaf_darea_leaf(double area_leaf) const;
+  S dmass_leaf_darea_leaf(S area_leaf) const;
   // Mass of stem needed for new unit area leaf, d m_s / d a_l
-  double dmass_sapwood_darea_leaf(double area_leaf) const;
+  S dmass_sapwood_darea_leaf(S area_leaf) const;
   // Mass of bark needed for new unit area leaf, d m_b / d a_l
-  double dmass_bark_darea_leaf(double area_leaf) const;
+  S dmass_bark_darea_leaf(S area_leaf) const;
   // Mass of root needed for new unit area leaf, d m_r / d a_l
-  double dmass_root_darea_leaf(double area_leaf) const;
+  S dmass_root_darea_leaf(S area_leaf) const;
   // Growth rate of basal diameter_stem per unit stem area
-  double ddiameter_stem_darea_stem(double area_stem) const;
+  S ddiameter_stem_darea_stem(S area_stem) const;
   // Growth rate of components per unit time:
-  double area_leaf_dt(double area_leaf_dt) const;
-  double area_sapwood_dt(double area_leaf_dt) const;
-  double area_heartwood_dt(double area_leaf) const;
-  double area_bark_dt(double area_leaf_dt) const;
-  double area_stem_dt(double area_leaf, double area_leaf_dt) const;
-  double diameter_stem_dt(double area_stem, double area_stem_dt) const;
-  double mass_root_dt(double area_leaf,
-                       double area_leaf_dt) const;
-  double mass_live_dt(double fraction_allocation_reproduction,
-                       double net_mass_production_dt) const;
-  double mass_total_dt(double fraction_allocation_reproduction,
-                        double net_mass_production_dt,
-                        double mass_heartwood_dt) const;
-  double mass_above_ground_dt(double area_leaf,
-                               double fraction_allocation_reproduction,
-                               double net_mass_production_dt,
-                               double mass_heartwood_dt,
-                               double area_leaf_dt) const;
+  S area_leaf_dt(S area_leaf_dt) const;
+  S area_sapwood_dt(S area_leaf_dt) const;
+  S area_heartwood_dt(S area_leaf) const;
+  S area_bark_dt(S area_leaf_dt) const;
+  S area_stem_dt(S area_leaf, S area_leaf_dt) const;
+  S diameter_stem_dt(S area_stem, S area_stem_dt) const;
+  S mass_root_dt(S area_leaf,
+                 S area_leaf_dt) const;
+  S mass_live_dt(S fraction_allocation_reproduction,
+                 S net_mass_production_dt) const;
+  S mass_total_dt(S fraction_allocation_reproduction,
+                  S net_mass_production_dt,
+                  S mass_heartwood_dt) const;
+  S mass_above_ground_dt(S area_leaf,
+                         S fraction_allocation_reproduction,
+                         S net_mass_production_dt,
+                         S mass_heartwood_dt,
+                         S area_leaf_dt) const;
 
-  double mass_heartwood_dt(double mass_sapwood) const;
+  S mass_heartwood_dt(S mass_sapwood) const;
 
-  double mass_live_given_height(double height) const;
-  double height_given_mass_leaf(double mass_leaf_) const;
+  S mass_live_given_height(S height) const;
+  S height_given_mass_leaf(S mass_leaf_) const;
 
 
-  double mortality_dt(double productivity_area, double cumulative_mortality) const;
-  double mortality_growth_independent_dt()const ;
-  double mortality_growth_dependent_dt(double productivity_area) const;
+  S mortality_dt(S productivity_area, S cumulative_mortality) const;
+  S mortality_growth_independent_dt()const ;
+  S mortality_growth_dependent_dt(S productivity_area) const;
   // [eqn 20] Survival of seedlings during establishment
-  double establishment_probability(const TF24_Environment& environment);
+  S establishment_probability(const environment_type& environment);
 
   // * Competitive environment
   // [eqn 11] total projected leaf area above height above height `z` for given plant
-  double compute_competition(double z, double height) const;
+  S compute_competition(double z, S height) const;
   // Optimised overload called from Individual<TF24>::compute_competition with the
   // cached competition_effect (= area_leaf(height)) and height_inverse (= 1/height)
   // aux values, matching the shared individual.h interface (no recompute per call).
-  double compute_competition(double z, double area_leaf_,
-                             double height_inverse) const;
+  S compute_competition(double z, S area_leaf_,
+                        S height_inverse) const;
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // cached competition_effect and height_inverse aux slots itself.
-  double compute_competition(double z, const Internals& vars) const {
+  S compute_competition(double z, const Internals_<S>& vars) const {
     return compute_competition(z, vars.aux(aux_idx_competition_effect),
                                vars.aux(aux_idx_height_inverse));
   }
 
-  // [eqn  9] Probability density of leaf area at height `z`
+  // [eqn  9] Probability density of leaf area at height `z`. Off the S rate
+  // path: only used to weight the double Leaf's crown aggregation, so double.
   double q(double z, double height) const;
-  // [eqn 10] Fraction of leaf area above height `z`
+  // [eqn 10] Fraction of leaf area above height `z`. Double: used for the root
+  // depth distribution feeding the double Leaf (compute_competition inlines its
+  // own S form for the light field).
   double Q(double z, double height, double eta_x) const;
   // [      ] Inverse of Q: height above which fraction 'x' of leaf found
   double Qp(double x, double height) const;
@@ -318,7 +336,7 @@ public:
 
   // Birth height of a (germinated) seed. Strategy-agnostic accessor used by
   // the templated Individual; here height_0 is derived in prepare_strategy().
-  double initial_height() const { return height_0; }
+  S initial_height() const { return height_0; }
 
   // Crown shading model, resolved once from control.shading_model in
   // prepare_strategy(). TF24 supports deep-crown, mean-light (its default)
@@ -326,15 +344,17 @@ public:
   ShadingModel shading_model_ = ShadingModel::MeanLight;
 
   // Biological (user-settable) parameters; see TF24_Pars above.
-  TF24_Pars pars;
+  TF24_Pars_<S> pars;
 
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
-  double eta_c     = NA_REAL; // crown shape factor, precomputed from pars.eta
+  S eta_c     = NA_REAL; // crown shape factor, precomputed from pars.eta
   // Height and leaf area of a (germinated) seed
-  double height_0  = NA_REAL;
-  double area_leaf_0;
+  S height_0  = NA_REAL;
+  S area_leaf_0;
 
-  // Embedded leaf hydraulic/photosynthesis sub-model, built in prepare_strategy()
+  // Embedded leaf hydraulic/photosynthesis sub-model, built in prepare_strategy().
+  // Always double: the Leaf is never templated on S (design 4.3); its parameter
+  // sensitivity reaches the tape via supplied_derivative, not by templating.
   Leaf leaf;
 
   // Hydraulic root parameters (not currently exposed to R; see review #9)
@@ -375,6 +395,8 @@ public:
   // net_mass_production_dt call to avoid a heap allocation per derivs eval.
   std::vector<double> mass_root_prop_;
 };
+
+using TF24_Strategy = TF24_Strategy_<double>;
 
 }
 
