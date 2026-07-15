@@ -19,6 +19,11 @@ namespace plant {
 template <class S = double>
 class FF16_Environment_ : public Environment_<S> {
 public:
+  // Same environment at a different scalar U (nested forward-over-reverse for
+  // dg/dh); paired with FF16_Strategy_'s rebind so generic code can lift the
+  // whole rate path to a forward tangent type.
+  template <class U> using rebind = FF16_Environment_<U>;
+
   // constructor for R interface - default settings can be modified
   // except for light_availability_spline_rescale_usually
   // which are only updated on construction
@@ -72,6 +77,24 @@ public:
     set_fixed_environment(value, height_max);
   }
 
+  // Fix the light field to a scalar value that may carry AD derivatives (the
+  // resident competition a cohort sees). Unlike set_fixed_environment(double),
+  // which strips those derivatives, this keeps them. Used to build the frozen
+  // environment for the forward-over-reverse dg/dh evaluation: the query is
+  // frozen, so a field fixed at the cohort's current competition reproduces the
+  // read while preserving d(competition)/dtheta.
+  void set_fixed_environment_scalar(S value, double height_max) {
+    light_availability.set_fixed_value_scalar(value, height_max);
+  }
+
+  // d(light)/d(height) by secant -- the coupling channel for the density-transport
+  // dg/dh. The field owns its slope; the dg/dh seam reads this rather than
+  // hand-rolling a secant, with step+direction from the same Control the
+  // production stencil uses.
+  S get_environment_slope_at_height(S height, double step, int direction) const {
+    return light_availability.slope_at_height(height, step, direction);
+  }
+
   S get_environment_at_height(S height) const {
     return step_light(light_availability.get_value_at_height(height));
   }
@@ -113,7 +136,7 @@ public:
   // hard floor (and its instability). The integer floor is a piecewise-constant
   // selector (derivative zero), so it is taken on the double value.
   S smooth_floor(S u) const {
-    const double n = std::floor(xad::value(u));
+    const double n = std::floor(odelia::util::to_passive(u));
     const double w = layer_smoothing;
     if (w <= 0.0) {
       return static_cast<S>(n); // hard step

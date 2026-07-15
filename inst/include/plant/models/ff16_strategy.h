@@ -124,6 +124,10 @@ class FF16_Strategy_ : public Strategy<FF16_Environment_<S>> {
 public:
   using environment_type = FF16_Environment_<S>;
   using value_type = S;
+  // Same strategy at a different scalar U (e.g. the nested forward-over-reverse
+  // type for dg/dh). Lets generic code name FF16_Strategy_<U> from an
+  // instantiation at S, and gates the Species-level geometric compression.
+  template <class U> using rebind = FF16_Strategy_<U>;
   typedef std::shared_ptr<FF16_Strategy_<S>> ptr;
 
   FF16_Strategy_() {
@@ -693,21 +697,23 @@ public:
   }
 
   // The aim is to find a plant height that gives the correct seed mass. Kept as a
-  // double root-find (the supplied_derivative IFT seam is deferred, plan §7.2);
-  // xad::value narrowings are no-ops at S = double.
+  // double root-find (the supplied_derivative IFT seam is deferred, plan §7.2).
+  // The narrowings strip every AD layer (to_passive), so they are no-ops at
+  // S = double and also compile at a nested forward-over-reverse S.
   double height_seed(void) const {
 
     // Note, these are not entirely correct bounds. Ideally we would use height
     // given *total* mass, not leaf mass, but that is difficult to calculate.
     const double
-      h0 = xad::value(height_given_mass_leaf(std::numeric_limits<double>::min())),
-      h1 = xad::value(height_given_mass_leaf(pars.omega));
+      h0 = odelia::util::to_passive(height_given_mass_leaf(std::numeric_limits<double>::min())),
+      h1 = odelia::util::to_passive(height_given_mass_leaf(pars.omega));
 
     const double tol = this->control.offspring_production_tol;
     const size_t max_iterations = this->control.offspring_production_iterations;
 
     auto target = [&] (double x) mutable -> double {
-      return xad::value(mass_live_given_height(x)) - xad::value(pars.omega);
+      return odelia::util::to_passive(mass_live_given_height(x)) -
+             odelia::util::to_passive(pars.omega);
     };
 
     return util::uniroot(target, h0, h1, tol, max_iterations);
@@ -729,7 +735,7 @@ public:
     // canopy_shape also selects the competition contribution: smooth Q for every
     // model except flat-top-box, which casts a step (see CanopyShape). eta is a
     // shape coefficient, not differentiated -> narrow to double.
-    canopy_shape.initialise(xad::value(pars.eta), shading_model);
+    canopy_shape.initialise(odelia::util::to_passive(pars.eta), shading_model);
     switch (shading_model) {
     case ShadingModel::DeepCrown:
       assimilation_fn = &FF16_Strategy_::assimilation_deep_crown;
@@ -781,14 +787,18 @@ public:
       // dg/dh at the root, as a double constant (central difference; g is smooth
       // and near-linear in h here, so a 2-point rule is not the accuracy limit).
       const double eps = 1e-6 * (h_star + 1.0);
-      auto gv = [&](double h) { return xad::value(mass_live_given_height(S(h))); };
+      auto gv = [&](double h) { return odelia::util::to_passive(mass_live_given_height(S(h))); };
       const double dgdh = (gv(h_star + eps) - gv(h_star - eps)) / (2.0 * eps);
       // Newton correction from the double root. Subtract its own value so the
       // birth height's *value* stays exactly h_star -- bit-identical, and no value
       // shift to perturb the gradient of parameters that height does not depend on
       // -- while its derivative is the IFT term dh*/dtheta = -(dg/dtheta)/(dg/dh).
       const S corr = (mass_live_given_height(S(h_star)) - pars.omega) / dgdh;
-      return S(h_star) - corr + xad::value(corr);
+      // to_passive strips every AD layer to a plain double, so subtracting the
+      // correction's own value keeps the birth height's value at exactly h_star
+      // (bit-identical) while its derivative stays the IFT term -- and, unlike
+      // xad::value (one layer), the double addend composes at a nested S.
+      return S(h_star) - corr + odelia::util::to_passive(corr);
     }
   }
 

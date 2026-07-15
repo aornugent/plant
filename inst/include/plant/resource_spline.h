@@ -173,12 +173,13 @@ public:
   {
 
     // format spline as Matrix; only double crosses to R, so narrow the (possibly
-    // active) knot values via xad::value (a no-op on the double path).
+    // active) knot values via to_passive (a no-op on the double path; strips
+    // every AD layer, so it also compiles at a nested forward-over-reverse S).
     std::vector<std::vector<double>> xy;
     xy.push_back(spline.get_x());
     std::vector<double> y_values;
     for (auto const& v : spline.get_y()) {
-      y_values.push_back(xad::value(v));
+      y_values.push_back(odelia::util::to_passive(v));
     }
     xy.push_back(y_values);
 
