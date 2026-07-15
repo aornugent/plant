@@ -266,8 +266,12 @@ public:
   // frozen evaluation first-order exact), and return it. This is the
   // finite-difference engine behind the active leaf supplied_derivative seam
   // (§7.3): d(profit)/d(param) is a central difference of this at fixed psi*.
+  // light_openness (canopy openness 0-1) and PPFD are taken instead of the
+  // absorbed radiation so the seam differentiates through k_I (radiation =
+  // pd.k_I * max(light_openness, 1e-4) * PPFD, recomputed here) and through the
+  // resident light itself (the light channel injects d(profit)/d(light_openness)).
   double leaf_profit_frozen(const TF24_Pars_<double>& pd, double height_d,
-                            double radiation,
+                            double light_openness, double PPFD,
                             const std::vector<double>& psi_soil_d,
                             const std::vector<double>& soil_depths_,
                             const std::vector<double>& z_soil_mid_,

@@ -181,6 +181,13 @@ public:
     set_fixed_environment(value, height_max);
   }
 
+  // Fix the light field to a scalar that may carry AD derivatives (unlike
+  // set_fixed_environment(double), which strips them). Used to seed the resident
+  // light as an active input when exercising the leaf seam's light channel.
+  void set_fixed_environment_scalar(S value, double height_max) {
+    light_availability.set_fixed_value_scalar(value, height_max);
+  }
+
   S get_environment_at_height(S height) const {
     return light_availability.get_value_at_height(height);
   }

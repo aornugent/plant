@@ -404,12 +404,20 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
   };
 
   // Aggregate the leaf submodel over the crown according to the shading model.
-  // single_solve models run one leaf optimisation at a scalar radiation; the
-  // active leaf seam below re-evaluates the leaf at that same radiation.
+  // single_solve models run one leaf optimisation at a scalar openness; the
+  // active leaf seam below re-evaluates the leaf at that same openness and
+  // differentiates through it (the resident self-shading light channel).
+  //   light_openness_double : the openness fed to radiation_at (double, forward)
+  //   light_active          : the same openness as an active scalar whose slot
+  //                           connects to the resident light field (self-shading)
   double radiation_used = NA_REAL;
+  double light_openness_double = NA_REAL;
+  S light_active = S(0.0);
   bool single_solve = true;
   if (shading_model_ == ShadingModel::CrownCentre) {
-    radiation_used = radiation_at(to_passive(environment.get_environment_at_height(height * eta_c)));
+    light_active = environment.get_environment_at_height(height * eta_c);
+    light_openness_double = to_passive(light_active);
+    radiation_used = radiation_at(light_openness_double);
     optimise_at(radiation_used);
   } else if (shading_model_ == ShadingModel::MeanLight) {
     // Leaf-area-weighted mean canopy openness = integral of (light * q) over the
@@ -417,7 +425,21 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
     auto f = [&](double x) -> double {
       return compute_average_light_environment(x, height_d, environment);
     };
-    radiation_used = radiation_at(function_integrator.integrate(f, 0.0, height_d));
+    light_openness_double = function_integrator.integrate(f, 0.0, height_d);
+    // The same mean openness as an active scalar for the seam's light channel.
+    // Fixed integration bounds (double height_d cast to S), so no plant-height
+    // derivative is entangled; the active light reads carry the self-shading
+    // derivative and the value matches light_openness_double (same quadrature).
+    // Active path only -- the double forward never reads light_active.
+    if constexpr (!std::is_same_v<S, double>) {
+      auto f_active = [&](S z) -> S {
+        const S er = environment.get_environment_at_height(z);
+        const S lit = (er > 0.0001) ? er : S(0.0001);
+        return lit * q(to_passive(z), height_d);
+      };
+      light_active = function_integrator.integrate(f_active, S(0.0), S(height_d));
+    }
+    radiation_used = radiation_at(light_openness_double);
     optimise_at(radiation_used);
   } else { // DeepCrown
     single_solve = false;
@@ -495,9 +517,9 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
       for (std::size_t i = 0; i < ap.size(); ++i) *pdp[i] = to_passive(*ap[i]);
 
       auto profit_frozen = [&](void) {
-        return leaf_profit_frozen(pd, height_d, radiation_used, psi_soil,
-                                  soil_depths_, z_soil_mid_, atm_vpd_d, ca_d,
-                                  leaf_temp_d, atm_o2_d, atm_kpa_d,
+        return leaf_profit_frozen(pd, height_d, light_openness_double, PPFD,
+                                  psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d,
+                                  ca_d, leaf_temp_d, atm_o2_d, atm_kpa_d,
                                   frozen_collar_psi);
       };
 
@@ -530,14 +552,33 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
       if (height.shouldRecord()) {
         const double hbase = height_d;
         const double hstep = 1e-6 * (std::abs(hbase) + 1e-6);
-        const double pplus = leaf_profit_frozen(pd, hbase + hstep, radiation_used,
-            psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
+        const double pplus = leaf_profit_frozen(pd, hbase + hstep, light_openness_double,
+            PPFD, psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
             atm_o2_d, atm_kpa_d, frozen_collar_psi);
-        const double pminus = leaf_profit_frozen(pd, hbase - hstep, radiation_used,
-            psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
+        const double pminus = leaf_profit_frozen(pd, hbase - hstep, light_openness_double,
+            PPFD, psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
             atm_o2_d, atm_kpa_d, frozen_collar_psi);
         inputs.push_back(&height);
         partials.push_back((pplus - pminus) / (2.0 * hstep));
+      }
+
+      // Light channel (resident self-shading): the openness the leaf sees is
+      // active on a resident pass (the light field is built from the stand's own
+      // competition), so d(profit)/d(light_openness) must be on the tape. Perturb
+      // the frozen openness and FD the profit; inject onto the active openness,
+      // whose slot connects to the resident light field. On the mutant pass the
+      // light is frozen (recorded double) -> INVALID slot -> §7.4 drops it.
+      if (light_active.shouldRecord()) {
+        const double base = light_openness_double;
+        const double lstep = 1e-6 * (std::abs(base) + 1e-6);
+        const double pplus = leaf_profit_frozen(pd, height_d, base + lstep, PPFD,
+            psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
+            atm_o2_d, atm_kpa_d, frozen_collar_psi);
+        const double pminus = leaf_profit_frozen(pd, height_d, base - lstep, PPFD,
+            psi_soil, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
+            atm_o2_d, atm_kpa_d, frozen_collar_psi);
+        inputs.push_back(&light_active);
+        partials.push_back((pplus - pminus) / (2.0 * lstep));
       }
 
       // Soil-psi channel (resident soil coupling): on a resident pass each
@@ -554,12 +595,12 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
           const double base = psi_soil[L];
           const double hstep = 1e-6 * (std::abs(base) + 1e-6);
           psi_pert[L] = base + hstep;
-          const double pplus = leaf_profit_frozen(pd, height_d, radiation_used,
-              psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
+          const double pplus = leaf_profit_frozen(pd, height_d, light_openness_double,
+              PPFD, psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
               atm_o2_d, atm_kpa_d, frozen_collar_psi);
           psi_pert[L] = base - hstep;
-          const double pminus = leaf_profit_frozen(pd, height_d, radiation_used,
-              psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
+          const double pminus = leaf_profit_frozen(pd, height_d, light_openness_double,
+              PPFD, psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
               atm_o2_d, atm_kpa_d, frozen_collar_psi);
           psi_pert[L] = base;
           inputs.push_back(const_cast<S*>(&psi_soil_S[L]));
@@ -630,14 +671,18 @@ S TF24_Strategy_<S>::lift_birth_height(double h_star) const {
 // channel it reaches) and the collar psi held fixed at the forward optimum.
 template <class S>
 double TF24_Strategy_<S>::leaf_profit_frozen(
-    const TF24_Pars_<double>& pd, double height_d, double radiation,
-    const std::vector<double>& psi_soil_d,
+    const TF24_Pars_<double>& pd, double height_d, double light_openness,
+    double PPFD, const std::vector<double>& psi_soil_d,
     const std::vector<double>& soil_depths_,
     const std::vector<double>& z_soil_mid_, double atm_vpd, double ca,
     double leaf_temp, double atm_o2_kpa, double atm_kpa,
     double frozen_collar_psi) {
 
   const int soil_number_of_depths_ = static_cast<int>(soil_depths_.size());
+
+  // Absorbed radiation, recomputed from pd.k_I and the openness so a perturbed
+  // k_I (and the light channel) flows into the leaf (mirrors radiation_at).
+  const double radiation = pd.k_I * std::max(light_openness, 0.0001) * PPFD;
 
   // Derived crown/allometry quantities recomputed from pd so a perturbed a_l1 /
   // a_l2 / eta / theta / K_s / a_r1 / root_depth_shape_eta flows into the leaf.
