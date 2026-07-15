@@ -213,7 +213,10 @@ private:
   std::vector<species_type> species;
 
   //TODO(#476): Move into environment?
-  std::vector<double> resource_depletion;
+  // Per-ODE-channel resource consumption handed to environment.compute_rates.
+  // Carries value_type so the resident soil coupling (uptake -> soil state)
+  // differentiates; double on the production path.
+  std::vector<value_type> resource_depletion;
 
   environment_type* environment_ptr;
 
@@ -624,7 +627,7 @@ void Patch<T,E>::compute_rates() {
 
   resource_depletion.reserve(environment_ptr->ode_size());
   for(size_t i = 0; i < environment_ptr->ode_size(); i++) {
-    double resource_consumed = std::accumulate(species.begin(), species.end(), 0.0, [i](double r, const species_type& s) {
+    value_type resource_consumed = std::accumulate(species.begin(), species.end(), value_type(0.0), [i](value_type r, const species_type& s) {
       return r + s.consumption_rate(i); // accumulates r from zero
     });
 

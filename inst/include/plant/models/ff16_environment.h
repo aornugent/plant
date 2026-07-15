@@ -154,7 +154,7 @@ public:
     light_availability.r_init_interpolators(state);
   }
 
-  virtual void compute_rates(std::vector<double> const& resource_depletion) {
+  virtual void compute_rates(std::vector<S> const& resource_depletion) {
 
   }
 

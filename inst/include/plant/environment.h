@@ -40,7 +40,10 @@ public:
 
   // ODE interface: do nothing if the environment has no state.
   size_t ode_size() const { return vars.state_size; }
-  virtual void compute_rates(std::vector<double> const& resource_depletion){};
+  // resource_depletion carries S so the resident soil coupling (plant water
+  // uptake -> soil state) differentiates; FF16/K93 have no soil state and ignore
+  // it. At S = double this is the previous std::vector<double> signature.
+  virtual void compute_rates(std::vector<S> const& resource_depletion){};
 
   template <typename It>
   It set_ode_state(It it) {

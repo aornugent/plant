@@ -574,6 +574,33 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         partials.push_back((pplus - pminus) / (2.0 * hstep));
       }
 
+      // Soil-psi channel (resident soil coupling): on a resident pass each
+      // layer's psi is active (a function of the integrated soil state), so the
+      // soil -> leaf feedback must be on the tape. Perturb each layer's frozen
+      // psi and FD the profit; inject onto the active psi value, whose slot
+      // connects back to the soil state through psi_from_soil_moist. On the
+      // mutant pass the soil is frozen (recorded double), so these slots are
+      // INVALID and the §7.4 filter drops them.
+      {
+        std::vector<double> psi_pert = psi_soil;  // double copy to perturb
+        for (std::size_t L = 0; L < psi_soil_S.size(); ++L) {
+          if (!const_cast<S&>(psi_soil_S[L]).shouldRecord()) continue;
+          const double base = psi_soil[L];
+          const double hstep = 1e-6 * (std::abs(base) + 1e-6);
+          psi_pert[L] = base + hstep;
+          const double pplus = leaf_profit_frozen(pd, height_d, radiation_used,
+              psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
+              atm_o2_d, atm_kpa_d, frozen_collar_psi);
+          psi_pert[L] = base - hstep;
+          const double pminus = leaf_profit_frozen(pd, height_d, radiation_used,
+              psi_pert, soil_depths_, z_soil_mid_, atm_vpd_d, ca_d, leaf_temp_d,
+              atm_o2_d, atm_kpa_d, frozen_collar_psi);
+          psi_pert[L] = base;
+          inputs.push_back(const_cast<S*>(&psi_soil_S[L]));
+          partials.push_back((pplus - pminus) / (2.0 * hstep));
+        }
+      }
+
       if (!inputs.empty()) {
         profit_s = odelia::ode::supplied_derivative(*tape, profit0, inputs, partials);
       }

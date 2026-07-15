@@ -224,7 +224,7 @@ public:
   // This is an explicit, first-order representation; drainage is instantaneous
   // single-direction (no upward capillary flux between layers - that is handled
   // hydraulically inside the plant via E_from_Soil_to_Root_Collar).
-  virtual void compute_rates(std::vector<double> const &resource_depletion)
+  virtual void compute_rates(std::vector<S> const &resource_depletion)
   {
 
     S water_input;
@@ -235,7 +235,9 @@ public:
     const S runoff_factor =
         1 - a_infil * pow(this->vars.state(0) / soil_moist_sat, b_infil);
     S infiltration = rainfall * ((runoff_factor > 0.0) ? runoff_factor : S(0.0));
-    double total_resource_depletion = 0;
+    // Carries S: resource_depletion (plant water uptake) is active on the
+    // resident soil coupling, so the cumulative-uptake diagnostic state is too.
+    S total_resource_depletion = 0;
 
 
     // treat each soil layer as a separate resource pool
