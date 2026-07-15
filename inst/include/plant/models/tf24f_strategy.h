@@ -54,6 +54,13 @@ public:
   // (left in dprofit_dpsi_ for compute_rates to turn into the state's rate).
   void solve_leaf();
 
+  // Leaf-seam collar-psi channel (Stage D). The leaf operates at the tracked
+  // collar-psi ODE state, so the seam must add d(profit)/d(psi) * d(psi)/d(theta):
+  // the input is the ACTIVE tracked state (its derivative is on the tape) and the
+  // partial is d(profit)/d(psi) (= dprofit_dpsi_, the acclimation gradient).
+  S* seam_collar_psi_input() override { return &tracked_root_psi_active_; }
+  double seam_collar_psi_partial() const override { return dprofit_dpsi_; }
+
   // Seed the tracked state at its optimum for a newly introduced individual, so
   // gradient ascent starts at the optimum (no birth transient / no climb from 0,
   // which otherwise lets shaded recruits escape suppression). Runs the base
@@ -80,6 +87,11 @@ public:
   // Off the S rate path (the Leaf is double), so held as double.
   double tracked_root_psi_ = 0.0;
   double dprofit_dpsi_ = 0.0;
+  // The tracked collar-psi state kept as an ACTIVE scalar (value == the double
+  // tracked_root_psi_) so the leaf seam can inject d(profit)/d(psi) onto its
+  // tape slot. Set each compute_rates before the base rate computation runs the
+  // seam. Default 0 (passive) so a stray seam read before the first set drops out.
+  S tracked_root_psi_active_ = 0.0;
   // When true, solve_leaf() runs the base optimiser (find_root_collar_psi) rather
   // than the tracked evaluation; used by set_initial_states to read the optimum.
   bool initializing_ = false;

@@ -36,8 +36,10 @@ void TF24f_Strategy_<S>::compute_rates(const environment_type& environment,
                util::to_string(k_acclim) + ")");
   }
   // The tracked state feeds the double Leaf, so strip AD off it (a no-op on the
-  // double path); its parameter sensitivity is a supplied_derivative concern.
-  tracked_root_psi_ = odelia::util::to_passive(vars.state(state_idx_opt_root_psi_state));
+  // double path). The ACTIVE copy carries its tape slot for the leaf seam's
+  // collar-psi channel (Stage D): d(profit)/d(psi) * d(psi_tracked)/d(theta).
+  tracked_root_psi_active_ = vars.state(state_idx_opt_root_psi_state);
+  tracked_root_psi_ = odelia::util::to_passive(tracked_root_psi_active_);
   TF24_Strategy_<S>::compute_rates(environment, vars);
   vars.set_rate(state_idx_opt_root_psi_state, k_acclim * dprofit_dpsi_);
 }
