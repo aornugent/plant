@@ -1025,6 +1025,56 @@ double Leaf::dE_from_soil_dpsi_collar(double P_x_r, const std::vector<double>& p
   return dEup_dr_mol * kg_per_mol_h2o;  // match E_up_'s kg units
 }
 
+// Per-layer analytic d(soil_consumption_[i])/d(P_x_r), in MOL units (matching the
+// per-layer soil_consumption_[i], which -- unlike the summed E_up_ -- is NOT
+// converted to kg; see the units note in E_from_Soil_to_Root_Collar). Same
+// general-branch quotient-rule derivative as dE_from_soil_dpsi_collar, but stored
+// per layer instead of summed. A layer at one of the three branch kinks (equal
+// potentials / gravity balance / psi==0 integral split) gets NaN in `out[i]`; the
+// caller falls back for those (measure-zero) layers. Used by the TF24f Tier-B
+// seam to inject d(uptake)/d(collar) exactly, replacing the piecewise-FD (#47).
+void Leaf::dsoil_consumption_dpsi_collar_perlayer(
+    double P_x_r, const std::vector<double>& psi_soil, std::vector<double>& out) {
+  const double inv_area_leaf = 1.0 / area_leaf_;
+  const double kink_tol = 1e-8;
+  out.assign(soil_consumption_.size(), 0.0);
+
+  for (int i = 0; i < max_soil_layer; i++) {
+    if (std::abs(P_x_r - psi_soil[i]) < kink_tol ||
+        std::abs((psi_soil[i] - P_x_r) - grav_head_z_[i]) < kink_tol ||
+        std::abs(P_x_r) < kink_tol) {
+      out[i] = std::numeric_limits<double>::quiet_NaN();
+      continue;
+    }
+    const double P_src_min = std::min(psi_soil[i], P_x_r);
+    const double P_src_max = std::max(psi_soil[i], P_x_r);
+    const double span = P_src_max - P_src_min;
+    const double sign_var = (P_x_r > psi_soil[i]) ? 1.0 : -1.0;  // = dspan/dP_x_r
+
+    const double hi_neg = std::min(P_src_max, 0.0);
+    const double lo_pos = std::max(P_src_min, 0.0);
+    double integral = 0.0;
+    if (hi_neg > P_src_min) {
+      integral += root_vuln_integral_from_psi.eval(-P_src_min) -
+                  root_vuln_integral_from_psi.eval(-hi_neg);
+    }
+    if (P_src_max > lo_pos) {
+      integral += (P_src_max - lo_pos);
+    }
+    const double fr_at =
+        (P_x_r < 0.0) ? root_vuln_integral_from_psi.deriv(-P_x_r) : 1.0;
+    const double dinteg_dr = sign_var * fr_at;
+
+    const double r_R_H = r_R_H_min[i] * span / integral;
+    const double r_R = r_R_H + r_R_V_sum[i];
+    const double dr_R_H_dr =
+        r_R_H_min[i] * (sign_var * integral - span * dinteg_dr) / (integral * integral);
+    const double num = (psi_soil[i] - P_x_r - grav_head_z_[i]) * inv_area_leaf;
+    const double dnum_dr = -inv_area_leaf;
+    out[i] = (dnum_dr * r_R - num * dr_R_H_dr) / (r_R * r_R);  // mol, per layer
+  }
+}
+
 double Leaf::arrh_curve(double Ea, double ref_value, double leaf_temp) const {
 
 

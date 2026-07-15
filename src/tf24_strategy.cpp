@@ -662,13 +662,23 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         if (collar->shouldRecord()) {
           inputs.push_back(collar);
           partials.push_back(seam_collar_psi_partial());
-          // d(uptake)/d(tracked collar) deferred (#47). A central FD of uptake on
-          // frozen_collar_psi is WRONG here (verified: TF24f uptake ~15-70% off, FD
-          // rock-stable across deltas): E_from_Soil_to_Root_Collar is piecewise per
-          // soil layer, so a small collar step straddles layer-crossing kinks and
-          // undershoots ~3x. Needs the ANALYTIC per-layer collar derivative
-          // (cf. dE_from_soil_dpsi_collar for E_up), not FD. Push 0 for now.
-          for (int L = 0; L < nsoil; ++L) uptake_partials[L].push_back(0.0);
+          // d(uptake)/d(tracked collar) (#47), ANALYTIC per layer (a straight FD is
+          // wrong here: E_from_Soil_to_Root_Collar is piecewise per soil layer, so a
+          // collar step straddles layer-crossing kinks and undershoots ~3x). The
+          // tracked state = -root_collar_psi_ = frozen_collar_psi and E uses
+          // P_x_r = root_collar_psi_ = -frozen_collar_psi, so
+          // d(uptake)/d(tracked) = -d(soil_consumption_)/d(P_x_r). Kink layers (NaN)
+          // fall back to 0 (measure-zero).
+          std::vector<double> dEi_dPxr;
+          leaf.dsoil_consumption_dpsi_collar_perlayer(
+              -frozen_collar_psi, leaf.psi_soil_inverted_, dEi_dPxr);
+          for (int L = 0; L < nsoil; ++L) {
+            const double v = (L < static_cast<int>(dEi_dPxr.size()) &&
+                              std::isfinite(dEi_dPxr[L]))
+                                 ? -dEi_dPxr[L]
+                                 : 0.0;
+            uptake_partials[L].push_back(v);
+          }
         }
       }
 
