@@ -43,14 +43,14 @@ public:
   // These are patch-level quantities: each integrates the per-node weighted
   // net reproduction over a species' node-introduction times.
   // Integrate lifetime fitness of a species' nodes, scaled per node.
-  double net_reproduction_ratio_for_species(size_t species_index,
-                                            std::vector<double> const& scalars) const;
+  value_type net_reproduction_ratio_for_species(size_t species_index,
+                                                std::vector<double> const& scalars) const;
   // Offspring production: fitness scaled by the birth rate over time.
-  std::vector<double> offspring_production() const;
+  std::vector<value_type> offspring_production() const;
   // Overall fitness (unscaled, scalars == 1).
-  std::vector<double> net_reproduction_ratios() const;
+  std::vector<value_type> net_reproduction_ratios() const;
   // Sum of offspring produced across all species.
-  double total_offspring_production() const;
+  value_type total_offspring_production() const;
   // Per-node reproduction integration error for each species.
   std::vector<std::vector<double>> net_reproduction_ratio_errors() const;
 
@@ -484,11 +484,11 @@ std::vector<double> Patch<T,E>::r_compute_competition_effect_error_by_node_for_s
 
 // Integrate over lifetime fitness of individual nodes, scaled per node.
 template <typename T, typename E>
-double Patch<T,E>::net_reproduction_ratio_for_species(
+typename Patch<T,E>::value_type Patch<T,E>::net_reproduction_ratio_for_species(
     size_t species_index, std::vector<double> const& scalars) const {
   auto net_prod = species[species_index].net_reproduction_ratio_by_node_weighted();
   auto const times = species[species_index].node_times();
-  auto net_prod_scaled = std::vector<double>(times.size());
+  auto net_prod_scaled = std::vector<value_type>(times.size());
   for (size_t i = 0; i < times.size(); ++i) {
     net_prod_scaled[i] = net_prod[i] * scalars[i];
   }
@@ -497,8 +497,8 @@ double Patch<T,E>::net_reproduction_ratio_for_species(
 
 // Offspring production, equal to overall fitness scaled by the birth rate.
 template <typename T, typename E>
-std::vector<double> Patch<T,E>::offspring_production() const {
-  auto ret = std::vector<double>(species.size());
+std::vector<typename Patch<T,E>::value_type> Patch<T,E>::offspring_production() const {
+  auto ret = std::vector<value_type>(species.size());
   for (size_t i = 0; i < species.size(); ++i) {
     // scale by birth rate function over time
     auto const times = species[i].node_times();
@@ -513,8 +513,8 @@ std::vector<double> Patch<T,E>::offspring_production() const {
 
 // Overall fitness (no scaling, ie scalars set to 1.0).
 template <typename T, typename E>
-std::vector<double> Patch<T,E>::net_reproduction_ratios() const {
-  auto ret = std::vector<double>(species.size());
+std::vector<typename Patch<T,E>::value_type> Patch<T,E>::net_reproduction_ratios() const {
+  auto ret = std::vector<value_type>(species.size());
   for (size_t i = 0; i < species.size(); ++i) {
     auto scalars = std::vector<double>(species[i].size(), 1.0);
     ret[i] = net_reproduction_ratio_for_species(i, scalars);
@@ -524,9 +524,9 @@ std::vector<double> Patch<T,E>::net_reproduction_ratios() const {
 
 // Sum up all offspring produced.
 template <typename T, typename E>
-double Patch<T,E>::total_offspring_production() const {
-  double total = 0.0;
-  std::vector<double> offspring = offspring_production();
+typename Patch<T,E>::value_type Patch<T,E>::total_offspring_production() const {
+  value_type total = 0.0;
+  std::vector<value_type> offspring = offspring_production();
   for (size_t i = 0; i < species.size(); ++i) {
     total += offspring[i];
   }
@@ -537,12 +537,15 @@ double Patch<T,E>::total_offspring_production() const {
 template <typename T, typename E>
 std::vector<std::vector<double>> Patch<T,E>::net_reproduction_ratio_errors() const {
   std::vector<std::vector<double>> ret;
-  double total_offspring = total_offspring_production();
+  // Schedule-refinement error is a double-only diagnostic; drop any active
+  // derivative here with xad::value (identity on the double production path).
+  double total_offspring = xad::value(total_offspring_production());
   for (size_t i = 0; i < species.size(); ++i) {
+    auto weighted = species[i].net_reproduction_ratio_by_node_weighted();
+    std::vector<double> weighted_d(weighted.size());
+    for (size_t j = 0; j < weighted.size(); ++j) weighted_d[j] = xad::value(weighted[j]);
     ret.push_back(util::local_error_integration(
-        species[i].node_times(),
-        species[i].net_reproduction_ratio_by_node_weighted(),
-        total_offspring));
+        species[i].node_times(), weighted_d, total_offspring));
   }
   return ret;
 }

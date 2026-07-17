@@ -55,7 +55,7 @@ public:
   // compression across neighbouring cohorts (it needs the neighbour list) and
   // sets it here. See Species::compute_rates.
   void set_log_density_dt(value_type v) {log_density_dt = v;}
-  double fecundity() const {return offspring_produced_survival_weighted;}
+  value_type fecundity() const {return offspring_produced_survival_weighted;}
 
   // Bookkeeping recorded at the moment the node is introduced, so that
   // lifetime-fitness calculations need not look these up after the run.
@@ -84,7 +84,7 @@ public:
 
   // Lifetime offspring of this node, weighted by the probability of
   // landing in a patch of the node's age and by survival during dispersal.
-  double weighted_fecundity(double S_D) const {
+  value_type weighted_fecundity(value_type S_D) const {
     return offspring_produced_survival_weighted * patch_density_at_birth * S_D;
   }
 

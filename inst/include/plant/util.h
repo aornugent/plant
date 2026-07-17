@@ -153,9 +153,12 @@ void rescale(ForwardIterator first, ForwardIterator last,
 
 // TODO(#483): Probably move these out to their own file?
 // Integration via the trapezium rule, for any containers that
-// implement the basics of iteration (const_iterator, begin, size)
+// implement the basics of iteration (const_iterator, begin, size).
+// The accumulator and return type follow the integrand's element type, so an
+// AD scalar flows through unchanged (the emergent fitness integral is
+// differentiable); at ContainerY::value_type == double this is the original.
 template <typename ContainerX, typename ContainerY>
-double trapezium(const ContainerX& x, const ContainerY& y) {
+typename ContainerY::value_type trapezium(const ContainerX& x, const ContainerY& y) {
   util::check_length(y.size(), x.size());
   if (x.size() < 2) {
     util::stop("Need at least two points for the trapezium rule");
@@ -164,7 +167,7 @@ double trapezium(const ContainerX& x, const ContainerY& y) {
   ++x1;
   typename ContainerY::const_iterator y0 = y.begin(), y1 = y.begin();
   ++y1;
-  double tot = 0.0;
+  typename ContainerY::value_type tot = 0.0;
   while (x1 != x.end()) {
     tot += (*x1++ - *x0++) * (*y1++ + *y0++);
   }
