@@ -174,7 +174,11 @@ public:
     // Define an anonymous function to use in creation of light_availability spline
     // Note: extinction coefficient was already applied in strategy, so
     // f_compute_competition gives sum of projected leaf area (k L) across species. Just need to apply Beer's law, E = exp(- (k L))
-    auto f_light_availability = [&](double height) -> double
+    // Build the light field at the environment's scalar S (mirrors K93): the
+    // knot heights are chosen from double values, but the knot VALUES carry the
+    // resident self-shading derivative through Beer's law -- the active resident
+    // field (L2 recompute), not a double-only construction.
+    auto f_light_availability = [&](double height) -> S
     { return exp(-f_compute_competition(height)); };
 
     // Calculates the light_availability spline, by fitting to the function

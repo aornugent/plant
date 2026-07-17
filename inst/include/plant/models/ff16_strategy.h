@@ -677,12 +677,15 @@ public:
                         S height_inverse) const {
     return compute_competition_by_ratio(z * height_inverse, area_leaf_);
   }
-  // Templated on the ratio scalar R: only the resident field-build hot path
-  // (deferred) drives an active ratio into canopy_shape.leaf_area_above.
+  // Templated on the ratio scalar R: the resident field-build hot path drives an
+  // active ratio. Collapse it to a concrete S before canopy_shape.leaf_area_above
+  // so that method's single template parameter does not deduce an XAD expression
+  // type (which breaks its Z(1.0)/Z(0.0) shading-model branches) -- mirrors K93.
   template <typename R>
   S compute_competition_by_ratio(R z_over_height,
                                  S area_leaf_) const {
-    return pars.k_I * area_leaf_ * canopy_shape.leaf_area_above(z_over_height);
+    return pars.k_I * area_leaf_ *
+           canopy_shape.leaf_area_above(static_cast<S>(z_over_height));
   }
   // Strategy-agnostic entry point used by Individual<FF16> (#266).
   S compute_competition(double z, const Internals_<S>& vars) const {
