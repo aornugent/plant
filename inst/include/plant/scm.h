@@ -73,6 +73,19 @@ public:
   // Current patch time.
   double time() const;
 
+  // ---- odelia gradient-driver contract -----------------------------------
+  // The SCM is the runnable a reverse/forward gradient is taken over. The driver
+  // seeds get_system_ref().ad_parameters(), then reset() -> run() -> reduces
+  // get_system_ref() through a functional. reset() copies the seeded `patch`
+  // snapshot into the solver and run() syncs the result back, so the snapshot is
+  // both the seed target (pre-reset) and the read target (post-run) -- one
+  // object, no separate reseed source to drift from (cf. IndividualRunner).
+  patch_type& get_system_ref() { return patch; }
+  std::vector<value_type*> ad_parameters() { return patch.ad_parameters(); }
+  std::vector<value_type*> ad_initial_state() { return {}; }
+  // The reverse tape lives on the gradient target, not here: a unique_ptr member
+  // would make the (by-value-constructed, R-facing) SCM move-only.
+
   // ---- Outputs -----------------------------------------------------------
   // Total (not per-capita) offspring. These delegate to the patch, which owns
   // the fitness/offspring computations.
