@@ -4089,6 +4089,18 @@ TF24_Environment__compute_rates <- function(obj_, resource_depletion) {
     invisible(.Call('_plant_TF24_Environment__compute_rates', PACKAGE = 'plant', obj_, resource_depletion))
 }
 
+TF24_Environment__r_analytic_partial_flow <- function(obj_, theta, dt) {
+    .Call('_plant_TF24_Environment__r_analytic_partial_flow', PACKAGE = 'plant', obj_, theta, dt)
+}
+
+TF24_Environment__r_residual_rhs <- function(obj_, theta, resource_depletion) {
+    .Call('_plant_TF24_Environment__r_residual_rhs', PACKAGE = 'plant', obj_, theta, resource_depletion)
+}
+
+TF24_Environment__r_drainage_touchdown_time <- function(obj_, theta, layer) {
+    .Call('_plant_TF24_Environment__r_drainage_touchdown_time', PACKAGE = 'plant', obj_, theta, layer)
+}
+
 TF24_Environment__time__get <- function(obj_) {
     .Call('_plant_TF24_Environment__time__get', PACKAGE = 'plant', obj_)
 }
