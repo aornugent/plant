@@ -5,7 +5,6 @@
 #include <plant/environment.h>
 #include <plant/gradient.h>
 #include <odelia/ode_interface.hpp>
-#include <odelia/directional_derivative.hpp>
 #include <optional>
 #include <limits> // std::numeric_limits
 #include <type_traits> // std::is_same_v
@@ -13,17 +12,27 @@
 namespace plant {
 
 // Detect a strategy that can be re-bound to another scalar (`template<class U>
-// using rebind`). Such a strategy's whole rate path is instantiable at the forward
-// tangent type, so Node::growth_rate_gradient computes dg/dh analytically by
-// forward-over-reverse (plant#39). Strategies without it (FF16/TF24/TF24f until
-// their rate path is ported to be forward-mode-instantiable) fall back to the
-// finite-difference stencil -- their differentiated metrics (mutant fitness) do
-// not route through dg/dh (docs §15 mixed-Jacobian), so census gradients for them
-// await their rebind port.
+// using rebind`). Such a strategy's whole rate path is instantiable at the active
+// scalar, so its density transport can go through the geometric mass chart
+// (Species::compute_rates), whose parameter-derivative is exact and well
+// conditioned. Strategies without it stay on the finite-difference stencil.
 template <typename S2, typename = void>
 struct strategy_has_rebind : std::false_type {};
 template <typename S2>
 struct strategy_has_rebind<S2, std::void_t<typename S2::template rebind<double>>>
+    : std::true_type {};
+
+// Detect a strategy that SUPPORTS the geometric mass chart (neighbour-secant
+// transport, odelia::log_density_rate), via a nested `geometric_transport` marker
+// type. The mass chart is the stable, differentiable transport for K93; the FD
+// secant is numerically unstable for FF16/TF24 (it drives cohort density to
+// overflow), so they do not declare it and never take that arm regardless of the
+// Control flag. For supporting strategies the flag node_geometric_compression
+// (default on) selects it, and can still turn it off per run.
+template <typename S2, typename = void>
+struct strategy_supports_geometric_transport : std::false_type {};
+template <typename S2>
+struct strategy_supports_geometric_transport<S2, std::void_t<typename S2::geometric_transport>>
     : std::true_type {};
 
 template <typename T, typename E>
@@ -168,7 +177,7 @@ void Node<T,E>::compute_rates(const environment_type& environment,
   // NOTE: This must be called *after* compute_rates, but given we
   // need mortality_dt() that's always going to be the case.
   bool geometric = false;
-  if constexpr (strategy_has_rebind<strategy_type>::value)
+  if constexpr (strategy_supports_geometric_transport<strategy_type>::value)
     geometric = individual.control().node_geometric_compression;
   if (geometric) {
     // Species::compute_rates sets -dg/dx - mortality from cohort neighbour
@@ -274,6 +283,13 @@ Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
   } else {
     // Active pass. The FD VALUE (matching the double trajectory) is computed in
     // double on a fresh copy (value only -- its stencil derivative is discarded).
+    // The parameter-derivative of the transport term is deliberately dropped here:
+    // strategies whose census gradient needs it (K93) take the geometric mass
+    // chart instead (Species::compute_rates), whose derivative is exact and well
+    // conditioned; the other strategies' differentiated metrics (mutant fitness)
+    // carry no density factor, so this term is off that graph (docs §15). This is
+    // why the old forward-over-reverse dg/dh injection (plant#39) is gone -- the
+    // mass chart superseded it.
     individual_type p = individual;
     auto fun_d = [&] (double h) -> double {
       return xad::value(p.growth_rate_given_height(value_type(h), environment));
@@ -282,86 +298,7 @@ Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
     const double fd_value = control.node_gradient_richardson
       ? util::gradient_richardson(fun_d, h0, eps, control.node_gradient_richardson_depth)
       : util::gradient_fd(fun_d, h0, eps, fun_d(h0), control.node_gradient_direction);
-
-    if constexpr (strategy_has_rebind<strategy_type>::value) {
-      // Forward-mode-instantiable strategy (K93): keep the FD value on the
-      // trajectory but INJECT the exact analytic parameter-derivative of dg/dh by
-      // forward-over-reverse (plant#39). dg/dh is a derivative of differentiable
-      // code, so instead of differentiating the FD stencil on the outer tape (which
-      // blew up near the growth clamp) we seed the height direction in forward
-      // (tangent) mode over the reverse scalar; the smoothed clamp
-      // (util::smooth_positive) makes it kink-free. Build a scratch at
-      // Fwd = FReal<value_type>, promote params + state value-preservingly, and give
-      // the forward sweep an environment fixed at this cohort's competition whose
-      // tangent carries dE/dh (below), so the tangent of g is the TOTAL spatial
-      // derivative. With the coupling term included this closes the two-cohort
-      // growth-parameter census gradient to sub-percent (plant#39, dE/dh experiment).
-      using Fwd = odelia::ad::tangent_of<value_type>;
-      using strat_fwd_t = typename strategy_type::template rebind<Fwd>;
-      using env_fwd_t   = typename environment_type::template rebind<Fwd>;
-
-      strat_fwd_t strat_fwd;
-      {
-        auto strat_src = individual.r_get_strategy();
-        auto src = strat_src.field_ptrs();
-        auto dst = strat_fwd.field_ptrs();
-        for (std::size_t i = 0; i < dst.size(); ++i) *dst[i] = odelia::ad::constant(*src[i]);
-      }
-      strat_fwd.prepare_strategy();
-
-      Individual<strat_fwd_t, env_fwd_t> scratch(make_strategy_ptr(strat_fwd));
-      for (std::size_t i = 0; i < individual.ode_size(); ++i)
-        scratch.set_state(static_cast<int>(i),
-                          odelia::ad::constant(individual.state(static_cast<int>(i))));
-
-      // The environment scalar the forward (tangent) sweep sees carries TWO pieces
-      // of information, so the tangent of g is the TOTAL spatial derivative
-      // dg/dh = ∂g/∂h|_E + ∂g/∂E·(dE/dh), not just the fixed-environment partial:
-      //   value(competition_fwd)      = E(h0)     -- competition here;
-      //   derivative(competition_fwd) = dE/dh     -- how competition changes with height.
-      // dE/dh comes from the environment's OWNED secant slope (design B): step and
-      // direction are the same Control the production stencil uses, so this coupling
-      // slope matches the stencil's implicit d(light)/d(height) by construction --
-      // not the interpolator's analytic query tangent, which is the unreliable,
-      // compounding channel frozen on the rate path (plant#39).
-      //
-      // Crucial subtlety [plant#39, dE/dh experiment]: we inject the dE/dh *value*
-      // but DETACH its θ-sensitivity (`value_type(xad::value(...))` drops the outer
-      // tape link). Reason: the θ-derivative of the secant over a tiny fixed step
-      // eps≪(cohort spacing) is an ill-conditioned finite difference that blows the
-      // census gradient up ~2.3× on-tape (an eps≪Δx "staircase" artifact); its true
-      // contribution is <0.5%. So we keep the well-conditioned secant value and
-      // differentiate the tamer surrogate (a frozen dE/dh) -- the bias-ledger entry
-      // for this seam. Lands the two-cohort growth-parameter census gradient within
-      // ~0.5% of FD (b_1 to ~0.03%), vs 1.5% low if the coupling is dropped or 2.3×
-      // high if the secant's θ-derivative is taped.
-      const value_type h0v = individual.state(HEIGHT_INDEX);
-      const value_type E_h = environment.get_environment_at_height(h0v);
-      const value_type dEdh = environment.get_environment_slope_at_height(
-          h0v, eps, control.node_gradient_direction);
-
-      env_fwd_t env_fwd;
-      Fwd competition_fwd = odelia::ad::constant(E_h);    // value = E(h0), tangent = 0
-      xad::derivative(competition_fwd) =                  // tangent = dE/dh value only
-          value_type(xad::value(dEdh));                   //   (θ-sensitivity detached)
-      env_fwd.set_fixed_environment_scalar(competition_fwd,
-                                           environment.light_availability.max_height());
-
-      const value_type dgdh = odelia::ad::directional_derivative(
-          h0v, [&](Fwd h) { return scratch.growth_rate_given_height(h, env_fwd); });
-
-      // value = fd_value (matches the double trajectory bit-for-bit -> stable, no
-      // fork), derivative = the total analytic dg/dh parameter-sensitivity.
-      return dgdh - xad::value(dgdh) + fd_value;
-    } else {
-      // Strategy not yet forward-mode-instantiable (FF16/TF24/TF24f): FD value with
-      // its parameter-derivative dropped. Their differentiated metrics (mutant
-      // fitness) carry no density factor, so this term is off that graph (docs §15);
-      // census gradients for them await their rebind / forward-mode port. TF24's g
-      // re-runs a non-differentiable leaf optimiser, so its dg/dh will need
-      // supplied_derivative, not forward-over-reverse.
-      return value_type(fd_value);
-    }
+    return value_type(fd_value);
   }
 }
 

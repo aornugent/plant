@@ -62,6 +62,11 @@ public:
   // type for dg/dh, plant#39). Lets generic code name K93_Strategy_<U> from an
   // instantiation at S.
   template <class U> using rebind = K93_Strategy_<U>;
+  // K93 supports the geometric mass chart for its density transport (stable and
+  // exactly differentiable for its closed-form growth); the Control flag
+  // node_geometric_compression (default on) then selects it. See
+  // strategy_supports_geometric_transport in node.h.
+  using geometric_transport = void;
   typedef std::shared_ptr<K93_Strategy_<S>> ptr;
 
   K93_Strategy_() {

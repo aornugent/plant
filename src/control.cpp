@@ -31,7 +31,11 @@ Control::Control() {
   node_gradient_direction = -1;
   node_gradient_richardson = false;
   node_gradient_richardson_depth = 4;
-  node_geometric_compression = false;
+  // Default ON, but only strategies that SUPPORT the geometric mass chart
+  // (strategy_supports_geometric_transport, i.e. K93) act on it; FF16/TF24 ignore
+  // it and stay on the FD upwind stencil (the secant is unstable for them). So
+  // this default flips K93 to the mass chart while leaving the others untouched.
+  node_geometric_compression = true;
 
   ode_step_size_initial = 1e-6;
   ode_step_size_min = 1e-6;

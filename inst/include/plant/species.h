@@ -266,7 +266,7 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   // tallest-to-shortest, so height decreases with index and the difference
   // quotient is sign-correct for interior (centred) and boundary (one-sided)
   // nodes alike -- exactly odelia::log_density_rate over that same spacing.
-  if constexpr (strategy_has_rebind<T>::value)
+  if constexpr (strategy_supports_geometric_transport<T>::value)
   if (!nodes.empty() && nodes[0].individual.control().node_geometric_compression) {
     const std::size_t n = nodes.size();
     if (n < 2) return;  // the neighbour difference is undefined for a lone cohort
