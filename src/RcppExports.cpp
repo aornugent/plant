@@ -11503,6 +11503,60 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// TF24_Environment__residual_soil_rhs
+std::vector<double> TF24_Environment__residual_soil_rhs(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_, std::vector<double> theta, std::vector<double> resource_depletion, double t);
+RcppExport SEXP _plant_TF24_Environment__residual_soil_rhs(SEXP obj_SEXP, SEXP thetaSEXP, SEXP resource_depletionSEXP, SEXP tSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::TF24_Environment> >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type theta(thetaSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type resource_depletion(resource_depletionSEXP);
+    Rcpp::traits::input_parameter< double >::type t(tSEXP);
+    rcpp_result_gen = Rcpp::wrap(TF24_Environment__residual_soil_rhs(obj_, theta, resource_depletion, t));
+    return rcpp_result_gen;
+END_RCPP
+}
+// TF24_Environment__soil_rhs
+std::vector<double> TF24_Environment__soil_rhs(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_, std::vector<double> theta, std::vector<double> resource_depletion, double t);
+RcppExport SEXP _plant_TF24_Environment__soil_rhs(SEXP obj_SEXP, SEXP thetaSEXP, SEXP resource_depletionSEXP, SEXP tSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::TF24_Environment> >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type theta(thetaSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type resource_depletion(resource_depletionSEXP);
+    Rcpp::traits::input_parameter< double >::type t(tSEXP);
+    rcpp_result_gen = Rcpp::wrap(TF24_Environment__soil_rhs(obj_, theta, resource_depletion, t));
+    return rcpp_result_gen;
+END_RCPP
+}
+// TF24_Environment__analytic_drainage_flow
+std::vector<double> TF24_Environment__analytic_drainage_flow(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_, std::vector<double> theta, double dt);
+RcppExport SEXP _plant_TF24_Environment__analytic_drainage_flow(SEXP obj_SEXP, SEXP thetaSEXP, SEXP dtSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::TF24_Environment> >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type theta(thetaSEXP);
+    Rcpp::traits::input_parameter< double >::type dt(dtSEXP);
+    rcpp_result_gen = Rcpp::wrap(TF24_Environment__analytic_drainage_flow(obj_, theta, dt));
+    return rcpp_result_gen;
+END_RCPP
+}
+// TF24_Environment__drainage_touchdown_time
+double TF24_Environment__drainage_touchdown_time(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_, double theta0, size_t layer);
+RcppExport SEXP _plant_TF24_Environment__drainage_touchdown_time(SEXP obj_SEXP, SEXP theta0SEXP, SEXP layerSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::TF24_Environment> >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< double >::type theta0(theta0SEXP);
+    Rcpp::traits::input_parameter< size_t >::type layer(layerSEXP);
+    rcpp_result_gen = Rcpp::wrap(TF24_Environment__drainage_touchdown_time(obj_, theta0, layer));
+    return rcpp_result_gen;
+END_RCPP
+}
 // TF24_Environment__time__get
 double TF24_Environment__time__get(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_);
 RcppExport SEXP _plant_TF24_Environment__time__get(SEXP obj_SEXP) {
@@ -13043,6 +13097,10 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_TF24_Environment__get_atm_o2_kpa", (DL_FUNC) &_plant_TF24_Environment__get_atm_o2_kpa, 1},
     {"_plant_TF24_Environment__get_atm_kpa", (DL_FUNC) &_plant_TF24_Environment__get_atm_kpa, 1},
     {"_plant_TF24_Environment__compute_rates", (DL_FUNC) &_plant_TF24_Environment__compute_rates, 2},
+    {"_plant_TF24_Environment__residual_soil_rhs", (DL_FUNC) &_plant_TF24_Environment__residual_soil_rhs, 4},
+    {"_plant_TF24_Environment__soil_rhs", (DL_FUNC) &_plant_TF24_Environment__soil_rhs, 4},
+    {"_plant_TF24_Environment__analytic_drainage_flow", (DL_FUNC) &_plant_TF24_Environment__analytic_drainage_flow, 3},
+    {"_plant_TF24_Environment__drainage_touchdown_time", (DL_FUNC) &_plant_TF24_Environment__drainage_touchdown_time, 3},
     {"_plant_TF24_Environment__time__get", (DL_FUNC) &_plant_TF24_Environment__time__get, 1},
     {"_plant_TF24_Environment__time__set", (DL_FUNC) &_plant_TF24_Environment__time__set, 2},
     {"_plant_TF24_Environment__soil_moist_sat__get", (DL_FUNC) &_plant_TF24_Environment__soil_moist_sat__get, 1},

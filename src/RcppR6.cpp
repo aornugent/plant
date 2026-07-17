@@ -4628,6 +4628,22 @@ void TF24_Environment__compute_rates(plant::RcppR6::RcppR6<plant::TF24_Environme
   obj_->compute_rates(resource_depletion);
 }
 // [[Rcpp::export]]
+std::vector<double> TF24_Environment__residual_soil_rhs(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_, std::vector<double> theta, std::vector<double> resource_depletion, double t) {
+  return obj_->residual_soil_rhs(theta, resource_depletion, t);
+}
+// [[Rcpp::export]]
+std::vector<double> TF24_Environment__soil_rhs(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_, std::vector<double> theta, std::vector<double> resource_depletion, double t) {
+  return obj_->soil_rhs(theta, resource_depletion, t);
+}
+// [[Rcpp::export]]
+std::vector<double> TF24_Environment__analytic_drainage_flow(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_, std::vector<double> theta, double dt) {
+  return obj_->analytic_drainage_flow(theta, dt);
+}
+// [[Rcpp::export]]
+double TF24_Environment__drainage_touchdown_time(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_, double theta0, size_t layer) {
+  return obj_->drainage_touchdown_time(theta0, layer);
+}
+// [[Rcpp::export]]
 double TF24_Environment__time__get(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_) {
   return obj_->time;
 }

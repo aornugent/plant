@@ -276,63 +276,120 @@ public:
   // This is an explicit, first-order representation; drainage is instantaneous
   // single-direction (no upward capillary flux between layers - that is handled
   // hydraulically inside the plant via E_from_Soil_to_Root_Collar).
-  virtual void compute_rates(std::vector<double> const &resource_depletion)
-  {
-
-    double water_input;
-    double rainfall = extrinsic_drivers.evaluate("rainfall", time);
+  // Per-layer soil-moisture rates. `include_drainage_loss = true` is the full
+  // soil RHS that compute_rates integrates; `false` drops the diagonal
+  // gravitational drainage loss K(theta_i) so an inner stepper can integrate it
+  // analytically (the R1 Strang split, issue #53). Inter-layer cascade inflow
+  // (win_i = K(theta_{i-1})) and the residual positivity guard are unchanged.
+  // Also fills water_flux[] (per-layer drainage out) for the cascade and the
+  // bottom-flux diagnostic. Single source of truth for both the monolithic and
+  // the split so they cannot disagree.
+  std::vector<double> soil_moisture_rates(const std::vector<double>& theta,
+                                          std::vector<double> const &resource_depletion,
+                                          double t, bool include_drainage_loss) {
+    std::vector<double> rate(soil_number_of_depths);
+    const double rainfall = extrinsic_drivers.evaluate("rainfall", t);
     const double soil_moist_sat_0 =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
-    double infiltration = rainfall * std::max(
+    const double infiltration = rainfall * std::max(
       0.0,
-      1 - a_infil * std::pow(vars.state(0) / soil_moist_sat_0, b_infil));
+      1 - a_infil * std::pow(theta[0] / soil_moist_sat_0, b_infil));
+    double water_input;
+    for (size_t i = 0; i < soil_number_of_depths; i++) {
+      water_input = (i == 0) ? infiltration : water_flux[i-1];
+      water_flux[i] = soil_K_from_soil_theta(theta[i], i);
+      const double drain = include_drainage_loss ? water_flux[i] : 0.0;
+      // Positivity guard (issue #485/#549): at/below the residual moisture a
+      // layer is not dried further; `!(r > 0.0)` also traps a non-finite rate.
+      double r = (water_input - drain - resource_depletion[i]) / dz[i];
+      if (theta[i] <= soil_moist_residual && !(r > 0.0)) {
+        r = 0.0;
+      }
+      rate[i] = r;
+    }
+    return rate;
+  }
+
+  virtual void compute_rates(std::vector<double> const &resource_depletion)
+  {
+    const std::vector<double> theta = get_soil_water_state();
+    const std::vector<double> rate =
+      soil_moisture_rates(theta, resource_depletion, time, true);
     double total_resource_depletion = 0;
-
-
-    // treat each soil layer as a separate resource pool
-    for (size_t i = 0; i < soil_number_of_depths; i++)
-    {
-
-      // initial representation of drainage; to be improved
-      if (i == 0)
-      {
-        water_input = infiltration;
-      }
-      else
-      {
-        // m3 m^-2
-        water_input = water_flux[i-1];
-      }
-        // TODO: m3 m^-2
-      water_flux[i] = soil_K_from_soil_theta(vars.state(i), i);
-      // this function does runoff
-
-      // Positivity guard (issue #485): a layer at or below the residual
-      // moisture theta_r is not dried further (only rewetting is allowed). This
-      // keeps the explicit fixed-step solver from driving a drought-stressed
-      // layer to theta <= 0, where the retention curve psi_from_soil_moist and
-      // the conductivity curve soil_K_from_soil_theta go non-finite. Wetter
-      // layers are unaffected, so non-drought runs are unchanged.
-      const double theta = vars.state(i);
-      double rate = (water_input - water_flux[i] - resource_depletion[i]) / dz[i];
-      // Positivity guard (issue #485), hardened for #549: at/below the residual
-      // moisture a layer must not be dried further. The original `rate < 0.0`
-      // test let a *non-finite* rate through, because `NaN < 0.0` is false in
-      // IEEE 754 -- a NaN soil_consumption_ (from the retention curve's enormous
-      // psi_soil near theta_r) then wrote straight into the soil state. `!(rate
-      // > 0.0)` is true for NaN and for rate <= 0, so only genuine rewetting is
-      // allowed and NaN/negative rates are clamped to 0.
-      if (theta <= soil_moist_residual && !(rate > 0.0)) {
-        rate = 0.0;
-      }
-      vars.set_rate(i, rate);
+    for (size_t i = 0; i < soil_number_of_depths; i++) {
+      vars.set_rate(i, rate[i]);
       total_resource_depletion += resource_depletion[i];
     }
-      vars.set_rate(soil_number_of_depths, rainfall);
-      vars.set_rate(soil_number_of_depths + 1, infiltration);
-      vars.set_rate(soil_number_of_depths + 2, water_flux[soil_number_of_depths - 1]);
-      vars.set_rate(soil_number_of_depths + 3, total_resource_depletion);
+    const double rainfall = extrinsic_drivers.evaluate("rainfall", time);
+    const double soil_moist_sat_0 =
+      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
+    const double infiltration = rainfall * std::max(
+      0.0,
+      1 - a_infil * std::pow(theta[0] / soil_moist_sat_0, b_infil));
+    vars.set_rate(soil_number_of_depths, rainfall);
+    vars.set_rate(soil_number_of_depths + 1, infiltration);
+    vars.set_rate(soil_number_of_depths + 2, water_flux[soil_number_of_depths - 1]);
+    vars.set_rate(soil_number_of_depths + 3, total_resource_depletion);
+  }
 
+  // R1 (issue #53). The soil RHS as callable pieces for a Strang-splitting
+  // inner stepper: the residual (everything except the diagonal drainage loss),
+  // the full monolithic RHS as a pure function (for single-rate use and to
+  // verify the split reproduces it), the exact drainage recession map, and its
+  // closed-form touchdown time to the residual floor.
+  std::vector<double> residual_soil_rhs(std::vector<double> theta,
+                                        std::vector<double> resource_depletion,
+                                        double t) {
+    return soil_moisture_rates(theta, resource_depletion, t, false);
+  }
+  std::vector<double> soil_rhs(std::vector<double> theta,
+                               std::vector<double> resource_depletion, double t) {
+    return soil_moisture_rates(theta, resource_depletion, t, true);
+  }
+  // Exact per-layer gravitational-drainage recession over dt. The drainage-only
+  // ODE theta' = -c*theta^p (p = 2 n_psi + 3, c = K_sat/(dz*theta_sat^p)) has
+  // the closed-form, positivity-preserving flow
+  //   theta(dt) = [theta0^(1-p) + (p-1)*c*dt]^(-1/(p-1)).
+  // For theta > theta_sat conductivity saturates at K_sat (soil_K clamps there),
+  // so drain at the constant rate K_sat/dz until theta reaches theta_sat, then
+  // the power law.
+  std::vector<double> analytic_drainage_flow(std::vector<double> theta,
+                                             double dt) const {
+    std::vector<double> out(theta.size());
+    for (size_t i = 0; i < theta.size(); i++) {
+      const double ksat = soil_parameter_value(K_sat_layers, K_sat, i);
+      const double tsat = soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, i);
+      const double n = soil_parameter_value(n_psi_layers, n_psi, i);
+      const double p = 2 * n + 3;
+      const double c = ksat / (dz[i] * std::pow(tsat, p));
+      // A layer already at/below the residual floor is not dried further
+      // (mirrors the compute_rates positivity guard); drainage cannot rewet it.
+      if (theta[i] <= soil_moist_residual) { out[i] = theta[i]; continue; }
+      double th = theta[i];
+      double rem = dt;
+      if (th > tsat) {
+        const double t_to_sat = (th - tsat) * dz[i] / ksat;
+        if (rem <= t_to_sat) { out[i] = th - ksat / dz[i] * rem; continue; }
+        th = tsat;
+        rem -= t_to_sat;
+      }
+      const double rec = std::pow(std::pow(th, 1 - p) + (p - 1) * c * rem, -1.0 / (p - 1));
+      // Floor at the residual moisture: the monolithic guard stops drying there,
+      // so the exact recession must too for the split to reproduce it. (The
+      // recession slows as theta^p, so this only bites under sustained drying.)
+      out[i] = std::max(rec, soil_moist_residual);
+    }
+    return out;
+  }
+  double drainage_touchdown_time(double theta0, size_t layer) const {
+    if (theta0 <= soil_moist_residual) return 0.0;
+    const double ksat = soil_parameter_value(K_sat_layers, K_sat, layer);
+    const double tsat = soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
+    const double n = soil_parameter_value(n_psi_layers, n_psi, layer);
+    const double p = 2 * n + 3;
+    const double c = ksat / (dz[layer] * std::pow(tsat, p));
+    return (std::pow(soil_moist_residual, 1 - p) - std::pow(theta0, 1 - p)) /
+           ((p - 1) * c);
   }
 
   // calculate K from K_sat based on theta
