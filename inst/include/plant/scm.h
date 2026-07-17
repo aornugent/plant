@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 
 using namespace Rcpp;
 
@@ -43,6 +44,19 @@ public:
 
   // ---- Construction ------------------------------------------------------
   SCM(parameters_type p, environment_type e, plant::Control c);
+
+  // The reverse tape below is move-only, which would make SCM non-copyable; but
+  // the RcppR6 marshalling wrapper copy-constructs the object on every crossing
+  // to/from R. The tape is scratch state for a single gradient pass, not part of
+  // the SCM's identity, so a copy carries every simulation member across and
+  // starts with a fresh (null) tape -- re-created lazily on its own first
+  // gradient. Declaration order below must match the members (avoids -Wreorder).
+  SCM(const SCM& other)
+      : tape(nullptr), collect(other.collect),
+        collect_refinement_errors(other.collect_refinement_errors),
+        history(other.history), parameters(other.parameters),
+        control(other.control), patch(other.patch),
+        node_schedule(other.node_schedule), solver(other.solver) {}
 
   // ---- Simulation lifecycle ----------------------------------------------
 
@@ -83,8 +97,10 @@ public:
   patch_type& get_system_ref() { return patch; }
   std::vector<value_type*> ad_parameters() { return patch.ad_parameters(); }
   std::vector<value_type*> ad_initial_state() { return {}; }
-  // The reverse tape lives on the gradient target, not here: a unique_ptr member
-  // would make the (by-value-constructed, R-facing) SCM move-only.
+  // The reverse tape the gradient driver records into, created lazily on the
+  // first gradient and reused. Move-only; the R-facing SCM is constructed by
+  // value (moved), which this supports.
+  std::unique_ptr<typename xad::adj<double>::tape_type> tape;
 
   // ---- Outputs -----------------------------------------------------------
   // Total (not per-capita) offspring. These delegate to the patch, which owns
