@@ -6,6 +6,7 @@
 #include <plant/util.h>
 #include <plant/environment.h>
 #include <odelia/ode_interface.hpp>
+#include <odelia/mass_transport.hpp>
 #include <plant/node.h>
 #include <plant/species_base.h>
 #include <odelia/drivers.hpp>
@@ -260,25 +261,24 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   // SAME cohort spacings that weight the competition-integral trapezoids
   // (compute_competition above). Because both appearances of ∂ₓg -- the one in
   // the log-density ODE and the one implicit in the evolving quadrature spacings
-  // -- are now the same discrete operator, their parameter-derivatives cancel on
-  // the reverse tape, giving well-conditioned census gradients. Nodes are ordered
-  // tallest-to-shortest, so height decreases with index; the difference quotient
-  // is sign-correct for interior (centred) and boundary (one-sided) nodes alike.
+  // -- are the same discrete operator, their parameter-derivatives cancel on the
+  // reverse tape, giving well-conditioned census gradients. Nodes are ordered
+  // tallest-to-shortest, so height decreases with index and the difference
+  // quotient is sign-correct for interior (centred) and boundary (one-sided)
+  // nodes alike -- exactly odelia::log_density_rate over that same spacing.
   if constexpr (strategy_has_rebind<T>::value)
   if (!nodes.empty() && nodes[0].individual.control().node_geometric_compression) {
     const std::size_t n = nodes.size();
     if (n < 2) return;  // the neighbour difference is undefined for a lone cohort
+    std::vector<value_type> heights(n), growths(n), mortalities(n);
     for (std::size_t i = 0; i < n; ++i) {
-      // Nodes are ordered tallest-to-shortest. Pick the neighbour pair once:
-      // centred for interior nodes, one-sided at each end. Sign-correct in all
-      // three cases because height strictly decreases with index.
-      const std::size_t lo = (i == 0) ? 0 : i - 1;
-      const std::size_t hi = (i + 1 == n) ? i : i + 1;
-      const value_type dgdh =
-          (nodes[lo].growth_rate() - nodes[hi].growth_rate())
-        / (nodes[lo].height()      - nodes[hi].height());
-      nodes[i].set_log_density_dt(-dgdh - nodes[i].mortality_rate());
+      heights[i]     = nodes[i].height();
+      growths[i]     = nodes[i].growth_rate();
+      mortalities[i] = nodes[i].mortality_rate();
     }
+    const std::vector<value_type> rate =
+        odelia::log_density_rate(heights, growths, mortalities);
+    for (std::size_t i = 0; i < n; ++i) nodes[i].set_log_density_dt(rate[i]);
   }
 }
 
