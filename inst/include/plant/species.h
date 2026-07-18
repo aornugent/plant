@@ -69,6 +69,21 @@ public:
   double consumption_rate(int i) const;
   std::vector<double> consumption_rate_by_node_rev(int i) const;
 
+  // * Collocation of the per-layer uptake (plant#53 item 4)
+  // consumption_rate(i) is a density-weighted trapezium of per-cohort uptake
+  // over the size distribution. When the canopy (and hence the distribution) is
+  // frozen -- e.g. across a multirate leg -- that integral can be evaluated at
+  // m << N heights instead of every node. set_collocation_nodes captures m
+  // log-spaced heights spanning the current distribution and their
+  // density*trapezium weights; add_collocated_consumption then re-evaluates only
+  // those m cohorts under the current (soil-θ) environment and adds their
+  // density-weighted uptake into `depletion`. Convergence is O(m^-2) (measured:
+  // <0.5% by m≈15-20). A no-op when fewer than two nodes exist (matching
+  // consumption_rate, which needs a distribution to integrate).
+  void set_collocation_nodes(size_t m);
+  void add_collocated_consumption(const environment_type& environment,
+                                  std::vector<double>& depletion);
+
   odelia::ode::iterator       ode_aux(odelia::ode::iterator it) const;
 
   Rcpp::NumericMatrix r_get_state() const;
@@ -125,6 +140,14 @@ private:
   using base_type::control;
   node_type new_node;
 
+  // Collocation scratch (see set_collocation_nodes / add_collocated_consumption).
+  // colloc_probe_ is a single reusable individual grown to each node height in
+  // turn; colloc_weights_[n] folds the density at colloc_heights_[n] into the
+  // trapezium weight, so the aggregate is one weighted sum over m re-solves.
+  individual_type colloc_probe_;
+  std::vector<double> colloc_heights_;
+  std::vector<double> colloc_weights_;
+
   typedef typename std::vector<node_type>::iterator nodes_iterator;
   typedef typename std::vector<node_type>::const_iterator nodes_const_iterator;
 };
@@ -132,7 +155,8 @@ private:
 template <typename T, typename E>
 Species<T,E>::Species(strategy_type s)
   : base_type(s),
-    new_node(this->strategy) {
+    new_node(this->strategy),
+    colloc_probe_(this->strategy) {
 }
 
 template <typename T, typename E>
@@ -298,6 +322,65 @@ std::vector<double> Species<T,E>::consumption_rate_by_node_rev(int i) const {
     ret.push_back(it->consumption_rate(i));
   }
   return ret;
+}
+
+template <typename T, typename E>
+void Species<T,E>::set_collocation_nodes(size_t m) {
+  colloc_heights_.clear();
+  colloc_weights_.clear();
+  const size_t n = size();
+  if (n < 2 || m < 2) {
+    return; // no distribution to integrate (consumption_rate returns 0 too)
+  }
+
+  // Ascending node heights and log-densities (nodes are stored descending).
+  std::vector<double> h(n), log_density(n);
+  for (size_t k = 0; k < n; ++k) {
+    const node_type& node = nodes[n - 1 - k];
+    h[k] = node.height();
+    log_density[k] = node.get_log_density();
+  }
+
+  // m log-spaced heights spanning the distribution, matching the cohort spacing
+  // the full-N trapezium already integrates over.
+  const double log_lo = std::log(h.front()), log_hi = std::log(h.back());
+  colloc_heights_.resize(m);
+  for (size_t j = 0; j < m; ++j) {
+    colloc_heights_[j] =
+      std::exp(log_lo + (log_hi - log_lo) * double(j) / double(m - 1));
+  }
+
+  // Linear interpolation of log-density onto the collocation heights (h is
+  // ascending; every collocation height lies within [h.front, h.back]).
+  auto density_at = [&](double x) {
+    size_t k = 0;
+    while (k + 2 < n && h[k + 1] < x) ++k;
+    const double t = (x - h[k]) / (h[k + 1] - h[k]);
+    return std::exp(log_density[k] + t * (log_density[k + 1] - log_density[k]));
+  };
+
+  // colloc_weights_[j] = trapezium weight on the collocation grid * density, so
+  // add_collocated_consumption is one density-weighted quadrature of per-cohort
+  // uptake -- the same integral as consumption_rate, sampled at m points.
+  colloc_weights_.resize(m);
+  for (size_t j = 0; j < m; ++j) {
+    const double w = (j == 0)     ? 0.5 * (colloc_heights_[1] - colloc_heights_[0])
+                   : (j == m - 1) ? 0.5 * (colloc_heights_[m - 1] - colloc_heights_[m - 2])
+                                  : 0.5 * (colloc_heights_[j + 1] - colloc_heights_[j - 1]);
+    colloc_weights_[j] = w * density_at(colloc_heights_[j]);
+  }
+}
+
+template <typename T, typename E>
+void Species<T,E>::add_collocated_consumption(const environment_type& environment,
+                                              std::vector<double>& depletion) {
+  for (size_t j = 0; j < colloc_heights_.size(); ++j) {
+    const std::vector<double> c =
+      colloc_probe_.consumption_given_height(colloc_heights_[j], environment);
+    for (size_t i = 0; i < depletion.size(); ++i) {
+      depletion[i] += c[i] * colloc_weights_[j];
+    }
+  }
 }
 
 // bit clunky...

@@ -123,6 +123,13 @@ public:
     odelia::ode::set_ode_state(species.begin(), species.end(), x.begin());
     compute_environment(true);
     environment_ptr = &environment;
+    // Freeze the collocation nodes against this leg's distribution (see
+    // fast_rates); a no-op when collocation is off.
+    if (control.n_collocation_nodes > 0) {
+      for (auto& s : species) {
+        s.set_collocation_nodes(control.n_collocation_nodes);
+      }
+    }
   }
 
   // Fast tendency: the soil (environment) rates at soil state u, with the canopy
@@ -133,7 +140,21 @@ public:
                   std::vector<double>& du) {
     environment.set_ode_state(u.begin());
     environment_ptr = &environment;
-    compute_rates();
+    if (control.n_collocation_nodes > 0) {
+      // Cheap uptake: quadrature over m frozen collocation cohorts instead of a
+      // full-N compute_rates (which also re-solves every cohort's growth). The
+      // soil rates need only the per-layer uptake, so this is the fast-block win.
+      std::vector<double> depletion(environment.ode_size(), 0.0);
+      for (auto& s : species) {
+        s.add_collocated_consumption(environment, depletion);
+      }
+      for (auto& d : depletion) {
+        d /= area;
+      }
+      environment.compute_rates(depletion);
+    } else {
+      compute_rates();
+    }
     environment.ode_rates(du.begin());
   }
 

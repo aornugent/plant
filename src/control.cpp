@@ -23,6 +23,10 @@ Control::Control() {
   // so default behaviour is unchanged.
   ode_method = "";
 
+  // Multirate fast sub-cycle collocation nodes (see Control header). 0 = exact
+  // full-N uptake; only used on the method="mri" path.
+  n_collocation_nodes = 0;
+
   // PPA canopy layer thickness in optical-depth units (see Control header).
   ppa_layer_optical_depth = 0.5;
   // PPA layer-boundary smoothing fraction (see Control header).
