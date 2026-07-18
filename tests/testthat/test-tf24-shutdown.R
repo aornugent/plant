@@ -42,10 +42,15 @@ test_that("TF24 stand uptake vanishes in deep drought without a phantom floor (#
   patch <- SCM("TF24", "TF24_Env")(set_initial_state(p1, st), env, Control())$patch
   patch$compute_environment()
   ne <- patch$environment$ode_size; ns <- patch$ode_size; si <- (ns - ne + 1):(ns - ne + 5)
-  # aggregate per-layer uptake backed out of the real patch derivs at uniform theta (zero inflow)
+  # aggregate per-layer uptake backed out of the real patch derivs at uniform theta (zero inflow).
+  # R-D (#57): the soil ODE state is log-depletion zeta = ln(theta - theta_res) and the raw rate is
+  # dzeta/dt = (dtheta/dt)/(theta - theta_res). Set the state in the zeta chart and convert the
+  # returned rate back to dtheta/dt before backing out per-layer uptake.
+  theta_res <- 1e-2
   agg_uptake <- function(theta) {
-    y <- patch$ode_state; y[si] <- pmin(pmax(rep(theta, 5), 1e-6), SAT - 1e-6)
-    r <- patch$derivs(y, 0)[si]; K <- Kf(theta)
+    th <- pmin(pmax(rep(theta, 5), 1e-6), SAT - 1e-6)
+    y <- patch$ode_state; y[si] <- log(th - theta_res)
+    r <- patch$derivs(y, 0)[si] * (th - theta_res); K <- Kf(theta)
     up <- numeric(5); up[1] <- -K - DZmm / 1000 * r[1]  # dz in m for this backing-out is immaterial to sign/zero
     for (i in 2:5) up[i] <- -DZmm / 1000 * r[i]
     up

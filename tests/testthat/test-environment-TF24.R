@@ -97,7 +97,9 @@ test_that("Environment-TF24 soil layers", {
   layers <- 10
   expect_silent(env$set_soil_number_of_depths(layers))
   expect_equal(env$get_soil_number_of_depths(), layers)
-  expect_equal(env$get_soil_water_state(), rep(0, layers))
+  # R-D (#57): the soil state is log-depletion zeta, in which theta = 0 is not
+  # representable, so a fresh/resized env defaults to half-saturation, not 0.
+  expect_equal(env$get_soil_water_state(), rep(theta_sat / 2, layers))
 
   expect_silent(env$set_soil_water_state(1:10))
   expect_equal(env$get_soil_water_state(), 1:10)

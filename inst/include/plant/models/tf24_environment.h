@@ -132,6 +132,12 @@ public:
     K_sat_layers.clear();
     a_psi_layers.clear();
     n_psi_layers.clear();
+
+    // R-D (#57): the soil state is log-depletion zeta, in which theta = 0 is not
+    // representable, so a fresh/resized env is initialised to a physical default
+    // (half-saturated) rather than the raw zeta = 0 (which would be theta ~ 1).
+    for (int i = 0; i < soil_number_of_depths; ++i)
+      vars.set_state(i, zeta_from_theta(soil_moist_sat * 0.5));
   }
 
   void set_soil_parameters(int n,
@@ -156,6 +162,16 @@ public:
 
   int get_soil_number_of_depths() const {return soil_number_of_depths;}
   std::vector<double> get_soil_mid_depths() const { return z_mid; }
+
+  // R-D (#57): the soil ODE state is log-depletion  zeta_i = ln(theta_i - theta_res),
+  // not theta itself. theta is recovered wherever the physics needs it. Positivity
+  // (theta > theta_res) is structural -- no finite zeta maps to or below theta_res -- so
+  // the state needs no clamp. The R interface stays in theta (set/get_soil_water_state
+  // convert), and only doubles cross the boundary.
+  double theta_from_zeta(double zeta) const { return soil_moist_residual + std::exp(zeta); }
+  double zeta_from_theta(double theta) const {
+    return std::log(std::max(theta - soil_moist_residual, 1e-300));
+  }
 
   // TODO: should we use auxilliary in internals
   std::vector<double> water_flux;
@@ -285,7 +301,7 @@ public:
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
     double infiltration = rainfall * std::max(
       0.0,
-      1 - a_infil * std::pow(vars.state(0) / soil_moist_sat_0, b_infil));
+      1 - a_infil * std::pow(theta_from_zeta(vars.state(0)) / soil_moist_sat_0, b_infil));
     double total_resource_depletion = 0;
 
 
@@ -304,25 +320,19 @@ public:
         water_input = water_flux[i-1];
       }
         // TODO: m3 m^-2
-      water_flux[i] = soil_K_from_soil_theta(vars.state(i), i);
+      water_flux[i] = soil_K_from_soil_theta(theta_from_zeta(vars.state(i)), i);
       // this function does runoff
 
-      // Positivity guard (issue #485): a layer at or below the residual
-      // moisture theta_r is not dried further (only rewetting is allowed). This
-      // keeps the explicit fixed-step solver from driving a drought-stressed
-      // layer to theta <= 0, where the retention curve psi_from_soil_moist and
-      // the conductivity curve soil_K_from_soil_theta go non-finite. Wetter
-      // layers are unaffected, so non-drought runs are unchanged.
-      const double theta = vars.state(i);
-      double rate = (water_input - water_flux[i] - resource_depletion[i]) / dz[i];
-      // Positivity guard (issue #485), hardened for #549: at/below the residual
-      // moisture a layer must not be dried further. The original `rate < 0.0`
-      // test let a *non-finite* rate through, because `NaN < 0.0` is false in
-      // IEEE 754 -- a NaN soil_consumption_ (from the retention curve's enormous
-      // psi_soil near theta_r) then wrote straight into the soil state. `!(rate
-      // > 0.0)` is true for NaN and for rate <= 0, so only genuine rewetting is
-      // allowed and NaN/negative rates are clamped to 0.
-      if (theta <= soil_moist_residual && !(rate > 0.0)) {
+      const double theta = theta_from_zeta(vars.state(i));
+      const double dtheta_dt =
+        (water_input - water_flux[i] - resource_depletion[i]) / dz[i];
+      // Log-depletion state (#57): dzeta/dt = (dtheta/dt)/(theta - theta_res).
+      // Positivity is structural (theta = theta_res + exp(zeta) > theta_res
+      // always), so the old residual-floor clamp is unnecessary and gone. We
+      // still trap a non-finite rate -- a NaN uptake near the leaf-solve domain
+      // edge would otherwise write straight into the state -- as 0.
+      double rate = dtheta_dt / (theta - soil_moist_residual);
+      if (!std::isfinite(rate)) {
         rate = 0.0;
       }
       vars.set_rate(i, rate);
@@ -414,7 +424,11 @@ public:
   double get_atm_kpa()    const { return cached_driver_("atm_kpa", atm_kpa_cache_, atm_kpa_cache_time_); }
 
 
-  std::vector<double> get_soil_water_state() const { return {vars.states.begin(), vars.states.end() - aux_num}; }
+  std::vector<double> get_soil_water_state() const {
+    std::vector<double> theta(soil_number_of_depths);
+    for (int i = 0; i < soil_number_of_depths; ++i) theta[i] = theta_from_zeta(vars.state(i));
+    return theta;
+  }
   const std::vector<double>& get_soil_water_potential_state() const {
     bool cache_stale = !psi_soil_cache_valid_ ||
       psi_soil_cache_state_.size() != static_cast<size_t>(soil_number_of_depths);
@@ -432,8 +446,8 @@ public:
       psi_soil_cache_.resize(soil_number_of_depths);
       psi_soil_cache_state_.resize(soil_number_of_depths);
       for (int i = 0; i < soil_number_of_depths; ++i) {
-        const double soil_moist = vars.state(i);
-        psi_soil_cache_state_[i] = soil_moist;
+        const double soil_moist = theta_from_zeta(vars.state(i));
+        psi_soil_cache_state_[i] = vars.state(i);  // cache key is the raw zeta state
         psi_soil_cache_[i] = psi_from_soil_moist(soil_moist, i);
       }
       psi_soil_cache_valid_ = true;
@@ -456,7 +470,7 @@ public:
     }
     for (size_t i = 0; i < (vars.state_size); i++) {
       if(i < soil_number_of_depths){
-        vars.set_state(i, state[i]);
+        vars.set_state(i, zeta_from_theta(state[i]));  // R interface is theta; store zeta (#57)
       } else {
         vars.set_state(i, 0);
       }

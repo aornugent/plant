@@ -51,9 +51,17 @@ for (x in names(strategy_types)) {
     }
     if(x %in% c("TF24")) {
       length_odes <- env$get_soil_number_of_depths()
-      soil_moist_inits <- c(rep(env$soil_moist_sat, length_odes)/2, rep(0,4))
-      expect_equal(patch$ode_state, soil_moist_inits)
-      expect_equal(patch$ode_rates, c(3.312786717, rep(0,4), 1.000000000, 0.996093750, 0.002257735, 0.000000000), tolerance = 1e-4)
+      # R-D (#57): the soil ODE state is log-depletion zeta = ln(theta - theta_res),
+      # and its rate is dzeta/dt = (dtheta/dt)/(theta - theta_res). The theta interface
+      # is unchanged (env$get_soil_water_state() still returns half-saturation); only the
+      # raw ODE state/rate are in the log chart. The aux flux slots stay linear.
+      theta_res <- 1e-2
+      zeta_init <- log(env$soil_moist_sat/2 - theta_res)
+      soil_state_inits <- c(rep(zeta_init, length_odes), rep(0,4))
+      expect_equal(patch$ode_state, soil_state_inits)
+      expect_equal(env$get_soil_water_state(), rep(env$soil_moist_sat/2, length_odes))
+      # rate[0] = 3.312786717/(theta-theta_res) = 16.2392 (dzeta/dt); aux slots unchanged.
+      expect_equal(patch$ode_rates, c(16.23915, rep(0,4), 1.000000000, 0.996093750, 0.002257735, 0.000000000), tolerance = 1e-4)
     }
     
     expect_identical(patch$ode_state, env_state)
