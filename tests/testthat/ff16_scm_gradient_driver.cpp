@@ -62,9 +62,14 @@ static const std::vector<int> FF16_R0_TARGET_IDX = {0, 6, 16};
 // [[Rcpp::export]]
 Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate = 20.0,
                                        double max_patch_lifetime = 105.32,
-                                       bool freeze_query = false) {
+                                       bool freeze_query = false, int metric = 0) {
   using RevS = xad::adj<double>::active_type;  // AReal: compute_gradient
   using FwdS = xad::fwd<double>::active_type;  // FReal: compute_jvp
+
+  // metric: 0 = offspring (R0, routes through reproduction); 1 = census
+  // (compute_competition(0) -- runs the full growth trajectory but NOT the
+  // reproduction chain, so it splits growth/field errors from reproduction ones).
+  const bool census = (metric == 1);
 
   // Channel isolation: freeze the field's query-height derivative on the reverse
   // type only, so the reverse gradient carries the field's SOURCE self-shading but
@@ -126,8 +131,9 @@ Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate
     SCM<FF16_Strategy_<RevS>, FF16_Environment_<RevS>> scm(
         make_params(FF16_Strategy_<RevS>()), env, ctrl_replay);
     pin_replay(scm);
-    auto functional = [](decltype(scm)& s) -> RevS {
-      return s.get_system_ref().offspring_production()[0];
+    auto functional = [census](decltype(scm)& s) -> RevS {
+      return census ? s.get_system_ref().compute_competition(0.0)
+                    : s.get_system_ref().offspring_production()[0];
     };
     auto res = odelia::ode::compute_gradient(scm, targets_for(scm), functional);
     value = res.first;
@@ -143,8 +149,9 @@ Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate
     SCM<FF16_Strategy_<FwdS>, FF16_Environment_<FwdS>> scm(
         make_params(FF16_Strategy_<FwdS>()), env, ctrl_replay);
     pin_replay(scm);
-    auto functional = [](decltype(scm)& s) -> FwdS {
-      return s.get_system_ref().offspring_production()[0];
+    auto functional = [census](decltype(scm)& s) -> FwdS {
+      return census ? s.get_system_ref().compute_competition(0.0)
+                    : s.get_system_ref().offspring_production()[0];
     };
     auto dd = odelia::ode::compute_directional_derivative(scm, targets_for(scm), v,
                                                           functional);
@@ -169,7 +176,8 @@ Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate
     FF16_Environment_<double> env;
     SCM<FF16_Strategy_<double>, FF16_Environment_<double>> scm(p, env, ctrl_replay);
     pin_replay(scm); scm.run();
-    return scm.get_system_ref().offspring_production()[0];
+    return census ? scm.get_system_ref().compute_competition(0.0)
+                  : scm.get_system_ref().offspring_production()[0];
   };
   std::vector<double> fd_grad(FF16_R0_TARGET_IDX.size());
   {
