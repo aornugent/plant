@@ -636,41 +636,56 @@ void Patch<T,E>::compute_environment(bool rescale) {
 // need per-species fields -- noted, not exercised here.)
 template <typename T, typename E>
 void Patch<T,E>::assemble_competition_field() {
-  std::vector<value_type> H, amp;    // active heights + amplitudes, one per cohort
-  for (size_t i = 0; i < species.size(); ++i)
-    for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it) {
-      H.push_back(it->height());
-      amp.push_back(it->compute_competition(0.0));  // density*wpc (Q(0)=1)
+  // Build one source per cohort: source_weight[p] = amp * M * b_p(H). The
+  // trapezium measure M and the source factors b_p use SAME-SPECIES neighbours
+  // and the species' own canopy (compute_competition integrates each species
+  // separately), so this is computed per species; the sources are then merged in
+  // descending height for a single cumulative field.
+  std::vector<value_type> H;                          // per-cohort height
+  std::array<std::vector<value_type>, E::comp_rank> sw;  // per-cohort source weight
+  for (size_t i = 0; i < species.size(); ++i) {
+    const size_t m = species[i].size();
+    if (m == 0) continue;
+    std::vector<value_type> h(m), amp(m);
+    size_t k = 0;
+    const CanopyShape* canopy = nullptr;
+    for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it, ++k) {
+      h[k]   = it->height();
+      amp[k] = it->compute_competition(0.0);  // density*wpc (Q(0)=1)
+      if (canopy == nullptr)
+        canopy = &it->individual.r_get_strategy().canopy_shape;
     }
+    for (size_t j = 0; j < m; ++j) {
+      // Same-species trapezium measure: half the span to the two neighbours
+      // (one-sided at the crown top / smallest cohort). (Skips the new_node
+      // boundary term -- a small, documented re-baseline of the field value.)
+      const value_type hi = (j == 0)     ? h[0]     : h[j - 1];
+      const value_type lo = (j == m - 1) ? h[m - 1] : h[j + 1];
+      const value_type M = 0.5 * (hi - lo);
+      const auto b = canopy->template shading_source_factors<value_type>(h[j]);
+      H.push_back(h[j]);
+      for (size_t p = 0; p < E::comp_rank; ++p) sw[p].push_back(amp[j] * M * b[p]);
+    }
+  }
   const size_t n = H.size();
   if (n == 0) { environment.clear_competition_field(); return; }
 
-  // Order descending by height (passive key).
+  // Merge all species' sources in descending height for the cumulative field.
   std::vector<size_t> ord(n);
   for (size_t j = 0; j < n; ++j) ord[j] = j;
   std::sort(ord.begin(), ord.end(), [&](size_t a, size_t b) {
     return odelia::util::to_passive(H[a]) > odelia::util::to_passive(H[b]);
   });
-
-  std::vector<value_type> Hs(n), amps(n);
+  std::array<std::vector<value_type>, E::comp_rank> sw_sorted;
+  for (size_t p = 0; p < E::comp_rank; ++p) sw_sorted[p].resize(n);
   std::vector<double> heights_d(n);
   for (size_t j = 0; j < n; ++j) {
-    Hs[j] = H[ord[j]]; amps[j] = amp[ord[j]];
-    heights_d[j] = odelia::util::to_passive(Hs[j]);
+    heights_d[j] = odelia::util::to_passive(H[ord[j]]);
+    for (size_t p = 0; p < E::comp_rank; ++p) sw_sorted[p][j] = sw[p][ord[j]];
   }
-
+  // Query factors come from any cohort's canopy (shared shape); use species 0's.
   const auto& canopy = species[0].node_begin()->individual.r_get_strategy().canopy_shape;
-  std::array<std::vector<value_type>, E::comp_rank> sw;
-  for (size_t p = 0; p < E::comp_rank; ++p) sw[p].resize(n);
-  for (size_t j = 0; j < n; ++j) {
-    // Trapezium measure: half the span to the two neighbours (one-sided at ends).
-    const value_type hi = (j == 0)     ? Hs[0]     : Hs[j - 1];
-    const value_type lo = (j == n - 1) ? Hs[n - 1] : Hs[j + 1];
-    const value_type M = 0.5 * (hi - lo);
-    const auto b = canopy.template shading_source_factors<value_type>(Hs[j]);
-    for (size_t p = 0; p < E::comp_rank; ++p) sw[p][j] = amps[j] * M * b[p];
-  }
-  environment.assemble_competition_field(sw, heights_d, canopy);
+  environment.assemble_competition_field(sw_sorted, heights_d, canopy);
 }
 
 
