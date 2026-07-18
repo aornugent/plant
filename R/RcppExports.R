@@ -4213,6 +4213,14 @@ make_node_schedule__Parameters___K93__K93_Env <- function(p) {
     .Call('_plant_make_node_schedule__Parameters___K93__K93_Env', PACKAGE = 'plant', p)
 }
 
+mri_fast_rate_calls_get <- function() {
+    .Call('_plant_mri_fast_rate_calls_get', PACKAGE = 'plant')
+}
+
+mri_fast_rate_calls_reset <- function() {
+    invisible(.Call('_plant_mri_fast_rate_calls_reset', PACKAGE = 'plant'))
+}
+
 #' Generate a suitable set of default node introduction times,
 #' biased so that introductions are more closely packed at the
 #' beginning of time, become increasingly spread out.

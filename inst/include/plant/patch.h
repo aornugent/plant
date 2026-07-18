@@ -21,6 +21,11 @@ using namespace Rcpp;
 
 namespace plant {
 
+// Diagnostic counter (defined in src/mri_diag.cpp): number of fast-block
+// coupling evaluations across a run, the multirate cost driver. Incremented in
+// fast_rates; read/reset from R via mri_fast_rate_calls_get/reset.
+extern long mri_fast_rate_calls;
+
 template <typename T, typename E>
 class Patch {
 public:
@@ -138,6 +143,7 @@ public:
   // are read out. g is unused (coupling_size == 0).
   void fast_rates(const std::vector<double>& u, const std::vector<double>& /*g*/,
                   std::vector<double>& du) {
+    ++mri_fast_rate_calls;
     environment.set_ode_state(u.begin());
     environment_ptr = &environment;
     if (control.n_collocation_nodes > 0) {
