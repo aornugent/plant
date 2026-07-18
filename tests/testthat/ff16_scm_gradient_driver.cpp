@@ -1,22 +1,28 @@
 // [[Rcpp::plugins(cpp20)]]
-// FF16 SCM R0 (offspring) gradient: the exact reverse-mode trait gradient of
-// lifetime offspring production over the whole FF16 method-of-characteristics
-// solve, verified by the JVP=VJP dot-product oracle.
+// FF16 SCM R0 (offspring) gradient: the reverse-mode trait gradient of lifetime
+// offspring production over the whole FF16 method-of-characteristics solve.
 //
-// This reuses the generic v2 machinery proven on K93 with no strategy-specific
+// Reuses the generic v2 machinery proven on K93 with no strategy-specific
 // additions: the SCM duck-types the odelia gradient-driver contract, the active
 // pass replays the L1 ode-time schedule recorded on a double run (resident L2, no
 // set_mutant), and offspring flows through the value_type reproduction chain.
 //
+// STATUS (2026-07-18) -- the reverse gradient is NOT yet correct, and the
+// pinned-schedule FD leg below is the proof. The JVP=VJP oracle passes (reverse
+// and forward agree) but disagrees with the model: d(R0)/d(lma) reverse is ~ +440
+// while the FD is a rock-solid ~ -255 plateau across four orders of delta -- the
+// same false-confidence trap the oracle sprang on K93. Unlike K93, this is NOT the
+// light-field representation: swapping FF16's fitted light spline for the exact
+// separable_field (faithful in value AND in the FD derivative) leaves the FD at
+// -255 but does not fix the reverse number. The leak is in FF16's heavier
+// rate-path adjoint (crown-quadrature assimilation / allocation reverse pass),
+// which the spline's frozen (zero) query-derivative was masking. Isolating it is
+// the open P2b work; this driver's FD leg is the gate that must go green first.
+//
 // FF16's density transport is the FD upwind stencil (the geometric mass chart is
-// numerically unstable for FF16 -- it drives cohort density to overflow -- so
-// FF16 does not declare the geometric_transport marker and ignores the Control
-// flag). The stencil's transport term carries no parameter-derivative on the
-// active pass, but offspring does not route through it: the fitness integral
-// weights by birth-time density (patch_density_at_birth) and accumulated
-// survival-weighted fecundity, not the transported cohort density. So R0 is
-// exact here; a density-weighted CENSUS would need a differentiable transport and
-// is deferred.
+// numerically unstable for FF16). Offspring does not route through the transport
+// term (the fitness integral weights by birth-time density and survival-weighted
+// fecundity, not the transported cohort density), so the transport is not the gap.
 #include <Rcpp.h>
 #include <plant/models/ff16_strategy.h>
 #include <plant/models/ff16_environment.h>
@@ -25,6 +31,7 @@
 #include <plant/control.h>
 #include <plant/scm.h>
 #include <odelia/gradient.hpp>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -133,11 +140,41 @@ Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate
   double dot = 0.0;
   for (std::size_t i = 0; i < g.size(); ++i) dot += g[i] * v[i];
 
+  // The trustworthy gate: a pinned-schedule central FD of offspring over the
+  // DOUBLE SCM (perturb each target on the SAME recorded ode schedule -- no
+  // adaptive-schedule noise). Unlike the JVP=VJP oracle, this is a check against
+  // the model, so it catches the shared-representation-bias class the oracle hid
+  // for K93. The caller sweeps delta for the stable plateau.
+  auto offspring_pinned = [&](int field_idx, double d) -> double {
+    FF16_Strategy_<double> s;
+    set_field(s, "lma", lma);
+    s.is_variable_birth_rate = false; s.birth_rate_y = {birth_rate};
+    *s.field_ptrs()[field_idx] += d;
+    Parameters<FF16_Strategy_<double>, FF16_Environment_<double>> p;
+    p.strategies.push_back(s); p.max_patch_lifetime = max_patch_lifetime; p.validate();
+    FF16_Environment_<double> env;
+    SCM<FF16_Strategy_<double>, FF16_Environment_<double>> scm(p, env, ctrl_replay);
+    pin_replay(scm); scm.run();
+    return scm.get_system_ref().offspring_production()[0];
+  };
+  std::vector<double> fd_grad(FF16_R0_TARGET_IDX.size());
+  {
+    std::vector<double> tv;
+    { FF16_Strategy_<double> s0; set_field(s0, "lma", lma);
+      for (int i : FF16_R0_TARGET_IDX) tv.push_back(*s0.field_ptrs()[i]); }
+    for (std::size_t i = 0; i < FF16_R0_TARGET_IDX.size(); ++i) {
+      const double dl = 3e-4 * (std::abs(tv[i]) + 1e-3);  // on the clean FD plateau
+      fd_grad[i] = (offspring_pinned(FF16_R0_TARGET_IDX[i], dl) -
+                    offspring_pinned(FF16_R0_TARGET_IDX[i], -dl)) / (2.0 * dl);
+    }
+  }
+
   return Rcpp::List::create(
       Rcpp::Named("value")            = value,
       Rcpp::Named("offspring_double") = offspring_double,
       Rcpp::Named("grad")             = Rcpp::wrap(g),
       Rcpp::Named("jvp")              = jvp,
       Rcpp::Named("dot")              = dot,
+      Rcpp::Named("fd_grad")          = Rcpp::wrap(fd_grad),
       Rcpp::Named("n_steps")          = double(step_history.size()));
 }
