@@ -3,16 +3,16 @@
 # gradient-driver contract, the active pass replays the L1 ode-time schedule from a
 # double run, offspring flows through the value_type reproduction chain).
 #
-# STATUS: the reverse gradient is NOT yet correct. The JVP=VJP oracle passes
-# (reverse == forward) but disagrees with the model -- the pinned-schedule FD is a
-# rock-solid plateau the reverse number misses (d(R0)/d(lma): reverse ~ +440, FD
-# ~ -255). This is the same false-confidence the oracle sprang on K93, but unlike
-# K93 it is NOT the light-field representation (the exact separable_field is
-# faithful in value and FD-derivative yet does not fix the reverse number). The
-# leak is FF16's heavier rate-path adjoint (crown-quadrature assimilation /
-# allocation), the open P2b work. The FD gate below is asserted as a KNOWN FAILURE
-# (expect_failure): it keeps the suite green today and flips red the day the adjoint
-# is fixed -- the signal to promote it to a real expect_equal.
+# STATUS: FF16 now reads its deep-crown light from the exact separable_field (the
+# P2b objective). The reverse R0 gradient is not yet correct, and the FD gate below
+# is the proof (d(R0)/d(lma): reverse ~ +440, FD ~ -255). The driver's channel
+# isolation localises it exactly: the field's SOURCE self-shading derivative is
+# correct (reproduces the spline to the digit); the entire error is the QUERY-height
+# channel, from the focal plant's self-shading z=node*H linkage that the separable
+# factoring breaks (see ff16_scm_gradient_driver.cpp). Fixing that linkage is the
+# open P2b work. The FD gate is asserted as a KNOWN FAILURE (expect_failure): green
+# today, flips red the day the linkage is fixed -- the signal to promote it to a
+# bare expect_equal.
 #
 # Uses a shortened max_patch_lifetime (50): the full lifetime (105.32) produces a
 # reverse tape that exceeds memory for FF16's heavy rate path -- full-lifetime runs

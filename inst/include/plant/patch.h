@@ -610,22 +610,23 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 // Creates splines of resource availability
 template <typename T, typename E>
 void Patch<T,E>::compute_environment(bool rescale) {
-  if (size() > 0 & !is_mutant_run) {
-    // For a deep-crown (separable) light kernel the cohorts read the exact field,
-    // so the fitted spline is dead weight -- assemble the field only. height_max()
-    // reads the species (not the spline), the slope surface has no callers, and
-    // fixed-environment cases build their own spline via set_fixed_environment, so
-    // the spline build is redundant on this path. Other environments keep it.
-    if constexpr (env_has_competition_field<E>::value) {
-      assemble_competition_field();
-    } else {
-      // The environment-creation function returns value_type: the light spline is
-      // built from active stand competition, so on a resident gradient pass the
-      // field knots carry the self-shading derivative.
-      auto f = [&](double x) -> value_type { return compute_competition(x); };
-      environment.compute_environment(f, height_max(), rescale);
-    }
+  if (size() == 0 || is_mutant_run) return;
+
+  // Assemble the exact separable field the cohorts read (deep-crown environments).
+  if constexpr (env_has_competition_field<E>::value) {
+    assemble_competition_field();
+    // K93's field fully serves the read, so the fitted spline is dead weight and
+    // is skipped (height_max() reads the species not the spline, the slope surface
+    // has no callers, fixed environments build their own spline). FF16 keeps the
+    // spline (field_supersedes_spline=false) for its not-yet-assembled reads.
+    if constexpr (E::field_supersedes_spline) return;
   }
+
+  // The environment-creation function returns value_type: the light spline is
+  // built from active stand competition, so on a resident gradient pass the field
+  // knots carry the self-shading derivative.
+  auto f = [&](double x) -> value_type { return compute_competition(x); };
+  environment.compute_environment(f, height_max(), rescale);
 }
 
 // Assemble the exact separable competition field from the whole cohort population.

@@ -50,6 +50,9 @@ public:
   // Active until the patch assembles it, get_environment_at_height keeps the spline
   // path, so this is behaviour-preserving on the double path until wired.
   static constexpr std::size_t comp_rank = CanopyShape::shading_rank;  // 3
+  // K93's exact field fully serves the light read, so the patch drops the fitted
+  // spline build (FF16 keeps it -- see FF16_Environment).
+  static constexpr bool field_supersedes_spline = true;
   odelia::separable_field<S, comp_rank> competition_field;
   std::vector<double> competition_source_heights;  // descending, for the rank search
   CanopyShape competition_canopy;                   // supplies the query factors a_p(z)

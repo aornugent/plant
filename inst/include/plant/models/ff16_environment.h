@@ -5,7 +5,11 @@
 #include <plant/environment.h>
 #include <plant/resource_spline.h>
 #include <odelia/interpolator.hpp>
+#include <odelia/separable_field.hpp>
 #include <plant/canopy_shape.h> // ShadingModel, shading_model_from_string
+#include <algorithm>
+#include <array>
+#include <functional>
 #include <cmath>                // std::log, std::exp, std::floor (PPA stepping)
 
 using namespace Rcpp;
@@ -42,6 +46,54 @@ public:
 
   // A ResourceSpline used for storing light availbility (0-1)
   ResourceSpline_<S> light_availability;
+
+  // Exact separable competition field (same rank-3 Yokozawa field K93 uses),
+  // assembled from the cohorts by the patch. FF16 reads its deep-crown light
+  // through this so the query-height self-shading feedback flows (the derivative
+  // the fitted spline freezes). The spline is still built (field_supersedes_spline
+  // = false) for the not-yet-assembled / fixed-environment reads.
+  static constexpr std::size_t comp_rank = CanopyShape::shading_rank;  // 3
+  static constexpr bool field_supersedes_spline = false;
+  odelia::separable_field<S, comp_rank> competition_field;
+  std::vector<double> competition_source_heights;  // descending
+  CanopyShape competition_canopy;
+  bool competition_field_ready = false;
+
+  // DEBUG (channel isolation): when true, optical_depth uses PASSIVE query factors
+  // a_p(z), so the field carries the SOURCE self-shading derivative but not the
+  // query-height one -- reproducing what the fitted spline carries. Lets a driver
+  // split the field's source channel from its query channel. Off in production.
+  static inline bool freeze_query_derivative = false;
+
+  void assemble_competition_field(
+      const std::array<std::vector<S>, comp_rank>& source_weight,
+      const std::vector<double>& source_heights, const CanopyShape& canopy) {
+    competition_field.assemble(source_weight);
+    competition_source_heights = source_heights;
+    competition_canopy = canopy;
+    competition_field_ready = true;
+  }
+  void clear_competition_field() { competition_field_ready = false; }
+
+  std::size_t n_sources_at_least(double z) const {
+    auto it = std::upper_bound(competition_source_heights.begin(),
+                               competition_source_heights.end(), z,
+                               std::greater<double>());
+    return static_cast<std::size_t>(it - competition_source_heights.begin());
+  }
+
+  // Optical depth A(z) at the query; light = exp(-A). freeze_query_derivative
+  // strips the query-height derivative by evaluating a_p at passive z.
+  S field_optical_depth(S height) const {
+    const double z = odelia::util::to_passive(height);
+    const std::size_t k = n_sources_at_least(z);
+    if (k == 0) return S(0.0);
+    const S q = freeze_query_derivative ? S(z) : height;
+    return competition_field.at(competition_canopy.template shading_query_factors<S>(q), k - 1);
+  }
+  double competition_max_source_height() const {
+    return competition_source_heights.empty() ? 0.0 : competition_source_heights.front();
+  }
 
   // PPA: when true, the light a plant experiences is the stepped (layered)
   // profile rather than the smooth one stored in light_availability. The
@@ -96,16 +148,22 @@ public:
   }
 
   S get_environment_at_height(S height) const {
+    if (competition_field_ready)
+      return step_light(exp(-field_optical_depth(height)));
     return step_light(light_availability.get_value_at_height(height));
   }
 
-  // Highest height covered by the light spline; hoist out of hot per-point
-  // loops and feed back into the capped get_environment_at_height() overload.
+  // Highest height covered by the light field (or spline): the crown-integral
+  // upper bound. Above it the light is full.
   double max_environment_height() const {
+    if (competition_field_ready) return competition_max_source_height();
     return light_availability.max_height();
   }
 
+  // The cap only clamps spline extrapolation; the exact field needs none.
   S get_environment_at_height(S height, S cap) const {
+    if (competition_field_ready)
+      return step_light(exp(-field_optical_depth(height)));
     return step_light(light_availability.get_value_at_height(height, cap));
   }
 

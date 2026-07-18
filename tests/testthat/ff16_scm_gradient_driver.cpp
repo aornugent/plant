@@ -7,17 +7,24 @@
 // pass replays the L1 ode-time schedule recorded on a double run (resident L2, no
 // set_mutant), and offspring flows through the value_type reproduction chain.
 //
-// STATUS (2026-07-18) -- the reverse gradient is NOT yet correct, and the
-// pinned-schedule FD leg below is the proof. The JVP=VJP oracle passes (reverse
-// and forward agree) but disagrees with the model: d(R0)/d(lma) reverse is ~ +440
-// while the FD is a rock-solid ~ -255 plateau across four orders of delta -- the
-// same false-confidence trap the oracle sprang on K93. Unlike K93, this is NOT the
-// light-field representation: swapping FF16's fitted light spline for the exact
-// separable_field (faithful in value AND in the FD derivative) leaves the FD at
-// -255 but does not fix the reverse number. The leak is in FF16's heavier
-// rate-path adjoint (crown-quadrature assimilation / allocation reverse pass),
-// which the spline's frozen (zero) query-derivative was masking. Isolating it is
-// the open P2b work; this driver's FD leg is the gate that must go green first.
+// STATUS (2026-07-18) -- FF16 now reads its deep-crown light from the exact
+// separable_field (the P2b objective; double path within tol, all double suites
+// green). The reverse R0 gradient is NOT yet correct and the pinned-schedule FD
+// leg below is the proof: d(R0)/d(lma) reverse is ~ +440 vs an FD plateau of
+// ~ -255. The channel-isolation switch `freeze_query` LOCALISES it exactly:
+//   * field SOURCE-only (freeze_query=true): -172.5, 3.69, -7.29 -- reproduces the
+//     fitted spline to the digit, so the field's source self-shading derivative is
+//     CORRECT.
+//   * field FULL (freeze_query=false):       +442.7, 38.3, 19.7 -- wrong.
+// So the entire error is the QUERY-height channel (what the field newly adds over
+// the spline): it contributes ~ +615 for lma when the truth is ~ -82. Root cause:
+// FF16's crown integral reads the field at z = node * H, so for the FOCAL plant
+// the query height and its own source height are LINKED and its self-shading
+// Q(z/H) = Q(node) is H-invariant. The separable factoring a_p(z) * b_p(H) treats
+// z and H as INDEPENDENT, breaking that linkage, so the focal self-shading
+// query/source derivatives fail to cancel. K93 never hits this (it reads at z = H,
+// where self-shading Q(1) = 0). Fixing the crown self-shading linkage is the open
+// P2b work; this FD leg + `freeze_query` are the instruments.
 //
 // FF16's density transport is the FD upwind stencil (the geometric mass chart is
 // numerically unstable for FF16). Offspring does not route through the transport
@@ -54,9 +61,16 @@ static const std::vector<int> FF16_R0_TARGET_IDX = {0, 6, 16};
 
 // [[Rcpp::export]]
 Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate = 20.0,
-                                       double max_patch_lifetime = 105.32) {
+                                       double max_patch_lifetime = 105.32,
+                                       bool freeze_query = false) {
   using RevS = xad::adj<double>::active_type;  // AReal: compute_gradient
   using FwdS = xad::fwd<double>::active_type;  // FReal: compute_jvp
+
+  // Channel isolation: freeze the field's query-height derivative on the reverse
+  // type only, so the reverse gradient carries the field's SOURCE self-shading but
+  // not its query-height feedback (what the fitted spline also does). Comparing to
+  // the full field gradient splits the two channels.
+  FF16_Environment_<RevS>::freeze_query_derivative = freeze_query;
 
   auto make_params = [&](auto strat_tag) {
     using Strat = std::decay_t<decltype(strat_tag)>;
