@@ -11,6 +11,7 @@
 #include <plant/control.h>
 #include <plant/scm.h>
 #include <odelia/gradient.hpp>
+#include <cmath>
 #include <vector>
 
 using namespace plant;
@@ -185,12 +186,41 @@ static Rcpp::List k93_scm_gradient_impl(K93Metric metric, const std::vector<int>
   double dot = 0.0;
   for (std::size_t i = 0; i < g.size(); ++i) dot += g[i] * v[i];
 
+  // The trustworthy gate: a pinned-schedule central FD of the metric over the
+  // DOUBLE SCM (perturb each target trait +/- delta on the SAME recorded ode
+  // schedule -- no adaptive-schedule noise). Unlike the JVP=VJP oracle (which
+  // only checks reverse-vs-forward self-consistency and cannot see a shared
+  // field bias), this is a check against the model, so it catches the class of
+  // error the frozen-query spline hid. The caller sweeps delta for the plateau.
+  auto metric_pinned = [&](int field_idx, double d) -> double {
+    K93_Strategy_<double> s;
+    s.pars.b_0 = b_0; s.is_variable_birth_rate = false; s.birth_rate_y = {birth_rate};
+    *s.field_ptrs()[field_idx] += d;
+    Parameters<K93_Strategy_<double>, K93_Environment_<double>> p;
+    p.strategies.push_back(s); p.max_patch_lifetime = max_patch_lifetime; p.validate();
+    K93_Environment_<double> env;
+    SCM<K93_Strategy_<double>, K93_Environment_<double>> scm(p, env, ctrl_replay);
+    pin_replay(scm); scm.run();
+    return k93_reduce<double>(scm, metric);
+  };
+  std::vector<double> fd_grad(idx.size());
+  {
+    std::vector<double> tv;
+    { K93_Strategy_<double> s0; s0.pars.b_0 = b_0;
+      for (int i : idx) tv.push_back(*s0.field_ptrs()[i]); }
+    for (std::size_t i = 0; i < idx.size(); ++i) {
+      const double dl = 3e-4 * (std::abs(tv[i]) + 1e-3);  // in the clean FD band
+      fd_grad[i] = (metric_pinned(idx[i], dl) - metric_pinned(idx[i], -dl)) / (2.0 * dl);
+    }
+  }
+
   return Rcpp::List::create(
       Rcpp::Named("value")        = value,
       Rcpp::Named("value_double") = value_double,
       Rcpp::Named("grad")         = Rcpp::wrap(g),
       Rcpp::Named("jvp")          = jvp,
       Rcpp::Named("dot")          = dot,
+      Rcpp::Named("fd_grad")      = Rcpp::wrap(fd_grad),
       Rcpp::Named("n_steps")      = double(step_history.size()));
 }
 

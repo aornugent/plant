@@ -56,15 +56,18 @@ test_that("K93 SCM census gradient passes the JVP=VJP oracle (CD-G layers c/d)",
   # schedule is the same trajectory, just carried at the active scalar.
   expect_equal(r$value, r$value_double, tolerance = 1e-10)
 
-  # The FD-free correctness gate: the forward directional derivative equals the
-  # reverse gradient contracted against the same direction, to machine precision.
+  # Self-consistency smoke test (necessary, NOT sufficient): reverse vs forward.
+  # This alone once gave false confidence -- both legs shared the frozen-query
+  # bias -- so it is no longer the correctness gate.
   expect_equal(r$jvp, r$dot, tolerance = 1e-6)
 
-  # The gradient targets {b_0, b_1, d_0}. b_0, b_1 are growth-rate parameters and
-  # drive the basal-area census (nonzero). d_0 is the K93 recruitment (fecundity)
-  # parameter: it feeds offspring output, not the within-patch basal area, so it
-  # has no path to the census and AD returns a structural zero -- a check the
-  # dot-product oracle cannot make (both legs traverse the same graph).
+  # The correctness gate: the reverse gradient matches a pinned-schedule central
+  # FD of the model (catches the shared-bias class the oracle cannot). The exact
+  # separable_field makes the self-shading feedback flow, so these now agree.
+  expect_equal(r$grad, r$fd_grad, tolerance = 1e-3)
+
+  # Structure: b_0, b_1 (growth) drive the basal-area census; d_0 (recruitment)
+  # has no path to it -- a structural zero the oracle cannot check.
   expect_true(abs(r$grad[1]) > 1)      # d(census)/d(b_0)
   expect_true(abs(r$grad[2]) > 1)      # d(census)/d(b_1)
   expect_equal(r$grad[3], 0)           # d(census)/d(d_0): structural zero
@@ -110,8 +113,10 @@ test_that("K93 SCM offspring (R0) gradient passes the JVP=VJP oracle (CD-G layer
   expect_equal(o$value, o$value_double, tolerance = 1e-10)
   expect_equal(o$value, 0.075453, tolerance = 1e-4)  # documented K93 offspring
 
-  # FD-free correctness gate.
+  # Self-consistency smoke test (necessary, not sufficient).
   expect_equal(o$jvp, o$dot, tolerance = 1e-6)
+  # The correctness gate: reverse gradient vs the pinned-schedule model FD.
+  expect_equal(o$grad, o$fd_grad, tolerance = 1e-3)
 
   # Targets {b_0, d_0, d_1}. Unlike the census, all three feed the fitness
   # integral: d_0, d_1 are the recruitment/suppression traits (the dominant
