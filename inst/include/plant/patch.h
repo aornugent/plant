@@ -653,7 +653,8 @@ void Patch<T,E>::assemble_competition_field() {
     CanopyShape canopy = species[i].node_begin()->individual.r_get_strategy().canopy_shape;
     for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it, ++k) {
       h[k]   = it->height();
-      amp[k] = it->compute_competition(0.0);  // density*wpc (Q(0)=1)
+      // density*wpc (Q(0)=1), per patch area to match Patch::compute_competition.
+      amp[k] = it->compute_competition(0.0) / area;
     }
     for (size_t j = 0; j < m; ++j) {
       // Same-species trapezium measure: half the span to the two neighbours
