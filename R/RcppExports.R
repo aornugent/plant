@@ -4233,6 +4233,14 @@ mri_fast_rate_calls_reset <- function() {
     invisible(.Call('_plant_mri_fast_rate_calls_reset', PACKAGE = 'plant'))
 }
 
+patch_rhs_calls_get <- function() {
+    .Call('_plant_patch_rhs_calls_get', PACKAGE = 'plant')
+}
+
+patch_rhs_calls_reset <- function() {
+    invisible(.Call('_plant_patch_rhs_calls_reset', PACKAGE = 'plant'))
+}
+
 #' Generate a suitable set of default node introduction times,
 #' biased so that introductions are more closely packed at the
 #' beginning of time, become increasingly spread out.

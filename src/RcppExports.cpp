@@ -11908,6 +11908,25 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// patch_rhs_calls_get
+double patch_rhs_calls_get();
+RcppExport SEXP _plant_patch_rhs_calls_get() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(patch_rhs_calls_get());
+    return rcpp_result_gen;
+END_RCPP
+}
+// patch_rhs_calls_reset
+void patch_rhs_calls_reset();
+RcppExport SEXP _plant_patch_rhs_calls_reset() {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    patch_rhs_calls_reset();
+    return R_NilValue;
+END_RCPP
+}
 // node_schedule_times_default
 std::vector<double> node_schedule_times_default(double max_time);
 RcppExport SEXP _plant_node_schedule_times_default(SEXP max_timeSEXP) {
@@ -13137,6 +13156,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_make_node_schedule__Parameters___K93__K93_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___K93__K93_Env, 1},
     {"_plant_mri_fast_rate_calls_get", (DL_FUNC) &_plant_mri_fast_rate_calls_get, 0},
     {"_plant_mri_fast_rate_calls_reset", (DL_FUNC) &_plant_mri_fast_rate_calls_reset, 0},
+    {"_plant_patch_rhs_calls_get", (DL_FUNC) &_plant_patch_rhs_calls_get, 0},
+    {"_plant_patch_rhs_calls_reset", (DL_FUNC) &_plant_patch_rhs_calls_reset, 0},
     {"_plant_node_schedule_times_default", (DL_FUNC) &_plant_node_schedule_times_default, 1},
     {"_plant_FF16_strategy_expand_allometry", (DL_FUNC) &_plant_FF16_strategy_expand_allometry, 4},
     {"_plant_TF24_strategy_expand_allometry", (DL_FUNC) &_plant_TF24_strategy_expand_allometry, 4},

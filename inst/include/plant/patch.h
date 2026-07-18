@@ -25,6 +25,7 @@ namespace plant {
 // coupling evaluations across a run, the multirate cost driver. Incremented in
 // fast_rates; read/reset from R via mri_fast_rate_calls_get/reset.
 extern long mri_fast_rate_calls;
+extern long patch_rhs_calls;
 
 // Does the environment expose the R1 operator split (exact drainage recession +
 // residual)? Only TF24 does; the multirate split inner (Lever 1) is gated on it
@@ -701,6 +702,7 @@ void Patch<T,E>::compute_environment(bool rescale) {
 
 template <typename T, typename E>
 void Patch<T,E>::compute_rates() {
+  ++patch_rhs_calls;
   // Computes rates of change for the patch, including all the component species.
   // While the patch has an `environment`, the rates here are calculated from
   // environment_ptr:
