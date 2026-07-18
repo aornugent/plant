@@ -648,12 +648,12 @@ void Patch<T,E>::assemble_competition_field() {
     if (m == 0) continue;
     std::vector<value_type> h(m), amp(m);
     size_t k = 0;
-    const CanopyShape* canopy = nullptr;
+    // Copy the (small) canopy by value: r_get_strategy() returns a temporary, so
+    // a pointer into it would dangle. Same shape for every cohort of the species.
+    CanopyShape canopy = species[i].node_begin()->individual.r_get_strategy().canopy_shape;
     for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it, ++k) {
       h[k]   = it->height();
       amp[k] = it->compute_competition(0.0);  // density*wpc (Q(0)=1)
-      if (canopy == nullptr)
-        canopy = &it->individual.r_get_strategy().canopy_shape;
     }
     for (size_t j = 0; j < m; ++j) {
       // Same-species trapezium measure: half the span to the two neighbours
@@ -662,7 +662,7 @@ void Patch<T,E>::assemble_competition_field() {
       const value_type hi = (j == 0)     ? h[0]     : h[j - 1];
       const value_type lo = (j == m - 1) ? h[m - 1] : h[j + 1];
       const value_type M = 0.5 * (hi - lo);
-      const auto b = canopy->template shading_source_factors<value_type>(h[j]);
+      const auto b = canopy.template shading_source_factors<value_type>(h[j]);
       H.push_back(h[j]);
       for (size_t p = 0; p < E::comp_rank; ++p) sw[p].push_back(amp[j] * M * b[p]);
     }
@@ -684,7 +684,8 @@ void Patch<T,E>::assemble_competition_field() {
     for (size_t p = 0; p < E::comp_rank; ++p) sw_sorted[p][j] = sw[p][ord[j]];
   }
   // Query factors come from any cohort's canopy (shared shape); use species 0's.
-  const auto& canopy = species[0].node_begin()->individual.r_get_strategy().canopy_shape;
+  // Value copy: r_get_strategy() is a temporary, so a reference would dangle.
+  CanopyShape canopy = species[0].node_begin()->individual.r_get_strategy().canopy_shape;
   environment.assemble_competition_field(sw_sorted, heights_d, canopy);
 }
 
