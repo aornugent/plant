@@ -4,6 +4,12 @@
 
 #include <plant/environment.h>
 #include <plant/resource_spline.h>
+#include <plant/canopy_shape.h>
+#include <odelia/separable_field.hpp>
+#include <algorithm>
+#include <array>
+#include <functional>
+#include <vector>
 
 using namespace Rcpp;
 
@@ -37,6 +43,40 @@ public:
   // Light interface
   ResourceSpline_<S> light_availability;
 
+  // Exact competition field (odelia::separable_field) replacing the fitted spline
+  // for the resident coupling read: assembled from the cohort population by the
+  // patch each step, it makes a cohort's light read carry BOTH the source
+  // self-shading AND the query-height feedback (the derivative the spline drops).
+  // Active until the patch assembles it, get_environment_at_height keeps the spline
+  // path, so this is behaviour-preserving on the double path until wired.
+  static constexpr std::size_t comp_rank = CanopyShape::shading_rank;  // 3
+  odelia::separable_field<S, comp_rank> competition_field;
+  std::vector<double> competition_source_heights;  // descending, for the rank search
+  CanopyShape competition_canopy;                   // supplies the query factors a_p(z)
+  bool competition_field_ready = false;
+
+  // Assemble the exact field from per-cohort source weights (descending height).
+  // source_weight[p][j] = amplitude_j * measure_j * b_p(H_j); heights are the
+  // (passive) source positions used for the query-rank search.
+  void assemble_competition_field(
+      const std::array<std::vector<S>, comp_rank>& source_weight,
+      const std::vector<double>& source_heights, const CanopyShape& canopy) {
+    competition_field.assemble(source_weight);
+    competition_source_heights = source_heights;
+    competition_canopy = canopy;
+    competition_field_ready = true;
+  }
+  void clear_competition_field() { competition_field_ready = false; }
+
+  // Count of source cohorts at least as tall as z (competition_source_heights is
+  // descending) -- the query's rank for separable_field.at(a(z), rank-1).
+  std::size_t n_sources_at_least(double z) const {
+    auto it = std::upper_bound(competition_source_heights.begin(),
+                               competition_source_heights.end(), z,
+                               std::greater<double>());
+    return static_cast<std::size_t>(it - competition_source_heights.begin());
+  }
+
   void set_fixed_environment(double value, double height_max) {
     light_availability.set_fixed_value(value, height_max);
   }
@@ -57,12 +97,19 @@ public:
   }
 
   S get_environment_at_height(S height) const {
-    // Freeze the query-height derivative on the rate path (§15 Gate 1 finding):
-    // the query height is a cohort's evolving ODE state, and the interpolant's
-    // analytic tangent w.r.t. it is an unreliable slope that compounds across the
-    // replay. Knot-value derivatives (resident self-shading) are still carried.
-    // Also nested-type safe, so the forward-over-reverse dg/dh evaluation reads
-    // the same frozen field.
+    if (competition_field_ready) {
+      // Exact field: light = exp(-A(z)). The query factors a_p(z) carry the active
+      // query-height derivative (the self-shading feedback the spline drops); the
+      // rank restricts the sum to cohorts at least as tall (descending heights).
+      const double z = odelia::util::to_passive(height);
+      const std::size_t k = n_sources_at_least(z);  // cohorts with H >= z
+      if (k == 0) return S(1.0);                     // nothing taller -> full light
+      const S A = competition_field.at(
+          competition_canopy.template shading_query_factors<S>(height), k - 1);
+      return exp(-A);
+    }
+    // Fallback (field not assembled): the fitted spline with the query-height
+    // derivative frozen (§15 / plant#39 -- an unreliable interpolant tangent).
     return light_availability.get_value_at_height_frozen_query(height);
   }
 
