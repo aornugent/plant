@@ -27,6 +27,10 @@ Control::Control() {
   // full-N uptake; only used on the method="mri" path.
   n_collocation_nodes = 0;
 
+  // Multirate fast-block inner stepper (see Control header). false = adaptive
+  // black-box RK; true = exact-flow split. Only used on the method="mri" path.
+  mri_use_split = false;
+
   // PPA canopy layer thickness in optical-depth units (see Control header).
   ppa_layer_optical_depth = 0.5;
   // PPA layer-boundary smoothing fraction (see Control header).

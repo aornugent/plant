@@ -317,6 +317,7 @@ template <> inline SEXP wrap(const plant::Control& x) {
   ret["shading_model"] = Rcpp::wrap(x.shading_model);
   ret["ode_method"] = Rcpp::wrap(x.ode_method);
   ret["n_collocation_nodes"] = Rcpp::wrap(x.n_collocation_nodes);
+  ret["mri_use_split"] = Rcpp::wrap(x.mri_use_split);
   ret["ppa_layer_optical_depth"] = Rcpp::wrap(x.ppa_layer_optical_depth);
   ret["ppa_layer_smoothing"] = Rcpp::wrap(x.ppa_layer_smoothing);
   ret["offspring_production_tol"] = Rcpp::wrap(x.offspring_production_tol);
@@ -361,6 +362,8 @@ template <> inline plant::Control as(SEXP x) {
   ret.ode_method = Rcpp::as<std::string >(xl["ode_method"]);
   // ret.n_collocation_nodes = Rcpp::as<decltype(retn_collocation_nodes) >(xl["n_collocation_nodes"]);
   ret.n_collocation_nodes = Rcpp::as<size_t >(xl["n_collocation_nodes"]);
+  // ret.mri_use_split = Rcpp::as<decltype(retmri_use_split) >(xl["mri_use_split"]);
+  ret.mri_use_split = Rcpp::as<bool >(xl["mri_use_split"]);
   // ret.ppa_layer_optical_depth = Rcpp::as<decltype(retppa_layer_optical_depth) >(xl["ppa_layer_optical_depth"]);
   ret.ppa_layer_optical_depth = Rcpp::as<double >(xl["ppa_layer_optical_depth"]);
   // ret.ppa_layer_smoothing = Rcpp::as<decltype(retppa_layer_smoothing) >(xl["ppa_layer_smoothing"]);

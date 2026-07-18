@@ -46,6 +46,13 @@ struct Control {
   // consulted on the method="mri" path; ignored otherwise.
   size_t n_collocation_nodes;
 
+  // Multirate (method="mri") fast-block inner stepper. false (default) sub-cycles
+  // the soil block with the adaptive black-box RK; true uses the exact-flow split
+  // (R1 analytic drainage recession + ROS34PW2 on the gentle remainder), which
+  // removes the drainage stiffness so the sub-cycle takes far fewer micro steps
+  // (Lever 1). Only consulted on the method="mri" path.
+  bool mri_use_split;
+
   // ODE integration method for the SCM resident solver. One of "rkck" (the
   // default adaptive Cash-Karp explicit RK), "rodas" (the stiff Rosenbrock
   // stepper), or "mri" (the multirate MRI-GARK stepper: a fixed macro grid that
