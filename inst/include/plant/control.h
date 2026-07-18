@@ -37,9 +37,13 @@ struct Control {
   // The soil sub-cycle needs the per-layer root uptake at each micro-step; that
   // uptake is a density-weighted integral of per-cohort consumption over the
   // size distribution. 0 (the default) evaluates it over all N cohorts (exact);
-  // m > 0 quadratures it at m << N frozen cohorts instead (O(m^-2) error,
-  // <0.5% by m≈15-20), so the fast sub-cycle costs m physiology solves, not N.
-  // Only consulted on the method="mri" path; ignored otherwise.
+  // m > 0 quadratures it at m of the N frozen cohorts instead, so the sub-cycle
+  // costs m physiology solves, not N. Converges ~O(m^-2), but the accuracy at a
+  // given m depends strongly on the distribution: young stands reach the sub-1%
+  // range by m≈20, mature (skewed) stands need m close to N for the same
+  // accuracy under the current even-index node placement (a smarter,
+  // importance-weighted placement is the open item -- plant#53 §6/§4.4). Only
+  // consulted on the method="mri" path; ignored otherwise.
   size_t n_collocation_nodes;
 
   // ODE integration method for the SCM resident solver. One of "rkck" (the
