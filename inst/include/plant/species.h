@@ -333,41 +333,30 @@ void Species<T,E>::set_collocation_nodes(size_t m) {
     return; // no distribution to integrate (consumption_rate returns 0 too)
   }
 
-  // Ascending node heights and log-densities (nodes are stored descending).
-  std::vector<double> h(n), log_density(n);
-  for (size_t k = 0; k < n; ++k) {
-    const node_type& node = nodes[n - 1 - k];
-    h[k] = node.height();
-    log_density[k] = node.get_log_density();
+  // Subsample m of the N nodes (evenly by index, endpoints included) and
+  // quadrature over their *actual* heights and densities -- the same trapezium
+  // consumption_rate uses, on a coarser node set. Using real (height, density)
+  // pairs avoids interpolating the irregular size distribution onto synthetic
+  // heights, which is the dominant collocation error. If m >= N we just take
+  // every node (exact). Nodes are stored descending; walk them into ascending
+  // height order for the trapezium.
+  const size_t mm = std::min(m, n);
+  std::vector<double> h(mm), density(mm);
+  for (size_t j = 0; j < mm; ++j) {
+    // even index in [0, n-1], ascending height (node n-1 is the shortest).
+    const size_t idx = (mm == 1) ? 0 : (j * (n - 1)) / (mm - 1);
+    const node_type& node = nodes[n - 1 - idx];
+    h[j] = node.height();
+    density[j] = node.get_density();
   }
 
-  // m log-spaced heights spanning the distribution, matching the cohort spacing
-  // the full-N trapezium already integrates over.
-  const double log_lo = std::log(h.front()), log_hi = std::log(h.back());
-  colloc_heights_.resize(m);
-  for (size_t j = 0; j < m; ++j) {
-    colloc_heights_[j] =
-      std::exp(log_lo + (log_hi - log_lo) * double(j) / double(m - 1));
-  }
-
-  // Linear interpolation of log-density onto the collocation heights (h is
-  // ascending; every collocation height lies within [h.front, h.back]).
-  auto density_at = [&](double x) {
-    size_t k = 0;
-    while (k + 2 < n && h[k + 1] < x) ++k;
-    const double t = (x - h[k]) / (h[k + 1] - h[k]);
-    return std::exp(log_density[k] + t * (log_density[k + 1] - log_density[k]));
-  };
-
-  // colloc_weights_[j] = trapezium weight on the collocation grid * density, so
-  // add_collocated_consumption is one density-weighted quadrature of per-cohort
-  // uptake -- the same integral as consumption_rate, sampled at m points.
-  colloc_weights_.resize(m);
-  for (size_t j = 0; j < m; ++j) {
-    const double w = (j == 0)     ? 0.5 * (colloc_heights_[1] - colloc_heights_[0])
-                   : (j == m - 1) ? 0.5 * (colloc_heights_[m - 1] - colloc_heights_[m - 2])
-                                  : 0.5 * (colloc_heights_[j + 1] - colloc_heights_[j - 1]);
-    colloc_weights_[j] = w * density_at(colloc_heights_[j]);
+  colloc_heights_ = h;
+  colloc_weights_.resize(mm);
+  for (size_t j = 0; j < mm; ++j) {
+    const double w = (j == 0)      ? 0.5 * (h[1] - h[0])
+                   : (j == mm - 1) ? 0.5 * (h[mm - 1] - h[mm - 2])
+                                   : 0.5 * (h[j + 1] - h[j - 1]);
+    colloc_weights_[j] = w * density[j];
   }
 }
 
