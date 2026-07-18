@@ -16,6 +16,17 @@ using namespace Rcpp;
 
 namespace plant {
 
+// Detect environments that support the exact separable competition field (only
+// those with a Yokozawa deep-crown light kernel -- K93 today). For those, the
+// patch assembles the field from the cohort population instead of fitting the
+// light spline; others keep the spline. Structurally scopes the exact-field path.
+template <class E2, class = void>
+struct env_has_competition_field : std::false_type {};
+template <class E2>
+struct env_has_competition_field<
+    E2, std::void_t<decltype(std::declval<E2&>().clear_competition_field())>>
+    : std::true_type {};
+
 template <typename T, typename E>
 class Patch {
 public:
@@ -191,6 +202,7 @@ public:
 private:
   int idx = 0; // used to access environment cache for mutant runs
   void compute_environment(bool rescale);
+  void assemble_competition_field();  // exact separable field (deep-crown kernels)
   void compute_rates();
 
   // Seed the patch from parameters.initial_state (nodes + birth bookkeeping)
@@ -606,7 +618,59 @@ void Patch<T,E>::compute_environment(bool rescale) {
 
   if (size() > 0 & !is_mutant_run) {
     environment.compute_environment(f, height_max(), rescale);
+    // For a deep-crown (separable) light kernel, also assemble the exact field the
+    // cohorts read (the spline above still serves max_height / non-separable
+    // fallback). This is what makes the resident coupling gradient correct.
+    if constexpr (env_has_competition_field<E>::value) {
+      assemble_competition_field();
+    }
   }
+}
+
+// Assemble the exact separable competition field from the whole cohort population.
+// A(z) = sum_{H_j >= z} amp_j * M_j * Q(z/H_j), with amp_j = density_j * wpc_j (=
+// node.compute_competition(0), since Q(0)=1), M_j the trapezium measure over the
+// (descending) cohort heights, and Q's rank-3 factors from the canopy. Sources are
+// all cohorts across species merged in descending height; the query factors carry
+// the active query-height derivative. (Single shared canopy; per-species eta would
+// need per-species fields -- noted, not exercised here.)
+template <typename T, typename E>
+void Patch<T,E>::assemble_competition_field() {
+  std::vector<value_type> H, amp;    // active heights + amplitudes, one per cohort
+  for (size_t i = 0; i < species.size(); ++i)
+    for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it) {
+      H.push_back(it->height());
+      amp.push_back(it->compute_competition(0.0));  // density*wpc (Q(0)=1)
+    }
+  const size_t n = H.size();
+  if (n == 0) { environment.clear_competition_field(); return; }
+
+  // Order descending by height (passive key).
+  std::vector<size_t> ord(n);
+  for (size_t j = 0; j < n; ++j) ord[j] = j;
+  std::sort(ord.begin(), ord.end(), [&](size_t a, size_t b) {
+    return odelia::util::to_passive(H[a]) > odelia::util::to_passive(H[b]);
+  });
+
+  std::vector<value_type> Hs(n), amps(n);
+  std::vector<double> heights_d(n);
+  for (size_t j = 0; j < n; ++j) {
+    Hs[j] = H[ord[j]]; amps[j] = amp[ord[j]];
+    heights_d[j] = odelia::util::to_passive(Hs[j]);
+  }
+
+  const auto& canopy = species[0].node_begin()->individual.r_get_strategy().canopy_shape;
+  std::array<std::vector<value_type>, E::comp_rank> sw;
+  for (size_t p = 0; p < E::comp_rank; ++p) sw[p].resize(n);
+  for (size_t j = 0; j < n; ++j) {
+    // Trapezium measure: half the span to the two neighbours (one-sided at ends).
+    const value_type hi = (j == 0)     ? Hs[0]     : Hs[j - 1];
+    const value_type lo = (j == n - 1) ? Hs[n - 1] : Hs[j + 1];
+    const value_type M = 0.5 * (hi - lo);
+    const auto b = canopy.template shading_source_factors<value_type>(Hs[j]);
+    for (size_t p = 0; p < E::comp_rank; ++p) sw[p][j] = amps[j] * M * b[p];
+  }
+  environment.assemble_competition_field(sw, heights_d, canopy);
 }
 
 
