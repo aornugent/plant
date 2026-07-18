@@ -610,19 +610,20 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 // Creates splines of resource availability
 template <typename T, typename E>
 void Patch<T,E>::compute_environment(bool rescale) {
-  
-  // Define an anonymous function to use in creation of environment. It returns
-  // value_type: the light spline is built from active stand competition, so on a
-  // resident gradient pass the field knots carry the self-shading derivative.
-  auto f = [&](double x) -> value_type { return compute_competition(x); };
-
   if (size() > 0 & !is_mutant_run) {
-    environment.compute_environment(f, height_max(), rescale);
-    // For a deep-crown (separable) light kernel, also assemble the exact field the
-    // cohorts read (the spline above still serves max_height / non-separable
-    // fallback). This is what makes the resident coupling gradient correct.
+    // For a deep-crown (separable) light kernel the cohorts read the exact field,
+    // so the fitted spline is dead weight -- assemble the field only. height_max()
+    // reads the species (not the spline), the slope surface has no callers, and
+    // fixed-environment cases build their own spline via set_fixed_environment, so
+    // the spline build is redundant on this path. Other environments keep it.
     if constexpr (env_has_competition_field<E>::value) {
       assemble_competition_field();
+    } else {
+      // The environment-creation function returns value_type: the light spline is
+      // built from active stand competition, so on a resident gradient pass the
+      // field knots carry the self-shading derivative.
+      auto f = [&](double x) -> value_type { return compute_competition(x); };
+      environment.compute_environment(f, height_max(), rescale);
     }
   }
 }
