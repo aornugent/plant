@@ -2,6 +2,7 @@
 #ifndef PLANT_PLANT_CANOPY_SHAPE_H_
 #define PLANT_PLANT_CANOPY_SHAPE_H_
 
+#include <array>
 #include <cmath>
 #include <string>
 #include <stdexcept>
@@ -172,6 +173,31 @@ public:
   // it stays double.
   double Qp(double x, double height) const {
     return std::pow(1.0 - std::sqrt(x), eta_inverse_) * height;
+  }
+
+  // Rank-3 separable factoring of the deep-crown shading Q(z/H) = (1 - (z/H)^eta)^2
+  // = sum_p a_p(z) * b_p(H), used to build the competition field as an exact
+  // odelia::separable_field (so a cohort's light read carries BOTH the source
+  // self-shading and the query-height feedback -- the derivative the fitted spline
+  // drops). Only the Deep (Yokozawa) profile is separable; the Box/SoftBox shading
+  // models are not and keep the interpolator. Verified accurate at eta=12 (raising
+  // z and H to eta separately is well conditioned here -- same-sign terms, and the
+  // far-source underflow is negligible shade).
+  static constexpr std::size_t shading_rank = 3;
+  // a_p(z): query factors {1, -2 z^eta, z^{2eta}} (carry d/dz for the feedback).
+  template <class Z> std::array<Z, 3> shading_query_factors(Z z) const {
+    const Z ze = pow_eta(z);
+    return {Z(1.0), Z(-2.0) * ze, ze * ze};
+  }
+  // a_p'(z): the query-factor derivatives, for the field's analytic dA/dz slope.
+  template <class Z> std::array<Z, 3> shading_query_slopes(Z z) const {
+    const Z ze = pow_eta(z);
+    return {Z(0.0), Z(-2.0 * eta_) * ze / z, Z(2.0 * eta_) * (ze * ze) / z};
+  }
+  // b_p(H): source factors {1, H^{-eta}, H^{-2eta}}.
+  template <class H> std::array<H, 3> shading_source_factors(H height) const {
+    const H he = pow_eta(height);
+    return {H(1.0), H(1.0) / he, H(1.0) / (he * he)};
   }
 
 private:
