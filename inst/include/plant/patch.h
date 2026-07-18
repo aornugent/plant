@@ -6,6 +6,11 @@
 #include <plant/species.h>
 #include <plant/util.h>
 #include <odelia/ode_interface.hpp>
+// Patch declares an MRI fast/slow partition (below), so it is a multirate
+// System: pull in the multirate stepper's out-of-line definition here, so every
+// TU that builds a Solver<Patch> has MriStep<Patch>::step defined and not just
+// declared. Harmless for method != "mri" (the stepper is never invoked).
+#include <odelia/mri.hpp>
 
 #include <plant/disturbance_regime.h>
 
@@ -95,6 +100,54 @@ public:
   odelia::ode::iterator ode_rates(odelia::ode::iterator it) const;
   // Retrieve auxillary variables and save into the ode solver
   odelia::ode::iterator ode_aux(odelia::ode::iterator it) const;
+
+  // * Multirate (MRI) partition interface
+  // Additive hooks that let odelia's method="mri" stepper treat the patch as a
+  // fast/slow system. They are only touched by MriStep; every other integration
+  // path is untouched, so production runs are bit-identical when method != "mri".
+  //
+  // The ODE state is already laid out [cohorts | environment] (see ode_state),
+  // which is exactly MRI's [slow | fast] layout: the cohorts are the slow block
+  // and the soil column is the fast block, contiguous at the tail. No coupling
+  // aggregate is used -- the fast block reads its slow context from the frozen
+  // light field captured once per leg by freeze_slow -- so coupling_size is 0.
+  size_t slow_size() const { return ode_size() - environment.ode_size(); }
+  size_t fast_size() const { return environment.ode_size(); }
+  size_t coupling_size() const { return 0; }
+  void aggregate(const std::vector<double>&, std::vector<double>&) const {}
+
+  // Freeze the slow (cohort) context for one MRI leg: set the cohort states and
+  // rebuild the light field they cast, so the ensuing fast sub-cycle varies only
+  // the soil column against a fixed canopy.
+  void freeze_slow(const std::vector<double>& x) {
+    odelia::ode::set_ode_state(species.begin(), species.end(), x.begin());
+    compute_environment(true);
+    environment_ptr = &environment;
+  }
+
+  // Fast tendency: the soil (environment) rates at soil state u, with the canopy
+  // frozen by the preceding freeze_slow. Uptake is re-evaluated at this soil
+  // moisture (resource_depletion depends on theta), then the environment rates
+  // are read out. g is unused (coupling_size == 0).
+  void fast_rates(const std::vector<double>& u, const std::vector<double>& /*g*/,
+                  std::vector<double>& du) {
+    environment.set_ode_state(u.begin());
+    environment_ptr = &environment;
+    compute_rates();
+    environment.ode_rates(du.begin());
+  }
+
+  // Slow tendency: the cohort rates at cohort state x and soil state u. The
+  // canopy has moved, so the light field is rebuilt before the rates are read.
+  void slow_rates(const std::vector<double>& x, const std::vector<double>& u,
+                  std::vector<double>& dx) {
+    odelia::ode::set_ode_state(species.begin(), species.end(), x.begin());
+    environment.set_ode_state(u.begin());
+    compute_environment(true);
+    environment_ptr = &environment;
+    compute_rates();
+    odelia::ode::ode_rates(species.begin(), species.end(), dx.begin());
+  }
 
   // Returns state in structure format as opposed to single 
   // vector as given by ode_state

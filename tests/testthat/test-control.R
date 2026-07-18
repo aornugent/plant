@@ -17,6 +17,7 @@ test_that("Defaults", {
 
     function_integration_rule = 21, # size_t so not int
     shading_model = "", # empty = each strategy's own default
+    ode_method = "", # empty = "rkck" (the SCM resident solver default)
     ppa_layer_optical_depth = 0.5,
     ppa_layer_smoothing = 0.3,
 

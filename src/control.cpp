@@ -19,6 +19,10 @@ Control::Control() {
   // unchanged for both.
   shading_model = "";
 
+  // ODE method for the SCM resident solver (see Control header). Empty = "rkck",
+  // so default behaviour is unchanged.
+  ode_method = "";
+
   // PPA canopy layer thickness in optical-depth units (see Control header).
   ppa_layer_optical_depth = 0.5;
   // PPA layer-boundary smoothing fraction (see Control header).

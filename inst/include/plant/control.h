@@ -33,6 +33,14 @@ struct Control {
   // so it never costs a string comparison on the hot path.
   std::string shading_model;
 
+  // ODE integration method for the SCM resident solver. One of "rkck" (the
+  // default adaptive Cash-Karp explicit RK), "rodas" (the stiff Rosenbrock
+  // stepper), or "mri" (the multirate MRI-GARK stepper: a fixed macro grid that
+  // sub-cycles the fast soil column, for TF24). Empty is treated as "rkck", so
+  // default behaviour is unchanged. Selected once when the SCM builds its
+  // Solver; every other integration path is untouched.
+  std::string ode_method;
+
   // PPA only: thickness of one discrete canopy layer, in optical-depth units
   // (tau = sum of k * leaf-area-index above a height). The stepped light
   // profile floors tau to integer multiples of this value. The default 0.5
