@@ -7,29 +7,24 @@
 // pass replays the L1 ode-time schedule recorded on a double run (resident L2, no
 // set_mutant), and offspring flows through the value_type reproduction chain.
 //
-// STATUS (2026-07-18) -- FF16 now reads its deep-crown light from the exact
-// separable_field (the P2b objective; double path within tol, all double suites
-// green). The reverse R0 gradient is NOT yet correct and the pinned-schedule FD
-// leg below is the proof: d(R0)/d(lma) reverse is ~ +440 vs an FD plateau of
-// ~ -255. The channel-isolation switch `freeze_query` LOCALISES it exactly:
-//   * field SOURCE-only (freeze_query=true): -172.5, 3.69, -7.29 -- reproduces the
-//     fitted spline to the digit, so the field's source self-shading derivative is
-//     CORRECT.
-//   * field FULL (freeze_query=false):       +442.7, 38.3, 19.7 -- wrong.
-// So the entire error is the QUERY-height channel (what the field newly adds over
-// the spline): it contributes ~ +615 for lma when the truth is ~ -82. Root cause:
-// FF16's crown integral reads the field at z = node * H, so for the FOCAL plant
-// the query height and its own source height are LINKED and its self-shading
-// Q(z/H) = Q(node) is H-invariant. The separable factoring a_p(z) * b_p(H) treats
-// z and H as INDEPENDENT, breaking that linkage, so the focal self-shading
-// query/source derivatives fail to cancel. K93 never hits this (it reads at z = H,
-// where self-shading Q(1) = 0). Fixing the crown self-shading linkage is the open
-// P2b work; this FD leg + `freeze_query` are the instruments.
-//
-// FF16's density transport is the FD upwind stencil (the geometric mass chart is
-// numerically unstable for FF16). Offspring does not route through the transport
-// term (the fitness integral weights by birth-time density and survival-weighted
-// fecundity, not the transported cohort density), so the transport is not the gap.
+// STATUS (2026-07-19) -- the FF16 R0 reverse gradient is SCHEDULE-SENSITIVE, and
+// the earlier "wrong gradient" framing rested on a misrepresented reference. The
+// three-way comparison (see docs/build-plan.md; Oracle-consult §0 discriminating
+// tests) is decisive:
+//     reverse AD (pure frozen schedule) : +442
+//     pinned-schedule FD (this driver)  : -255   <- partially re-adapts; NOT truth
+//     fully-adaptive real-model FD      : +4.2   <- the real gradient
+// The spread is degrees of schedule adaptation. FF16's R0 is a small net (+4.2) of
+// large opposing terms (growth benefit vs self-shading cost), so the frozen-schedule
+// gradient the tape faithfully computes does not match the adaptive model. K93 is
+// schedule-INSENSITIVE (AD == pinned-FD == adaptive-FD to the digit), which is why
+// it "just works". The `separable_field` read is proven correct in isolation
+// (test-ad-ff16-field-crown.R), and the crown self-shading / detached-edge stories
+// from earlier were chasing the -255 artifact. Resolution (chosen): reformulate the
+// emergent functional to be schedule-robust so frozen == adaptive (build-plan P2b,
+// option B). The pinned-schedule FD below is retained ONLY as a frozen-schedule
+// consistency probe, NOT a correctness gate (it is not the real gradient for a
+// schedule-sensitive strategy). `freeze_query` / `metric` remain as diagnostics.
 #include <Rcpp.h>
 #include <plant/models/ff16_strategy.h>
 #include <plant/models/ff16_environment.h>

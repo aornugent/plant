@@ -3,16 +3,16 @@
 # gradient-driver contract, the active pass replays the L1 ode-time schedule from a
 # double run, offspring flows through the value_type reproduction chain).
 #
-# STATUS: FF16 now reads its deep-crown light from the exact separable_field (the
-# P2b objective). The reverse R0 gradient is not yet correct, and the FD gate below
-# is the proof (d(R0)/d(lma): reverse ~ +440, FD ~ -255). The driver's channel
-# isolation localises it exactly: the field's SOURCE self-shading derivative is
-# correct (reproduces the spline to the digit); the entire error is the QUERY-height
-# channel, from the focal plant's self-shading z=node*H linkage that the separable
-# factoring breaks (see ff16_scm_gradient_driver.cpp). Fixing that linkage is the
-# open P2b work. The FD gate is asserted as a KNOWN FAILURE (expect_failure): green
-# today, flips red the day the linkage is fixed -- the signal to promote it to a
-# bare expect_equal.
+# STATUS (2026-07-19): FF16's R0 gradient is SCHEDULE-SENSITIVE. The three-way
+# comparison (reverse AD +442 / pinned-schedule FD -255 / fully-adaptive real-model
+# FD +4.2) shows a spread by degree of schedule adaptation -- FF16's R0 is a small
+# net of large opposing terms, so the frozen-schedule gradient the tape faithfully
+# computes does not match the adaptive model. K93 is schedule-INSENSITIVE (all three
+# agree), which is why it works. The separable_field read is proven correct
+# (test-ad-ff16-field-crown.R). The pinned-schedule FD is therefore NOT the real
+# gradient and NOT a correctness gate; the fix is to reformulate the functional to
+# be schedule-robust (build-plan P2b option B). The expect_failure below documents
+# that AD != pinned-FD (both frozen-schedule surrogates), pending that reformulation.
 #
 # Uses a shortened max_patch_lifetime (50): the full lifetime (105.32) produces a
 # reverse tape that exceeds memory for FF16's heavy rate path -- full-lifetime runs
