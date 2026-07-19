@@ -226,3 +226,68 @@ Rcpp::List ff16_scm_offspring_gradient(Rcpp::List node_sched, std::vector<double
       Rcpp::Named("fd_grad")          = Rcpp::wrap(fd_grad),
       Rcpp::Named("n_steps")          = double(resolved_ode_times.size()));
 }
+
+// Per-cohort localisation: forward-mode d(height_i)/d(lma) (AD tangent) vs a
+// per-cohort central FD, both on the resolved schedule. Which cohorts diverge
+// (all uniformly vs deep-shade only) pins where the coupled-growth derivative is
+// dropped.
+// [[Rcpp::export]]
+Rcpp::List ff16_cohort_height_tangents(Rcpp::List node_sched,
+                                       std::vector<double> ode_times_in,
+                                       double lma = 0.1978791, double birth_rate = 20.0,
+                                       double max_patch_lifetime = 40.0) {
+  using FwdS = xad::fwd<double>::active_type;
+  std::vector<std::vector<double>> nst;
+  for (R_xlen_t i = 0; i < node_sched.size(); ++i)
+    nst.push_back(Rcpp::as<std::vector<double>>(node_sched[i]));
+
+  auto make_params = [&](auto tag, double lma_v) {
+    using Strat = std::decay_t<decltype(tag)>; using Env = typename Strat::environment_type;
+    Strat strat; set_field(strat, "lma", lma_v);
+    strat.is_variable_birth_rate = false; strat.birth_rate_y = {birth_rate};
+    Parameters<Strat, Env> p; p.strategies.push_back(strat);
+    p.max_patch_lifetime = max_patch_lifetime;
+    p.node_schedule_times = nst; p.ode_times = ode_times_in; p.validate();
+    return p;
+  };
+  Control ctrl;
+  auto pin = [&](auto& scm){ scm.reset(); NodeSchedule ns=scm.r_node_schedule();
+                             ns.r_set_use_ode_times(true); scm.r_set_node_schedule(ns); };
+
+  // Forward AD: seed lma tangent, run, read each cohort's height value + tangent.
+  std::vector<double> h_val, h_tan;
+  {
+    FF16_Environment_<FwdS> env;
+    SCM<FF16_Strategy_<FwdS>, FF16_Environment_<FwdS>> scm(make_params(FF16_Strategy_<FwdS>(), lma), env, ctrl);
+    auto ptrs = scm.get_system_ref().ad_parameters();
+    xad::derivative(*ptrs[0]) = 1.0;   // lma is FF16 field index 0
+    pin(scm); scm.run();
+    auto& p = scm.get_system_ref();
+    for (std::size_t s = 0; s < p.size(); ++s) {
+      auto& sp = p.at_species(s);
+      for (auto it = sp.node_begin(); it != sp.node_end(); ++it) {
+        h_val.push_back(xad::value(it->height()));
+        h_tan.push_back(xad::derivative(it->height()));
+      }
+    }
+  }
+  // Per-cohort central FD on the same schedule (same introductions => same order).
+  auto heights_at = [&](double lma_v) {
+    FF16_Environment_<double> env;
+    SCM<FF16_Strategy_<double>, FF16_Environment_<double>> scm(make_params(FF16_Strategy_<double>(), lma_v), env, ctrl);
+    pin(scm); scm.run();
+    std::vector<double> h; auto& p = scm.get_system_ref();
+    for (std::size_t s = 0; s < p.size(); ++s) { auto& sp = p.at_species(s);
+      for (auto it = sp.node_begin(); it != sp.node_end(); ++it) h.push_back(xad::value(it->height())); }
+    return h;
+  };
+  const double d = 3e-4 * (std::abs(lma) + 1e-3);
+  auto hp = heights_at(lma + d), hm = heights_at(lma - d);
+  std::vector<double> h_fd(hp.size());
+  for (std::size_t i = 0; i < hp.size() && i < hm.size(); ++i) h_fd[i] = (hp[i] - hm[i]) / (2.0 * d);
+
+  return Rcpp::List::create(
+      Rcpp::Named("height")   = Rcpp::wrap(h_val),
+      Rcpp::Named("ad_tan")   = Rcpp::wrap(h_tan),
+      Rcpp::Named("fd")       = Rcpp::wrap(h_fd));
+}
