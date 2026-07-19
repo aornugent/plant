@@ -82,6 +82,11 @@ public:
     return static_cast<std::size_t>(it - competition_source_heights.begin());
   }
 
+  // DEBUG (channel isolation): when true, the whole optical depth is stripped to
+  // passive, so the self-shading light feedback derivative d(light)/dtheta is zero
+  // (as if the field were a recorded double). Off in production.
+  static inline bool freeze_field_derivative = false;
+
   // Optical depth A(z) at the query; light = exp(-A). freeze_query_derivative
   // strips the query-height derivative by evaluating a_p at passive z.
   S field_optical_depth(S height) const {
@@ -89,7 +94,8 @@ public:
     const std::size_t k = n_sources_at_least(z);
     if (k == 0) return S(0.0);
     const S q = freeze_query_derivative ? S(z) : height;
-    return competition_field.at(competition_canopy.template shading_query_factors<S>(q), k - 1);
+    const S A = competition_field.at(competition_canopy.template shading_query_factors<S>(q), k - 1);
+    return freeze_field_derivative ? S(odelia::util::to_passive(A)) : A;
   }
   double competition_max_source_height() const {
     return competition_source_heights.empty() ? 0.0 : competition_source_heights.front();

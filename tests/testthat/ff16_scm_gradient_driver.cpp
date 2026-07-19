@@ -76,7 +76,7 @@ static const std::vector<int> FF16_R0_TARGET_IDX = {0, 6, 16};
 Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate = 20.0,
                                        double max_patch_lifetime = 105.32,
                                        bool freeze_query = false, int metric = 0,
-                                       double fd_rel = 3e-4) {
+                                       double fd_rel = 3e-4, bool freeze_field = false) {
   using RevS = xad::adj<double>::active_type;  // AReal: compute_gradient
   using FwdS = xad::fwd<double>::active_type;  // FReal: compute_jvp
 
@@ -85,6 +85,7 @@ Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate
   // not its query-height feedback (what the fitted spline also does). Comparing to
   // the full field gradient splits the two channels.
   FF16_Environment_<RevS>::freeze_query_derivative = freeze_query;
+  FF16_Environment_<RevS>::freeze_field_derivative = freeze_field;
 
   auto make_params = [&](auto strat_tag) {
     using Strat = std::decay_t<decltype(strat_tag)>;
