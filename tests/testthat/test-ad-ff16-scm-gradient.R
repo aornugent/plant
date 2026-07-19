@@ -1,25 +1,22 @@
 # FF16 SCM R0 (offspring) gradient over the whole FF16 method-of-characteristics
-# solve. Reuses the generic v2 machinery proven on K93 (SCM duck-types the odelia
-# gradient-driver contract, the active pass replays the L1 ode-time schedule from a
-# double run, offspring flows through the value_type reproduction chain).
+# solve. The active pass replays the RESOLVED schedule (L0 node_schedule_times + L1
+# ode_times from run_scm(refine_schedule=TRUE)), i.e. exactly what
+# run_scm(use_ode_times=TRUE) replays.
 #
-# STATUS (2026-07-19): FF16's R0 gradient is SCHEDULE-SENSITIVE. The three-way
-# comparison (reverse AD +442 / pinned-schedule FD -255 / fully-adaptive real-model
-# FD +4.2) shows a spread by degree of schedule adaptation -- FF16's R0 is a small
-# net of large opposing terms, so the frozen-schedule gradient the tape faithfully
-# computes does not match the adaptive model. K93 is schedule-INSENSITIVE (all three
-# agree), which is why it works. The separable_field read is proven correct
-# (test-ad-ff16-field-crown.R). The pinned-schedule FD is therefore NOT the real
-# gradient and NOT a correctness gate; the fix is to reformulate the functional to
-# be schedule-robust (build-plan P2b option B). The expect_failure below documents
-# that AD != pinned-FD (both frozen-schedule surrogates), pending that reformulation.
+# STATUS (2026-07-19): two settled facts.
+#  (1) NO schedule sensitivity. The frozen replay on the resolved schedule matches
+#      the fully-adaptive model in double: d(offspring)/d(lma) FD = +4.2 either way.
+#      The earlier "schedule sensitivity" framing is retired; the correct replay is
+#      the resolved L0+L1 (old drivers pinned only L1 onto the default L0).
+#  (2) OPEN adjoint bug: reverse AD != FD on the identical resolved schedule
+#      (delta-independent; both AD modes agree yet disagree with FD; reproduces on
+#      pure-growth). FF16's coupled self-shading growth path drops a derivative FD
+#      catches. This is the remaining work for a correct FF16 gradient.
 #
-# Uses a shortened max_patch_lifetime (50): the full lifetime (105.32) produces a
-# reverse tape that exceeds memory for FF16's heavy rate path -- full-lifetime runs
-# need tape checkpointing at the node-introduction boundary (deferred). At 50, FF16
-# has matured and reproduced (offspring ~3.4, well clear of zero).
+# life = 40: FF16 has reproduced (offspring ~0.6) and the reverse tape fits (life 50
+# exceeds memory; checkpointing deferred).
 
-test_that("FF16 SCM offspring (R0) gradient: FD gate (known-failing, adjoint gap)", {
+test_that("FF16 SCM offspring (R0) gradient: value exact; adjoint gap known-failing", {
   skip_on_cran()
   dlls <- getLoadedDLLs()
   skip_if_not("plant"  %in% names(dlls), "plant DLL not loaded")
@@ -52,20 +49,26 @@ test_that("FF16 SCM offspring (R0) gradient: FD gate (known-failing, adjoint gap
                                                   conditionMessage(e)); FALSE })
   skip_if_not(built, "sourceCpp build unavailable in this session")
 
-  r <- ff16_scm_offspring_gradient(max_patch_lifetime = 50)
+  lma0 <- 0.1978791; life <- 40
+  p0 <- scm_base_parameters("FF16"); p0$max_patch_lifetime <- life
+  pr <- add_strategies(p0, trait_matrix(lma0, "lma"), birth_rate = 20)
+  base <- run_scm(pr, refine_schedule = TRUE)          # resolve L0 + L1
+  nst <- base$parameters$node_schedule_times
+  ot  <- base$parameters$ode_times
 
-  # The active replay reproduces the double offspring closely (~1e-9): FF16 rebuilds
-  # its light field at the active scalar, whose knots differ negligibly.
+  r <- ff16_scm_offspring_gradient(nst, ot, lma = lma0, max_patch_lifetime = life)
+
+  # Value: the active replay reproduces the double offspring on the resolved schedule.
   expect_equal(r$value, r$offspring_double, tolerance = 1e-6)
-  expect_true(r$value > 1)  # a real (non-trivial) fitness
+  expect_true(r$value > 0)
 
   # Self-consistency smoke test (necessary, NOT sufficient): reverse == forward.
   expect_equal(r$jvp, r$dot, tolerance = 1e-6)
 
-  # The correctness gate: reverse gradient vs the pinned-schedule model FD. This
-  # currently FAILS -- FF16's rate-path adjoint drops the self-shading feedback
-  # (the leak the FD exposes and the oracle cannot). Asserted as a known failure so
-  # the suite stays green now and turns red the moment the adjoint is fixed; when
-  # that happens, replace expect_failure(...) with the bare expect_equal.
+  # Correctness gate: reverse gradient vs the resolved-schedule FD. FAILS -- FF16's
+  # coupled self-shading growth path drops a derivative (delta-independent; FD
+  # catches it, both AD modes miss it). Asserted as a known failure so the suite
+  # stays green now and turns red when the adjoint is fixed; then replace
+  # expect_failure(...) with the bare expect_equal.
   expect_failure(expect_equal(r$grad, r$fd_grad, tolerance = 1e-2))
 })

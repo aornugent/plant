@@ -7,21 +7,26 @@
 // pass replays the L1 ode-time schedule recorded on a double run (resident L2, no
 // set_mutant), and offspring flows through the value_type reproduction chain.
 //
-// The replay grid is the SOLVER-OWNED L1 schedule (SCM::r_ode_times() ==
-// solver.times()), the single source odelia's AD workflow keeps consistent -- NOT
-// patch.step_history (the save_RK45_cache / run_mutant L3 legacy record, a different
-// grid). This is the correct grid regardless; it does NOT by itself make FF16's R0
-// gradient correct.
+// The replay uses the RESOLVED schedule (L0 node_schedule_times + L1 ode_times)
+// from a refined base run, passed in from R (run_scm(refine_schedule=TRUE)), so it
+// replays EXACTLY what run_scm(use_ode_times=TRUE) does. Two settled facts:
 //
-// OPEN (2026-07-19): on this grid the reverse AD (+729) and the pinned-schedule FD
-// on the SAME grid (-255) disagree, while the fully-adaptive real-model FD (ground
-// truth, measured at R level) is +4.2. Two facts follow: (1) frozen-schedule FD
-// (-255) != adaptive FD (+4.2), so NO frozen-replay gradient reaches the true value
-// for FF16 (unlike K93, where all three agree); (2) AD != FD on the IDENTICAL frozen
-// grid, a derivative discrepancy independent of schedule. It reproduces on metric=2
-// (pure growth, sum of heights), isolating it to the coupled growth trajectory, not
-// reproduction/census. Under investigation. `freeze_query` / `metric` / `fd_rel`
-// (FD step, sweep for the plateau) are the channel-isolation diagnostics.
+//   (1) NO schedule sensitivity. The frozen replay on the resolved schedule matches
+//       the fully-adaptive model: d(offspring)/d(lma) FD = +4.2 both ways (measured
+//       in double at R level). The earlier "schedule sensitivity" and "r_ode_times
+//       alone fixes it" claims are RETIRED -- the fix is the resolved L0+L1, and the
+//       old drivers were wrong because they pinned only L1 onto the default L0.
+//   (2) OPEN adjoint bug: reverse AD != FD on the IDENTICAL resolved schedule
+//       (delta-independent, both AD modes agree with each other yet disagree with
+//       FD). It reproduces on metric=2 (pure growth), isolating it to FF16's coupled
+//       self-shading growth trajectory (NOT reproduction/census, NOT the query
+//       channel). So the code computes an analytically wrong derivative FF16's rate/
+//       field path drops; FD catches it. This is the remaining work for a correct
+//       FF16 gradient. `freeze_query` / `freeze_field` / `metric` / `fd_rel` are the
+//       channel-isolation diagnostics.
+//
+// Tape memory: reverse AD fits to ~life 40; life 50 exceeds memory (checkpointing at
+// the node-introduction boundary is deferred).
 #include <Rcpp.h>
 #include <plant/models/ff16_strategy.h>
 #include <plant/models/ff16_environment.h>
@@ -73,7 +78,8 @@ static void set_field(FF16_Strategy_<S>& s, const std::string& name, double v) {
 static const std::vector<int> FF16_R0_TARGET_IDX = {0, 6, 16};
 
 // [[Rcpp::export]]
-Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate = 20.0,
+Rcpp::List ff16_scm_offspring_gradient(Rcpp::List node_sched, std::vector<double> ode_times_in,
+                                       double lma = 0.1978791, double birth_rate = 20.0,
                                        double max_patch_lifetime = 105.32,
                                        bool freeze_query = false, int metric = 0,
                                        double fd_rel = 3e-4, bool freeze_field = false) {
@@ -87,6 +93,16 @@ Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate
   FF16_Environment_<RevS>::freeze_query_derivative = freeze_query;
   FF16_Environment_<RevS>::freeze_field_derivative = freeze_field;
 
+  // The RESOLVED schedule (L0 node-introduction times + L1 ode times) is computed
+  // by the R harness via run_scm(refine_schedule=TRUE) and passed in, so the active
+  // and FD runs replay EXACTLY what run_scm(use_ode_times=TRUE) does. Pinning only
+  // L1 onto the DEFAULT (unrefined) L0 is an inconsistent schedule that gives a
+  // value-correct but derivative-wrong trajectory.
+  std::vector<std::vector<double>> resolved_node_times;
+  for (R_xlen_t i = 0; i < node_sched.size(); ++i)
+    resolved_node_times.push_back(Rcpp::as<std::vector<double>>(node_sched[i]));
+  const std::vector<double> resolved_ode_times = ode_times_in;
+
   auto make_params = [&](auto strat_tag) {
     using Strat = std::decay_t<decltype(strat_tag)>;
     using Env   = typename Strat::environment_type;
@@ -97,34 +113,31 @@ Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate
     Parameters<Strat, Env> p;
     p.strategies.push_back(strat);
     p.max_patch_lifetime = max_patch_lifetime;
+    p.node_schedule_times = resolved_node_times;  // L0
+    p.ode_times           = resolved_ode_times;   // L1
     p.validate();
     return p;
   };
 
-  // Recording Control (double run) records the L1 ode-time schedule; the active
-  // runs replay it and recompute the light field at the active scalar.
-  Control ctrl_record;
-  ctrl_record.save_RK45_cache = true;
   Control ctrl_replay;
 
-  std::vector<double> ode_times;
+  // Double replay on the resolved schedule -> the reference offspring value.
   double offspring_double = 0.0;
   {
     FF16_Environment_<double> env;
     SCM<FF16_Strategy_<double>, FF16_Environment_<double>> scm(
-        make_params(FF16_Strategy_<double>()), env, ctrl_record);
+        make_params(FF16_Strategy_<double>()), env, ctrl_replay);
+    NodeSchedule ns = scm.r_node_schedule();
+    ns.r_set_use_ode_times(true);
+    scm.r_set_node_schedule(ns);
     scm.run();
-    // The replay grid is the SOLVER-OWNED L1 schedule (solver.times()), the single
-    // source odelia's AD workflow guarantees consistent -- NOT patch.step_history
-    // (the save_RK45_cache / run_mutant L3 legacy record, a separate grid).
-    ode_times        = scm.r_ode_times();
     offspring_double = scm.get_system_ref().offspring_production()[0];
   }
 
+  // The schedule is already loaded from parameters; reset and flip on ode-time replay.
   auto pin_replay = [&](auto& scm) {
     scm.reset();
     NodeSchedule ns = scm.r_node_schedule();
-    ns.r_set_ode_times(ode_times);
     ns.r_set_use_ode_times(true);
     scm.r_set_node_schedule(ns);
   };
@@ -183,7 +196,10 @@ Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate
     s.is_variable_birth_rate = false; s.birth_rate_y = {birth_rate};
     *s.field_ptrs()[field_idx] += d;
     Parameters<FF16_Strategy_<double>, FF16_Environment_<double>> p;
-    p.strategies.push_back(s); p.max_patch_lifetime = max_patch_lifetime; p.validate();
+    p.strategies.push_back(s); p.max_patch_lifetime = max_patch_lifetime;
+    p.node_schedule_times = resolved_node_times;  // resolved L0
+    p.ode_times           = resolved_ode_times;    // resolved L1
+    p.validate();
     FF16_Environment_<double> env;
     SCM<FF16_Strategy_<double>, FF16_Environment_<double>> scm(p, env, ctrl_replay);
     pin_replay(scm); scm.run();
@@ -208,5 +224,5 @@ Rcpp::List ff16_scm_offspring_gradient(double lma = 0.1978791, double birth_rate
       Rcpp::Named("jvp")              = jvp,
       Rcpp::Named("dot")              = dot,
       Rcpp::Named("fd_grad")          = Rcpp::wrap(fd_grad),
-      Rcpp::Named("n_steps")          = double(ode_times.size()));
+      Rcpp::Named("n_steps")          = double(resolved_ode_times.size()));
 }
