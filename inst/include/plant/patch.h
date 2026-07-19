@@ -612,6 +612,11 @@ template <typename T, typename E>
 void Patch<T,E>::compute_environment(bool rescale) {
   if (size() == 0 || is_mutant_run) return;
 
+  // Transport-log-mass chart: reconstruct the log_density/density view from the
+  // transported lambda before anything reads density (the competition field and
+  // the fitted spline both do). No-op for strategies off the chart.
+  for (auto& s : species) s.reconstruct_densities();
+
   // Assemble the exact separable field the cohorts read (deep-crown environments).
   if constexpr (env_has_competition_field<E>::value) {
     assemble_competition_field();

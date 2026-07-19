@@ -55,6 +55,11 @@ public:
   double height_max() const;
   value_type compute_competition(double height) const;
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
+  // Transport-log-mass chart: reconstruct the log_density/density view from the
+  // transported lambda (before any density is read), and seed a newborn's lambda
+  // from its birth log_density. No-ops off the chart.
+  void reconstruct_densities();
+  void seed_newborn_log_mass();
   std::vector<value_type> net_reproduction_ratio_by_node() const;
   // Per-node lifetime offspring, weighted by patch-age density and S_D.
   std::vector<value_type> net_reproduction_ratio_by_node_weighted() const;
@@ -170,6 +175,7 @@ void Species<T,E>::introduce_new_node() {
   // the post-introduction environment rather than the environment at the
   // node's introduction time (resolves the recompute question in #478).
   nodes.push_back(new_node);
+  seed_newborn_log_mass();
 }
 
 // If a species contains no individuals, we return the height of a
@@ -255,31 +261,56 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   }
   new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
 
-  // Tier 1 geometric compression (rebind strategies only; others keep the
-  // stencil inside Node::compute_rates). Each node's log-density transport term
-  // -∂ₓg is the neighbour difference of the characteristic velocity g over the
-  // SAME cohort spacings that weight the competition-integral trapezoids
-  // (compute_competition above). Because both appearances of ∂ₓg -- the one in
-  // the log-density ODE and the one implicit in the evolving quadrature spacings
-  // -- are the same discrete operator, their parameter-derivatives cancel on the
-  // reverse tape, giving well-conditioned census gradients. Nodes are ordered
-  // tallest-to-shortest, so height decreases with index and the difference
-  // quotient is sign-correct for interior (centred) and boundary (one-sided)
-  // nodes alike -- exactly odelia::log_density_rate over that same spacing.
-  if constexpr (strategy_supports_geometric_transport<T>::value)
-  if (!nodes.empty() && nodes[0].individual.control().node_geometric_compression) {
-    const std::size_t n = nodes.size();
-    if (n < 2) return;  // the neighbour difference is undefined for a lone cohort
-    std::vector<value_type> heights(n), growths(n), mortalities(n);
-    for (std::size_t i = 0; i < n; ++i) {
-      heights[i]     = nodes[i].height();
-      growths[i]     = nodes[i].growth_rate();
-      mortalities[i] = nodes[i].mortality_rate();
-    }
-    const std::vector<value_type> rate =
-        odelia::log_density_rate(heights, growths, mortalities);
-    for (std::size_t i = 0; i < n; ++i) nodes[i].set_log_density_dt(rate[i]);
+  // Transport-log-mass chart (geometric strategies with the flag on): the
+  // transported quantity is lambda = log_density + log(cohort_spacing) and its
+  // rate is simply -mortality -- the compression term -d(g)/d(size) cancels
+  // against the log-spacing's own evolution and is never formed (no numerical
+  // d(g)/d(size) on the tape, stable through a growth stall). Node::compute_rates
+  // has already set log_density_dt = -mortality for the geometric branch, so
+  // there is nothing to add here; log_density/density are reconstructed as a
+  // read-side view (reconstruct_densities) before the field is assembled.
+}
+
+// Reconstruct the log_density/density view from the transported log mass and the
+// canonical cohort spacing (odelia). Called once per environment build, before
+// any density is read. A lone cohort has no spacing, so lambda == log_density.
+template <typename T, typename E>
+void Species<T,E>::reconstruct_densities() {
+  const std::size_t n = nodes.size();
+  if (n == 0) return;
+  if (!nodes[0].on_mass_chart()) return;  // off the chart: log_density is the state
+  if (n == 1) { nodes[0].set_log_density(nodes[0].get_log_mass()); return; }
+  std::vector<value_type> heights(n), log_mass(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    heights[i]  = nodes[i].height();
+    log_mass[i] = nodes[i].get_log_mass();
   }
+  const std::vector<value_type> ld =
+      odelia::log_density_from_log_mass(heights, log_mass);
+  for (std::size_t i = 0; i < n; ++i) nodes[i].set_log_density(ld[i]);
+}
+
+// Rebuild the transported log mass from the current log_density view whenever a
+// cohort is introduced. Introducing a node changes its neighbours' spacing, so
+// every cell's mass (lambda = log_density + log(cohort_spacing)) is re-derived
+// from the density it holds now with the new spacing -- a remesh that preserves
+// the physical density across the discretisation change. For cells whose spacing
+// is unchanged this is the exact round-trip identity; for the newborn (and a
+// lone cohort promoted to a pair) it sets the correct initial lambda. Must run at
+// introduction, before the stepper reads the initial condition off ode_state.
+template <typename T, typename E>
+void Species<T,E>::seed_newborn_log_mass() {
+  const std::size_t n = nodes.size();
+  if (n == 0 || !nodes[0].on_mass_chart()) return;
+  if (n == 1) { nodes[0].set_log_mass(nodes[0].get_log_density()); return; }
+  std::vector<value_type> heights(n), log_density(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    heights[i]     = nodes[i].height();
+    log_density[i] = nodes[i].get_log_density();
+  }
+  const std::vector<value_type> lm =
+      odelia::log_mass_from_log_density(heights, log_density);
+  for (std::size_t i = 0; i < n; ++i) nodes[i].set_log_mass(lm[i]);
 }
 
 template <typename T, typename E>
@@ -288,6 +319,9 @@ void Species<T,E>::introduce_new_node(double time, double patch_density) {
   // the no-arg introduction paths.
   nodes.push_back(new_node);
   nodes.back().set_introduction(time, patch_density);
+  // Seed the newborn's transported lambda from its birth log_density now that it
+  // has a neighbour (needed before the stepper reads its initial condition).
+  seed_newborn_log_mass();
 }
 
 template <typename T, typename E>

@@ -46,10 +46,12 @@ test_that("C++ K93 SCM construction reproduces R run_scm (CD-G layer a)", {
   # faithful. Census (a basal-area moment) is finite and positive.
   geo <- k93_scm_census_double(geometric = TRUE)
   fd  <- k93_scm_census_double(geometric = FALSE)
-  # K93 now reads its light from the exact separable_field (not the fitted spline),
-  # which shifts the stencil-transport offspring by ~0.03% (0.075325 -> 0.075299);
-  # the geometric-transport value is unchanged within tol. Sanctioned re-baseline.
-  expect_equal(geo$offspring[1], 0.075453, tolerance = 1e-4)
+  # geo uses the transport-log-mass chart (lambda = log_density + log spacing,
+  # d(lambda)/dt = -mortality); this re-baselines geo offspring by ~0.03% from the
+  # previous log-density+compression chart (a boundary-spacing effect), gradients
+  # unchanged (test-ad-k93-scm-gradient). fd (the FD stencil, chart off) is
+  # bit-identical to before. Sanctioned re-bless.
+  expect_equal(geo$offspring[1], 0.0754715, tolerance = 1e-4)
   expect_equal(fd$offspring[1],  0.075299, tolerance = 1e-4)
   expect_true(is.finite(geo$census) && geo$census > 0)
 })

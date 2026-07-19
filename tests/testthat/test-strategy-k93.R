@@ -115,13 +115,15 @@ test_that("K93 offspring production is unchanged", {
   p1 <- add_strategies(p0, trait_matrix(0.059, "b_0"), birth_rate = 20)
   #p1$birth_rate <- 20
 
-  # K93 uses the geometric mass chart (odelia::log_density_rate) as its default
-  # density transport (strategy_uses_geometric_transport marker). This is a
-  # neighbour-secant discretisation of -dg/dx rather than the FD upwind stencil,
-  # so the offspring number differs from the old stencil default by ~0.17% -- a
-  # sanctioned re-baseline (build-plan: mass chart is the K93 transport default).
+  # K93 uses the transport-log-mass chart as its default density transport
+  # (strategy_supports_geometric_transport marker). The transported quantity is
+  # lambda = log_density + log(cohort_spacing), evolving by d(lambda)/dt =
+  # -mortality (the compression -dg/dx cancels identically and is never formed);
+  # log_density is a read-side view. This re-baselines offspring from the previous
+  # log-density+compression chart by ~0.03% (a boundary-spacing effect), gradients
+  # unchanged (see test-ad-k93-scm-gradient) -- a sanctioned re-bless.
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 0.0754526, tolerance = 1e-4)
+  expect_equal(out$offspring_production, 0.0754715, tolerance = 1e-4)
 
   # Three species from paper
   sp <- trait_matrix(c(0.042, 0.063, 0.052,
@@ -138,6 +140,6 @@ test_that("K93 offspring production is unchanged", {
   #p2$birth_rate <- c(20, 20, 20)
   out <- run_scm(p2, env, ctrl)
 
-  expect_equal(out$offspring_production, c(0.00254387, 0.23264220, 0.22014690),
+  expect_equal(out$offspring_production, c(0.00254563, 0.23270255, 0.22028577),
                tolerance = 1e-4)
 })

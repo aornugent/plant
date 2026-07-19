@@ -111,7 +111,7 @@ test_that("K93 SCM offspring (R0) gradient passes the JVP=VJP oracle (CD-G layer
   # value reproduces the double offspring production exactly.
   o <- k93_scm_offspring_gradient()
   expect_equal(o$value, o$value_double, tolerance = 1e-10)
-  expect_equal(o$value, 0.075453, tolerance = 1e-4)  # documented K93 offspring
+  expect_equal(o$value, 0.0754715, tolerance = 1e-4)  # documented K93 offspring (mass chart)
 
   # Self-consistency smoke test (necessary, not sufficient).
   expect_equal(o$jvp, o$dot, tolerance = 1e-6)

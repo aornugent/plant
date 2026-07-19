@@ -107,6 +107,21 @@ public:
     density = exp(log_density);
   }
 
+  // Transport-log-mass chart (geometric strategies with the flag on). The
+  // ODE-integrated slot carries lambda = log_density + log(cohort_spacing),
+  // whose rate is just -mortality (the compression cancels; see
+  // odelia::log_mass_from_log_density). log_density/density are a read-side
+  // view Species reconstructs from lambda and the shared spacing. Whether this
+  // node is on the chart is fixed by the strategy marker and the control flag.
+  bool on_mass_chart() const {
+    if constexpr (strategy_supports_geometric_transport<strategy_type>::value)
+      return individual.control().node_geometric_compression;
+    else
+      return false;
+  }
+  value_type get_log_mass() const {return log_mass_;}
+  void set_log_mass(value_type x) {log_mass_ = x;}
+
   // ODE interface.
   //
   // NOTE: We are a time-independent model here so no need to pass
@@ -148,6 +163,7 @@ private:
   value_type log_density;
   value_type log_density_dt;
   value_type density; // hmm...
+  value_type log_mass_;  // transported quantity on the mass chart (see on_mass_chart)
   value_type offspring_produced_survival_weighted;
   value_type offspring_produced_survival_weighted_dt;
   double pr_patch_survival_at_birth;
@@ -163,6 +179,7 @@ Node<T,E>::Node(strategy_type_ptr s)
     log_density(-std::numeric_limits<double>::infinity()),
     log_density_dt(0),
     density(0),
+    log_mass_(-std::numeric_limits<double>::infinity()),
     offspring_produced_survival_weighted(0),
     offspring_produced_survival_weighted_dt(0),
     node_introduction_time(0),
@@ -235,6 +252,11 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   // reconcile. This is the log-density birth kink (recorded in the manifest).
   set_log_density(g > 0 ? value_type(log(birth_rate * pr_estab / g))
                         : value_type(log(value_type(0.0))));
+  // Default the transported log mass to the birth log density (the lone-cohort
+  // dx=1 convention). Species::seed_newborn_log_mass overwrites this with the
+  // spacing-adjusted lambda once the node has a neighbour; off the mass chart
+  // log_mass_ is unused. This keeps a bare node's ode_state == log_density.
+  log_mass_ = log_density;
 
   // Need to check that the rates are valid after setting the
   // mortality value here (can go to -Inf and that requires squashing
@@ -328,7 +350,11 @@ It Node<T,E>::set_ode_state(It it) {
     individual.set_state(i, *it++);
   }
   offspring_produced_survival_weighted = *it++;
-  set_log_density(*it++);
+  // Mass chart: the integrated slot is lambda (log mass); log_density/density
+  // are reconstructed later (Species::reconstruct_densities, before the field is
+  // read). Off the chart, the slot is log_density directly.
+  if (on_mass_chart()) { log_mass_ = *it++; }
+  else                 { set_log_density(*it++); }
   return it;
 }
 template <typename T, typename E>
@@ -338,7 +364,7 @@ It Node<T,E>::ode_state(It it) const {
     *it++ = individual.state(i);
   }
   *it++ = offspring_produced_survival_weighted;
-  *it++ = log_density;
+  *it++ = on_mass_chart() ? log_mass_ : log_density;
   return it;
 }
 template <typename T, typename E>
