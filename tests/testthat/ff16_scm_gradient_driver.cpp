@@ -255,7 +255,7 @@ Rcpp::List ff16_cohort_height_tangents(Rcpp::List node_sched,
                              ns.r_set_use_ode_times(true); scm.r_set_node_schedule(ns); };
 
   // Forward AD: seed lma tangent, run, read each cohort's height value + tangent.
-  std::vector<double> h_val, h_tan;
+  std::vector<double> h_val, h_tan, grate;
   {
     FF16_Environment_<FwdS> env;
     SCM<FF16_Strategy_<FwdS>, FF16_Environment_<FwdS>> scm(make_params(FF16_Strategy_<FwdS>(), lma), env, ctrl);
@@ -268,6 +268,9 @@ Rcpp::List ff16_cohort_height_tangents(Rcpp::List node_sched,
       for (auto it = sp.node_begin(); it != sp.node_end(); ++it) {
         h_val.push_back(xad::value(it->height()));
         h_tan.push_back(xad::derivative(it->height()));
+        // Growth rate: net<=0 forces this to 0 (the net_mass_production_dt>0
+        // branch), so ~0 flags a cohort at/below the kink.
+        grate.push_back(xad::value(it->individual.rate(HEIGHT_INDEX)));
       }
     }
   }
@@ -289,5 +292,6 @@ Rcpp::List ff16_cohort_height_tangents(Rcpp::List node_sched,
   return Rcpp::List::create(
       Rcpp::Named("height")   = Rcpp::wrap(h_val),
       Rcpp::Named("ad_tan")   = Rcpp::wrap(h_tan),
+      Rcpp::Named("grate")    = Rcpp::wrap(grate),
       Rcpp::Named("fd")       = Rcpp::wrap(h_fd));
 }
