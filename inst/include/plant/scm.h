@@ -22,6 +22,7 @@ inline odelia::ode::Method scm_ode_method(const Control& control) {
   const std::string& m = control.ode_method;
   if (m.empty() || m == "rkck") return odelia::ode::Method::rkck;
   if (m == "rodas")             return odelia::ode::Method::rodas;
+  if (m == "imex")              return odelia::ode::Method::imex;
   if (m == "mri")               return odelia::ode::Method::mri;
   util::stop("Unknown control$ode_method '" + m +
              "'; use 'rkck', 'rodas' or 'mri'.");
