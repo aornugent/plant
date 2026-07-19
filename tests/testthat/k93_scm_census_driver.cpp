@@ -113,25 +113,22 @@ static Rcpp::List k93_scm_gradient_impl(K93Metric metric, const std::vector<int>
     return p;
   };
 
-  // Recording Control (double run): save_RK45_cache turns on step recording so the
-  // accepted ode-step times land in patch.step_history. Replay Control (active
-  // runs): recording OFF, so the active SCM recomputes its environment field at
-  // the active scalar (resident L2) rather than freezing a recorded one.
   Control ctrl_record;
   ctrl_record.node_geometric_compression = true;
-  ctrl_record.save_RK45_cache = true;
   Control ctrl_replay;
   ctrl_replay.node_geometric_compression = true;
 
   // (1) Double run: record the L1 ode-time schedule and the metric's double value.
-  std::vector<double> step_history;
+  std::vector<double> ode_times;
   double value_double = 0.0;
   {
     K93_Environment_<double> env;
     SCM<K93_Strategy_<double>, K93_Environment_<double>> scm(
         make_params(K93_Strategy_<double>()), env, ctrl_record);
     scm.run();
-    step_history = scm.get_system_ref().step_history;
+    // The replay grid is the SOLVER-OWNED L1 schedule (solver.times()), the single
+    // source odelia's AD workflow guarantees consistent -- NOT patch.step_history.
+    ode_times    = scm.r_ode_times();
     value_double = k93_reduce<double>(scm, metric);
   }
 
@@ -141,7 +138,7 @@ static Rcpp::List k93_scm_gradient_impl(K93Metric metric, const std::vector<int>
   auto pin_replay = [&](auto& scm) {
     scm.reset();
     NodeSchedule ns = scm.r_node_schedule();
-    ns.r_set_ode_times(step_history);
+    ns.r_set_ode_times(ode_times);
     ns.r_set_use_ode_times(true);
     scm.r_set_node_schedule(ns);
   };
@@ -221,7 +218,7 @@ static Rcpp::List k93_scm_gradient_impl(K93Metric metric, const std::vector<int>
       Rcpp::Named("jvp")          = jvp,
       Rcpp::Named("dot")          = dot,
       Rcpp::Named("fd_grad")      = Rcpp::wrap(fd_grad),
-      Rcpp::Named("n_steps")      = double(step_history.size()));
+      Rcpp::Named("n_steps")      = double(ode_times.size()));
 }
 
 // Census gradient: total stand competition (basal-area moment) w.r.t. the growth
