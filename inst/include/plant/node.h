@@ -5,6 +5,7 @@
 #include <plant/environment.h>
 #include <plant/gradient.h>
 #include <odelia/ode_interface.hpp>
+#include <odelia/ode_util.hpp> // odelia::util::diagnostic (intent-named AD strip)
 #include <optional>
 #include <limits> // std::numeric_limits
 #include <type_traits> // std::is_same_v
@@ -332,7 +333,7 @@ double Node<T,E>::r_growth_rate_gradient(const environment_type& environment) {
   // be taken care of because of the calling order of
   // compute_rates / growth_rate_gradient.
   individual.compute_rates(environment);
-  return xad::value(growth_rate_gradient(environment));  // R-facing: double only
+  return odelia::util::diagnostic(growth_rate_gradient(environment));  // R-facing: double only
 }
 
 template <typename T, typename E>

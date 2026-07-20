@@ -440,9 +440,9 @@ void Patch<T,E>::check_finite_ode_state() const {
         util::stop("Non-finite cohort density in the SCM size-density "
                    "(characteristic) equations: species " +
                    util::to_string(i + 1) + " has a node with density=" +
-                   util::to_string(xad::value(it->get_density())) + " (log_density=" +
-                   util::to_string(xad::value(it->get_log_density())) + ", height=" +
-                   util::to_string(xad::value(it->height())) + ") at time=" +
+                   util::to_string(odelia::util::diagnostic(it->get_density())) + " (log_density=" +
+                   util::to_string(odelia::util::diagnostic(it->get_log_density())) + ", height=" +
+                   util::to_string(odelia::util::diagnostic(it->height())) + ") at time=" +
                    util::to_string(environment.time) +
                    ". The density derivative -d(growth)/d(height) - mortality "
                    "can grow without bound when growth rate falls steeply with "
@@ -461,7 +461,7 @@ void Patch<T,E>::check_finite_ode_state() const {
   for (size_t i = 0; i < env_vars.state_size; ++i) {
     if (!util::is_finite(env_vars.states[i])) {  // finiteness guard (Kind A)
       util::stop("Non-finite environment state (index " + util::to_string(i) +
-                 " = " + util::to_string(xad::value(env_vars.states[i])) + ") at time=" +
+                 " = " + util::to_string(odelia::util::diagnostic(env_vars.states[i])) + ") at time=" +
                  util::to_string(environment.time) +
                  ". For TF24 this is a soil-water state driven non-finite by the "
                  "density-weighted resource uptake as a cohort density runs away "
@@ -500,7 +500,7 @@ Patch<T,E>::compute_competition(double height) const {
 
 template <typename T, typename E>
 std::vector<double> Patch<T,E>::r_compute_competition_effect_error_by_node_for_species_i(size_t species_index) const {
-  const double tot_competition_effect = xad::value(compute_competition(0.0));
+  const double tot_competition_effect = odelia::util::diagnostic(compute_competition(0.0));
   return species[species_index].r_compute_competition_effect_by_nodes_error(tot_competition_effect);
 }
 
@@ -560,12 +560,12 @@ template <typename T, typename E>
 std::vector<std::vector<double>> Patch<T,E>::net_reproduction_ratio_errors() const {
   std::vector<std::vector<double>> ret;
   // Schedule-refinement error is a double-only diagnostic; drop any active
-  // derivative here with xad::value (identity on the double production path).
-  double total_offspring = xad::value(total_offspring_production());
+  // derivative here with odelia::util::diagnostic (identity on the double path).
+  double total_offspring = odelia::util::diagnostic(total_offspring_production());
   for (size_t i = 0; i < species.size(); ++i) {
     auto weighted = species[i].net_reproduction_ratio_by_node_weighted();
     std::vector<double> weighted_d(weighted.size());
-    for (size_t j = 0; j < weighted.size(); ++j) weighted_d[j] = xad::value(weighted[j]);
+    for (size_t j = 0; j < weighted.size(); ++j) weighted_d[j] = odelia::util::diagnostic(weighted[j]);
     ret.push_back(util::local_error_integration(
         species[i].node_times(), weighted_d, total_offspring));
   }

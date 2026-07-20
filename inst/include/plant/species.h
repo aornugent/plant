@@ -6,6 +6,7 @@
 #include <plant/util.h>
 #include <plant/environment.h>
 #include <odelia/ode_interface.hpp>
+#include <odelia/ode_util.hpp> // odelia::util::diagnostic (intent-named AD strip)
 #include <odelia/mass_transport.hpp>
 #include <plant/node.h>
 #include <plant/species_base.h>
@@ -405,7 +406,7 @@ std::vector<double> Species<T,E>::consumption_rate_by_node_rev(int i) const {
   std::vector<double> ret;
   ret.reserve(size());
   for(auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
-    ret.push_back(xad::value(it->consumption_rate(i)));  // R-facing: double only
+    ret.push_back(odelia::util::diagnostic(it->consumption_rate(i)));  // R-facing: double only
   }
   return ret;
 }
@@ -457,7 +458,7 @@ std::vector<double> Species<T,E>::r_heights() const {
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin();
        it != nodes.end(); ++it) {
-    ret.push_back(xad::value(it->height()));  // R-facing: double only
+    ret.push_back(odelia::util::diagnostic(it->height()));  // R-facing: double only
   }
   return ret;
 }
@@ -468,7 +469,7 @@ std::vector<double> Species<T,E>::r_heights_rev() const {
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin();
        it != nodes.end(); ++it) {
-    ret.push_back(xad::value(it->height()));  // R-facing: double only
+    ret.push_back(odelia::util::diagnostic(it->height()));  // R-facing: double only
   }
   std::reverse(ret.begin(), ret.end());
   return ret;
@@ -491,7 +492,7 @@ std::vector<double> Species<T,E>::r_compute_competition_effect_by_nodes() const 
   std::vector<double> ret;
   ret.reserve(size());
   for (auto& c : nodes) {
-    ret.push_back(xad::value(c.compute_competition(0.0)));  // R-facing: double
+    ret.push_back(odelia::util::diagnostic(c.compute_competition(0.0)));  // R-facing: double
   }
   return ret;
 }
@@ -507,7 +508,7 @@ std::vector<double> Species<T,E>::r_log_densities() const {
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin();
        it != nodes.end(); ++it) {
-    ret.push_back(xad::value(it->get_log_density()));  // R-facing: double only
+    ret.push_back(odelia::util::diagnostic(it->get_log_density()));  // R-facing: double only
   }
   return ret;
 }
@@ -520,7 +521,7 @@ std::vector<double> Species<T,E>::r_log_density_rates() const {
     // R-facing diagnostic (only double crosses to R): narrow the density rate,
     // which is value_type on a gradient pass. check_initial_density_rates reads
     // it as a threshold guard -- off the differentiated value.
-    ret.push_back(xad::value(it->get_log_density_rate()));
+    ret.push_back(odelia::util::diagnostic(it->get_log_density_rate()));
   }
   return ret;
 }
