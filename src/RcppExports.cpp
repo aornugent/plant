@@ -12013,6 +12013,16 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// tf24_solve_diag_enable
+void tf24_solve_diag_enable(bool on);
+RcppExport SEXP _plant_tf24_solve_diag_enable(SEXP onSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< bool >::type on(onSEXP);
+    tf24_solve_diag_enable(on);
+    return R_NilValue;
+END_RCPP
+}
 // node_schedule_default__Parameters___TF24f__TF24_Env
 plant::NodeSchedule node_schedule_default__Parameters___TF24f__TF24_Env(const plant::Parameters<plant::TF24f_Strategy,plant::TF24_Environment>& p);
 RcppExport SEXP _plant_node_schedule_default__Parameters___TF24f__TF24_Env(SEXP pSEXP) {
@@ -13165,6 +13175,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_strategy_scientific_version", (DL_FUNC) &_plant_strategy_scientific_version, 1},
     {"_plant_node_schedule_default__Parameters___TF24__TF24_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___TF24__TF24_Env, 1},
     {"_plant_make_node_schedule__Parameters___TF24__TF24_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___TF24__TF24_Env, 1},
+    {"_plant_tf24_solve_diag_enable", (DL_FUNC) &_plant_tf24_solve_diag_enable, 1},
     {"_plant_node_schedule_default__Parameters___TF24f__TF24_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___TF24f__TF24_Env, 1},
     {"_plant_make_node_schedule__Parameters___TF24f__TF24_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___TF24f__TF24_Env, 1},
     {"_plant_test_uniroot", (DL_FUNC) &_plant_test_uniroot, 3},

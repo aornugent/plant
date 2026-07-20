@@ -8,6 +8,7 @@
 #include <odelia/interpolator.hpp>
 #include <limits>
 #include <cmath>
+#include <algorithm>
 
 using namespace Rcpp;
 
@@ -506,6 +507,53 @@ public:
   double get_atm_o2_kpa() const { return cached_driver_("atm_o2_kpa", atm_o2_kpa_cache_, atm_o2_kpa_cache_time_); }
   double get_atm_kpa()    const { return cached_driver_("atm_kpa", atm_kpa_cache_, atm_kpa_cache_time_); }
 
+
+  // Stage-1 event classifier: soil-side event margins + signature from the
+  // current (already-computed) soil state. No extra solve. Appends to margins:
+  //   [0] min_layer (theta - theta_res)      -> theta_res clamp proximity
+  //   [1] min_layer (theta_sat - theta)      -> saturation proximity
+  //   [2] min_layer (soil_psi_max - psi)     -> psi ceiling proximity
+  //   [3] runoff margin at layer 0 (<=0 => runoff active / infiltration clamped)
+  //   [4] psi_wettest = min_layer psi        -> shutdown proximity (vs psi_crit)
+  // and to sig:
+  //   [0] bitmask of layers with theta <= theta_res (clamped this step)
+  //   [1] runoff active (0/1)
+  // Patch::step_monitor appends the per-cohort branch digest after these.
+  void soil_event_margins(std::vector<double>& margins,
+                          std::vector<int>& sig) const {
+    const std::vector<double>& psi = get_soil_water_potential_state();
+    double m_theta_res = std::numeric_limits<double>::infinity();
+    double m_theta_sat = std::numeric_limits<double>::infinity();
+    double m_psi_ceil  = std::numeric_limits<double>::infinity();
+    double psi_wettest = std::numeric_limits<double>::infinity();
+    int clamp_bits = 0;
+    for (int i = 0; i < soil_number_of_depths; ++i) {
+      const double theta = vars.state(i);
+      const double sat_i = soil_parameter_value(soil_moist_sat_layers,
+                                                soil_moist_sat, i);
+      m_theta_res = std::min(m_theta_res, theta - soil_moist_residual);
+      m_theta_sat = std::min(m_theta_sat, sat_i - theta);
+      m_psi_ceil  = std::min(m_psi_ceil, soil_psi_max_ - psi[i]);
+      psi_wettest = std::min(psi_wettest, psi[i]);
+      if (theta <= soil_moist_residual) {
+        clamp_bits |= (1 << i);
+      }
+    }
+    // Runoff margin: 1 - a*(theta0/sat0)^b (the infiltration-excess arg before
+    // the max(0,.); <=0 => runoff active). Mirrors infiltration_rate.
+    const double sat0 = soil_parameter_value(soil_moist_sat_layers,
+                                             soil_moist_sat, 0);
+    const double runoff_margin =
+      1 - a_infil * std::pow(vars.state(0) / sat0, b_infil);
+
+    margins.push_back(m_theta_res);
+    margins.push_back(m_theta_sat);
+    margins.push_back(m_psi_ceil);
+    margins.push_back(runoff_margin);
+    margins.push_back(psi_wettest);
+    sig.push_back(clamp_bits);
+    sig.push_back(runoff_margin <= 0.0 ? 1 : 0);
+  }
 
   std::vector<double> get_soil_water_state() const { return {vars.states.begin(), vars.states.end() - aux_num}; }
   const std::vector<double>& get_soil_water_potential_state() const {

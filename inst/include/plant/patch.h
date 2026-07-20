@@ -5,7 +5,10 @@
 #include <plant/parameters.h>
 #include <plant/species.h>
 #include <plant/util.h>
+#include <plant/tf24_solve_diag.h>
 #include <odelia/ode_interface.hpp>
+#include <cmath>
+#include <limits>
 // Patch declares an MRI fast/slow partition (below), so it is a multirate
 // System: pull in the multirate stepper's out-of-line definition here, so every
 // TU that builds a Solver<Patch> has MriStep<Patch>::step defined and not just
@@ -35,6 +38,16 @@ struct env_has_split : std::false_type {};
 template <class En>
 struct env_has_split<En, std::void_t<decltype(std::declval<En&>().analytic_partial_flow(
     std::declval<std::vector<double>&>(), 0.0))>> : std::true_type {};
+
+// Does the environment expose the Stage-1 classifier soil-event margins? Only
+// TF24 does; Patch::step_monitor's body is gated on it so a patch over another
+// environment (e.g. FF16) still compiles.
+template <class, class = void>
+struct env_has_event_margins : std::false_type {};
+template <class En>
+struct env_has_event_margins<En, std::void_t<decltype(std::declval<const En&>().soil_event_margins(
+    std::declval<std::vector<double>&>(), std::declval<std::vector<int>&>()))>>
+    : std::true_type {};
 
 template <typename T, typename E>
 class Patch {
@@ -124,6 +137,56 @@ public:
   // a System, the clip compiles out, so production is bit-identical when off.
   double clip_time_after(double t) const {
     return environment.extrinsic_drivers_next_node_after(t);
+  }
+
+  // * Stage-1 event classifier interface (event-aware pathway)
+  // Per-accepted-step monitor: fills a fixed-width vector of double event-margin
+  // values and int branch-signature codes from the state already computed for
+  // this step. odelia's adaptive controller records these when its step monitor
+  // is enabled (see has_step_monitor / step_diag). The margins come from the
+  // environment (soil clamps, psi ceiling, runoff, wettest-layer shutdown
+  // proximity); the branch signatures aggregate the per-cohort root-collar solve
+  // sink (tf24_solve_diag) that compute_species_rates refills each RHS sweep.
+  // Additive: absent-hook Systems compile out (bit-identical when off).
+  //
+  // margins: [0] min(theta - theta_res)   [1] min(theta_sat - theta)
+  //          [2] min(soil_psi_max - psi)  [3] runoff margin (layer 0)
+  //          [4] psi_wettest (min psi)    [5] min cohort shutdown margin
+  //          [6] min cohort feasible-interval width
+  // sig:     [0] soil-clamp bitmask (theta <= theta_res per layer)
+  //          [1] runoff active (0/1)      [2..7] branch-code counts (6)
+  //          [8] n cohort solves this sweep
+  void step_monitor(std::vector<double>& margins, std::vector<int>& sig) {
+    margins.clear();
+    sig.clear();
+    if constexpr (env_has_event_margins<E>::value) {
+      environment.soil_event_margins(margins, sig);
+
+      // Aggregate the per-cohort branch sink into the digest.
+      const auto& branch = tf24_solve_diag::branch;
+      const auto& shutdown = tf24_solve_diag::shutdown;
+      const auto& interval = tf24_solve_diag::interval;
+      std::vector<int> counts(tf24_solve_diag::N_BRANCH, 0);
+      double min_shutdown = std::numeric_limits<double>::infinity();
+      double min_interval = std::numeric_limits<double>::infinity();
+      for (size_t k = 0; k < branch.size(); ++k) {
+        if (branch[k] >= 0 && branch[k] < tf24_solve_diag::N_BRANCH) {
+          ++counts[branch[k]];
+        }
+        if (shutdown[k] < min_shutdown) {
+          min_shutdown = shutdown[k];
+        }
+        if (std::isfinite(interval[k]) && interval[k] < min_interval) {
+          min_interval = interval[k];
+        }
+      }
+      margins.push_back(min_shutdown);
+      margins.push_back(min_interval);
+      for (int c : counts) {
+        sig.push_back(c);
+      }
+      sig.push_back(static_cast<int>(branch.size()));
+    }
   }
 
   // * Multirate (MRI) partition interface
@@ -728,6 +791,13 @@ void Patch<T,E>::compute_rates() {
 // rate assembly.
 template <typename T, typename E>
 void Patch<T,E>::compute_species_rates() {
+  // Classifier (off by default): clear the per-cohort branch sink at the top of
+  // every full RHS sweep so that after any evaluation it holds exactly this
+  // sweep's cohorts, which Patch::step_monitor then aggregates. One bool test
+  // when off.
+  if (tf24_solve_diag::enabled) {
+    tf24_solve_diag::reset();
+  }
   double time_ = environment_ptr->time;
   double pr_patch_survival = survival_weighting->pr_survival(time_);
   for (size_t i = 0; i < size(); ++i) {

@@ -4,6 +4,7 @@
 #include <exception>
 #include <boost/math/special_functions/gamma.hpp>
 #include <plant/models/tf24_environment.h>
+#include <plant/tf24_solve_diag.h>
 #include <XAD/XAD.hpp>
 
 namespace plant {
@@ -709,8 +710,17 @@ bool Leaf::prepare_collar_solve(double& bound_a, double& bound_b){
   // Avoid loop if the wettest psi layer is drier than psi_crit in stem, transpiration not possible and so all variables set to
   // shut down
 
+  // Classifier: shutdown-proximity margin shared by the early-exit branches.
+  // psi_crit + wettest_soil_layer <= 0 means the wettest layer is at/below
+  // psi_crit -> the cohort is (or is about to be) in shutdown. NaN interval =
+  // "no feasible optimisation interval on this branch".
+  const double shutdown_margin_ = psi_crit + wettest_soil_layer;
+  const double no_interval_ = std::numeric_limits<double>::quiet_NaN();
+
   if (-wettest_soil_layer >= psi_crit){
     set_shutdown_state(-psi_crit);
+    tf24_solve_diag::record(tf24_solve_diag::BRANCH_SHUTDOWN_WETTEST,
+                            shutdown_margin_, no_interval_);
     return false;
   }
 
@@ -718,6 +728,8 @@ if(E_column(-psi_crit, psi_soil_inverted_, psi_crit) < 0){
       // root_collar_psi_ is reported as a signed (negative) potential, so store
       // -root_psi_crit rather than the positive magnitude root_psi_crit.
       set_shutdown_state(-root_psi_crit);
+      tf24_solve_diag::record(tf24_solve_diag::BRANCH_SHUTDOWN_ECOLUMN,
+                              shutdown_margin_, no_interval_);
       return false;
 }
 
@@ -729,6 +741,8 @@ double root_crit = find_root_psi(wettest_soil_layer, psi_soil_inverted_, 1);
 
     if (-root_crit >= psi_crit){
     set_shutdown_state(root_crit);
+    tf24_solve_diag::record(tf24_solve_diag::BRANCH_SHUTDOWN_ROOTCRIT,
+                            shutdown_margin_, no_interval_);
     return false;
   }
 
@@ -752,6 +766,8 @@ if(assim_max_ < 0){
           util::stop("Error: profit nan");
     }
 
+    tf24_solve_diag::record(tf24_solve_diag::BRANCH_ZERO_E,
+                            shutdown_margin_, no_interval_);
     return false;
 }
 // opt_psi_stem_ = psi_soil_;
@@ -783,6 +799,8 @@ if(assim_max_ < 0){
       // potential for a sign-consistent aux output.
       profit_ = profit_psi_stem_TF(opt_psi_stem_, opt_root_psi);
       root_collar_psi_ = -opt_root_psi;
+      tf24_solve_diag::record(tf24_solve_diag::BRANCH_COLLAPSED,
+                              shutdown_margin_, std::abs(bound_b - bound_a));
 
       if (!std::isfinite(profit_)) {
         util::stop("Error: non-finite profit in collapsed-root interval; "
@@ -799,6 +817,8 @@ if(assim_max_ < 0){
       return false;
     }
 
+    tf24_solve_diag::record(tf24_solve_diag::BRANCH_GSS,
+                            shutdown_margin_, std::abs(bound_b - bound_a));
     return true;
 }
 

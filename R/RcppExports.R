@@ -4292,6 +4292,10 @@ make_node_schedule__Parameters___TF24__TF24_Env <- function(p) {
     .Call('_plant_make_node_schedule__Parameters___TF24__TF24_Env', PACKAGE = 'plant', p)
 }
 
+tf24_solve_diag_enable <- function(on) {
+    invisible(.Call('_plant_tf24_solve_diag_enable', PACKAGE = 'plant', on))
+}
+
 node_schedule_default__Parameters___TF24f__TF24_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___TF24f__TF24_Env', PACKAGE = 'plant', p)
 }
