@@ -52,11 +52,11 @@ public:
   // through this so the query-height self-shading feedback flows (the derivative
   // the fitted spline freezes). The spline is still built (field_supersedes_spline
   // = false) for the not-yet-assembled / fixed-environment reads.
-  static constexpr std::size_t comp_rank = CanopyShape::shading_rank;  // 3
+  static constexpr std::size_t comp_rank = CanopyShape<S>::shading_rank;  // 3
   static constexpr bool field_supersedes_spline = false;
   odelia::separable_field<S, comp_rank> competition_field;
   std::vector<double> competition_source_heights;  // descending
-  CanopyShape competition_canopy;
+  CanopyShape<S> competition_canopy;
   bool competition_field_ready = false;
 
   // DEBUG (channel isolation): when true, optical_depth uses PASSIVE query factors
@@ -67,7 +67,7 @@ public:
 
   void assemble_competition_field(
       const std::array<std::vector<S>, comp_rank>& source_weight,
-      const std::vector<double>& source_heights, const CanopyShape& canopy) {
+      const std::vector<double>& source_heights, const CanopyShape<S>& canopy) {
     competition_field.assemble(source_weight);
     competition_source_heights = source_heights;
     competition_canopy = canopy;

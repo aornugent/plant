@@ -6,6 +6,8 @@
 #include <cmath>
 #include <string>
 #include <stdexcept>
+#include <type_traits>
+#include <odelia/ode_util.hpp> // odelia::util::to_passive (kind selection / diagnostics)
 
 namespace plant {
 
@@ -97,6 +99,7 @@ inline ShadingModel shading_model_from_string(const std::string& name,
 // the specialised values below (1, 2, 4, 8, 10, 12); other eta values still
 // work, but fall back to std::pow().
 
+template <class S = double>
 class CanopyShape {
 public:
   CanopyShape()
@@ -104,15 +107,22 @@ public:
       pow_eta_kind_(PowEtaKind::P12), leaf_above_kind_(LeafAboveKind::Deep) {
   }
 
-  explicit CanopyShape(double eta) {
+  explicit CanopyShape(S eta) {
     initialise(eta);
   }
 
-  void initialise(double eta, ShadingModel shading_model = ShadingModel::DeepCrown) {
+  void initialise(S eta, ShadingModel shading_model = ShadingModel::DeepCrown) {
+    // eta is carried as S so the profile's derivative w.r.t. eta flows (eta is a
+    // differentiation target). The eta-specialised multiply chains below are a
+    // double-only fast path; an active S evaluates u^eta through the general
+    // pow(), which carries the eta derivative. The kind, the cached 1/eta (Qp
+    // diagnostic) and the box-model threshold eta_c_ are discrete/off the rate
+    // path, so they read the passive value.
     eta_ = eta;
-    eta_inverse_ = 1.0 / eta;
-    eta_c_ = compute_eta_c(eta);
-    pow_eta_kind_ = select_pow_eta_kind(eta);
+    const double eta_d = odelia::util::to_passive(eta);
+    eta_inverse_ = 1.0 / eta_d;
+    eta_c_ = compute_eta_c(eta_d);
+    pow_eta_kind_ = select_pow_eta_kind(eta_d);
     // Most models cast shade via the smooth Yokozawa Q (leaf_area_above == Q).
     // FlatTopBox collapses it to a hard step; FlatTopSoftBox to a smoothed step.
     switch (shading_model) {
@@ -122,12 +132,12 @@ public:
     }
   }
 
-  // The profile methods below are templated on the position scalar Z: Z = double
-  // is the production path (bit-identical -- the eta-specialised multiply chains
-  // and the profile expressions are unchanged, only the double(*)(...) dispatch
-  // is replaced by a switch on a stored kind), while an active Z tapes the crown
-  // integral's moving quadrature nodes (plan §4.4). The shape coefficients
-  // (eta_, eta_c_) stay double: the profile is not differentiated w.r.t. eta.
+  // The profile methods below are templated on the position scalar Z (callers
+  // collapse it to S before entry). On the S = double production path the
+  // eta-specialised multiply chains and profile expressions are unchanged
+  // (bit-identical); on an active S the moving quadrature nodes and the eta
+  // coefficient both tape, so the profile's derivative w.r.t. both position and
+  // eta flows.
 
   // [eqn 11] Fraction of projected leaf area above the height-normalised
   // coordinate u = z / H -- the shading a plant casts at u. Smooth Yokozawa Q
@@ -243,25 +253,39 @@ private:
     }
   }
 
-  // u^eta via the eta-specialised multiply chains (bit-identical to the former
-  // pow_eta_* function pointers); the general case is std::pow, made ADL-friendly
-  // so an active Z resolves to xad::pow.
+  // u^eta. On the double production path, the eta-specialised multiply chains
+  // (bit-identical to the former pow_eta_* function pointers) with std::pow as
+  // the general fallback. On an active S, always the general pow so the eta
+  // derivative u^eta * ln(u) is taped: the integer chains (e.g. u2*u4*u8) carry
+  // no eta term, so they would silently drop that derivative and freeze the value
+  // at the specialised exponent. pow is ADL-friendly, so an active argument
+  // resolves to xad::pow. The active pass is the gradient pass, not the hot
+  // production loop, so it does not pay for the fast path it forgoes.
   template <class Z>
   Z pow_eta(Z u) const {
-    switch (pow_eta_kind_) {
-    case PowEtaKind::P1:  return u;
-    case PowEtaKind::P2:  return u * u;
-    case PowEtaKind::P4:  { const Z u2 = u * u; return u2 * u2; }
-    case PowEtaKind::P8:  { const Z u2 = u * u; const Z u4 = u2 * u2; return u4 * u4; }
-    case PowEtaKind::P10: { const Z u2 = u * u; const Z u4 = u2 * u2; const Z u8 = u4 * u4; return u8 * u2; }
-    case PowEtaKind::P12: { const Z u2 = u * u; const Z u4 = u2 * u2; const Z u8 = u4 * u4; return u8 * u4; }
-    default:             { using std::pow; return pow(u, eta_); }
+    if constexpr (std::is_same_v<S, double>) {
+      switch (pow_eta_kind_) {
+      case PowEtaKind::P1:  return u;
+      case PowEtaKind::P2:  return u * u;
+      case PowEtaKind::P4:  { const Z u2 = u * u; return u2 * u2; }
+      case PowEtaKind::P8:  { const Z u2 = u * u; const Z u4 = u2 * u2; return u4 * u4; }
+      case PowEtaKind::P10: { const Z u2 = u * u; const Z u4 = u2 * u2; const Z u8 = u4 * u4; return u8 * u2; }
+      case PowEtaKind::P12: { const Z u2 = u * u; const Z u4 = u2 * u2; const Z u8 = u4 * u4; return u8 * u4; }
+      default:             { using std::pow; return pow(u, eta_); }
+      }
+    } else {
+      using std::pow;
+      // At u = 0 the value u^eta is 0 but pow's derivative 0^eta * ln(0) is a NaN
+      // (0 * -inf); the true limit as u -> 0+ is 0 (the power dominates the log),
+      // so return it directly. Queries at the crown base / ground (z = 0) hit this.
+      if (odelia::util::to_passive(u) <= 0.0) return Z(0.0);
+      return pow(u, eta_);
     }
   }
 
-  double eta_;
-  double eta_inverse_;
-  double eta_c_;
+  S eta_;               // shape exponent; carried as S so its derivative flows
+  double eta_inverse_;  // 1/eta, Qp diagnostic only (off the rate path)
+  double eta_c_;        // crown-centre; box-model shading threshold only
   PowEtaKind pow_eta_kind_;
   LeafAboveKind leaf_above_kind_;
 };

@@ -217,9 +217,9 @@ public:
     return compute_competition_by_ratio(z * height_inverse, whole_plant_competition);
   }
   // Templated on the ratio scalar R: in update_dependent_aux the ratio is a
-  // double literal (0.0), so canopy_shape.Q stays a double read there; only the
-  // resident field-build hot path (deferred) drives an active ratio, which will
-  // need a templated CanopyShape.
+  // double literal (0.0), so canopy_shape.Q stays a double read there; the
+  // resident field-build hot path drives an active ratio, and CanopyShape<S>
+  // carries the eta derivative through it.
   template <typename R>
   S compute_competition_by_ratio(R z_over_size,
                                  S whole_plant_competition) const {
@@ -276,10 +276,9 @@ public:
 
   // useful for pre-computing expensive objects
   void prepare_strategy() {
-    // eta is not a differentiation target for the canopy profile (eta_/eta_c_
-    // stay double); strip ALL AD layers so this also compiles at the nested
-    // forward-over-reverse type (xad::value peels only one -- odelia#35).
-    canopy_shape.initialise(odelia::util::to_passive(pars.eta));
+    // eta is carried as S so its derivative flows through the canopy profile
+    // (CanopyShape<S>).
+    canopy_shape.initialise(pars.eta);
 
     if (this->is_variable_birth_rate) {
       this->extrinsic_drivers.set_variable("birth_rate", this->birth_rate_x, this->birth_rate_y);
@@ -309,7 +308,7 @@ public:
 #undef PLANT_AD_NAME
 
   // Derived / precomputed in prepare_strategy() (NOT user-set)
-  CanopyShape canopy_shape;
+  CanopyShape<S> canopy_shape;
 };
 
 using K93_Strategy = K93_Strategy_<double>;

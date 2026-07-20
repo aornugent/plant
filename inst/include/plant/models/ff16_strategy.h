@@ -762,9 +762,9 @@ public:
     const ShadingModel shading_model =
       shading_model_from_string(this->control.shading_model, ShadingModel::DeepCrown);
     // canopy_shape also selects the competition contribution: smooth Q for every
-    // model except flat-top-box, which casts a step (see CanopyShape). eta is a
-    // shape coefficient, not differentiated -> narrow to double.
-    canopy_shape.initialise(odelia::util::to_passive(pars.eta), shading_model);
+    // model except flat-top-box, which casts a step (see CanopyShape). eta is
+    // carried as S so its derivative flows through the profile.
+    canopy_shape.initialise(pars.eta, shading_model);
     switch (shading_model) {
     case ShadingModel::DeepCrown:
       assimilation_fn = &FF16_Strategy_::assimilation_deep_crown;
@@ -856,7 +856,7 @@ public:
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
   // Crown shape factor, precomputed from pars.eta
   S eta_c     = NA_REAL; // [dimensionless]
-  CanopyShape canopy_shape;
+  CanopyShape<S> canopy_shape;
   // Height and leaf area of a (germinated) seed. height_0 stays double: it is the
   // raw output of the double root-find (height_seed), kept for the R binding and
   // as the value lift_birth_height corrects. The rate paths consume the lifted

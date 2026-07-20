@@ -667,7 +667,7 @@ void Patch<T,E>::assemble_competition_field() {
     size_t k = 0;
     // Copy the (small) canopy by value: r_get_strategy() returns a temporary, so
     // a pointer into it would dangle. Same shape for every cohort of the species.
-    CanopyShape canopy = species[i].node_begin()->individual.r_get_strategy().canopy_shape;
+    CanopyShape<value_type> canopy = species[i].node_begin()->individual.r_get_strategy().canopy_shape;
     for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it, ++k) {
       h[k]   = it->height();
       // density*wpc (Q(0)=1), per patch area to match Patch::compute_competition.
@@ -705,7 +705,7 @@ void Patch<T,E>::assemble_competition_field() {
   }
   // Query factors come from any cohort's canopy (shared shape); use species 0's.
   // Value copy: r_get_strategy() is a temporary, so a reference would dangle.
-  CanopyShape canopy = species[0].node_begin()->individual.r_get_strategy().canopy_shape;
+  CanopyShape<value_type> canopy = species[0].node_begin()->individual.r_get_strategy().canopy_shape;
   environment.assemble_competition_field(sw_sorted, heights_d, canopy);
 }
 

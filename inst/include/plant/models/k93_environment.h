@@ -49,13 +49,13 @@ public:
   // self-shading AND the query-height feedback (the derivative the spline drops).
   // Active until the patch assembles it, get_environment_at_height keeps the spline
   // path, so this is behaviour-preserving on the double path until wired.
-  static constexpr std::size_t comp_rank = CanopyShape::shading_rank;  // 3
+  static constexpr std::size_t comp_rank = CanopyShape<S>::shading_rank;  // 3
   // K93's exact field fully serves the light read, so the patch drops the fitted
   // spline build (FF16 keeps it -- see FF16_Environment).
   static constexpr bool field_supersedes_spline = true;
   odelia::separable_field<S, comp_rank> competition_field;
   std::vector<double> competition_source_heights;  // descending, for the rank search
-  CanopyShape competition_canopy;                   // supplies the query factors a_p(z)
+  CanopyShape<S> competition_canopy;                // supplies the query factors a_p(z)
   bool competition_field_ready = false;
 
   // Assemble the exact field from per-cohort source weights (descending height).
@@ -63,7 +63,7 @@ public:
   // (passive) source positions used for the query-rank search.
   void assemble_competition_field(
       const std::array<std::vector<S>, comp_rank>& source_weight,
-      const std::vector<double>& source_heights, const CanopyShape& canopy) {
+      const std::vector<double>& source_heights, const CanopyShape<S>& canopy) {
     competition_field.assemble(source_weight);
     competition_source_heights = source_heights;
     competition_canopy = canopy;
