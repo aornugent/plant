@@ -112,13 +112,13 @@ for (x in names(strategy_types)) {
     expect_identical(node$fecundity, 0.0);
 
     ## Ode *rates*: the log-density transport term depends on the strategy's
-    ## default transport scheme. K93 uses the geometric mass chart (a
-    ## neighbour-secant computed across cohorts in Species::compute_rates), and a
-    ## lone node has no neighbour, so its transport term is zero -- the rate is
-    ## just -mortality. The other strategies use the per-node FD stencil, whose
-    ## transport term is -growth_rate_gradient. (The mass-chart transport itself is
-    ## exercised over a real cohort population by the SCM census/offspring tests.)
-    transport <- if (x == "K93") 0 else -node$growth_rate_gradient(env)
+    ## default transport scheme. K93 and FF16 use the geometric mass chart (lambda
+    ## transports by -mortality; the compression cancels), and a lone node has no
+    ## neighbour spacing, so its transport term is zero -- the rate is just
+    ## -mortality. The other strategies use the per-node FD stencil, whose transport
+    ## term is -growth_rate_gradient. (The mass-chart transport itself is exercised
+    ## over a real cohort population by the SCM census/offspring tests.)
+    transport <- if (x %in% c("K93", "FF16")) 0 else -node$growth_rate_gradient(env)
     cmp <- c(plant$internals$rates,
              ## This is different to the approach in tree1?
              plant$rate("fecundity") * exp(-plant$state("mortality")),

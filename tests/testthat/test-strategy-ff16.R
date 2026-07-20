@@ -211,16 +211,24 @@ test_that("offspring arrival", {
   # one species
   p1 <- add_strategies(p0, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar, birth_rate = list(20))
 
+  # Values reflect FF16 on the transport-log-mass chart (geometric_transport
+  # marker + node_geometric_compression): lambda transports by -mortality and the
+  # competition integral is evaluated node-lumped in mass, so density = exp(lambda)
+  # / spacing is never formed. That removes the coincident-cohort singularity that
+  # crashed the two-species run and shifts the values ~0.2-0.6% from the old
+  # log-density scheme (a discretisation re-baseline, gradient-verified against FD;
+  # single-species is unchanged by the competition rewrite -- node-lumped == the
+  # old trapezium except at coincidence).
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 16.88946, tolerance=1e-4)
-  expect_equal(out$ode_times[c(10, 100)], c(0.000070, 4.216055), tolerance=1e-5)
+  expect_equal(out$offspring_production, 16.925438, tolerance=1e-5)
+  expect_equal(out$ode_times[c(10, 100)], c(0.000070, 4.119307), tolerance=1e-5)
 
   # two species
   p2 <- add_strategies(p0, trait_matrix(c(0.0825, 0.2625), "lma"), hyperpar = FF16_hyperpar, birth_rate = list(11.99177, 16.51006))
-  
+
   out <- run_scm(p2, env, ctrl)
-  expect_equal(out$offspring_production, c(11.99529, 16.47519), tolerance=1e-5)
-  expect_equal(length(out$ode_times), 297)
+  expect_equal(out$offspring_production, c(12.048151, 16.580031), tolerance=1e-5)
+  expect_equal(length(out$ode_times), 270)
 })
 
 test_that("Report generation", {

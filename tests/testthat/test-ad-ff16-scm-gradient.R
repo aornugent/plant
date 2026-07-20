@@ -3,20 +3,29 @@
 # ode_times from run_scm(refine_schedule=TRUE)), i.e. exactly what
 # run_scm(use_ode_times=TRUE) replays.
 #
-# STATUS (2026-07-19): two settled facts.
+# STATUS (2026-07-20): FF16 now transports on the geometric mass chart (lambda =
+# log density + log spacing, evolving by -loss with the compression cancelled
+# identically; K93's machinery, gated by the geometric_transport marker + the
+# node_geometric_compression Control flag). Three settled facts.
 #  (1) NO schedule sensitivity. The frozen replay on the resolved schedule matches
-#      the fully-adaptive model in double: d(offspring)/d(lma) FD = +4.2 either way.
-#      The earlier "schedule sensitivity" framing is retired; the correct replay is
-#      the resolved L0+L1 (old drivers pinned only L1 onto the default L0).
-#  (2) OPEN adjoint bug: reverse AD != FD on the identical resolved schedule
-#      (delta-independent; both AD modes agree yet disagree with FD; reproduces on
-#      pure-growth). FF16's coupled self-shading growth path drops a derivative FD
-#      catches. This is the remaining work for a correct FF16 gradient.
+#      the fully-adaptive model in double. The correct replay is the resolved L0+L1.
+#  (2) The chart made the pure-loss channel EXACT: d(offspring)/d(k_l) reverse AD
+#      == resolved-schedule FD to ~1e-9 (was broken before the chart). k_l enters
+#      as loss only, so it flows straight through the -loss transport with no
+#      compression residual. lma tightened to ~0.36% (dominant magnitude).
+#  (3) NARROWED adjoint gap: a residual survives on the growth+self-shading-coupled
+#      traits. a_l1 (leaf-area allometry) reverse AD = 0.0629 vs FD plateau 0.1007
+#      (abs 0.038); lma 0.36%. Both AD modes still agree yet disagree with FD, and
+#      channel isolation (freeze_query/freeze_field) shows both self-shading
+#      channels are needed and on -- the residual is inside the full coupled path,
+#      not a togglable channel. This is the remaining work for an exact FF16
+#      gradient, now localised to self-shading feedback (the chart removed the
+#      compression contribution the earlier, larger gap was dominated by).
 #
 # life = 40: FF16 has reproduced (offspring ~0.6) and the reverse tape fits (life 50
 # exceeds memory; checkpointing deferred).
 
-test_that("FF16 SCM offspring (R0) gradient: value exact; adjoint gap known-failing", {
+test_that("FF16 SCM offspring (R0) gradient: value exact; loss channel exact; self-shading gap known", {
   skip_on_cran()
   dlls <- getLoadedDLLs()
   skip_if_not("plant"  %in% names(dlls), "plant DLL not loaded")
@@ -65,10 +74,19 @@ test_that("FF16 SCM offspring (R0) gradient: value exact; adjoint gap known-fail
   # Self-consistency smoke test (necessary, NOT sufficient): reverse == forward.
   expect_equal(r$jvp, r$dot, tolerance = 1e-6)
 
-  # Correctness gate: reverse gradient vs the resolved-schedule FD. FAILS -- FF16's
-  # coupled self-shading growth path drops a derivative (delta-independent; FD
-  # catches it, both AD modes miss it). Asserted as a known failure so the suite
-  # stays green now and turns red when the adjoint is fixed; then replace
-  # expect_failure(...) with the bare expect_equal.
-  expect_failure(expect_equal(r$grad, r$fd_grad, tolerance = 1e-2))
+  # Target order is {lma (0), a_l1 (6), k_l (16)} = FF16_R0_TARGET_IDX.
+  # Correctness gate, per channel:
+  #  - k_l (loss only): the mass chart transports loss exactly, so reverse AD
+  #    matches the resolved-schedule FD to numerical tolerance. This is the chart's
+  #    load-bearing win; it turns red if a regression re-severs the loss adjoint.
+  expect_equal(r$grad[[3]], r$fd_grad[[3]], tolerance = 1e-6)
+  #  - lma (growth + self-shading): within ~0.5% of FD; a small self-shading
+  #    residual remains (see below), but lma's magnitude keeps it tight.
+  expect_equal(r$grad[[1]], r$fd_grad[[1]], tolerance = 1e-2)
+  #  - a_l1 (growth + self-shading): NARROWED known gap. Reverse AD misses FD on
+  #    the self-shading-coupled channel (both AD modes agree, FD disagrees; the
+  #    FD value is a clean plateau ~0.1007, so it is not step noise). Asserted as a
+  #    known failure so the suite stays green now and turns red when the
+  #    self-shading adjoint is fixed; then replace expect_failure with expect_equal.
+  expect_failure(expect_equal(r$grad[[2]], r$fd_grad[[2]], tolerance = 1e-2))
 })

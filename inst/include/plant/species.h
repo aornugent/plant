@@ -224,6 +224,12 @@ Species<T,E>::compute_competition(double height) const {
   if (size() == 0 || height_max() < height) {
     return value_type(0.0);
   }
+  // On the transport-log-mass chart a coincident cohort (spacing -> 0) has a
+  // -inf log density (odelia's zero-spacing convention), hence density 0, so it
+  // contributes 0 to the trapezium below rather than the NaN a naive
+  // density = exp(lambda)/spacing would give. No separate mass-lumped path is
+  // needed: the density VIEW is finite everywhere and the live-height spacing
+  // keeps competition's parameter-derivative exact (recomputed each build).
   value_type tot = 0.0;
   nodes_const_iterator it = nodes.begin();
   value_type h1 = it->height(), f_h1 = it->compute_competition(height);

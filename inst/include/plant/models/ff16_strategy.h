@@ -128,6 +128,13 @@ public:
   // type for dg/dh). Lets generic code name FF16_Strategy_<U> from an
   // instantiation at S, and gates the Species-level geometric compression.
   template <class U> using rebind = FF16_Strategy_<U>;
+  // FF16 transports its density on the geometric mass chart (stable through a
+  // growth stall and exactly differentiable): lambda = log density + log
+  // spacing, evolving by -loss, with the compression cancelled identically
+  // rather than formed numerically. The Control flag node_geometric_compression
+  // (default on) then selects it. See strategy_supports_geometric_transport in
+  // node.h.
+  using geometric_transport = void;
   typedef std::shared_ptr<FF16_Strategy_<S>> ptr;
 
   FF16_Strategy_() {

@@ -86,7 +86,11 @@ for (x in names(strategy_types)) {
     expect_identical(patch$ode_rates, ode_rates)
     if (x == "FF16") {
       expect_equal(ode_state, c(0.3441947, 0.009159, 0, 0, 0, 0, 1.08695), tolerance = 1e-4)
-      expect_equal(ode_rates, c(0.3341652, 0.01000000, 0, 5.1781e-09, 9.60270e-07, 0, -0.78726), tolerance = 1e-4)
+      # Last slot is the log-density transport rate. FF16 is on the geometric mass
+      # chart (lambda transports by -mortality; the compression cancels), and a
+      # lone node has no neighbour spacing, so its transport term is zero -- the
+      # rate is just -mortality (-0.01), not the old FD stencil's -0.78726.
+      expect_equal(ode_rates, c(0.3341652, 0.01000000, 0, 5.1781e-09, 9.60270e-07, 0, -0.01000000), tolerance = 1e-4)
     }
     y <- patch$ode_state
     patch$set_ode_state(y, 0)

@@ -413,6 +413,10 @@ void Patch<T,E>::check_finite_ode_state() const {
   const double log_density_ceiling = 50.0;
   for (size_t i = 0; i < species.size(); ++i) {
     for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it) {
+      // A coincident cohort on the chart has log_density = -inf (density 0) from
+      // odelia's zero-spacing convention, which passes both checks below
+      // (is_finite(0), -inf < ceiling) -- a zero-density degenerate cohort is
+      // safe, the opposite of the #550 overflow this guards.
       if (!util::is_finite(it->get_density()) ||
           it->get_log_density() > log_density_ceiling) {
         // The size-density characteristic equation integrates
@@ -661,6 +665,8 @@ void Patch<T,E>::assemble_competition_field() {
     for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it, ++k) {
       h[k]   = it->height();
       // density*wpc (Q(0)=1), per patch area to match Patch::compute_competition.
+      // On the chart a coincident cohort has density 0 (odelia's -inf spacing
+      // convention), so amp = 0 there rather than a NaN from exp(lambda)/spacing.
       amp[k] = it->compute_competition(0.0) / area;
     }
     for (size_t j = 0; j < m; ++j) {
