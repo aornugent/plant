@@ -155,6 +155,13 @@ public:
   static constexpr int NET_MASS_PRODUCTION_DT_AUX_INDEX = 2;
   static constexpr int AREA_SAPWOOD_AUX_INDEX = 3;
 
+  // Corner radius for the smooth positive-part surrogate (util::smooth_positive)
+  // that replaces the hard `net production > 0 ? rate : 0` growth/fecundity/
+  // establishment clamp, so those rates have no kink at net = 0 (K93 does the
+  // same for its growth, k93_strategy.h growth_eps). Small relative to typical
+  // net production, so the biology is essentially unchanged away from the corner.
+  static constexpr double net_mass_production_eps = 1e-4;
+
   // Overrides ----------------------------------------------
 
   // update this when the length of state_names changes
@@ -297,21 +304,31 @@ public:
     // store the aux sate
     vars.set_aux(NET_MASS_PRODUCTION_DT_AUX_INDEX, net_mass_production_dt_);
 
+    // Growth and reproduction are driven by the smoothed positive part of net
+    // production, so the height and fecundity rates have no kink at net = 0 where
+    // the hard `net > 0 ? rate : 0` clamp did -- the analytic growth derivative is
+    // then stable through the growth shutoff (K93 does the same for its growth).
+    // net_mass_production_eps is the corner radius.
+    const S net_plus =
+      util::smooth_positive(net_mass_production_dt_, net_mass_production_eps);
+
+    const S fraction_allocation_reproduction_ = fraction_allocation_reproduction(height);
+    // dheight_darea_leaf and the sapwood/bark terms in darea_leaf_dmass_live all
+    // share pow(area_leaf, pars.a_l2); evaluate this libm pow once and reuse it for
+    // both rates rather than paying it twice per node per step (issue #361).
+    const S area_leaf_pow_a_l2 = pow(area_leaf_, pars.a_l2);
+    const S darea_leaf_dmass_live_ = darea_leaf_dmass_live(area_leaf_, area_leaf_pow_a_l2);
+    const S fraction_allocation_growth_ = fraction_allocation_growth(height);
+    const S area_leaf_dt = net_plus * fraction_allocation_growth_ * darea_leaf_dmass_live_;
+
+    vars.set_rate(HEIGHT_INDEX, dheight_darea_leaf(area_leaf_, area_leaf_pow_a_l2) * area_leaf_dt);
+    vars.set_rate(FECUNDITY_INDEX,
+      fecundity_dt(net_plus, fraction_allocation_reproduction_));
+
+    // Heartwood accumulation keeps the hard positive-production gate: it is not a
+    // multiple of net production (so the positive-part surrogate does not apply),
+    // and it stays bit-identical to the double path away from net = 0.
     if (net_mass_production_dt_ > 0) {
-
-      const S fraction_allocation_reproduction_ = fraction_allocation_reproduction(height);
-      // dheight_darea_leaf and the sapwood/bark terms in darea_leaf_dmass_live all
-      // share pow(area_leaf, pars.a_l2); evaluate this libm pow once and reuse it for
-      // both rates rather than paying it twice per node per step (issue #361).
-      const S area_leaf_pow_a_l2 = pow(area_leaf_, pars.a_l2);
-      const S darea_leaf_dmass_live_ = darea_leaf_dmass_live(area_leaf_, area_leaf_pow_a_l2);
-      const S fraction_allocation_growth_ = fraction_allocation_growth(height);
-      const S area_leaf_dt = net_mass_production_dt_ * fraction_allocation_growth_ * darea_leaf_dmass_live_;
-
-      vars.set_rate(HEIGHT_INDEX, dheight_darea_leaf(area_leaf_, area_leaf_pow_a_l2) * area_leaf_dt);
-      vars.set_rate(FECUNDITY_INDEX,
-        fecundity_dt(net_mass_production_dt_, fraction_allocation_reproduction_));
-
       vars.set_rate(AREA_HEARTWOOD_INDEX, area_heartwood_dt(area_leaf_));
       vars.set_rate(MASS_HEARTWOOD_INDEX, mass_heartwood_dt(mass_sapwood_));
 
@@ -319,8 +336,6 @@ public:
         vars.set_aux(AREA_SAPWOOD_AUX_INDEX, area_sapwood_);
       }
     } else {
-      vars.set_rate(HEIGHT_INDEX, 0.0);
-      vars.set_rate(FECUNDITY_INDEX, 0.0);
       vars.set_rate(AREA_HEARTWOOD_INDEX, 0.0);
       vars.set_rate(MASS_HEARTWOOD_INDEX, 0.0);
     }
@@ -667,12 +682,13 @@ public:
     const S net_mass_production_dt_ =
       net_mass_production_dt(environment, height_0, area_leaf_0,
                              height_0_inverse);
-    if (net_mass_production_dt_ > 0) {
-      const S tmp = pars.a_d0 * area_leaf_0 / net_mass_production_dt_;
-      return 1.0 / (tmp * tmp + 1.0) * decay_over_time;
-    } else {
-      return 0.0;
-    }
+    // Smoothed positive part of net production (see compute_rates): net_plus > 0
+    // strictly, so survival tends smoothly to zero as net -> 0 with no kink at the
+    // hard cutoff, and the division is safe.
+    const S net_plus =
+      util::smooth_positive(net_mass_production_dt_, net_mass_production_eps);
+    const S tmp = pars.a_d0 * area_leaf_0 / net_plus;
+    return 1.0 / (tmp * tmp + 1.0) * decay_over_time;
   }
 
   // * Competitive environment
