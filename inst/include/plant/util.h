@@ -198,22 +198,6 @@ T clamp(T x, T min_val, T max_val) {
   return std::max(std::min(x, max_val), min_val);
 }
 
-// A C-infinity (smooth) surrogate for max(0, x): the softplus-like
-//   smooth_positive(x, eps) = 0.5 * (x + sqrt(x*x + eps*eps)).
-// As eps -> 0 it converges to max(0, x) pointwise; it is >= 0 everywhere,
-// monotone increasing, and never overflows (sqrt of a sum of squares). It
-// replaces a hard `if (x < 0) x = 0;` / `(x > 0 ? x : 0)` clamp on the rate
-// path so the derivative of the code has no kink at x = 0. Scalar-generic: with
-// an AD active type it stays on the tape (ADL picks up xad::sqrt); with double
-// it is a couple of FP ops. eps sets the corner radius -- sharper eps means a
-// smaller change to the biology but a steeper second derivative at the corner
-// (see ad-implementation.md §11, smooth-replacement policy).
-template <typename T>
-T smooth_positive(const T& x, double eps) {
-  using std::sqrt;
-  return 0.5 * (x + sqrt(x * x + eps * eps));
-}
-
 bool is_function(SEXP x);
 
 // The basic idea here is that we consider the three points

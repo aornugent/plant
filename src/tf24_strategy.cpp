@@ -1,6 +1,7 @@
 // Built from  src/ff16_strategy.cpp on Mon Feb 12 09:52:27 2024 using the scaffolder, from the strategy:  FF16
 #include <plant/models/tf24_strategy.h>
 #include <odelia/supplied_derivative.hpp> // envelope-theorem leaf seam
+#include <odelia/implicit_node.hpp> // odelia::lift_root (birth-height IFT lift)
 #include <limits> // std::numeric_limits (height_seed bounds)
 #include <cmath>  // std::abs (FD step)
 
@@ -702,26 +703,6 @@ void TF24_Strategy_<S>::solve_leaf() {
   leaf.find_root_collar_psi();
 }
 
-// Lift the double birth height to S carrying its parameter derivative via the
-// implicit function theorem. Mirrors FF16_Strategy_::lift_birth_height.
-template <class S>
-S TF24_Strategy_<S>::lift_birth_height(double h_star) const {
-  if constexpr (std::is_same_v<S, double>) {
-    return h_star;
-  } else {
-    // dg/dh at the root, as a double constant (central difference; g is smooth
-    // and near-linear in h here, so a 2-point rule is not the accuracy limit).
-    const double eps = 1e-6 * (h_star + 1.0);
-    auto gv = [&](double h) { return to_passive(mass_live_given_height(S(h))); };
-    const double dgdh = (gv(h_star + eps) - gv(h_star - eps)) / (2.0 * eps);
-    // Newton correction from the double root. Subtract its own value so the
-    // birth height's value stays exactly h_star (bit-identical), while its
-    // derivative is the IFT term dh*/dtheta = -(dg/dtheta)/(dg/dh).
-    const S corr = (mass_live_given_height(S(h_star)) - pars.omega) / dgdh;
-    return S(h_star) - corr + to_passive(corr);
-  }
-}
-
 // FD engine for the leaf supplied_derivative seam. Reconstruct a
 // throwaway double Leaf from `pd` and the held crown context, evaluate profit
 // at the fixed optimum collar psi, and return it. Mirrors the single-solve
@@ -1108,7 +1089,8 @@ void TF24_Strategy_<S>::prepare_strategy() {
   // carries the birth-height IFT derivative (mirrors FF16).
   height_0 = height_seed();
   area_leaf_0 = area_leaf(height_0);
-  initial_height_ = lift_birth_height(to_passive(height_0));
+  initial_height_ = odelia::implicit_value<S>(
+      to_passive(height_0), [this](S h) { return mass_live_given_height(h) - pars.omega; });
 
   if (this->is_variable_birth_rate) {
     this->extrinsic_drivers.set_variable("birth_rate", this->birth_rate_x, this->birth_rate_y);

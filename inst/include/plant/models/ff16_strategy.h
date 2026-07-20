@@ -6,6 +6,7 @@
 #include <plant/models/ff16_environment.h>
 #include <plant/qag.h>
 #include <plant/canopy_shape.h>
+#include <odelia/implicit_node.hpp> // odelia::lift_root (birth-height IFT lift)
 #include <cmath>
 #include <limits> // std::numeric_limits (height_seed bounds)
 
@@ -155,7 +156,7 @@ public:
   static constexpr int NET_MASS_PRODUCTION_DT_AUX_INDEX = 2;
   static constexpr int AREA_SAPWOOD_AUX_INDEX = 3;
 
-  // Corner radius for the smooth positive-part surrogate (util::smooth_positive)
+  // Corner radius for the smooth positive-part surrogate (odelia::util::smooth_positive)
   // that replaces the hard `net production > 0 ? rate : 0` growth/fecundity/
   // establishment clamp, so those rates have no kink at net = 0 (K93 does the
   // same for its growth, k93_strategy.h growth_eps). Small relative to typical
@@ -310,7 +311,7 @@ public:
     // then stable through the growth shutoff (K93 does the same for its growth).
     // net_mass_production_eps is the corner radius.
     const S net_plus =
-      util::smooth_positive(net_mass_production_dt_, net_mass_production_eps);
+      odelia::util::smooth_positive(net_mass_production_dt_, net_mass_production_eps);
 
     const S fraction_allocation_reproduction_ = fraction_allocation_reproduction(height);
     // dheight_darea_leaf and the sapwood/bark terms in darea_leaf_dmass_live all
@@ -689,7 +690,7 @@ public:
     // strictly, so survival tends smoothly to zero as net -> 0 with no kink at the
     // hard cutoff, and the division is safe.
     const S net_plus =
-      util::smooth_positive(net_mass_production_dt_, net_mass_production_eps);
+      odelia::util::smooth_positive(net_mass_production_dt_, net_mass_production_eps);
     const S tmp = pars.a_d0 * area_leaf_0 / net_plus;
     return 1.0 / (tmp * tmp + 1.0) * decay_over_time;
   }
@@ -785,15 +786,19 @@ public:
     // NOTE: this pre-computes something to save a very small amount of time
     eta_c = 1 - 2/(1 + pars.eta) + 1/(1 + 2*pars.eta);
     // NOTE: Also pre-computing, though less trivial. The birth height solves a
-    // root-find in double (height_seed), then lift_birth_height carries its
-    // parameter derivative (implicit-function theorem). area_leaf_0 is derived
-    // from the *lifted* height so the birth-size channel of every trait's
+    // root-find in double (height_seed), then odelia::implicit_value gives it the
+    // implicit-function-theorem derivative. area_leaf_0 is derived from that
+    // differentiable birth height so the birth-size channel of every trait's
     // derivative (omega, and the allometry via mass_live_given_height) reaches
     // establishment and the birth rates -- deriving it from the raw double root
     // severed that channel. Value is bit-identical on the double path
     // (initial_height_ == height_0 there).
     height_0 = height_seed();
-    initial_height_ = lift_birth_height(height_0);
+    // The birth height is defined by live mass = seed mass; take it as a
+    // differentiable implicit value so it carries each trait's derivative
+    // (odelia::implicit_value; value == the double root height_0).
+    initial_height_ = odelia::implicit_value<S>(
+        height_0, [this](S h) { return mass_live_given_height(h) - pars.omega; });
     area_leaf_0 = area_leaf(initial_height_);
 
     if (this->is_variable_birth_rate) {
@@ -804,38 +809,9 @@ public:
   }
 
   // Birth height of a (germinated) seed. Strategy-agnostic accessor used by
-  // the templated Individual; derived in prepare_strategy() and lifted to carry
-  // its parameter derivative (see lift_birth_height).
+  // the templated Individual; derived in prepare_strategy() as a differentiable
+  // implicit value (odelia::implicit_value) so it carries its parameter derivative.
   S initial_height() const { return initial_height_; }
-
-  // Lift the double birth height to S carrying its parameter derivative. The
-  // birth height solves g(h,theta) = mass_live_given_height(h) - omega = 0, whose
-  // root is found in double (height_seed). mass_live_given_height is retapeable,
-  // so one Newton step from that root evaluated at the active parameters yields
-  // both the exact value (the double path is bit-identical) and the implicit-
-  // function-theorem derivative dh*/dtheta = -(dg/dtheta)/(dg/dh) for every
-  // parameter at once. dg/dh is a double central difference at the root.
-  S lift_birth_height(double h_star) const {
-    if constexpr (std::is_same_v<S, double>) {
-      return h_star;
-    } else {
-      // dg/dh at the root, as a double constant (central difference; g is smooth
-      // and near-linear in h here, so a 2-point rule is not the accuracy limit).
-      const double eps = 1e-6 * (h_star + 1.0);
-      auto gv = [&](double h) { return odelia::util::to_passive(mass_live_given_height(S(h))); };
-      const double dgdh = (gv(h_star + eps) - gv(h_star - eps)) / (2.0 * eps);
-      // Newton correction from the double root. Subtract its own value so the
-      // birth height's *value* stays exactly h_star -- bit-identical, and no value
-      // shift to perturb the gradient of parameters that height does not depend on
-      // -- while its derivative is the IFT term dh*/dtheta = -(dg/dtheta)/(dg/dh).
-      const S corr = (mass_live_given_height(S(h_star)) - pars.omega) / dgdh;
-      // to_passive strips every AD layer to a plain double, so subtracting the
-      // correction's own value keeps the birth height's value at exactly h_star
-      // (bit-identical) while its derivative stays the IFT term -- and, unlike
-      // xad::value (one layer), the double addend composes at a nested S.
-      return S(h_star) - corr + odelia::util::to_passive(corr);
-    }
-  }
 
   // Biological (user-settable) parameters; see FF16_Pars above.
   FF16_Pars_<S> pars;

@@ -385,18 +385,9 @@ public:
   void prepare_strategy();
 
   // Birth height of a (germinated) seed. Strategy-agnostic accessor used by
-  // the templated Individual; derived in prepare_strategy() and lifted to carry
-  // its parameter derivative (see lift_birth_height).
+  // the templated Individual; derived in prepare_strategy() as a differentiable
+  // implicit value (odelia::implicit_value) so it carries its parameter derivative.
   S initial_height() const { return initial_height_; }
-
-  // Lift the double birth height to S carrying its parameter derivative. The
-  // birth height solves mass_live_given_height(h) - omega = 0, whose root is
-  // found in double (height_seed). mass_live_given_height is retapeable, so one
-  // Newton step from that root at the active parameters yields both the exact
-  // value (the double path is bit-identical) and the implicit-function-theorem
-  // derivative dh*/dtheta = -(dg/dtheta)/(dg/dh) for every parameter at once;
-  // dg/dh is a double central difference at the root. Mirrors FF16.
-  S lift_birth_height(double h_star) const;
 
   // Crown shading model, resolved once from control.shading_model in
   // prepare_strategy(). TF24 supports deep-crown, mean-light (its default)

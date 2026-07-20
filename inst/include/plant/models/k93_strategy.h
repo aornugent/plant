@@ -85,7 +85,7 @@ public:
   static constexpr int COMPETITION_EFFECT_AUX_INDEX = 0;
   static constexpr int HEIGHT_INVERSE_AUX_INDEX = 1;
 
-  // Corner radii for the smooth positive-part surrogates (util::smooth_positive)
+  // Corner radii for the smooth positive-part surrogates (odelia::util::smooth_positive)
   // that replace the hard growth/mortality clamps. Chosen small relative to the
   // scale of each rate so the biology is essentially unchanged away from the
   // corner, while removing the kink that made the analytic dg/dh unstable in the
@@ -250,7 +250,7 @@ public:
     // clamp, so the rate has no kink at growth = 0 and the analytic
     // dg/dh density-transport derivative is stable in-trajectory
     // (ad-implementation.md §11). eps sets the corner radius.
-    return util::smooth_positive(growth, growth_eps);
+    return odelia::util::smooth_positive(growth, growth_eps);
   }
 
   // [eqn 12] Reproduction
@@ -268,7 +268,7 @@ public:
     if (util::is_finite(cumulative_mortality)) {
       S mu = -pars.c_0 + pars.c_1 * cumulative_basal_area;
       // Smooth positive part instead of `(mu > 0) ? mu : 0` (see size_dt).
-      return util::smooth_positive(mu, mortality_eps);
+      return odelia::util::smooth_positive(mu, mortality_eps);
    } else {
       return 0.0;
     }
