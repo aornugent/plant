@@ -134,6 +134,14 @@ public:
     return strategy->field_ptrs();
   }
 
+  // Re-derive the strategy's precomputed quantities (canopy shape, birth size,
+  // eta_c) from its current parameters. The gradient driver seeds ad_parameters()
+  // and then reset()s, so this must run after the seed or a parameter whose effect
+  // is mediated by a precomputed quantity (initial_height_, area_leaf_0, eta_c)
+  // loses that part of its derivative -- the same reason IndividualRunner::reset()
+  // re-prepares. All cohorts share one strategy, so one call covers the species.
+  void prepare_strategy() { strategy->prepare_strategy(); }
+
 private:
   // Storage (strategy, nodes) and control() live in SpeciesBase; the
   // using-declarations let the unqualified references below resolve through the

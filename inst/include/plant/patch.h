@@ -295,6 +295,12 @@ void Patch<T,E>::set_mutant() {
 template <typename T, typename E>
 void Patch<T,E>::reset() {
    for (auto& s : species) {
+    // Re-derive each strategy's precomputed quantities from its current
+    // parameters before the run: the gradient driver seeds the parameters then
+    // reset()s, so the birth size / canopy shape / eta_c must be recomputed here
+    // to carry their parameter derivative (cf. IndividualRunner::reset()). On the
+    // double path this is idempotent.
+    s.prepare_strategy();
     s.clear();
     // allocate variables for tracking resource consumption
     s.resize_consumption_rates(environment.ode_size());

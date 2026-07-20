@@ -679,9 +679,12 @@ public:
 
     S decay_over_time = exp(-pars.recruitment_decay * environment.time);
 
+    // The birth size (initial_height_ / area_leaf_0) is the lifted value, so
+    // establishment carries the birth-size channel of each trait's derivative
+    // (see prepare_strategy). Bit-identical on the double path.
     const S net_mass_production_dt_ =
-      net_mass_production_dt(environment, height_0, area_leaf_0,
-                             height_0_inverse);
+      net_mass_production_dt(environment, initial_height_, area_leaf_0,
+                             1.0 / initial_height_);
     // Smoothed positive part of net production (see compute_rates): net_plus > 0
     // strictly, so survival tends smoothly to zero as net -> 0 with no kink at the
     // hard cutoff, and the division is safe.
@@ -781,11 +784,17 @@ public:
 
     // NOTE: this pre-computes something to save a very small amount of time
     eta_c = 1 - 2/(1 + pars.eta) + 1/(1 + 2*pars.eta);
-    // NOTE: Also pre-computing, though less trivial
+    // NOTE: Also pre-computing, though less trivial. The birth height solves a
+    // root-find in double (height_seed), then lift_birth_height carries its
+    // parameter derivative (implicit-function theorem). area_leaf_0 is derived
+    // from the *lifted* height so the birth-size channel of every trait's
+    // derivative (omega, and the allometry via mass_live_given_height) reaches
+    // establishment and the birth rates -- deriving it from the raw double root
+    // severed that channel. Value is bit-identical on the double path
+    // (initial_height_ == height_0 there).
     height_0 = height_seed();
-    height_0_inverse = 1.0 / height_0;
-    area_leaf_0 = area_leaf(height_0);
     initial_height_ = lift_birth_height(height_0);
+    area_leaf_0 = area_leaf(initial_height_);
 
     if (this->is_variable_birth_rate) {
       this->extrinsic_drivers.set_variable("birth_rate", this->birth_rate_x, this->birth_rate_y);
@@ -848,10 +857,12 @@ public:
   // Crown shape factor, precomputed from pars.eta
   S eta_c     = NA_REAL; // [dimensionless]
   CanopyShape canopy_shape;
-  // Height and leaf area of a (germinated) seed. height_0 stays double (the
-  // root-find is double until the height_seed IFT seam lands).
+  // Height and leaf area of a (germinated) seed. height_0 stays double: it is the
+  // raw output of the double root-find (height_seed), kept for the R binding and
+  // as the value lift_birth_height corrects. The rate paths consume the lifted
+  // initial_height_ and the area_leaf_0 derived from it, which carry the
+  // birth-size parameter derivative.
   double height_0  = NA_REAL;
-  double height_0_inverse = NA_REAL;
   S area_leaf_0;
   // Birth height lifted to S (value == height_0; carries the parameter
   // derivative on a gradient pass). Returned by initial_height().
