@@ -58,10 +58,8 @@ class K93_Strategy_ : public Strategy<K93_Environment_<S>> {
 public:
   using environment_type = K93_Environment_<S>;
   using value_type = S;
-  // Same strategy at a different scalar U (e.g. the nested forward-over-reverse
-  // type for dg/dh, plant#39). Lets generic code name K93_Strategy_<U> from an
-  // instantiation at S.
-  template <class U> using rebind = K93_Strategy_<U>;
+  // Differentiable: the `rebind` alias + rebind_from. See PLANT_DIFFERENTIABLE.
+  PLANT_DIFFERENTIABLE(K93_Strategy_)
   // K93 supports the geometric mass chart for its density transport (stable and
   // exactly differentiable for its closed-form growth); the Control flag
   // node_geometric_compression (default on) then selects it. See
@@ -301,13 +299,6 @@ public:
 #define PLANT_AD_PTR(f) &pars.f,
 #define PLANT_AD_NAME(f) #f,
   std::vector<S*> field_ptrs() { return { K93_AD_FIELDS(PLANT_AD_PTR) }; }
-
-  // Copy this configured strategy onto scalar S2 (the odelia System rebind_from
-  // hook). See plant::rebind_strategy_fields for the mechanic.
-  template <class S2> K93_Strategy_<S2> rebind_from() {
-    return rebind_strategy_fields<K93_Strategy_<S2>>(*this);
-  }
-
   static std::vector<std::string> field_names() {
     return { K93_AD_FIELDS(PLANT_AD_NAME) };
   }

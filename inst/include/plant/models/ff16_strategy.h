@@ -125,10 +125,9 @@ class FF16_Strategy_ : public Strategy<FF16_Environment_<S>> {
 public:
   using environment_type = FF16_Environment_<S>;
   using value_type = S;
-  // Same strategy at a different scalar U (e.g. the nested forward-over-reverse
-  // type for dg/dh). Lets generic code name FF16_Strategy_<U> from an
-  // instantiation at S, and gates the Species-level geometric compression.
-  template <class U> using rebind = FF16_Strategy_<U>;
+  // Differentiable: the `rebind` alias (also gates the Species-level geometric
+  // compression) + rebind_from. See PLANT_DIFFERENTIABLE.
+  PLANT_DIFFERENTIABLE(FF16_Strategy_)
   // FF16 transports its density on the geometric mass chart (stable through a
   // growth stall and exactly differentiable): lambda = log density + log
   // spacing, evolving by -loss, with the compression cancelled identically
@@ -829,11 +828,6 @@ public:
 #undef PLANT_AD_PTR
 #undef PLANT_AD_NAME
 
-  // Copy this configured strategy onto scalar S2 (the odelia System rebind_from
-  // hook). See plant::rebind_strategy_fields for the mechanic.
-  template <class S2> FF16_Strategy_<S2> rebind_from() {
-    return rebind_strategy_fields<FF16_Strategy_<S2>>(*this);
-  }
 
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
   // Crown shape factor, precomputed from pars.eta

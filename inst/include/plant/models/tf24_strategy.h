@@ -118,7 +118,11 @@ class TF24_Strategy_: public Strategy<TF24_Environment_<S>> {
 public:
   using environment_type = TF24_Environment_<S>;
   using value_type = S;
-  template <class U> using rebind = TF24_Strategy_<U>;
+  // Differentiable: `rebind` alias + rebind_from. See PLANT_DIFFERENTIABLE. NOTE: a
+  // TF24 gradient also needs TF24_Environment's soil config to cross (set at
+  // construction, not reconstructed from Control like FF16/K93); deferred with the
+  // TF24 reverse-AD work (b1). The double path never calls rebind_from.
+  PLANT_DIFFERENTIABLE(TF24_Strategy_)
   typedef std::shared_ptr<TF24_Strategy_<S>> ptr;
   TF24_Strategy_();
 
@@ -410,15 +414,6 @@ public:
   }
 #undef PLANT_AD_PTR
 #undef PLANT_AD_NAME
-
-  // Copy this configured strategy onto scalar S2 (the odelia System rebind_from
-  // hook). See plant::rebind_strategy_fields. NOTE: a TF24 gradient also needs
-  // TF24_Environment's soil config to cross (set at construction, not reconstructed
-  // from Control like FF16/K93); deferred with the TF24 reverse-AD work (b1). The
-  // double path never calls rebind_from.
-  template <class S2> TF24_Strategy_<S2> rebind_from() {
-    return rebind_strategy_fields<TF24_Strategy_<S2>>(*this);
-  }
 
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
   S eta_c     = NA_REAL; // crown shape factor, precomputed from pars.eta

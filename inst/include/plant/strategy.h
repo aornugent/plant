@@ -145,6 +145,20 @@ To rebind_strategy_fields(From& from) {
   return a;
 }
 
+// One token that makes a scalar-templated strategy differentiable: the two odelia
+// System hooks every strategy needs identically -- the `rebind` alias (name the same
+// strategy at another scalar) and `rebind_from` (copy this configured strategy onto
+// that scalar, via rebind_strategy_fields: scalar-independent config + the field_ptrs()
+// parameters, precomputed state rebuilt later by prepare_strategy()). Invoke in the
+// class body with the strategy's own template name; it composes with the AD_FIELDS
+// X-macro (which defines field_ptrs). A strategy carrying scalar-independent config
+// beyond field_ptrs (e.g. TF24f's acclimation settings) writes rebind_from by hand.
+#define PLANT_DIFFERENTIABLE(STRATEGY_TMPL)                                    \
+  template <class U> using rebind = STRATEGY_TMPL<U>;                          \
+  template <class S2> STRATEGY_TMPL<S2> rebind_from() {                        \
+    return plant::rebind_strategy_fields<STRATEGY_TMPL<S2>>(*this);            \
+  }
+
 }
 
 #endif

@@ -53,17 +53,6 @@ struct census_metric {
   }
 };
 
-// Pin an SCM to its own recorded ode times (the resident L1 replay). The schedule is
-// already loaded from Parameters (make_node_schedule); this flips the NodeSchedule
-// onto it after a reset.
-template <class Runner>
-static void use_recorded_ode_times(Runner& scm) {
-  scm.reset();
-  NodeSchedule ns = scm.r_node_schedule();
-  ns.r_set_use_ode_times(true);
-  scm.r_set_node_schedule(ns);
-}
-
 // The Jacobian (m outputs x n targets) of `functional` over the SCM solve, seeding
 // the named parameter targets. The plant analogue of odelia's jacobian_on_double
 // (plant's SCM is not an ode::Solver -- it HAS-A one and adds node scheduling -- so
@@ -79,25 +68,27 @@ scm_jacobian(Parameters<StratD, EnvD> p, Control control,
              Functional functional) {
   using RevS = xad::adj<double>::active_type;
 
-  // Adaptive double pass: discover and record the resolved L0+L1 schedule.
+  // Adaptive double pass: discover and record the resolved L1 schedule. Its
+  // recorded_steps() is the single source of the replay grid for both passes below.
   EnvD env;
   SCM<StratD, EnvD> scm(p, env, control);
   scm.refine_schedule();
+  const std::vector<double> schedule = scm.recorded_steps();
 
-  // Double reference value, replayed on the resolved schedule through the same
+  // Double reference value, replayed on the recorded schedule through the same
   // rebind_from path the active pass uses -- the R5 check below.
   std::vector<double> value_double;
   {
     auto ref = scm.template rebind_from<double>();
-    use_recorded_ode_times(ref);
+    ref.set_schedule(schedule);
     ref.run();
     for (auto const& v : functional(ref)) value_double.push_back(xad::value(v));
   }
 
-  // Active pass: rebind config to the reverse scalar, replay the SAME schedule, one
-  // reverse sweep for the whole Jacobian.
+  // Active pass: rebind config to the reverse scalar, replay the SAME recorded
+  // schedule, one reverse sweep for the whole Jacobian.
   auto active = scm.template rebind_from<RevS>();
-  use_recorded_ode_times(active);
+  active.set_schedule(schedule);
   auto out = odelia::ode::compute_jacobian(active, targets, functional);
 
   // R5 as structure, not convention: the active value must reproduce the double

@@ -98,6 +98,21 @@ public:
   std::vector<value_type*> ad_parameters() { return patch.ad_parameters(); }
   std::vector<value_type*> ad_initial_state() { return {}; }
 
+  // The resident L1 replay contract, matching odelia's Solver (recorded_steps /
+  // set_schedule / run). recorded_steps() is the grid the last adaptive run
+  // resolved (== r_ode_times() == solver.times()) -- the SINGLE source of the
+  // resident replay schedule. set_schedule() hands a run that grid, so run() replays
+  // exactly it (distributed across the node introductions), and a gradient replays
+  // what the adaptive pass recorded and nothing else. Pass recorded_steps() from an
+  // adaptive double run. (patch.step_history is the SEPARATE deferred mutant/L3
+  // record, reached only via run_mutant -- never a resident replay source.)
+  std::vector<double> recorded_steps() const { return solver.times(); }
+  void set_schedule(const std::vector<double>& steps) {
+    node_schedule.r_set_ode_times(steps);      // validate + store + distribute
+    node_schedule.r_set_use_ode_times(true);   // replay on the fixed grid
+    parameters.ode_times = steps;              // keep Parameters self-describing
+  }
+
   // Copy this configured SCM onto scalar S2 (the odelia System rebind_from
   // contract): a fresh SCM built from the rebound Parameters and the same Control,
   // with a default-constructed environment (its config is reconstructed from
@@ -527,7 +542,7 @@ void SCM<T, E>::r_set_node_schedule_times(
 
 template <typename T, typename E>
 std::vector<double> SCM<T, E>::r_ode_times() const {
-  return solver.times();
+  return recorded_steps();
 }
 
 } // namespace plant
