@@ -9,6 +9,8 @@
 #include <plant/models/ff16_environment.h>
 #include <plant/models/k93_strategy.h>
 #include <plant/models/k93_environment.h>
+#include <plant/models/tf24_strategy.h>
+#include <plant/models/tf24_environment.h>
 #include <plant/individual.h>
 #include <plant/parameters.h>
 #include <plant/control.h>
@@ -109,4 +111,22 @@ Rcpp::List k93_allfield(Rcpp::List node_sched, std::vector<double> ode_times_in,
                         double max_patch_lifetime = 40.0, int metric = 0, double fd_rel = 3e-4) {
   auto setup = [&](auto& s){ s.pars.b_0 = b_0; };
   return sweep<K93_Strategy_>(node_sched, ode_times_in, max_patch_lifetime, metric, fd_rel, birth_rate, setup);
+}
+
+// [[Rcpp::export]]
+std::vector<std::string> tf24_field_names() { return TF24_Strategy_<double>::field_names(); }
+
+// TF24: the reoptimising FD is just the standard double SCM run (the leaf re-solves
+// its collar-psi optimum every compute_rates), so comparing reverse-AD (which uses
+// the frozen-p* supplied_derivative seam) to this FD directly tests plant#60.
+// field_values (length N, field-name order) injects the R hyperpar-resolved params
+// -- TF24's Leaf hydraulics are only valid at the resolved operating point.
+// [[Rcpp::export]]
+Rcpp::List tf24_allfield(Rcpp::List node_sched, std::vector<double> ode_times_in,
+                         std::vector<double> field_values, double birth_rate = 20.0,
+                         double max_patch_lifetime = 10.0, int metric = 2, double fd_rel = 3e-4) {
+  auto setup = [&](auto& s){ auto p=s.field_ptrs();
+    for (std::size_t i=0;i<p.size() && i<field_values.size();++i)
+      *p[i] = std::decay_t<decltype(*p[i])>(field_values[i]); };
+  return sweep<TF24_Strategy_>(node_sched, ode_times_in, max_patch_lifetime, metric, fd_rel, birth_rate, setup);
 }
