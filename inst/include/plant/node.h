@@ -12,17 +12,6 @@
 
 namespace plant {
 
-// Detect a strategy that can be re-bound to another scalar (`template<class U>
-// using rebind`). Such a strategy's whole rate path is instantiable at the active
-// scalar, so its density transport can go through the geometric mass chart
-// (Species::compute_rates), whose parameter-derivative is exact and well
-// conditioned. Strategies without it stay on the finite-difference stencil.
-template <typename S2, typename = void>
-struct strategy_has_rebind : std::false_type {};
-template <typename S2>
-struct strategy_has_rebind<S2, std::void_t<typename S2::template rebind<double>>>
-    : std::true_type {};
-
 // Detect a strategy that SUPPORTS the geometric mass chart (neighbour-secant
 // transport, odelia::log_density_rate), via a nested `geometric_transport` marker
 // type. The mass chart is the stable, differentiable transport for K93; the FD
