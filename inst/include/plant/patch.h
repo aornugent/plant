@@ -116,6 +116,16 @@ public:
   // Retrieve auxillary variables and save into the ode solver
   odelia::ode::iterator ode_aux(odelia::ode::iterator it) const;
 
+  // * Forcing-kink clip interface (event-aware pathway)
+  // Next forcing feature time strictly after t (+inf if none). odelia's adaptive
+  // controller, when control.clip_forcing is set, caps each trial step at this
+  // time so a step lands on a rainfall driver node instead of stepping across it
+  // and discovering the feature by rejection-bisection. Additive hook: absent on
+  // a System, the clip compiles out, so production is bit-identical when off.
+  double clip_time_after(double t) const {
+    return environment.extrinsic_drivers_next_node_after(t);
+  }
+
   // * Multirate (MRI) partition interface
   // Additive hooks that let odelia's method="mri" stepper treat the patch as a
   // fast/slow system. They are only touched by MriStep; every other integration

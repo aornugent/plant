@@ -4,6 +4,9 @@
 #include <plant/util.h>
 #include <odelia/interpolator.hpp>
 #include <Rcpp.h>
+#include <algorithm>
+#include <limits>
+#include <vector>
 
 namespace plant {
 namespace {
@@ -16,6 +19,16 @@ public:
     variable.init(x, y);
     variable.set_extrapolate(false);
     is_variable = true;
+    // Feature times for the forcing-kink clip: knots where the driver value
+    // changes (onset/cessation of an event). A run of equal values (e.g. a dry
+    // spell of zero rain) contributes none, so the clip leaves smooth stretches
+    // alone and only lands steps on genuine forcing features -- not on every
+    // daily knot, which would force sub-daily steps everywhere.
+    for (size_t i = 1; i < x.size(); ++i) {
+      if (y[i] != y[i - 1]) {
+        feature_x_.push_back(x[i]);
+      }
+    }
   }
 
   Function(double k) {
@@ -43,8 +56,19 @@ public:
     variable.set_extrapolate(extrapolate);
   }
 
+  // Next forcing feature time strictly after t (+inf for a constant driver or
+  // past the last feature). Used by the forcing-kink clip. Features are the
+  // value-change knots precomputed at construction, not every spline knot.
+  double next_node_after(double t) const {
+    if (!is_variable) return std::numeric_limits<double>::infinity();
+    auto it = std::upper_bound(feature_x_.begin(), feature_x_.end(), t);
+    return it != feature_x_.end() ? *it
+                                  : std::numeric_limits<double>::infinity();
+  }
+
 private:
     odelia::interpolator::Interpolator variable;
+    std::vector<double> feature_x_;
     double constant;
     bool is_variable;
 };
@@ -101,7 +125,17 @@ public:
   void clear() {
     drivers.clear();
   }
-  
+
+  // Smallest feature time strictly after t across all variable drivers, or +inf
+  // if none (all constant, or t past every node). The forcing-kink clip lands
+  // trial steps on these times. Cheap: one binary search per variable driver.
+  double next_node_after(double t) const {
+    double best = std::numeric_limits<double>::infinity();
+    for (auto const &driver : drivers) {
+      best = std::min(best, driver.second.next_node_after(t));
+    }
+    return best;
+  }
 
 private:
   std::unordered_map <std::string, Function> drivers;

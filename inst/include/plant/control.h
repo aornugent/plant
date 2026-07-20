@@ -61,6 +61,13 @@ struct Control {
   // Solver; every other integration path is untouched.
   std::string ode_method;
 
+  // Forcing-kink step clipping (event-aware pathway). false (the default) leaves
+  // the adaptive controller bit-identical. true caps each trial step at the next
+  // rainfall driver feature time (Patch::clip_time_after) so a step lands on the
+  // feature instead of discovering it by rejection-bisection. Independent of
+  // ode_method; works with any explicit stepper.
+  bool clip_forcing;
+
   // PPA only: thickness of one discrete canopy layer, in optical-depth units
   // (tau = sum of k * leaf-area-index above a height). The stepped light
   // profile floors tau to integer multiples of this value. The default 0.5
@@ -119,13 +126,15 @@ struct Control {
 };
 
 inline odelia::ode::OdeControl make_ode_control(const Control& control) {
-  return odelia::ode::OdeControl(control.ode_tol_abs,
+  odelia::ode::OdeControl oc(control.ode_tol_abs,
                          control.ode_tol_rel,
                          control.ode_a_y,
                          control.ode_a_dydt,
                          control.ode_step_size_min,
                          control.ode_step_size_max,
                          control.ode_step_size_initial);
+  oc.clip_forcing = control.clip_forcing;
+  return oc;
 }
 
 }

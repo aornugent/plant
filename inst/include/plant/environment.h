@@ -107,7 +107,14 @@ public:
   {
     return extrinsic_drivers.evaluate_range(driver_name, x);
   }
-  
+
+  // Next driver feature time strictly after t across all variable drivers (+inf
+  // if none). Backs the forcing-kink clip via Patch::clip_time_after.
+  double extrinsic_drivers_next_node_after(double t) const
+  {
+    return extrinsic_drivers.next_node_after(t);
+  }
+
 };
 }
 #endif

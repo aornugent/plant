@@ -298,6 +298,7 @@ Control:
     - ode_method: std::string
     - n_collocation_nodes: size_t
     - mri_use_split: bool
+    - clip_forcing: bool
     - ppa_layer_optical_depth: double
     - ppa_layer_smoothing: double
     - offspring_production_tol: double
