@@ -1,0 +1,112 @@
+// [[Rcpp::plugins(cpp20)]]
+// AD completeness certificate: reverse-mode gradient over EVERY registered
+// AD_FIELDS leaf vs a per-field pinned-schedule central FD, for FF16 and K93.
+// Per leaf: intact (AD==FD, nonzero) | structural-zero (both 0) | SEVERED
+// (AD==0, FD!=0) | KINK/partial (both nonzero, ratio off). Certifies every
+// registered leaf's pathway in one sweep -- what per-site reading cannot.
+#include <Rcpp.h>
+#include <plant/models/ff16_strategy.h>
+#include <plant/models/ff16_environment.h>
+#include <plant/models/k93_strategy.h>
+#include <plant/models/k93_environment.h>
+#include <plant/individual.h>
+#include <plant/parameters.h>
+#include <plant/control.h>
+#include <plant/scm.h>
+#include <odelia/gradient.hpp>
+#include <cmath>
+#include <string>
+#include <vector>
+
+using namespace plant;
+
+// One reducer for both strategies.
+template <class Patch>
+static auto reduce_metric(Patch& p, int metric)
+    -> std::decay_t<decltype(p.compute_competition(0.0))> {
+  using V = std::decay_t<decltype(p.compute_competition(0.0))>;
+  if (metric == 2) {
+    V h = 0.0;
+    for (std::size_t s = 0; s < p.size(); ++s) { auto& sp = p.at_species(s);
+      for (auto it = sp.node_begin(); it != sp.node_end(); ++it) h += it->height(); }
+    return h;
+  }
+  return p.offspring_production()[0];
+}
+
+template <template <class> class StratT, class Setup>
+static Rcpp::List sweep(Rcpp::List node_sched, std::vector<double> ode_times_in,
+                        double max_patch_lifetime, int metric, double fd_rel,
+                        double birth_rate, Setup setup) {
+  using RevS = xad::adj<double>::active_type;
+  std::vector<std::vector<double>> nst;
+  for (R_xlen_t i = 0; i < node_sched.size(); ++i)
+    nst.push_back(Rcpp::as<std::vector<double>>(node_sched[i]));
+
+  const int N = (int)StratT<double>().field_ptrs().size();
+  std::vector<std::string> names = StratT<double>::field_names();
+  std::vector<int> idx(N); for (int i = 0; i < N; ++i) idx[i] = i;
+
+  auto make_params = [&](auto tag, int perturb, double dv) {
+    using S = std::decay_t<decltype(tag)>;
+    using Env = typename StratT<S>::environment_type;
+    StratT<S> s; setup(s);
+    s.is_variable_birth_rate = false; s.birth_rate_y = {birth_rate};
+    if (perturb >= 0) *s.field_ptrs()[perturb] += S(dv);
+    Parameters<StratT<S>, Env> p;
+    p.strategies.push_back(s); p.max_patch_lifetime = max_patch_lifetime;
+    p.node_schedule_times = nst; p.ode_times = ode_times_in; p.validate();
+    return p;
+  };
+  Control ctrl;
+  auto pin = [&](auto& scm){ scm.reset(); NodeSchedule ns=scm.r_node_schedule();
+                             ns.r_set_use_ode_times(true); scm.r_set_node_schedule(ns); };
+
+  // Reverse AD: all leaves in one sweep.
+  std::vector<double> g;
+  {
+    using Env = typename StratT<RevS>::environment_type;
+    Env env;
+    SCM<StratT<RevS>, Env> scm(make_params(RevS(), -1, 0.0), env, ctrl);
+    pin(scm);
+    odelia::ode::DifferentiationTargets t; t.params = idx;
+    auto ptrs = scm.get_system_ref().ad_parameters();
+    for (int i : idx) t.values.push_back(xad::value(*ptrs[i]));
+    auto functional = [metric](decltype(scm)& s) -> RevS { return reduce_metric(s.get_system_ref(), metric); };
+    g = odelia::ode::compute_gradient(scm, t, functional).second;
+  }
+
+  // Per-field pinned-schedule central FD (double).
+  auto run_double = [&](int perturb, double dv) -> double {
+    using Env = typename StratT<double>::environment_type;
+    Env env;
+    SCM<StratT<double>, Env> scm(make_params(double(), perturb, dv), env, ctrl);
+    pin(scm); scm.run();
+    return reduce_metric(scm.get_system_ref(), metric);
+  };
+  std::vector<double> base(N), fd(N);
+  { StratT<double> s0; setup(s0); for (int i=0;i<N;++i) base[i] = *s0.field_ptrs()[i]; }
+  for (int i = 0; i < N; ++i) {
+    double d = fd_rel * (std::abs(base[i]) + 1e-3);
+    fd[i] = (run_double(i, d) - run_double(i, -d)) / (2.0 * d);
+  }
+  return Rcpp::List::create(Rcpp::Named("names")=names, Rcpp::Named("base")=base,
+                            Rcpp::Named("ad")=g, Rcpp::Named("fd")=fd);
+}
+
+// [[Rcpp::export]]
+Rcpp::List ff16_allfield(Rcpp::List node_sched, std::vector<double> ode_times_in,
+                         double lma = 0.1978791, double birth_rate = 20.0,
+                         double max_patch_lifetime = 40.0, int metric = 0, double fd_rel = 3e-4) {
+  auto setup = [&](auto& s){ auto p=s.field_ptrs(); auto nm=std::decay_t<decltype(s)>::field_names();
+    for (std::size_t i=0;i<nm.size();++i) if (nm[i]=="lma") *p[i]=lma; };
+  return sweep<FF16_Strategy_>(node_sched, ode_times_in, max_patch_lifetime, metric, fd_rel, birth_rate, setup);
+}
+
+// [[Rcpp::export]]
+Rcpp::List k93_allfield(Rcpp::List node_sched, std::vector<double> ode_times_in,
+                        double b_0 = 0.059, double birth_rate = 20.0,
+                        double max_patch_lifetime = 40.0, int metric = 0, double fd_rel = 3e-4) {
+  auto setup = [&](auto& s){ s.pars.b_0 = b_0; };
+  return sweep<K93_Strategy_>(node_sched, ode_times_in, max_patch_lifetime, metric, fd_rel, birth_rate, setup);
+}
