@@ -301,6 +301,20 @@ public:
 #define PLANT_AD_PTR(f) &pars.f,
 #define PLANT_AD_NAME(f) #f,
   std::vector<S*> field_ptrs() { return { K93_AD_FIELDS(PLANT_AD_PTR) }; }
+
+  // Copy this configured strategy onto scalar S2 (the odelia System rebind_from
+  // contract): differentiable parameters via field_ptrs() (widening implicit),
+  // scalar-independent config via copy_config_from, precomputed state left to
+  // prepare_strategy(). See FF16_Strategy_::rebind_from.
+  template <class S2> K93_Strategy_<S2> rebind_from() {
+    K93_Strategy_<S2> a;
+    a.copy_config_from(*this);
+    auto dp = field_ptrs();
+    auto ap = a.field_ptrs();
+    for (std::size_t i = 0; i < dp.size(); ++i) *ap[i] = S2(*dp[i]);
+    return a;
+  }
+
   static std::vector<std::string> field_names() {
     return { K93_AD_FIELDS(PLANT_AD_NAME) };
   }

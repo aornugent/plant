@@ -26,6 +26,10 @@ namespace plant {
 template <class S = double>
 class TF24_Environment_ : public Environment_<S> {
 public:
+  // Same environment at a different scalar U, paired with TF24_Strategy_'s rebind
+  // so generic code (and the SCM rebind_from contract) can name the active type.
+  template <class U> using rebind = TF24_Environment_<U>;
+
   // constructor for R interface - default settings can be modified
   // except for soil_number_of_depths
   // which are only updated on construction

@@ -118,6 +118,7 @@ class TF24_Strategy_: public Strategy<TF24_Environment_<S>> {
 public:
   using environment_type = TF24_Environment_<S>;
   using value_type = S;
+  template <class U> using rebind = TF24_Strategy_<U>;
   typedef std::shared_ptr<TF24_Strategy_<S>> ptr;
   TF24_Strategy_();
 
@@ -409,6 +410,23 @@ public:
   }
 #undef PLANT_AD_PTR
 #undef PLANT_AD_NAME
+
+  // Copy this configured strategy onto scalar S2 (the odelia System rebind_from
+  // contract): differentiable parameters via field_ptrs(), scalar-independent
+  // config via copy_config_from, precomputed state (the Leaf submodel) left to
+  // prepare_strategy(). See FF16_Strategy_::rebind_from. NOTE: a TF24 gradient also
+  // needs TF24_Environment's soil config to cross (it is set at construction, not
+  // reconstructed from Control like FF16/K93); that is deferred with the TF24
+  // reverse-AD work (b1) -- this entry only replays a resident, and TF24 gradients
+  // are blocked until b1. The double path never calls rebind_from.
+  template <class S2> TF24_Strategy_<S2> rebind_from() {
+    TF24_Strategy_<S2> a;
+    a.copy_config_from(*this);
+    auto dp = field_ptrs();
+    auto ap = a.field_ptrs();
+    for (std::size_t i = 0; i < dp.size(); ++i) *ap[i] = S2(*dp[i]);
+    return a;
+  }
 
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
   S eta_c     = NA_REAL; // crown shape factor, precomputed from pars.eta

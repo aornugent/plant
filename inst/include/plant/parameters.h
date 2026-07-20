@@ -77,6 +77,38 @@ struct Parameters {
   std::vector<double> initial_pr_patch_survival;
   double initial_time;
 
+  // Copy this configuration onto scalar S2 (the odelia System rebind_from
+  // contract, at the Parameters level). Everything but the strategies is already
+  // scalar-independent and copies verbatim -- including the resolved schedule
+  // (node_schedule_times + ode_times), so a Parameters carrying a refined schedule
+  // reproduces it on the active pass; the strategies cross via their own
+  // rebind_from. Used to lift a configured double run onto an active scalar for a
+  // gradient (scm_gradient.h).
+  template <class S2>
+  Parameters<typename T::template rebind<S2>, typename E::template rebind<S2>>
+  rebind_from() {
+    Parameters<typename T::template rebind<S2>,
+               typename E::template rebind<S2>> a;
+    a.patch_area                  = patch_area;
+    a.n_patches                   = n_patches;
+    a.patch_type                  = patch_type;
+    a.max_patch_lifetime          = max_patch_lifetime;
+    a.node_schedule_times         = node_schedule_times;
+    a.node_schedule_times_default = node_schedule_times_default;
+    a.ode_times                   = ode_times;
+    a.initial_state               = initial_state;
+    a.n_initial_cohorts           = n_initial_cohorts;
+    a.initial_node_times          = initial_node_times;
+    a.initial_patch_density       = initial_patch_density;
+    a.initial_pr_patch_survival   = initial_pr_patch_survival;
+    a.initial_time                = initial_time;
+    a.strategy_default            = strategy_default.template rebind_from<S2>();
+    for (auto& s : strategies)
+      a.strategies.push_back(s.template rebind_from<S2>());
+    a.validate();
+    return a;
+  }
+
   // Some little query functions for use on the C side:
   size_t size() const;
   void validate();

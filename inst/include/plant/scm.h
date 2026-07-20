@@ -97,6 +97,24 @@ public:
   patch_type& get_system_ref() { return patch; }
   std::vector<value_type*> ad_parameters() { return patch.ad_parameters(); }
   std::vector<value_type*> ad_initial_state() { return {}; }
+
+  // Copy this configured SCM onto scalar S2 (the odelia System rebind_from
+  // contract): a fresh SCM built from the rebound Parameters and the same Control,
+  // with a default-constructed environment (its config is reconstructed from
+  // Control by the Patch constructor). The Parameters carry the schedule, so after
+  // refine_schedule() this reproduces the resolved L0+L1 on the S2 pass -- the
+  // mechanism scm_gradient.h uses to lift a double run onto the reverse scalar
+  // with no schedule handed in. Simulation state (patch/solver/tape) is not
+  // copied; a rebound SCM starts fresh.
+  template <class S2>
+  SCM<typename T::template rebind<S2>, typename E::template rebind<S2>>
+  rebind_from() {
+    typename E::template rebind<S2> env;
+    return SCM<typename T::template rebind<S2>,
+               typename E::template rebind<S2>>(
+        parameters.template rebind_from<S2>(), env, control);
+  }
+
   // The reverse tape the gradient driver records into, created lazily on the
   // first gradient and reused. Move-only; the R-facing SCM is constructed by
   // value (moved), which this supports.

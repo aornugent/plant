@@ -49,6 +49,24 @@ public:
 
   bool collect_all_auxiliary;
 
+  // Copy the scalar-independent configuration (birth-rate spline, flags, control,
+  // name, drivers, size_0) from another strategy, whatever scalar it runs at. The
+  // differentiable parameters and precomputed state are the concrete strategy's own
+  // concern -- its rebind_from() carries the former via field_ptrs() and leaves the
+  // latter for prepare_strategy(). Used to lift a configured double strategy onto an
+  // active scalar for a gradient (the odelia System rebind_from contract).
+  template <class Other>
+  void copy_config_from(const Other& o) {
+    birth_rate_x           = o.birth_rate_x;
+    birth_rate_y           = o.birth_rate_y;
+    is_variable_birth_rate = o.is_variable_birth_rate;
+    collect_all_auxiliary  = o.collect_all_auxiliary;
+    control                = o.control;
+    name                   = o.name;
+    extrinsic_drivers      = o.extrinsic_drivers;
+    size_0                 = o.size_0;
+  }
+
   void refresh_indices();
 
   double competition_effect(double size) const;

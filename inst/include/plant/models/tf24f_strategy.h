@@ -29,6 +29,7 @@ class TF24f_Strategy_ : public TF24_Strategy_<S> {
 public:
   using environment_type = TF24_Environment_<S>;
   using value_type = S;
+  template <class U> using rebind = TF24f_Strategy_<U>;
   typedef std::shared_ptr<TF24f_Strategy_<S>> ptr;
   TF24f_Strategy_();
 
@@ -77,6 +78,23 @@ public:
   // Use the exact AD/IFT gradient (Leaf::dprofit_droot_collar_psi) instead of the
   // finite difference. Exposed to R for A/B comparison (#527).
   bool use_ad_gradient = true;
+
+  // Copy this configured strategy onto scalar S2 (the odelia System rebind_from
+  // contract): the shared TF24 config/parameters via copy_config_from + field_ptrs
+  // (inherited), plus TF24f's own acclimation config. Precomputed state (the Leaf,
+  // the tracked-state seed) is left to prepare_strategy()/set_initial_states. Same
+  // TF24 environment-config caveat as TF24_Strategy_::rebind_from (deferred, b1).
+  template <class S2> TF24f_Strategy_<S2> rebind_from() {
+    TF24f_Strategy_<S2> a;
+    a.copy_config_from(*this);
+    auto dp = this->field_ptrs();
+    auto ap = a.field_ptrs();
+    for (std::size_t i = 0; i < dp.size(); ++i) *ap[i] = S2(*dp[i]);
+    a.k_acclim       = k_acclim;
+    a.psi_fd_step    = psi_fd_step;
+    a.use_ad_gradient = use_ad_gradient;
+    return a;
+  }
 
   // Cached slot for the tracked state, resolved in refresh_indices().
   int state_idx_opt_root_psi_state = -1;
