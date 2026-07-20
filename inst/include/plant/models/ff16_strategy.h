@@ -160,7 +160,7 @@ public:
   // establishment clamp, so those rates have no kink at net = 0 (K93 does the
   // same for its growth, k93_strategy.h growth_eps). Small relative to typical
   // net production, so the biology is essentially unchanged away from the corner.
-  static constexpr double net_mass_production_eps = 1e-4;
+  static constexpr double net_mass_production_eps = 1e-6;
 
   // Overrides ----------------------------------------------
 

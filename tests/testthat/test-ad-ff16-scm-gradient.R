@@ -83,10 +83,10 @@ test_that("FF16 SCM offspring (R0) gradient: value exact; loss channel exact; se
   #  - lma (growth + self-shading): within ~0.5% of FD; a small self-shading
   #    residual remains (see below), but lma's magnitude keeps it tight.
   expect_equal(r$grad[[1]], r$fd_grad[[1]], tolerance = 1e-2)
-  #  - a_l1 (growth + self-shading): NARROWED known gap. Reverse AD misses FD on
-  #    the self-shading-coupled channel (both AD modes agree, FD disagrees; the
-  #    FD value is a clean plateau ~0.1007, so it is not step noise). Asserted as a
-  #    known failure so the suite stays green now and turns red when the
-  #    self-shading adjoint is fixed; then replace expect_failure with expect_equal.
-  expect_failure(expect_equal(r$grad[[2]], r$fd_grad[[2]], tolerance = 1e-2))
+  #  - a_l1 (growth + self-shading): matches FD once the growth/fecundity clamp is
+  #    smoothed (util::smooth_positive) and the birth-size channel is lifted
+  #    (Patch::reset re-prepares the strategy from the seeded parameters, and
+  #    area_leaf_0 is derived from the lifted initial_height_). The earlier gap was
+  #    the hard-clamp kink plus the severed birth size, not a self-shading residual.
+  expect_equal(r$grad[[2]], r$fd_grad[[2]], tolerance = 1e-2)
 })

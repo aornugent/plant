@@ -220,7 +220,9 @@ test_that("offspring arrival", {
   # single-species is unchanged by the competition rewrite -- node-lumped == the
   # old trapezium except at coincidence).
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 16.925438, tolerance=1e-5)
+  # offspring shifts ~3e-5 from the smooth net-production clamp (util::smooth_positive
+  # replacing the hard growth/fecundity/establishment cutoff; corner radius 1e-6).
+  expect_equal(out$offspring_production, 16.924944, tolerance=1e-5)
   expect_equal(out$ode_times[c(10, 100)], c(0.000070, 4.119307), tolerance=1e-5)
 
   # two species
