@@ -830,18 +830,9 @@ public:
 #undef PLANT_AD_NAME
 
   // Copy this configured strategy onto scalar S2 (the odelia System rebind_from
-  // contract). The differentiable parameters cross via field_ptrs() (widening to
-  // S2 is implicit, so a new AD field is carried with no edit here); the
-  // scalar-independent config via copy_config_from; the precomputed state
-  // (eta_c/canopy_shape/birth height) is left for prepare_strategy() to rebuild
-  // from the seeded parameters (the reset-timing contract).
+  // hook). See plant::rebind_strategy_fields for the mechanic.
   template <class S2> FF16_Strategy_<S2> rebind_from() {
-    FF16_Strategy_<S2> a;
-    a.copy_config_from(*this);
-    auto dp = field_ptrs();
-    auto ap = a.field_ptrs();
-    for (std::size_t i = 0; i < dp.size(); ++i) *ap[i] = S2(*dp[i]);
-    return a;
+    return rebind_strategy_fields<FF16_Strategy_<S2>>(*this);
   }
 
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------

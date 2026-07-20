@@ -64,64 +64,52 @@ static void use_recorded_ode_times(Runner& scm) {
   scm.r_set_node_schedule(ns);
 }
 
-struct scm_gradient_result {
-  std::vector<double>              value;         // active values (m outputs)
-  std::vector<std::vector<double>> jacobian;      // m x n
-  std::vector<double>              value_double;  // double reference (m)
-};
-
 // The Jacobian (m outputs x n targets) of `functional` over the SCM solve, seeding
-// the named parameter targets. Owns record->replay: an adaptive double run discovers
-// the resolved schedule, the active run (SCM::rebind_from) replays exactly it. Returns
-// {values, jacobian, value_double}; value vs value_double is the config-crossing
-// check. `targets.params` indexes field_ptrs()/field_names(); ics are unused here.
+// the named parameter targets. The plant analogue of odelia's jacobian_on_double
+// (plant's SCM is not an ode::Solver -- it HAS-A one and adds node scheduling -- so
+// it cannot use that entry): it owns the record->replay odelia's Solver owns for a
+// bare ODE. An adaptive double run discovers the resolved schedule; the active twin
+// (SCM::rebind_from, the odelia System hook) replays exactly it; odelia's
+// compute_jacobian does the seed/tape/sweep. Returns odelia's {values, jacobian}.
+// `targets.params` indexes field_ptrs()/field_names(); ics are unused here.
 template <class StratD, class EnvD, class Functional>
-scm_gradient_result
+std::pair<std::vector<double>, std::vector<std::vector<double>>>
 scm_jacobian(Parameters<StratD, EnvD> p, Control control,
              const odelia::ode::DifferentiationTargets& targets,
              Functional functional) {
   using RevS = xad::adj<double>::active_type;
 
-  // 1. Adaptive double pass: discover and record the resolved L0+L1 schedule into
-  //    the SCM's Parameters.
+  // Adaptive double pass: discover and record the resolved L0+L1 schedule.
   EnvD env;
   SCM<StratD, EnvD> scm(p, env, control);
   scm.refine_schedule();
 
-  // 2. Double reference: rebind to double (an identity copy through the same
-  //    contract path, so construction matches the active pass exactly), replay the
-  //    resolved schedule, reduce through the functional.
-  scm_gradient_result out;
+  // Double reference value, replayed on the resolved schedule through the same
+  // rebind_from path the active pass uses -- the R5 check below.
+  std::vector<double> value_double;
   {
     auto ref = scm.template rebind_from<double>();
     use_recorded_ode_times(ref);
     ref.run();
-    auto vs = functional(ref);
-    out.value_double.reserve(vs.size());
-    for (auto const& v : vs) out.value_double.push_back(xad::value(v));
+    for (auto const& v : functional(ref)) value_double.push_back(xad::value(v));
   }
 
-  // 3. Active pass: rebind config to the reverse scalar, replay the SAME resolved
-  //    schedule, one reverse sweep for the whole Jacobian.
-  {
-    auto active = scm.template rebind_from<RevS>();
-    use_recorded_ode_times(active);
-    auto [values, jacobian] =
-        odelia::ode::compute_jacobian(active, targets, functional);
-    out.value    = std::move(values);
-    out.jacobian = std::move(jacobian);
-  }
+  // Active pass: rebind config to the reverse scalar, replay the SAME schedule, one
+  // reverse sweep for the whole Jacobian.
+  auto active = scm.template rebind_from<RevS>();
+  use_recorded_ode_times(active);
+  auto out = odelia::ode::compute_jacobian(active, targets, functional);
 
   // R5 as structure, not convention: the active value must reproduce the double
   // reference. It does (bit-identically) when every configuration member crosses
-  // double->active; a member dropped by rebind_from shifts the value by O(1). So a
-  // silently config-incomplete gradient becomes a loud failure here rather than a
-  // plausible wrong number the caller has to catch. (TF24's env soil config does not
-  // cross yet -- this is what would trip if a TF24 gradient were attempted; b1.)
-  for (std::size_t i = 0; i < out.value.size(); ++i) {
-    const double a = out.value[i], d = out.value_double[i];
-    if (std::abs(a - d) > 1e-8 * (std::abs(d) + 1e-8)) {
-      util::stop("scm_gradient: active value does not reproduce the double "
+  // double->active; a member dropped by rebind_from shifts the value by O(1), so a
+  // config-incomplete gradient fails loudly here instead of returning a plausible
+  // wrong number. (TF24's env soil config does not cross yet -- this trips if a TF24
+  // gradient is attempted; b1.)
+  for (std::size_t i = 0; i < out.first.size(); ++i) {
+    if (std::abs(out.first[i] - value_double[i]) >
+        1e-8 * (std::abs(value_double[i]) + 1e-8)) {
+      util::stop("scm_jacobian: active value does not reproduce the double "
                  "reference -- a configuration member was not carried across "
                  "double->active (rebind_from is incomplete for this System)");
     }
@@ -129,16 +117,16 @@ scm_jacobian(Parameters<StratD, EnvD> p, Control control,
   return out;
 }
 
-// Scalar convenience: the gradient (one row) of a scalar functional. Returns
-// {value, gradient, value_double}.
+// Scalar convenience: the gradient (one row) of a scalar functional, as odelia's
+// {value, gradient}.
 template <class StratD, class EnvD, class Functional>
-std::tuple<double, std::vector<double>, double>
+std::pair<double, std::vector<double>>
 scm_gradient(Parameters<StratD, EnvD> p, Control control,
              const odelia::ode::DifferentiationTargets& targets,
              Functional functional) {
-  auto r = scm_jacobian(std::move(p), std::move(control), targets,
-                        std::move(functional));
-  return {r.value[0], r.jacobian[0], r.value_double[0]};
+  auto [values, jacobian] = scm_jacobian(std::move(p), std::move(control), targets,
+                                         std::move(functional));
+  return {values[0], jacobian[0]};
 }
 
 } // namespace plant

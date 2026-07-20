@@ -127,6 +127,24 @@ typename Strat::ptr make_strategy_ptr(Strat s) {
   return std::make_shared<Strat>(s);
 }
 
+// The whole double->active rebind mechanic, in one place: a fresh strategy of type
+// To carrying `from`'s scalar-independent config (copy_config_from) and its
+// differentiable parameters widened through field_ptrs() (a new AD field is carried
+// automatically). Precomputed state is left for prepare_strategy() to rebuild from
+// the seeded parameters (the reset-timing contract). Each concrete strategy's
+// rebind_from() -- the odelia System hook -- is a one-line call to this, so the
+// boilerplate lives here, not once per model.
+template <class To, class From>
+To rebind_strategy_fields(From& from) {
+  To a;
+  a.copy_config_from(from);
+  auto dp = from.field_ptrs();
+  auto ap = a.field_ptrs();
+  for (std::size_t i = 0; i < dp.size(); ++i)
+    *ap[i] = typename To::value_type(*dp[i]);
+  return a;
+}
+
 }
 
 #endif

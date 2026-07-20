@@ -63,9 +63,9 @@ test_that("FF16 entry gradient: self-refines the schedule, reproduces the certif
                                          base$parameters$ode_times,
                                          lma = lma0, max_patch_lifetime = life)
 
-  # (1) The active replay reproduces the double value on the entry's own schedule.
-  expect_equal(ent$value, ent$value_double, tolerance = 1e-10)
-
+  # (1) The entry self-refines: its value matches run_scm's (the active replay
+  #     reproducing the double reference is enforced by a structural assert inside
+  #     scm_jacobian, so it needs no separate check here).
   # (2) The entry's self-refined schedule reproduces run_scm's: same value and same
   #     reverse gradient as the bespoke driver, to numerical tolerance.
   expect_equal(ent$value, bespoke$value, tolerance = 1e-6)
@@ -113,7 +113,6 @@ test_that("K93 entry gradient: self-refines the schedule, matches a reoptimising
   nm  <- cert$names
   idx <- match(c("b_0", "d_0", "d_1"), nm)
 
-  expect_equal(ent$value, ent$value_double, tolerance = 1e-10)
   # The entry's reverse gradient matches the certificate's certified reverse AD (same
   # schedule, same adjoint) ...
   expect_equal(ent$grad, cert$ad[idx], tolerance = 1e-6)

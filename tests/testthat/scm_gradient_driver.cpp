@@ -48,23 +48,16 @@ static Rcpp::List run_entry(std::vector<int> target_idx, double birth_rate,
     for (int i : target_idx) t.values.push_back(*ptrs[i]);
   }
 
-  auto call = [&](auto fn) {
-    return scm_gradient(p, ctrl, t, fn);
-  };
-  double value, value_double;
-  std::vector<double> grad;
-  if (metric == 1) {
-    auto r = call(census_metric{});
-    value = std::get<0>(r); grad = std::get<1>(r); value_double = std::get<2>(r);
-  } else {
-    auto r = call(offspring_metric{});
-    value = std::get<0>(r); grad = std::get<1>(r); value_double = std::get<2>(r);
-  }
+  // scm_gradient returns odelia's {value, gradient}; the value-reproduces-double
+  // R5 check is a structural assert inside the entry (it stops on a config-crossing
+  // gap), so the driver need not surface a separate double value.
+  std::pair<double, std::vector<double>> r =
+      (metric == 1) ? scm_gradient(p, ctrl, t, census_metric{})
+                    : scm_gradient(p, ctrl, t, offspring_metric{});
   return Rcpp::List::create(
-      Rcpp::Named("value")        = value,
-      Rcpp::Named("value_double") = value_double,
-      Rcpp::Named("grad")         = Rcpp::wrap(grad),
-      Rcpp::Named("names")        = StratD::field_names());
+      Rcpp::Named("value") = r.first,
+      Rcpp::Named("grad")  = Rcpp::wrap(r.second),
+      Rcpp::Named("names") = StratD::field_names());
 }
 
 // [[Rcpp::export]]

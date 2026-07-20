@@ -80,18 +80,13 @@ public:
   bool use_ad_gradient = true;
 
   // Copy this configured strategy onto scalar S2 (the odelia System rebind_from
-  // contract): the shared TF24 config/parameters via copy_config_from + field_ptrs
-  // (inherited), plus TF24f's own acclimation config. Precomputed state (the Leaf,
-  // the tracked-state seed) is left to prepare_strategy()/set_initial_states. Same
-  // TF24 environment-config caveat as TF24_Strategy_::rebind_from (deferred, b1).
+  // hook): the shared TF24 config/parameters via rebind_strategy_fields, plus
+  // TF24f's own acclimation config. Same TF24 environment-config caveat as
+  // TF24_Strategy_::rebind_from (deferred, b1).
   template <class S2> TF24f_Strategy_<S2> rebind_from() {
-    TF24f_Strategy_<S2> a;
-    a.copy_config_from(*this);
-    auto dp = this->field_ptrs();
-    auto ap = a.field_ptrs();
-    for (std::size_t i = 0; i < dp.size(); ++i) *ap[i] = S2(*dp[i]);
-    a.k_acclim       = k_acclim;
-    a.psi_fd_step    = psi_fd_step;
+    auto a = rebind_strategy_fields<TF24f_Strategy_<S2>>(*this);
+    a.k_acclim        = k_acclim;
+    a.psi_fd_step     = psi_fd_step;
     a.use_ad_gradient = use_ad_gradient;
     return a;
   }
