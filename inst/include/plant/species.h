@@ -233,35 +233,75 @@ Species<T,E>::compute_competition(double height) const {
   if (size() == 0 || height_max() < height) {
     return value_type(0.0);
   }
-  // On the transport-log-mass chart a coincident cohort (spacing -> 0) has a
-  // -inf log density (odelia's zero-spacing convention), hence density 0, so it
-  // contributes 0 to the trapezium below rather than the NaN a naive
-  // density = exp(lambda)/spacing would give. No separate mass-lumped path is
-  // needed: the density VIEW is finite everywhere and the live-height spacing
-  // keeps competition's parameter-derivative exact (recomputed each build).
-  value_type tot = 0.0;
-  nodes_const_iterator it = nodes.begin();
-  value_type h1 = it->height(), f_h1 = it->compute_competition(height);
 
-  // Loop over nodes
-  for (++it; it != nodes.end(); ++it) {
-    const value_type h0 = it->height(), f_h0 = it->compute_competition(height);
-    if (!util::is_finite(f_h0)) {
+  // On the transport-log-mass chart the per-cohort density is the reconstructed
+  // view exp(lambda)/dx, which OVERFLOWS at a tiny-but-nonzero spacing near a
+  // growth stall (odelia#46) even though this extensive field is finite. So on
+  // the chart we consume the bounded transported mass exp(lambda) directly: a
+  // trapezium edge (h1-h0)*(d_i*phi_i + d_j*phi_j) is split into node-attributed
+  // halves, and each half (h1-h0)*(exp(lambda_i)/dx_i)*phi_i is formed as
+  // ((h1-h0)/dx_i)*exp(lambda_i)*phi_i -- a moderate spacing ratio times a bounded
+  // mass -- so no reconstructed density is ever materialised. dx_i is the SAME
+  // odelia::cohort_spacing that defines lambda, so /dx cancels the chart's *dx
+  // exactly on the interior; the result is the reconstructed-density trapezium up
+  // to reassociation rounding (no re-baseline). The new_node boundary carries no
+  // lambda and keeps its finite birth density. Off the chart log_density is the
+  // state, density is finite, and the plain density*phi trapezium is used.
+  const bool on_chart = nodes.front().on_mass_chart();
+  std::vector<value_type> dx;
+  if (on_chart) {
+    std::vector<value_type> h(nodes.size());
+    for (std::size_t i = 0; i < nodes.size(); ++i) h[i] = nodes[i].height();
+    dx = odelia::cohort_spacing(h);
+  }
+  // One endpoint's contribution to an edge of width `gap`, before the final /2.
+  // On the chart (and not the lambda-less new_node, idx == npos): the overflow-free
+  // ((gap/dx_i)*exp(lambda_i))*phi_i. Otherwise the plain density*phi the edge used.
+  const std::size_t npos = static_cast<std::size_t>(-1);
+  auto edge_end = [&](std::size_t i, const value_type& gap,
+                      const node_type& node) -> value_type {
+    if (on_chart && i != npos) {
+      // A coincident cohort (dx == 0) has zero mass by odelia's -inf convention,
+      // so it contributes nothing -- rather than the gap/0 = inf (or inf*0 = NaN,
+      // since exp(lambda) is then 0) a bare division would give. This is exactly
+      // the density = 0 the reconstructed-view path produced for that cohort.
+      if (!(dx[i] > 0.0)) return value_type(0.0);
+      return (gap / dx[i]) * exp(node.get_log_mass()) *
+             node.individual.compute_competition(height);
+    }
+    return gap * node.compute_competition(height);  // density * phi
+  };
+
+  value_type tot = 0.0;
+  std::size_t i_prev = 0;
+  value_type h1 = nodes[0].height();
+  bool broke = false;
+  for (std::size_t i = 1; i < nodes.size(); ++i) {
+    const value_type h0 = nodes[i].height();
+    const value_type gap = h1 - h0;
+    const value_type e =
+        edge_end(i_prev, gap, nodes[i_prev]) + edge_end(i, gap, nodes[i]);
+    if (!util::is_finite(e)) {
       util::stop("Detected non-finite contribution");
     }
-    // Integration
-    tot += (h1 - h0) * (f_h1 + f_h0);
-    // Upper point moves for next time:
-    h1   = h0;
-    f_h1 = f_h0;
-    if (h0 < height) {
-      break;
-    }
+    tot += e;
+    h1 = h0;
+    i_prev = i;
+    if (h0 < height) { broke = true; break; }
   }
 
-  if (size() == 1 || f_h1 > 0) {
-    const value_type h0 = new_node.height(), f_h0 = new_node.compute_competition(height);
-    tot += (h1 - h0) * (f_h1 + f_h0);
+  // Include the new_node bottom boundary exactly when the old edge loop did: a
+  // single node (it is the trapezium's second point), or the loop reached the
+  // stand's base without early-exit and the last node still shades. f_last mirrors
+  // the old `f_h1 > 0` test on the bounded mass, so it agrees on sign.
+  value_type mass_last;
+  if (on_chart) mass_last = exp(nodes[i_prev].get_log_mass());
+  else          mass_last = nodes[i_prev].get_density();
+  const value_type f_last =
+      mass_last * nodes[i_prev].individual.compute_competition(height);
+  if (size() == 1 || (!broke && f_last > 0)) {
+    const value_type gap = h1 - new_node.height();
+    tot += edge_end(i_prev, gap, nodes[i_prev]) + edge_end(npos, gap, new_node);
   }
 
   return tot / 2;

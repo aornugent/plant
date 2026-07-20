@@ -663,18 +663,30 @@ void Patch<T,E>::assemble_competition_field() {
   for (size_t i = 0; i < species.size(); ++i) {
     const size_t m = species[i].size();
     if (m == 0) continue;
-    std::vector<value_type> h(m), amp(m);
+    const bool on_chart = species[i].node_begin()->on_mass_chart();
+    // On the chart, carry the bounded per-individual competition phi0 = phi(0) and
+    // the transported mass exp(lambda) separately; the source weight amp*M below is
+    // formed as (M/dx)*exp(lambda)*phi0, never the reconstructed density
+    // exp(lambda)/dx (which overflows at a tiny-but-nonzero spacing, odelia#46).
+    // Off the chart, amp is the finite density*phi0 as before.
+    std::vector<value_type> h(m), amp(m), mass;
+    if (on_chart) mass.resize(m);
     size_t k = 0;
     // Copy the (small) canopy by value: r_get_strategy() returns a temporary, so
     // a pointer into it would dangle. Same shape for every cohort of the species.
     CanopyShape<value_type> canopy = species[i].node_begin()->individual.r_get_strategy().canopy_shape;
     for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it, ++k) {
       h[k]   = it->height();
-      // density*wpc (Q(0)=1), per patch area to match Patch::compute_competition.
-      // On the chart a coincident cohort has density 0 (odelia's -inf spacing
-      // convention), so amp = 0 there rather than a NaN from exp(lambda)/spacing.
-      amp[k] = it->compute_competition(0.0) / area;
+      if (on_chart) {
+        amp[k]  = it->individual.compute_competition(0.0) / area;  // phi0, no density
+        mass[k] = exp(it->get_log_mass());
+      } else {
+        // density*wpc (Q(0)=1), per patch area to match Patch::compute_competition.
+        amp[k] = it->compute_competition(0.0) / area;
+      }
     }
+    const std::vector<value_type> dx =
+        on_chart ? odelia::cohort_spacing(h) : std::vector<value_type>();
     for (size_t j = 0; j < m; ++j) {
       // Same-species trapezium measure: half the span to the two neighbours
       // (one-sided at the crown top / smallest cohort). (Skips the new_node
@@ -682,9 +694,18 @@ void Patch<T,E>::assemble_competition_field() {
       const value_type hi = (j == 0)     ? h[0]     : h[j - 1];
       const value_type lo = (j == m - 1) ? h[m - 1] : h[j + 1];
       const value_type M = 0.5 * (hi - lo);
+      // On the chart, (M/dx_j) is a moderate spacing ratio and mass_j = exp(lambda_j)
+      // is bounded, so amp_j*M = (M/dx_j)*mass_j*phi0_j is overflow-free; dx_j is the
+      // SAME cohort_spacing defining lambda, so /dx cancels *dx (== M interior).
+      value_type ampM;
+      // dx == 0 (coincident cohort): zero mass by odelia's -inf convention, so no
+      // source -- matching the density = 0 the reconstructed view gave, not gap/0.
+      if (!on_chart)          ampM = amp[j] * M;
+      else if (dx[j] > 0.0)   ampM = (M / dx[j]) * mass[j] * amp[j];
+      else                    ampM = value_type(0.0);
       const auto b = canopy.template shading_source_factors<value_type>(h[j]);
       H.push_back(h[j]);
-      for (size_t p = 0; p < E::comp_rank; ++p) sw[p].push_back(amp[j] * M * b[p]);
+      for (size_t p = 0; p < E::comp_rank; ++p) sw[p].push_back(ampM * b[p]);
     }
   }
   const size_t n = H.size();
