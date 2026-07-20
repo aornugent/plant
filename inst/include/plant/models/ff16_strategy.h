@@ -276,6 +276,29 @@ public:
     return mass_leaf + mass_bark + mass_sapwood + mass_heartwood;
   }
 
+  // Per-individual census quantities read from the Internals -- the #266
+  // strategy-agnostic entry, like compute_competition(z, vars). Each carries S so
+  // a trait re-weights the census on a gradient pass. These are the Psi a
+  // population census Sum_i n_i * Psi(state_i) reduces (Species::census): leaf
+  // area (-> LAI), above-ground biomass, and stem basal area.
+  S census_leaf_area(const Internals_<S>& vars) const {
+    return vars.aux(COMPETITION_EFFECT_AUX_INDEX);  // = area_leaf(height)
+  }
+  S census_mass(const Internals_<S>& vars) const {
+    const S height = vars.state(HEIGHT_INDEX);
+    const S area_leaf_ = vars.aux(COMPETITION_EFFECT_AUX_INDEX);
+    const S mass_leaf_ = mass_leaf(area_leaf_);
+    const S mass_sapwood_ = mass_sapwood(area_sapwood(area_leaf_), height);
+    const S mass_bark_ = mass_bark(area_bark(area_leaf_), height);
+    const S mass_heartwood_ = vars.state(MASS_HEARTWOOD_INDEX);
+    return mass_above_ground(mass_leaf_, mass_bark_, mass_sapwood_, mass_heartwood_);
+  }
+  S census_basal_area(const Internals_<S>& vars) const {
+    const S area_leaf_ = vars.aux(COMPETITION_EFFECT_AUX_INDEX);
+    const S area_heartwood_ = vars.state(AREA_HEARTWOOD_INDEX);
+    return area_stem(area_bark(area_leaf_), area_sapwood(area_leaf_), area_heartwood_);
+  }
+
   // Inline (header): called per state-set / ODE-state update from templated
   // Individual<FF16> code.
   void update_dependent_aux(const int index, Internals_<S>& vars) {

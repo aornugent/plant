@@ -73,6 +73,13 @@ public:
     return strategy->compute_competition(z, vars);
   }
 
+  // Per-individual census quantities (the Psi of a population census); delegate to
+  // the strategy, which reads this individual's multivariate state (#266). Only
+  // instantiated for strategies that define them (e.g. FF16's census gradient).
+  value_type census_leaf_area() const { return strategy->census_leaf_area(vars); }
+  value_type census_mass() const { return strategy->census_mass(vars); }
+  value_type census_basal_area() const { return strategy->census_basal_area(vars); }
+
   // Seed strategy-specific initial ODE states (e.g. an acclimating tracked
   // state) given the birth environment. No-op for strategies that don't need it.
   void set_initial_states(const environment_type& environment) {

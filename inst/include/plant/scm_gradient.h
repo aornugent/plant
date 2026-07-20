@@ -53,6 +53,24 @@ struct census_metric {
   }
 };
 
+// FF16 standing-stock census vector -- LAI, above-ground biomass, and stem basal
+// area, each per patch area (codomain 3). One SCM recording feeds three reverse
+// sweeps via scm_jacobian. Every metric is Patch::census of a per-individual
+// quantity: the mass-weighted population reduction Sum_i n_i * psi(state_i), so a
+// trait's effect flows through the whole re-shaded stand, not one cohort.
+struct census_vector {
+  std::size_t codomain() const { return 3; }
+  template <class Runner>
+  std::vector<typename Runner::value_type> operator()(Runner& s) const {
+    auto& patch = s.get_system_ref();
+    return {
+      patch.census([](auto const& ind) { return ind.census_leaf_area(); }),
+      patch.census([](auto const& ind) { return ind.census_mass(); }),
+      patch.census([](auto const& ind) { return ind.census_basal_area(); }),
+    };
+  }
+};
+
 // The Jacobian (m outputs x n targets) of `functional` over the SCM solve, seeding
 // the named parameter targets. The plant analogue of odelia's jacobian_on_double
 // (plant's SCM is not an ode::Solver -- it HAS-A one and adds node scheduling -- so

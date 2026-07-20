@@ -55,6 +55,13 @@ public:
 
   double height_max() const;
   value_type compute_competition(double height) const;
+  // Population census: the mass-weighted reduction Sum_i n_i * psi(individual_i)
+  // over the stand, with the per-cohort abundance n_i consumed as transported mass
+  // exp(lambda_i) on the chart (never the reconstructed density, which overflows at
+  // a tiny-but-nonzero spacing, odelia#46). `query` skips cohorts below that height
+  // (a plant shorter than it shades nothing there); 0 censuses the whole stand.
+  // compute_competition is the self-shading member (psi = per-individual shade).
+  template <class Psi> value_type census(Psi psi, double query = 0.0) const;
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
   // Transport-log-mass chart: reconstruct the log_density/density view from the
   // transported lambda (before any density is read), and seed a newborn's lambda
@@ -223,30 +230,26 @@ double Species<T,E>::height_max() const {
 // single node (needed to be the second half of the trapezium) and
 // also needed if the last looked at plant was still contributing to
 // the integral).
+// The population census Sum_i n_i * psi(individual_i), reduced as the same
+// trapezium-in-mass every field reduction uses. On the chart the per-cohort
+// abundance n_i is the bounded transported mass exp(lambda_i), consumed directly:
+// a trapezium edge (h1-h0)*(d_i*psi_i + d_j*psi_j) is split into node-attributed
+// halves ((h1-h0)/dx_i)*exp(lambda_i)*psi_i -- a moderate spacing ratio times a
+// bounded mass -- so the reconstructed density exp(lambda)/dx (which overflows at
+// a tiny-but-nonzero spacing near a growth stall, odelia#46) is never formed. dx_i
+// is the SAME odelia::cohort_spacing that defines lambda, so /dx cancels the
+// chart's *dx exactly on the interior. The new_node boundary carries no lambda and
+// keeps its finite birth density; a coincident cohort (dx == 0) contributes 0
+// (odelia's -inf convention). Off the chart log_density is the state, density is
+// finite, and the plain density*psi trapezium is used. `query` is the self-shading
+// early-exit height (a plant shorter than it shades nothing above it); 0 for a
+// whole-stand census. Compare the design's Species::census<Psi>.
 template <typename T, typename E>
+template <class Psi>
 typename Species<T,E>::value_type
-Species<T,E>::compute_competition(double height) const {
-  // The competition integral is the resident self-shading channel: the node
-  // heights and per-node competition carry value_type on a gradient pass, so a
-  // trait re-shades the stand. The query height and the domain guard stay double
-  // (height_max is a frozen L2 domain position, §5.5).
-  if (size() == 0 || height_max() < height) {
-    return value_type(0.0);
-  }
+Species<T,E>::census(Psi psi, double query) const {
+  if (size() == 0) return value_type(0.0);
 
-  // On the transport-log-mass chart the per-cohort density is the reconstructed
-  // view exp(lambda)/dx, which OVERFLOWS at a tiny-but-nonzero spacing near a
-  // growth stall (odelia#46) even though this extensive field is finite. So on
-  // the chart we consume the bounded transported mass exp(lambda) directly: a
-  // trapezium edge (h1-h0)*(d_i*phi_i + d_j*phi_j) is split into node-attributed
-  // halves, and each half (h1-h0)*(exp(lambda_i)/dx_i)*phi_i is formed as
-  // ((h1-h0)/dx_i)*exp(lambda_i)*phi_i -- a moderate spacing ratio times a bounded
-  // mass -- so no reconstructed density is ever materialised. dx_i is the SAME
-  // odelia::cohort_spacing that defines lambda, so /dx cancels the chart's *dx
-  // exactly on the interior; the result is the reconstructed-density trapezium up
-  // to reassociation rounding (no re-baseline). The new_node boundary carries no
-  // lambda and keeps its finite birth density. Off the chart log_density is the
-  // state, density is finite, and the plain density*phi trapezium is used.
   const bool on_chart = nodes.front().on_mass_chart();
   std::vector<value_type> dx;
   if (on_chart) {
@@ -256,20 +259,15 @@ Species<T,E>::compute_competition(double height) const {
   }
   // One endpoint's contribution to an edge of width `gap`, before the final /2.
   // On the chart (and not the lambda-less new_node, idx == npos): the overflow-free
-  // ((gap/dx_i)*exp(lambda_i))*phi_i. Otherwise the plain density*phi the edge used.
+  // ((gap/dx_i)*exp(lambda_i))*psi_i. Otherwise the plain density*psi the edge used.
   const std::size_t npos = static_cast<std::size_t>(-1);
   auto edge_end = [&](std::size_t i, const value_type& gap,
                       const node_type& node) -> value_type {
     if (on_chart && i != npos) {
-      // A coincident cohort (dx == 0) has zero mass by odelia's -inf convention,
-      // so it contributes nothing -- rather than the gap/0 = inf (or inf*0 = NaN,
-      // since exp(lambda) is then 0) a bare division would give. This is exactly
-      // the density = 0 the reconstructed-view path produced for that cohort.
-      if (!(dx[i] > 0.0)) return value_type(0.0);
-      return (gap / dx[i]) * exp(node.get_log_mass()) *
-             node.individual.compute_competition(height);
+      if (!(dx[i] > 0.0)) return value_type(0.0);  // coincident cohort: zero mass
+      return (gap / dx[i]) * exp(node.get_log_mass()) * psi(node.individual);
     }
-    return gap * node.compute_competition(height);  // density * phi
+    return gap * node.get_density() * psi(node.individual);
   };
 
   value_type tot = 0.0;
@@ -287,24 +285,39 @@ Species<T,E>::compute_competition(double height) const {
     tot += e;
     h1 = h0;
     i_prev = i;
-    if (h0 < height) { broke = true; break; }
+    if (h0 < query) { broke = true; break; }
   }
 
   // Include the new_node bottom boundary exactly when the old edge loop did: a
   // single node (it is the trapezium's second point), or the loop reached the
-  // stand's base without early-exit and the last node still shades. f_last mirrors
-  // the old `f_h1 > 0` test on the bounded mass, so it agrees on sign.
+  // stand's base without early-exit and the last node still contributes. f_last
+  // mirrors the old `f_h1 > 0` test on the bounded mass, so it agrees on sign.
   value_type mass_last;
   if (on_chart) mass_last = exp(nodes[i_prev].get_log_mass());
   else          mass_last = nodes[i_prev].get_density();
-  const value_type f_last =
-      mass_last * nodes[i_prev].individual.compute_competition(height);
+  const value_type f_last = mass_last * psi(nodes[i_prev].individual);
   if (size() == 1 || (!broke && f_last > 0)) {
     const value_type gap = h1 - new_node.height();
     tot += edge_end(i_prev, gap, nodes[i_prev]) + edge_end(npos, gap, new_node);
   }
 
   return tot / 2;
+}
+
+// The resident self-shading integral: a census whose per-individual weight is the
+// shade that individual casts at `height`, with the same query-height early-exit.
+template <typename T, typename E>
+typename Species<T,E>::value_type
+Species<T,E>::compute_competition(double height) const {
+  // The query height and the domain guard stay double (height_max is a frozen L2
+  // domain position, §5.5); the node heights and per-node shade carry value_type,
+  // so a trait re-shades the stand on a gradient pass.
+  if (size() == 0 || height_max() < height) {
+    return value_type(0.0);
+  }
+  return census(
+      [height](const individual_type& ind) { return ind.compute_competition(height); },
+      height);
 }
 
 // NOTE: We should probably prefer to rescale when this is called

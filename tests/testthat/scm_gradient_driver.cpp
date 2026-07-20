@@ -71,6 +71,41 @@ Rcpp::List ff16_entry_gradient(std::vector<int> target_idx, double lma = 0.19787
   return run_entry<FF16_Strategy_>(target_idx, birth_rate, max_patch_lifetime, metric, setup);
 }
 
+// The FF16 standing-stock census VECTOR gradient (codomain 3: LAI, above-ground
+// biomass, basal area). Exercises scm_jacobian's multi-output path -- one adaptive
+// recording, one active replay, three reverse sweeps -- and the mass-weighted
+// Patch::census operator. Returns the 3 values and the 3 x n Jacobian.
+// [[Rcpp::export]]
+Rcpp::List ff16_census_vector_gradient(std::vector<int> target_idx,
+                                       double lma = 0.1978791, double birth_rate = 20.0,
+                                       double max_patch_lifetime = 40.0) {
+  using StratD = FF16_Strategy_<double>;
+  using EnvD   = StratD::environment_type;
+  auto setup = [&](StratD& s) {
+    auto p = s.field_ptrs(); auto nm = StratD::field_names();
+    for (std::size_t i = 0; i < nm.size(); ++i) if (nm[i] == "lma") *p[i] = lma;
+  };
+  StratD s; setup(s);
+  s.is_variable_birth_rate = false; s.birth_rate_y = {birth_rate};
+  Parameters<StratD, EnvD> p;
+  p.strategies.push_back(s);
+  p.max_patch_lifetime = max_patch_lifetime; p.validate();
+  Control ctrl;
+  odelia::ode::DifferentiationTargets t; t.params = target_idx;
+  { StratD s0; setup(s0); auto ptrs = s0.field_ptrs();
+    for (int i : target_idx) t.values.push_back(*ptrs[i]); }
+
+  auto out = scm_jacobian(p, ctrl, t, census_vector{});  // {values(3), jacobian(3 x n)}
+  Rcpp::NumericMatrix J(out.second.size(),
+                        out.second.empty() ? 0 : out.second[0].size());
+  for (std::size_t r = 0; r < out.second.size(); ++r)
+    for (std::size_t c = 0; c < out.second[r].size(); ++c) J(r, c) = out.second[r][c];
+  return Rcpp::List::create(
+      Rcpp::Named("values")   = Rcpp::wrap(out.first),
+      Rcpp::Named("jacobian") = J,
+      Rcpp::Named("names")    = StratD::field_names());
+}
+
 // [[Rcpp::export]]
 Rcpp::List k93_entry_gradient(std::vector<int> target_idx, double b_0 = 0.059,
                               double birth_rate = 20.0,

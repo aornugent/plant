@@ -119,3 +119,37 @@ test_that("K93 entry gradient: self-refines the schedule, matches a reoptimising
   # ... and the reoptimising FD (the correctness reference).
   expect_equal(ent$grad, cert$fd[idx], tolerance = 1e-3)
 })
+
+test_that("FF16 census vector gradient: 3 metrics, one recording, matches adaptive FD", {
+  skip_on_cran()
+  old <- Sys.getenv(c("PKG_CXXFLAGS", "PKG_LIBS"), unset = NA)
+  setup_link()
+  on.exit({
+    for (k in names(old)) {
+      if (is.na(old[[k]])) Sys.unsetenv(k)
+      else do.call(Sys.setenv, setNames(list(old[[k]]), k))
+    }
+  }, add = TRUE)
+
+  built <- tryCatch({ Rcpp::sourceCpp(test_path("scm_gradient_driver.cpp")); TRUE },
+                    error = function(e) { message("build failed: ", conditionMessage(e)); FALSE })
+  skip_if_not(built, "sourceCpp build unavailable in this session")
+
+  lma0 <- 0.1978791
+  idx  <- 0L  # lma (FF16 field index 0)
+
+  # The codomain-3 census vector (LAI, above-ground biomass, basal area): one
+  # adaptive recording feeds three reverse sweeps through scm_jacobian.
+  r <- ff16_census_vector_gradient(idx, lma = lma0)
+  expect_length(r$values, 3L)
+  expect_true(all(r$values > 0))
+  expect_equal(dim(r$jacobian), c(3L, 1L))
+
+  # Reoptimising central difference of the entry's OWN values (each side re-refines
+  # the schedule) -- the adaptive-FD correctness reference. The reverse-AD column for
+  # lma matches it for every metric (schedule sensitivity is nil on the resolved grid).
+  d  <- lma0 * 1e-4
+  fd <- (ff16_census_vector_gradient(idx, lma = lma0 + d)$values -
+         ff16_census_vector_gradient(idx, lma = lma0 - d)$values) / (2 * d)
+  expect_equal(as.numeric(r$jacobian[, 1]), fd, tolerance = 1e-3)
+})

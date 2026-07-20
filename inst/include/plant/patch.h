@@ -50,6 +50,20 @@ public:
 
   value_type compute_competition(double height) const;
 
+  // Stand census of `psi` per unit patch area, summed over resident species (the
+  // per-ground-area intensive form, matching compute_competition's /area). psi is
+  // a per-individual quantity; Species::census does the mass-weighted reduction.
+  template <class Psi>
+  value_type census(Psi psi) const {
+    value_type tot = 0.0;
+    for (size_t i = 0; i < species.size(); ++i) {
+      if (!is_mutant_run) {
+        tot += species[i].census(psi) / area;
+      }
+    }
+    return tot;
+  }
+
   // * Lifetime fitness / offspring production
   // These are patch-level quantities: each integrates the per-node weighted
   // net reproduction over a species' node-introduction times.
