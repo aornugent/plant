@@ -153,10 +153,12 @@ public:
   //          [2] min(soil_psi_max - psi)  [3] runoff margin (layer 0)
   //          [4] psi_wettest (min psi)    [5] min cohort shutdown margin
   //          [6] min cohort feasible-interval width
-  //          [7] rmax-attaining member weight rho (2b safety join; NaN if the
+  //          [7] rmax-attaining member weight rho (norm-weight join; NaN if the
   //              step's rmax was attained by a reservoir, not a member)
-  //          [8] its fraction of the species' total weight (0=marginal/near
-  //              removal, ->1=dominant; NaN for a reservoir attainer)
+  //          [8] its fraction of the species' total weight (->0=low-relevance,
+  //              ->1=dominant; NaN for a reservoir attainer)
+  //          [9] its d(log density)/dt (<<0 => heading to the rho->0 boundary,
+  //              a survival bit; ~0 => stable-marginal; NaN for a reservoir)
   // sig:     [0] soil-clamp bitmask (theta <= theta_res per layer)
   //          [1] runoff active (0/1)      [2..7] branch-code counts (6)
   //          [8] n cohort solves this sweep
@@ -193,11 +195,11 @@ public:
       margins.push_back(min_shutdown);
       margins.push_back(min_interval);
 
-      // 2b safety join: map rmax_index to the attaining member and record its
+      // Norm-weight join: map rmax_index to the attaining member and record its
       // weight rho and its fraction of its species' total weight. NaN when the
       // attainer is a reservoir (index outside the cohort block) or invalid.
       const double NA = std::numeric_limits<double>::quiet_NaN();
-      double rmax_rho = NA, rmax_rho_frac = NA;
+      double rmax_rho = NA, rmax_rho_frac = NA, rmax_ldr = NA;
       const size_t slow = slow_size();
       if (rmax_index >= 0 && static_cast<size_t>(rmax_index) < slow) {
         size_t off = static_cast<size_t>(rmax_index);
@@ -208,14 +210,18 @@ public:
           const size_t per = block / n;                // ODE vars per node
           if (off < block) {
             const size_t node_idx = (per > 0) ? off / per : 0;
-            double d = 0.0, tot = 0.0; size_t k = 0;
+            double d = 0.0, tot = 0.0, ldr = NA; size_t k = 0;
             for (auto it = sp.node_begin(); it != sp.node_end(); ++it, ++k) {
               const double di = it->get_density();
               tot += di;
-              if (k == node_idx) d = di;
+              if (k == node_idx) { d = di; ldr = it->get_log_density_rate(); }
             }
             rmax_rho = d;
             rmax_rho_frac = (tot > 0.0) ? d / tot : NA;
+            rmax_ldr = ldr;   // d(log density)/dt: strongly negative => the
+                              // attaining member is heading fast to the rho->0
+                              // boundary (a survival bit -> keep full weight);
+                              // near 0 => stable-marginal (safe to down-weight)
             break;
           }
           off -= block;
@@ -223,6 +229,7 @@ public:
       }
       margins.push_back(rmax_rho);
       margins.push_back(rmax_rho_frac);
+      margins.push_back(rmax_ldr);
 
       for (int c : counts) {
         sig.push_back(c);
