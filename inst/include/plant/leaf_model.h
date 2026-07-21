@@ -13,6 +13,7 @@
 #include <plant/uniroot.h>
 #include <plant/optimize.h>
 #include <odelia/incomplete_gamma.hpp>
+#include <odelia/implicit_node.hpp>
 #include <odelia/ode_util.hpp>
 #include <cmath>
 #include <vector>
@@ -235,6 +236,25 @@ T soil_uptake(const std::vector<T>& psi_soil, T P_x_r, double area_leaf,
     E_up += E_i;
   }
   return E_up * kg_per_mol_h2o;
+}
+
+// The stomatal internal CO2 concentration ci, defined by the supply = demand
+// balance A(ci)*umol_to_mol = gc*(ca - ci)*inv_atm and solved off the tape by
+// Leaf::psi_stem_to_ci. Returned as an implicit_value node so its derivative
+// with respect to the active photosynthesis inputs (through A) and the active
+// stomatal supply gc (through psi_stem/collar and the hydraulic params) flows by
+// the implicit function theorem, without recording the root-find. The
+// denominator dg/dci = A'(ci)*umol_to_mol + gc*inv_atm is strictly positive (A
+// rises with ci, gc > 0), so this node is well-posed -- it is NOT the fold
+// (that is the collar optimum). gstar_Pa, km, curv, ca, atm_kpa are passive.
+template <class T>
+T ci_node(double ci_star, T vcmax, T et, double gstar_Pa, double km, T R_d,
+          double curv, T gc, double ca, double atm_kpa) {
+  const double inv_atm = 1.0 / (atm_kpa * kPa_to_Pa);
+  return odelia::implicit_value<T>(ci_star, [&](T ci) {
+    return assim_colimited(ci, vcmax, et, gstar_Pa, km, R_d, curv) * umol_to_mol -
+           gc * (ca - ci) * inv_atm;
+  });
 }
 
 }  // namespace leaf_output
