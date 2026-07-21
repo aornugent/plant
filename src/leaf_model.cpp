@@ -8,23 +8,6 @@
 
 namespace plant {
 
-namespace {
-// Templated replicas of the analytic profit algebra, so forward-mode AD gives
-// their exact derivatives (used by Leaf::dprofit_droot_collar_psi). They mirror
-// Leaf::assim_colimited and Leaf::hydraulic_cost_TF exactly.
-template <typename T>
-T assim_colimited_ad(T ci, double vcmax, double et, double gstar_Pa, double km,
-                     double R_d, double curv) {
-  T ar = vcmax * (ci - gstar_Pa) / (ci + km);
-  T ae = et / 4.0 * (ci - gstar_Pa) / (ci + 2.0 * gstar_Pa);
-  T s = ar + ae;
-  return (s - sqrt(s * s - 4.0 * curv * ar * ae)) / (2.0 * curv) - R_d;
-}
-template <typename T>
-T hydraulic_cost_ad(T psi_stem, double b, double c, double g1, double beta2) {
-  return g1 * pow(1.0 - exp(-pow(psi_stem / b, c)), beta2);
-}
-}  // namespace
 Leaf::Leaf()
     :
     vcmax_25(96), // umol m^-2 s^-1 
@@ -902,11 +885,11 @@ double Leaf::dprofit_droot_collar_psi(double opt_root_psi) {
   // A'(ci) and C'(psi_stem) via forward-mode AD of the analytic algebra.
   AD ci_ad = ci;            xad::derivative(ci_ad) = 1.0;
   const double A_prime = xad::derivative(
-      assim_colimited_ad(ci_ad, vcmax_, electron_transport_, gstar_Pa, km_,
-                         R_d_, curv_fact_colim));
+      leaf_output::assim_colimited<AD>(ci_ad, AD(vcmax_), AD(electron_transport_),
+                                       gstar_Pa, km_, AD(R_d_), curv_fact_colim));
   AD ps_ad = psi_stem;      xad::derivative(ps_ad) = 1.0;
   const double C_prime = xad::derivative(
-      hydraulic_cost_ad(ps_ad, b, c, g1_TF24, beta2));
+      leaf_output::hydraulic_cost_TF<AD>(ps_ad, AD(g1_TF24), AD(beta2), AD(b), AD(c)));
 
   // Stomatal-conductance supply coefficient gc and its partials. gc =
   // gc_const * transpiration(psi_stem, psi); transpiration is conductance_max *
