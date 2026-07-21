@@ -729,6 +729,16 @@ SCM:
       args: [times: "std::vector<std::vector<double>>"]
       return_type: void
       name_cpp: r_set_node_schedule_times
+    # WR contraction probe (diagnostic)
+    set_record_uptake:
+      args: [x: bool]
+      return_type: void
+    sweep_soil:
+      args: [a_times: "std::vector<double>", a_values: "std::vector<std::vector<double>>", sample_times: "std::vector<double>"]
+      return_type: "std::vector<std::vector<double>>"
+    overwrite_cached_soil:
+      args: [times: "std::vector<double>", soil: "std::vector<std::vector<double>>"]
+      return_type: void
   active:
     # Lifecycle / state
     time: {type: double, access: member}
@@ -753,6 +763,15 @@ SCM:
     refinement_error_by_node:
       type: "std::vector<std::vector<double>>"
       access: member
+    # WR contraction probe (diagnostic): recorded coupling aggregate a(t)
+    uptake_times:
+      type: "std::vector<double>"
+      access: member
+      name_cpp: r_uptake_times
+    uptake_values:
+      type: "std::vector<std::vector<double>>"
+      access: member
+      name_cpp: r_uptake_values
     # Node schedule
     node_schedule:
       type: "plant::NodeSchedule"

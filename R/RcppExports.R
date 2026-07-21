@@ -2541,6 +2541,18 @@ SCM___FF16__FF16_Env__set_node_schedule_times <- function(obj_, times) {
     invisible(.Call('_plant_SCM___FF16__FF16_Env__set_node_schedule_times', PACKAGE = 'plant', obj_, times))
 }
 
+SCM___FF16__FF16_Env__set_record_uptake <- function(obj_, x) {
+    invisible(.Call('_plant_SCM___FF16__FF16_Env__set_record_uptake', PACKAGE = 'plant', obj_, x))
+}
+
+SCM___FF16__FF16_Env__sweep_soil <- function(obj_, a_times, a_values, sample_times) {
+    .Call('_plant_SCM___FF16__FF16_Env__sweep_soil', PACKAGE = 'plant', obj_, a_times, a_values, sample_times)
+}
+
+SCM___FF16__FF16_Env__overwrite_cached_soil <- function(obj_, times, soil) {
+    invisible(.Call('_plant_SCM___FF16__FF16_Env__overwrite_cached_soil', PACKAGE = 'plant', obj_, times, soil))
+}
+
 SCM___FF16__FF16_Env__time__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__time__get', PACKAGE = 'plant', obj_)
 }
@@ -2571,6 +2583,14 @@ SCM___FF16__FF16_Env__net_reproduction_ratio_errors__get <- function(obj_) {
 
 SCM___FF16__FF16_Env__refinement_error_by_node__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__refinement_error_by_node__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___FF16__FF16_Env__uptake_times__get <- function(obj_) {
+    .Call('_plant_SCM___FF16__FF16_Env__uptake_times__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___FF16__FF16_Env__uptake_values__get <- function(obj_) {
+    .Call('_plant_SCM___FF16__FF16_Env__uptake_values__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___FF16__FF16_Env__node_schedule__get <- function(obj_) {
@@ -2633,6 +2653,18 @@ SCM___TF24__TF24_Env__set_node_schedule_times <- function(obj_, times) {
     invisible(.Call('_plant_SCM___TF24__TF24_Env__set_node_schedule_times', PACKAGE = 'plant', obj_, times))
 }
 
+SCM___TF24__TF24_Env__set_record_uptake <- function(obj_, x) {
+    invisible(.Call('_plant_SCM___TF24__TF24_Env__set_record_uptake', PACKAGE = 'plant', obj_, x))
+}
+
+SCM___TF24__TF24_Env__sweep_soil <- function(obj_, a_times, a_values, sample_times) {
+    .Call('_plant_SCM___TF24__TF24_Env__sweep_soil', PACKAGE = 'plant', obj_, a_times, a_values, sample_times)
+}
+
+SCM___TF24__TF24_Env__overwrite_cached_soil <- function(obj_, times, soil) {
+    invisible(.Call('_plant_SCM___TF24__TF24_Env__overwrite_cached_soil', PACKAGE = 'plant', obj_, times, soil))
+}
+
 SCM___TF24__TF24_Env__time__get <- function(obj_) {
     .Call('_plant_SCM___TF24__TF24_Env__time__get', PACKAGE = 'plant', obj_)
 }
@@ -2663,6 +2695,14 @@ SCM___TF24__TF24_Env__net_reproduction_ratio_errors__get <- function(obj_) {
 
 SCM___TF24__TF24_Env__refinement_error_by_node__get <- function(obj_) {
     .Call('_plant_SCM___TF24__TF24_Env__refinement_error_by_node__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___TF24__TF24_Env__uptake_times__get <- function(obj_) {
+    .Call('_plant_SCM___TF24__TF24_Env__uptake_times__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___TF24__TF24_Env__uptake_values__get <- function(obj_) {
+    .Call('_plant_SCM___TF24__TF24_Env__uptake_values__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___TF24__TF24_Env__node_schedule__get <- function(obj_) {
@@ -2725,6 +2765,18 @@ SCM___TF24f__TF24_Env__set_node_schedule_times <- function(obj_, times) {
     invisible(.Call('_plant_SCM___TF24f__TF24_Env__set_node_schedule_times', PACKAGE = 'plant', obj_, times))
 }
 
+SCM___TF24f__TF24_Env__set_record_uptake <- function(obj_, x) {
+    invisible(.Call('_plant_SCM___TF24f__TF24_Env__set_record_uptake', PACKAGE = 'plant', obj_, x))
+}
+
+SCM___TF24f__TF24_Env__sweep_soil <- function(obj_, a_times, a_values, sample_times) {
+    .Call('_plant_SCM___TF24f__TF24_Env__sweep_soil', PACKAGE = 'plant', obj_, a_times, a_values, sample_times)
+}
+
+SCM___TF24f__TF24_Env__overwrite_cached_soil <- function(obj_, times, soil) {
+    invisible(.Call('_plant_SCM___TF24f__TF24_Env__overwrite_cached_soil', PACKAGE = 'plant', obj_, times, soil))
+}
+
 SCM___TF24f__TF24_Env__time__get <- function(obj_) {
     .Call('_plant_SCM___TF24f__TF24_Env__time__get', PACKAGE = 'plant', obj_)
 }
@@ -2755,6 +2807,14 @@ SCM___TF24f__TF24_Env__net_reproduction_ratio_errors__get <- function(obj_) {
 
 SCM___TF24f__TF24_Env__refinement_error_by_node__get <- function(obj_) {
     .Call('_plant_SCM___TF24f__TF24_Env__refinement_error_by_node__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___TF24f__TF24_Env__uptake_times__get <- function(obj_) {
+    .Call('_plant_SCM___TF24f__TF24_Env__uptake_times__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___TF24f__TF24_Env__uptake_values__get <- function(obj_) {
+    .Call('_plant_SCM___TF24f__TF24_Env__uptake_values__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___TF24f__TF24_Env__node_schedule__get <- function(obj_) {
@@ -2817,6 +2877,18 @@ SCM___K93__K93_Env__set_node_schedule_times <- function(obj_, times) {
     invisible(.Call('_plant_SCM___K93__K93_Env__set_node_schedule_times', PACKAGE = 'plant', obj_, times))
 }
 
+SCM___K93__K93_Env__set_record_uptake <- function(obj_, x) {
+    invisible(.Call('_plant_SCM___K93__K93_Env__set_record_uptake', PACKAGE = 'plant', obj_, x))
+}
+
+SCM___K93__K93_Env__sweep_soil <- function(obj_, a_times, a_values, sample_times) {
+    .Call('_plant_SCM___K93__K93_Env__sweep_soil', PACKAGE = 'plant', obj_, a_times, a_values, sample_times)
+}
+
+SCM___K93__K93_Env__overwrite_cached_soil <- function(obj_, times, soil) {
+    invisible(.Call('_plant_SCM___K93__K93_Env__overwrite_cached_soil', PACKAGE = 'plant', obj_, times, soil))
+}
+
 SCM___K93__K93_Env__time__get <- function(obj_) {
     .Call('_plant_SCM___K93__K93_Env__time__get', PACKAGE = 'plant', obj_)
 }
@@ -2847,6 +2919,14 @@ SCM___K93__K93_Env__net_reproduction_ratio_errors__get <- function(obj_) {
 
 SCM___K93__K93_Env__refinement_error_by_node__get <- function(obj_) {
     .Call('_plant_SCM___K93__K93_Env__refinement_error_by_node__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___K93__K93_Env__uptake_times__get <- function(obj_) {
+    .Call('_plant_SCM___K93__K93_Env__uptake_times__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___K93__K93_Env__uptake_values__get <- function(obj_) {
+    .Call('_plant_SCM___K93__K93_Env__uptake_values__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___K93__K93_Env__node_schedule__get <- function(obj_) {

@@ -411,9 +411,25 @@ public:
   std::vector<std::vector<EnvStepRecord>> environment_history;
   std::vector<EnvStepRecord> environment_cache;
 
+  // WR contraction probe (diagnostic, off by default). When set, compute_rates
+  // records the coupling aggregate a = assemble_resource_depletion() per RHS
+  // eval; the caller dedups to accepted steps via step_history. Works on both
+  // the resident and the pinned mutant replay (both call compute_rates).
+  bool record_uptake = false;
+  std::vector<double> uptake_times;
+  std::vector<std::vector<double>> uptake_values;
+
   void cache_ode_step();
   void cache_RK45_step(int step);
   void load_ode_step();
+
+  // WR contraction probe (diagnostic; see definitions below).
+  void overwrite_cached_soil(const std::vector<double>& times,
+                             const std::vector<std::vector<double>>& soil);
+  std::vector<std::vector<double>> sweep_soil(
+      const std::vector<double>& a_times,
+      const std::vector<std::vector<double>>& a_values,
+      const std::vector<double>& sample_times) const;
   
   // used cache_ode_step for mutant runs
   bool save_RK45_cache;
@@ -519,6 +535,8 @@ void Patch<T,E>::set_mutant() {
 
 template <typename T, typename E>
 void Patch<T,E>::reset() {
+   uptake_times.clear();
+   uptake_values.clear();
    for (auto& s : species) {
     s.clear();
     // allocate variables for tracking resource consumption
@@ -844,7 +862,12 @@ void Patch<T,E>::compute_rates() {
   //  -- for the resident it points to the internal environment object
   //  -- for a mutant it points to a cached environment object
   compute_species_rates();
-  environment_ptr->compute_rates(assemble_resource_depletion());
+  std::vector<double> depletion = assemble_resource_depletion();
+  environment_ptr->compute_rates(depletion);
+  if (record_uptake) {
+    uptake_times.push_back(environment_ptr->time);
+    uptake_values.push_back(depletion);
+  }
 }
 
 // The per-species rate evaluation (growth, mortality, fecundity, and the
@@ -1029,6 +1052,92 @@ void Patch<T,E>::cache_RK45_step(int step) {
     environment.ode_state(rec.state.begin());
     environment_cache.push_back(std::move(rec));
   }
+}
+
+// Linear interpolation of a per-component time series (rows = times, one vector
+// per time) at time t, held flat outside the range. Shared by the WR probe.
+namespace detail {
+inline std::vector<double> interp_rows(const std::vector<double>& ts,
+                                       const std::vector<std::vector<double>>& vs,
+                                       double t) {
+  const size_t n = ts.size();
+  if (n == 0) return {};
+  if (t <= ts.front()) return vs.front();
+  if (t >= ts.back())  return vs.back();
+  size_t hi = static_cast<size_t>(
+      std::upper_bound(ts.begin(), ts.end(), t) - ts.begin());
+  const size_t lo = hi - 1;
+  const double w = (t - ts[lo]) / (ts[hi] - ts[lo]);
+  std::vector<double> out(vs[lo].size());
+  for (size_t k = 0; k < out.size(); ++k) {
+    out[k] = vs[lo][k] + w * (vs[hi][k] - vs[lo][k]);
+  }
+  return out;
+}
+}  // namespace detail
+
+// WR contraction probe, member step: overwrite the soil (environment ODE state)
+// of every cached replay record with a prescribed trajectory, keeping the
+// recorded light field. A subsequent run_mutant then advances members against
+// (swept soil, resident light); their recorded uptake is the swept aggregate.
+template <typename T, typename E>
+void Patch<T,E>::overwrite_cached_soil(const std::vector<double>& times,
+                                       const std::vector<std::vector<double>>& soil) {
+  for (auto& step : environment_history) {
+    for (auto& rec : step) {
+      rec.state = detail::interp_rows(times, soil, rec.time);
+    }
+  }
+}
+
+// WR contraction probe, soil step: integrate the environment block alone from
+// the first cached soil state, with the coupling aggregate a(t) prescribed
+// (interpolated from a_times/a_values) rather than computed from cohorts.
+// Fixed-step RK4 (the system is accuracy- not stability-limited, so a fixed
+// grid at the resident's own step scale is stable); samples the soil state at
+// sample_times. Returns one soil vector per sample time.
+template <typename T, typename E>
+std::vector<std::vector<double>> Patch<T,E>::sweep_soil(
+    const std::vector<double>& a_times,
+    const std::vector<std::vector<double>>& a_values,
+    const std::vector<double>& sample_times) const {
+  environment_type env = environment;  // config; state overwritten below
+  std::vector<double> y = environment_history.front().front().state;
+  double t = environment_history.front().front().time;
+
+  auto deriv = [&](double tt, const std::vector<double>& yy) {
+    std::vector<double> dy(yy.size());
+    env.set_ode_state(yy.begin());
+    env.time = tt;
+    env.compute_rates(detail::interp_rows(a_times, a_values, tt));
+    env.ode_rates(dy.begin());
+    return dy;
+  };
+  auto rk4 = [&](double tt, double h, std::vector<double>& yy) {
+    const size_t m = yy.size();
+    std::vector<double> k1 = deriv(tt, yy), tmp(m);
+    for (size_t i = 0; i < m; ++i) tmp[i] = yy[i] + 0.5 * h * k1[i];
+    std::vector<double> k2 = deriv(tt + 0.5 * h, tmp);
+    for (size_t i = 0; i < m; ++i) tmp[i] = yy[i] + 0.5 * h * k2[i];
+    std::vector<double> k3 = deriv(tt + 0.5 * h, tmp);
+    for (size_t i = 0; i < m; ++i) tmp[i] = yy[i] + h * k3[i];
+    std::vector<double> k4 = deriv(tt + h, tmp);
+    for (size_t i = 0; i < m; ++i)
+      yy[i] += (h / 6.0) * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
+  };
+
+  const int substeps = 8;  // per sample interval
+  std::vector<std::vector<double>> out;
+  out.reserve(sample_times.size());
+  for (double ts : sample_times) {
+    if (ts > t) {
+      const double H = (ts - t) / substeps;
+      for (int s = 0; s < substeps; ++s) { rk4(t, H, y); t += H; }
+      t = ts;  // clamp against accumulated rounding
+    }
+    out.push_back(y);
+  }
+  return out;
 }
 
 // called from ode_solver->load, only gets called for mutant runs

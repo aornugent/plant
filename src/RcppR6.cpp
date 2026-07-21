@@ -2872,6 +2872,18 @@ void SCM___FF16__FF16_Env__set_node_schedule_times(plant::RcppR6::RcppR6<plant::
   obj_->r_set_node_schedule_times(times);
 }
 // [[Rcpp::export]]
+void SCM___FF16__FF16_Env__set_record_uptake(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_, bool x) {
+  obj_->set_record_uptake(x);
+}
+// [[Rcpp::export]]
+std::vector<std::vector<double>> SCM___FF16__FF16_Env__sweep_soil(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<double> a_times, std::vector<std::vector<double>> a_values, std::vector<double> sample_times) {
+  return obj_->sweep_soil(a_times, a_values, sample_times);
+}
+// [[Rcpp::export]]
+void SCM___FF16__FF16_Env__overwrite_cached_soil(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<double> times, std::vector<std::vector<double>> soil) {
+  obj_->overwrite_cached_soil(times, soil);
+}
+// [[Rcpp::export]]
 double SCM___FF16__FF16_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   return obj_->time();
 }
@@ -2909,6 +2921,16 @@ std::vector<std::vector<double>> SCM___FF16__FF16_Env__net_reproduction_ratio_er
 // [[Rcpp::export]]
 std::vector<std::vector<double>> SCM___FF16__FF16_Env__refinement_error_by_node__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   return obj_->refinement_error_by_node();
+}
+
+// [[Rcpp::export]]
+std::vector<double> SCM___FF16__FF16_Env__uptake_times__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->r_uptake_times();
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<double>> SCM___FF16__FF16_Env__uptake_values__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->r_uptake_values();
 }
 
 // [[Rcpp::export]]
@@ -2977,6 +2999,18 @@ void SCM___TF24__TF24_Env__set_node_schedule_times(plant::RcppR6::RcppR6<plant::
   obj_->r_set_node_schedule_times(times);
 }
 // [[Rcpp::export]]
+void SCM___TF24__TF24_Env__set_record_uptake(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_, bool x) {
+  obj_->set_record_uptake(x);
+}
+// [[Rcpp::export]]
+std::vector<std::vector<double>> SCM___TF24__TF24_Env__sweep_soil(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<double> a_times, std::vector<std::vector<double>> a_values, std::vector<double> sample_times) {
+  return obj_->sweep_soil(a_times, a_values, sample_times);
+}
+// [[Rcpp::export]]
+void SCM___TF24__TF24_Env__overwrite_cached_soil(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<double> times, std::vector<std::vector<double>> soil) {
+  obj_->overwrite_cached_soil(times, soil);
+}
+// [[Rcpp::export]]
 double SCM___TF24__TF24_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
   return obj_->time();
 }
@@ -3014,6 +3048,16 @@ std::vector<std::vector<double>> SCM___TF24__TF24_Env__net_reproduction_ratio_er
 // [[Rcpp::export]]
 std::vector<std::vector<double>> SCM___TF24__TF24_Env__refinement_error_by_node__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
   return obj_->refinement_error_by_node();
+}
+
+// [[Rcpp::export]]
+std::vector<double> SCM___TF24__TF24_Env__uptake_times__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->r_uptake_times();
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<double>> SCM___TF24__TF24_Env__uptake_values__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->r_uptake_values();
 }
 
 // [[Rcpp::export]]
@@ -3082,6 +3126,18 @@ void SCM___TF24f__TF24_Env__set_node_schedule_times(plant::RcppR6::RcppR6<plant:
   obj_->r_set_node_schedule_times(times);
 }
 // [[Rcpp::export]]
+void SCM___TF24f__TF24_Env__set_record_uptake(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, bool x) {
+  obj_->set_record_uptake(x);
+}
+// [[Rcpp::export]]
+std::vector<std::vector<double>> SCM___TF24f__TF24_Env__sweep_soil(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<double> a_times, std::vector<std::vector<double>> a_values, std::vector<double> sample_times) {
+  return obj_->sweep_soil(a_times, a_values, sample_times);
+}
+// [[Rcpp::export]]
+void SCM___TF24f__TF24_Env__overwrite_cached_soil(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<double> times, std::vector<std::vector<double>> soil) {
+  obj_->overwrite_cached_soil(times, soil);
+}
+// [[Rcpp::export]]
 double SCM___TF24f__TF24_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
   return obj_->time();
 }
@@ -3119,6 +3175,16 @@ std::vector<std::vector<double>> SCM___TF24f__TF24_Env__net_reproduction_ratio_e
 // [[Rcpp::export]]
 std::vector<std::vector<double>> SCM___TF24f__TF24_Env__refinement_error_by_node__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
   return obj_->refinement_error_by_node();
+}
+
+// [[Rcpp::export]]
+std::vector<double> SCM___TF24f__TF24_Env__uptake_times__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->r_uptake_times();
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<double>> SCM___TF24f__TF24_Env__uptake_values__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->r_uptake_values();
 }
 
 // [[Rcpp::export]]
@@ -3187,6 +3253,18 @@ void SCM___K93__K93_Env__set_node_schedule_times(plant::RcppR6::RcppR6<plant::SC
   obj_->r_set_node_schedule_times(times);
 }
 // [[Rcpp::export]]
+void SCM___K93__K93_Env__set_record_uptake(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_, bool x) {
+  obj_->set_record_uptake(x);
+}
+// [[Rcpp::export]]
+std::vector<std::vector<double>> SCM___K93__K93_Env__sweep_soil(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<double> a_times, std::vector<std::vector<double>> a_values, std::vector<double> sample_times) {
+  return obj_->sweep_soil(a_times, a_values, sample_times);
+}
+// [[Rcpp::export]]
+void SCM___K93__K93_Env__overwrite_cached_soil(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<double> times, std::vector<std::vector<double>> soil) {
+  obj_->overwrite_cached_soil(times, soil);
+}
+// [[Rcpp::export]]
 double SCM___K93__K93_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
   return obj_->time();
 }
@@ -3224,6 +3302,16 @@ std::vector<std::vector<double>> SCM___K93__K93_Env__net_reproduction_ratio_erro
 // [[Rcpp::export]]
 std::vector<std::vector<double>> SCM___K93__K93_Env__refinement_error_by_node__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
   return obj_->refinement_error_by_node();
+}
+
+// [[Rcpp::export]]
+std::vector<double> SCM___K93__K93_Env__uptake_times__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->r_uptake_times();
+}
+
+// [[Rcpp::export]]
+std::vector<std::vector<double>> SCM___K93__K93_Env__uptake_values__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->r_uptake_values();
 }
 
 // [[Rcpp::export]]

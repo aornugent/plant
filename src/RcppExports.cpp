@@ -7189,6 +7189,43 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// SCM___FF16__FF16_Env__set_record_uptake
+void SCM___FF16__FF16_Env__set_record_uptake(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_, bool x);
+RcppExport SEXP _plant_SCM___FF16__FF16_Env__set_record_uptake(SEXP obj_SEXP, SEXP xSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< bool >::type x(xSEXP);
+    SCM___FF16__FF16_Env__set_record_uptake(obj_, x);
+    return R_NilValue;
+END_RCPP
+}
+// SCM___FF16__FF16_Env__sweep_soil
+std::vector<std::vector<double>> SCM___FF16__FF16_Env__sweep_soil(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<double> a_times, std::vector<std::vector<double>> a_values, std::vector<double> sample_times);
+RcppExport SEXP _plant_SCM___FF16__FF16_Env__sweep_soil(SEXP obj_SEXP, SEXP a_timesSEXP, SEXP a_valuesSEXP, SEXP sample_timesSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type a_times(a_timesSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<double>> >::type a_values(a_valuesSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sample_times(sample_timesSEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___FF16__FF16_Env__sweep_soil(obj_, a_times, a_values, sample_times));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___FF16__FF16_Env__overwrite_cached_soil
+void SCM___FF16__FF16_Env__overwrite_cached_soil(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<double> times, std::vector<std::vector<double>> soil);
+RcppExport SEXP _plant_SCM___FF16__FF16_Env__overwrite_cached_soil(SEXP obj_SEXP, SEXP timesSEXP, SEXP soilSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type times(timesSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<double>> >::type soil(soilSEXP);
+    SCM___FF16__FF16_Env__overwrite_cached_soil(obj_, times, soil);
+    return R_NilValue;
+END_RCPP
+}
 // SCM___FF16__FF16_Env__time__get
 double SCM___FF16__FF16_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_);
 RcppExport SEXP _plant_SCM___FF16__FF16_Env__time__get(SEXP obj_SEXP) {
@@ -7274,6 +7311,28 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
     rcpp_result_gen = Rcpp::wrap(SCM___FF16__FF16_Env__refinement_error_by_node__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___FF16__FF16_Env__uptake_times__get
+std::vector<double> SCM___FF16__FF16_Env__uptake_times__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_);
+RcppExport SEXP _plant_SCM___FF16__FF16_Env__uptake_times__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___FF16__FF16_Env__uptake_times__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___FF16__FF16_Env__uptake_values__get
+std::vector<std::vector<double>> SCM___FF16__FF16_Env__uptake_values__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_);
+RcppExport SEXP _plant_SCM___FF16__FF16_Env__uptake_values__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___FF16__FF16_Env__uptake_values__get(obj_));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -7443,6 +7502,43 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// SCM___TF24__TF24_Env__set_record_uptake
+void SCM___TF24__TF24_Env__set_record_uptake(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_, bool x);
+RcppExport SEXP _plant_SCM___TF24__TF24_Env__set_record_uptake(SEXP obj_SEXP, SEXP xSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< bool >::type x(xSEXP);
+    SCM___TF24__TF24_Env__set_record_uptake(obj_, x);
+    return R_NilValue;
+END_RCPP
+}
+// SCM___TF24__TF24_Env__sweep_soil
+std::vector<std::vector<double>> SCM___TF24__TF24_Env__sweep_soil(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<double> a_times, std::vector<std::vector<double>> a_values, std::vector<double> sample_times);
+RcppExport SEXP _plant_SCM___TF24__TF24_Env__sweep_soil(SEXP obj_SEXP, SEXP a_timesSEXP, SEXP a_valuesSEXP, SEXP sample_timesSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type a_times(a_timesSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<double>> >::type a_values(a_valuesSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sample_times(sample_timesSEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___TF24__TF24_Env__sweep_soil(obj_, a_times, a_values, sample_times));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___TF24__TF24_Env__overwrite_cached_soil
+void SCM___TF24__TF24_Env__overwrite_cached_soil(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<double> times, std::vector<std::vector<double>> soil);
+RcppExport SEXP _plant_SCM___TF24__TF24_Env__overwrite_cached_soil(SEXP obj_SEXP, SEXP timesSEXP, SEXP soilSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type times(timesSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<double>> >::type soil(soilSEXP);
+    SCM___TF24__TF24_Env__overwrite_cached_soil(obj_, times, soil);
+    return R_NilValue;
+END_RCPP
+}
 // SCM___TF24__TF24_Env__time__get
 double SCM___TF24__TF24_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_);
 RcppExport SEXP _plant_SCM___TF24__TF24_Env__time__get(SEXP obj_SEXP) {
@@ -7528,6 +7624,28 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
     rcpp_result_gen = Rcpp::wrap(SCM___TF24__TF24_Env__refinement_error_by_node__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___TF24__TF24_Env__uptake_times__get
+std::vector<double> SCM___TF24__TF24_Env__uptake_times__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_SCM___TF24__TF24_Env__uptake_times__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___TF24__TF24_Env__uptake_times__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___TF24__TF24_Env__uptake_values__get
+std::vector<std::vector<double>> SCM___TF24__TF24_Env__uptake_values__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_SCM___TF24__TF24_Env__uptake_values__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___TF24__TF24_Env__uptake_values__get(obj_));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -7697,6 +7815,43 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// SCM___TF24f__TF24_Env__set_record_uptake
+void SCM___TF24f__TF24_Env__set_record_uptake(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, bool x);
+RcppExport SEXP _plant_SCM___TF24f__TF24_Env__set_record_uptake(SEXP obj_SEXP, SEXP xSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< bool >::type x(xSEXP);
+    SCM___TF24f__TF24_Env__set_record_uptake(obj_, x);
+    return R_NilValue;
+END_RCPP
+}
+// SCM___TF24f__TF24_Env__sweep_soil
+std::vector<std::vector<double>> SCM___TF24f__TF24_Env__sweep_soil(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<double> a_times, std::vector<std::vector<double>> a_values, std::vector<double> sample_times);
+RcppExport SEXP _plant_SCM___TF24f__TF24_Env__sweep_soil(SEXP obj_SEXP, SEXP a_timesSEXP, SEXP a_valuesSEXP, SEXP sample_timesSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type a_times(a_timesSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<double>> >::type a_values(a_valuesSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sample_times(sample_timesSEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___TF24f__TF24_Env__sweep_soil(obj_, a_times, a_values, sample_times));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___TF24f__TF24_Env__overwrite_cached_soil
+void SCM___TF24f__TF24_Env__overwrite_cached_soil(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<double> times, std::vector<std::vector<double>> soil);
+RcppExport SEXP _plant_SCM___TF24f__TF24_Env__overwrite_cached_soil(SEXP obj_SEXP, SEXP timesSEXP, SEXP soilSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type times(timesSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<double>> >::type soil(soilSEXP);
+    SCM___TF24f__TF24_Env__overwrite_cached_soil(obj_, times, soil);
+    return R_NilValue;
+END_RCPP
+}
 // SCM___TF24f__TF24_Env__time__get
 double SCM___TF24f__TF24_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_);
 RcppExport SEXP _plant_SCM___TF24f__TF24_Env__time__get(SEXP obj_SEXP) {
@@ -7782,6 +7937,28 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
     rcpp_result_gen = Rcpp::wrap(SCM___TF24f__TF24_Env__refinement_error_by_node__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___TF24f__TF24_Env__uptake_times__get
+std::vector<double> SCM___TF24f__TF24_Env__uptake_times__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_SCM___TF24f__TF24_Env__uptake_times__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___TF24f__TF24_Env__uptake_times__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___TF24f__TF24_Env__uptake_values__get
+std::vector<std::vector<double>> SCM___TF24f__TF24_Env__uptake_values__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > obj_);
+RcppExport SEXP _plant_SCM___TF24f__TF24_Env__uptake_values__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___TF24f__TF24_Env__uptake_values__get(obj_));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -7951,6 +8128,43 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// SCM___K93__K93_Env__set_record_uptake
+void SCM___K93__K93_Env__set_record_uptake(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_, bool x);
+RcppExport SEXP _plant_SCM___K93__K93_Env__set_record_uptake(SEXP obj_SEXP, SEXP xSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< bool >::type x(xSEXP);
+    SCM___K93__K93_Env__set_record_uptake(obj_, x);
+    return R_NilValue;
+END_RCPP
+}
+// SCM___K93__K93_Env__sweep_soil
+std::vector<std::vector<double>> SCM___K93__K93_Env__sweep_soil(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<double> a_times, std::vector<std::vector<double>> a_values, std::vector<double> sample_times);
+RcppExport SEXP _plant_SCM___K93__K93_Env__sweep_soil(SEXP obj_SEXP, SEXP a_timesSEXP, SEXP a_valuesSEXP, SEXP sample_timesSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type a_times(a_timesSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<double>> >::type a_values(a_valuesSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sample_times(sample_timesSEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___K93__K93_Env__sweep_soil(obj_, a_times, a_values, sample_times));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___K93__K93_Env__overwrite_cached_soil
+void SCM___K93__K93_Env__overwrite_cached_soil(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<double> times, std::vector<std::vector<double>> soil);
+RcppExport SEXP _plant_SCM___K93__K93_Env__overwrite_cached_soil(SEXP obj_SEXP, SEXP timesSEXP, SEXP soilSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type times(timesSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::vector<double>> >::type soil(soilSEXP);
+    SCM___K93__K93_Env__overwrite_cached_soil(obj_, times, soil);
+    return R_NilValue;
+END_RCPP
+}
 // SCM___K93__K93_Env__time__get
 double SCM___K93__K93_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_);
 RcppExport SEXP _plant_SCM___K93__K93_Env__time__get(SEXP obj_SEXP) {
@@ -8036,6 +8250,28 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
     rcpp_result_gen = Rcpp::wrap(SCM___K93__K93_Env__refinement_error_by_node__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___K93__K93_Env__uptake_times__get
+std::vector<double> SCM___K93__K93_Env__uptake_times__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_);
+RcppExport SEXP _plant_SCM___K93__K93_Env__uptake_times__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___K93__K93_Env__uptake_times__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// SCM___K93__K93_Env__uptake_values__get
+std::vector<std::vector<double>> SCM___K93__K93_Env__uptake_values__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_);
+RcppExport SEXP _plant_SCM___K93__K93_Env__uptake_values__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(SCM___K93__K93_Env__uptake_values__get(obj_));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -12743,6 +12979,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_SCM___FF16__FF16_Env__net_reproduction_ratio_for_species", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__net_reproduction_ratio_for_species, 2},
     {"_plant_SCM___FF16__FF16_Env__compute_competition_effect_error_by_node_for_species_i", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__compute_competition_effect_error_by_node_for_species_i, 2},
     {"_plant_SCM___FF16__FF16_Env__set_node_schedule_times", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__set_node_schedule_times, 2},
+    {"_plant_SCM___FF16__FF16_Env__set_record_uptake", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__set_record_uptake, 2},
+    {"_plant_SCM___FF16__FF16_Env__sweep_soil", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__sweep_soil, 4},
+    {"_plant_SCM___FF16__FF16_Env__overwrite_cached_soil", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__overwrite_cached_soil, 3},
     {"_plant_SCM___FF16__FF16_Env__time__get", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__time__get, 1},
     {"_plant_SCM___FF16__FF16_Env__net_reproduction_ratios__get", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__net_reproduction_ratios__get, 1},
     {"_plant_SCM___FF16__FF16_Env__offspring_production__get", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__offspring_production__get, 1},
@@ -12751,6 +12990,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_SCM___FF16__FF16_Env__history__get", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__history__get, 1},
     {"_plant_SCM___FF16__FF16_Env__net_reproduction_ratio_errors__get", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__net_reproduction_ratio_errors__get, 1},
     {"_plant_SCM___FF16__FF16_Env__refinement_error_by_node__get", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__refinement_error_by_node__get, 1},
+    {"_plant_SCM___FF16__FF16_Env__uptake_times__get", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__uptake_times__get, 1},
+    {"_plant_SCM___FF16__FF16_Env__uptake_values__get", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__uptake_values__get, 1},
     {"_plant_SCM___FF16__FF16_Env__node_schedule__get", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__node_schedule__get, 1},
     {"_plant_SCM___FF16__FF16_Env__node_schedule__set", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__node_schedule__set, 2},
     {"_plant_SCM___FF16__FF16_Env__ode_times__get", (DL_FUNC) &_plant_SCM___FF16__FF16_Env__ode_times__get, 1},
@@ -12766,6 +13007,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_SCM___TF24__TF24_Env__net_reproduction_ratio_for_species", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__net_reproduction_ratio_for_species, 2},
     {"_plant_SCM___TF24__TF24_Env__compute_competition_effect_error_by_node_for_species_i", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__compute_competition_effect_error_by_node_for_species_i, 2},
     {"_plant_SCM___TF24__TF24_Env__set_node_schedule_times", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__set_node_schedule_times, 2},
+    {"_plant_SCM___TF24__TF24_Env__set_record_uptake", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__set_record_uptake, 2},
+    {"_plant_SCM___TF24__TF24_Env__sweep_soil", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__sweep_soil, 4},
+    {"_plant_SCM___TF24__TF24_Env__overwrite_cached_soil", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__overwrite_cached_soil, 3},
     {"_plant_SCM___TF24__TF24_Env__time__get", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__time__get, 1},
     {"_plant_SCM___TF24__TF24_Env__net_reproduction_ratios__get", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__net_reproduction_ratios__get, 1},
     {"_plant_SCM___TF24__TF24_Env__offspring_production__get", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__offspring_production__get, 1},
@@ -12774,6 +13018,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_SCM___TF24__TF24_Env__history__get", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__history__get, 1},
     {"_plant_SCM___TF24__TF24_Env__net_reproduction_ratio_errors__get", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__net_reproduction_ratio_errors__get, 1},
     {"_plant_SCM___TF24__TF24_Env__refinement_error_by_node__get", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__refinement_error_by_node__get, 1},
+    {"_plant_SCM___TF24__TF24_Env__uptake_times__get", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__uptake_times__get, 1},
+    {"_plant_SCM___TF24__TF24_Env__uptake_values__get", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__uptake_values__get, 1},
     {"_plant_SCM___TF24__TF24_Env__node_schedule__get", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__node_schedule__get, 1},
     {"_plant_SCM___TF24__TF24_Env__node_schedule__set", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__node_schedule__set, 2},
     {"_plant_SCM___TF24__TF24_Env__ode_times__get", (DL_FUNC) &_plant_SCM___TF24__TF24_Env__ode_times__get, 1},
@@ -12789,6 +13035,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_SCM___TF24f__TF24_Env__net_reproduction_ratio_for_species", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__net_reproduction_ratio_for_species, 2},
     {"_plant_SCM___TF24f__TF24_Env__compute_competition_effect_error_by_node_for_species_i", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__compute_competition_effect_error_by_node_for_species_i, 2},
     {"_plant_SCM___TF24f__TF24_Env__set_node_schedule_times", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__set_node_schedule_times, 2},
+    {"_plant_SCM___TF24f__TF24_Env__set_record_uptake", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__set_record_uptake, 2},
+    {"_plant_SCM___TF24f__TF24_Env__sweep_soil", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__sweep_soil, 4},
+    {"_plant_SCM___TF24f__TF24_Env__overwrite_cached_soil", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__overwrite_cached_soil, 3},
     {"_plant_SCM___TF24f__TF24_Env__time__get", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__time__get, 1},
     {"_plant_SCM___TF24f__TF24_Env__net_reproduction_ratios__get", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__net_reproduction_ratios__get, 1},
     {"_plant_SCM___TF24f__TF24_Env__offspring_production__get", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__offspring_production__get, 1},
@@ -12797,6 +13046,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_SCM___TF24f__TF24_Env__history__get", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__history__get, 1},
     {"_plant_SCM___TF24f__TF24_Env__net_reproduction_ratio_errors__get", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__net_reproduction_ratio_errors__get, 1},
     {"_plant_SCM___TF24f__TF24_Env__refinement_error_by_node__get", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__refinement_error_by_node__get, 1},
+    {"_plant_SCM___TF24f__TF24_Env__uptake_times__get", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__uptake_times__get, 1},
+    {"_plant_SCM___TF24f__TF24_Env__uptake_values__get", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__uptake_values__get, 1},
     {"_plant_SCM___TF24f__TF24_Env__node_schedule__get", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__node_schedule__get, 1},
     {"_plant_SCM___TF24f__TF24_Env__node_schedule__set", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__node_schedule__set, 2},
     {"_plant_SCM___TF24f__TF24_Env__ode_times__get", (DL_FUNC) &_plant_SCM___TF24f__TF24_Env__ode_times__get, 1},
@@ -12812,6 +13063,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_SCM___K93__K93_Env__net_reproduction_ratio_for_species", (DL_FUNC) &_plant_SCM___K93__K93_Env__net_reproduction_ratio_for_species, 2},
     {"_plant_SCM___K93__K93_Env__compute_competition_effect_error_by_node_for_species_i", (DL_FUNC) &_plant_SCM___K93__K93_Env__compute_competition_effect_error_by_node_for_species_i, 2},
     {"_plant_SCM___K93__K93_Env__set_node_schedule_times", (DL_FUNC) &_plant_SCM___K93__K93_Env__set_node_schedule_times, 2},
+    {"_plant_SCM___K93__K93_Env__set_record_uptake", (DL_FUNC) &_plant_SCM___K93__K93_Env__set_record_uptake, 2},
+    {"_plant_SCM___K93__K93_Env__sweep_soil", (DL_FUNC) &_plant_SCM___K93__K93_Env__sweep_soil, 4},
+    {"_plant_SCM___K93__K93_Env__overwrite_cached_soil", (DL_FUNC) &_plant_SCM___K93__K93_Env__overwrite_cached_soil, 3},
     {"_plant_SCM___K93__K93_Env__time__get", (DL_FUNC) &_plant_SCM___K93__K93_Env__time__get, 1},
     {"_plant_SCM___K93__K93_Env__net_reproduction_ratios__get", (DL_FUNC) &_plant_SCM___K93__K93_Env__net_reproduction_ratios__get, 1},
     {"_plant_SCM___K93__K93_Env__offspring_production__get", (DL_FUNC) &_plant_SCM___K93__K93_Env__offspring_production__get, 1},
@@ -12820,6 +13074,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_SCM___K93__K93_Env__history__get", (DL_FUNC) &_plant_SCM___K93__K93_Env__history__get, 1},
     {"_plant_SCM___K93__K93_Env__net_reproduction_ratio_errors__get", (DL_FUNC) &_plant_SCM___K93__K93_Env__net_reproduction_ratio_errors__get, 1},
     {"_plant_SCM___K93__K93_Env__refinement_error_by_node__get", (DL_FUNC) &_plant_SCM___K93__K93_Env__refinement_error_by_node__get, 1},
+    {"_plant_SCM___K93__K93_Env__uptake_times__get", (DL_FUNC) &_plant_SCM___K93__K93_Env__uptake_times__get, 1},
+    {"_plant_SCM___K93__K93_Env__uptake_values__get", (DL_FUNC) &_plant_SCM___K93__K93_Env__uptake_values__get, 1},
     {"_plant_SCM___K93__K93_Env__node_schedule__get", (DL_FUNC) &_plant_SCM___K93__K93_Env__node_schedule__get, 1},
     {"_plant_SCM___K93__K93_Env__node_schedule__set", (DL_FUNC) &_plant_SCM___K93__K93_Env__node_schedule__set, 2},
     {"_plant_SCM___K93__K93_Env__ode_times__get", (DL_FUNC) &_plant_SCM___K93__K93_Env__ode_times__get, 1},

@@ -96,6 +96,22 @@ public:
   const std::vector<patch_type> &r_history() const { return history; }
   Rcpp::List r_get_state() const { return patch.r_get_state(); };
 
+  // WR contraction probe (diagnostic; off by default). Delegate to the patch,
+  // which owns the coupling aggregate a and the replay cache.
+  void set_record_uptake(bool x) { patch.record_uptake = x; }
+  std::vector<double> r_uptake_times() const { return patch.uptake_times; }
+  std::vector<std::vector<double>> r_uptake_values() const { return patch.uptake_values; }
+  std::vector<std::vector<double>> sweep_soil(
+      const std::vector<double>& a_times,
+      const std::vector<std::vector<double>>& a_values,
+      const std::vector<double>& sample_times) const {
+    return patch.sweep_soil(a_times, a_values, sample_times);
+  }
+  void overwrite_cached_soil(const std::vector<double>& times,
+                             const std::vector<std::vector<double>>& soil) {
+    patch.overwrite_cached_soil(times, soil);
+  }
+
   // Fitness / reproduction
   double r_net_reproduction_ratio_for_species(util::index species_index) const;
   std::vector<std::vector<double>> r_net_reproduction_ratio_errors() const;
