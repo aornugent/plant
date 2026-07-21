@@ -69,6 +69,24 @@ public:
     return it;
   }
 
+  // Differentiation-source hooks (the odelia System contract, environment half).
+  // A stateless/paramless environment (FF16/K93) inherits the empty defaults; an
+  // environment carrying physical parameters overrides ad_parameters, and one whose
+  // state is only partly a meaningful initial condition overrides ad_initial_state.
+  // The default ad_initial_state exposes every state entry (empty for ode_size()==0).
+  virtual std::vector<S*> ad_parameters() { return {}; }
+  virtual std::vector<S*> ad_initial_state() {
+    std::vector<S*> out;
+    for (size_t i = 0; i < vars.state_size; i++) out.push_back(&vars.states[i]);
+    return out;
+  }
+
+  // Copy scalar-independent config from another-scalar environment (the rebind
+  // contract, passive half). The base carries none; an environment with config
+  // (TF24's soil geometry / layer count) overrides. AD parameters cross separately
+  // by widening through field_ptrs(), not here.
+  template <class U> void copy_config_from(const Environment_<U>& /*other*/) {}
+
   virtual Rcpp::List r_get_state() const
   {
     return Rcpp::List::create(_["time"] = time);
