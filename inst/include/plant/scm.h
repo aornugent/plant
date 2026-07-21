@@ -125,6 +125,15 @@ public:
   SCM<typename T::template rebind<S2>, typename E::template rebind<S2>>
   rebind_from() {
     typename E::template rebind<S2> env;
+    // Cross the environment as a differentiation source: passive config (soil
+    // geometry) via copy_config_from, then widen its AD parameters (double -> S2).
+    // The source is this SCM's environment; ad_parameters() is empty for
+    // environments without parameters (FF16/K93), so the widen loop is a no-op there.
+    E src = patch.r_environment();
+    env.copy_config_from(src);
+    auto sp = src.ad_parameters();
+    auto tp = env.ad_parameters();
+    for (std::size_t i = 0; i < sp.size(); ++i) *tp[i] = S2(*sp[i]);
     return SCM<typename T::template rebind<S2>,
                typename E::template rebind<S2>>(
         parameters.template rebind_from<S2>(), env, control);

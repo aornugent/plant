@@ -65,9 +65,18 @@ public:
   // constructor would not otherwise reproduce.
   template <class U> void copy_config_from(const TF24_Environment_<U>& o) {
     canopy_rescale_usually = o.canopy_rescale_usually;
-    depth = o.depth;
     soil_moist_residual = o.soil_moist_residual;
-    set_soil_number_of_depths(o.soil_number_of_depths); // rebuilds delta_z/z/z_mid/dz + vars
+    // The default-constructed env already holds the baseline geometry and soil
+    // water (soil_moist_sat*0.5). Rebuild only when the source geometry differs --
+    // set_soil_number_of_depths zeros vars, so re-seed the baseline water after.
+    // AD params cross separately by widening field_ptrs(); soil_moist_sat here is
+    // still the default (widening happens after this call).
+    if (o.soil_number_of_depths != soil_number_of_depths || o.depth != depth) {
+      depth = o.depth;
+      set_soil_number_of_depths(o.soil_number_of_depths);
+      set_soil_water_state(std::vector<double>(
+          soil_number_of_depths, odelia::util::to_passive(soil_moist_sat) * 0.5));
+    }
   }
 
   // constructor for R interface - default settings can be modified
