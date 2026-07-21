@@ -30,6 +30,46 @@ public:
   // so generic code (and the SCM rebind_from contract) can name the active type.
   template <class U> using rebind = TF24_Environment_<U>;
 
+  // Differentiable soil parameters: the physical retention / conductivity /
+  // infiltration coefficients on the water-balance rate and the plant-soil
+  // coupling. field_ptrs() and the ad_parameters() override enumerate them in the
+  // one TF24_ENV_AD_FIELDS order (field_names() gives the matching labels), so they
+  // cannot drift apart. soil_number_of_depths / depth / the grid are passive config
+  // (crossed by copy_config_from), not leaves.
+#define TF24_ENV_AD_FIELDS(X)                                                  \
+  X(soil_moist_sat) X(K_sat) X(a_psi) X(n_psi) X(a_infil) X(b_infil)
+#define PLANT_ENV_AD_PTR(f) &f,
+#define PLANT_ENV_AD_NAME(f) #f,
+  std::vector<S*> field_ptrs() { return { TF24_ENV_AD_FIELDS(PLANT_ENV_AD_PTR) }; }
+  static std::vector<std::string> field_names() {
+    return { TF24_ENV_AD_FIELDS(PLANT_ENV_AD_NAME) };
+  }
+#undef PLANT_ENV_AD_PTR
+#undef PLANT_ENV_AD_NAME
+
+  // odelia System contract (environment half). ad_parameters exposes the soil
+  // params; ad_initial_state exposes the per-layer soil-water state -- the first
+  // soil_number_of_depths states; the trailing aux_num slots are cumulative
+  // diagnostics, not meaningful initial conditions.
+  std::vector<S*> ad_parameters() override { return field_ptrs(); }
+  std::vector<S*> ad_initial_state() override {
+    std::vector<S*> out;
+    for (int i = 0; i < soil_number_of_depths; ++i)
+      out.push_back(&this->vars.states[i]);
+    return out;
+  }
+
+  // Cross scalar-independent config (soil geometry + grid + residual floor) from an
+  // environment at another scalar. The AD parameters cross separately by widening
+  // through field_ptrs(); this carries only the passive config the default
+  // constructor would not otherwise reproduce.
+  template <class U> void copy_config_from(const TF24_Environment_<U>& o) {
+    canopy_rescale_usually = o.canopy_rescale_usually;
+    depth = o.depth;
+    soil_moist_residual = o.soil_moist_residual;
+    set_soil_number_of_depths(o.soil_number_of_depths); // rebuilds delta_z/z/z_mid/dz + vars
+  }
+
   // constructor for R interface - default settings can be modified
   // except for soil_number_of_depths
   // which are only updated on construction
@@ -156,15 +196,21 @@ public:
   int soil_number_of_depths;
   double delta_z;
 
+  // Total soil depth: physical, but sets the discretization grid
+  // (delta_z = depth / soil_number_of_depths), so it crosses as passive config
+  // for now -- differentiating it is a moving-mesh derivative (plant#64).
   double depth;
+  // The physical retention / conductivity / infiltration coefficients. AD leaves:
+  // they enter the water-balance rate and the plant-soil coupling (the retention
+  // curve the plant reads), so a trait/parameter gradient through the soil flows.
   //saturated soil moisture
-  double soil_moist_sat;
+  S soil_moist_sat;
   //Saturated soil hydraulic conductivity
-  double K_sat;
-  double a_psi;
-  double n_psi;
-  double a_infil;
-  double b_infil;
+  S K_sat;
+  S a_psi;
+  S n_psi;
+  S a_infil;
+  S b_infil;
 
   // Residual soil moisture floor (m3 m^-3). The water balance cannot dry a
   // layer below this (see the positivity guard in compute_rates), and

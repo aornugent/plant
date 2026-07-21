@@ -137,15 +137,23 @@ public:
   // patch's cohort birth states are taped intermediates of the population (set
   // by compute_initial_conditions each step), not independent inputs, so it
   // seeds no initial state of its own.
+  // Column order is a contract (odelia DifferentiationTargets): parameters are
+  // [species0..speciesN params, environment params]; the environment (TF24 soil
+  // physics) is a second parameter source appended after the strategies. A
+  // name->index resolver must seed in this order or the Jacobian columns transpose.
   std::vector<value_type*> ad_parameters() {
     std::vector<value_type*> ptrs;
     for (auto& sp : species) {
       auto block = sp.ad_parameters();
       ptrs.insert(ptrs.end(), block.begin(), block.end());
     }
+    auto env_block = environment.ad_parameters();
+    ptrs.insert(ptrs.end(), env_block.begin(), env_block.end());
     return ptrs;
   }
-  std::vector<value_type*> ad_initial_state() { return {}; }
+  // Initial state is the environment's own ODE state (TF24's per-layer soil water);
+  // the cohort birth states are taped intermediates, not independent inputs.
+  std::vector<value_type*> ad_initial_state() { return environment.ad_initial_state(); }
 
   // * R interface
   // Data accessors:
