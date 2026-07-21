@@ -208,7 +208,7 @@ T soil_uptake(const std::vector<T>& psi_soil, T P_x_r, double area_leaf,
     T E_i(0.0);
     if (std::abs(to_passive(P_x_r) - to_passive(psi_soil[i])) < 1e-8) {
       // Equal potentials: uptake balances the gravitational head only.
-      T f_ri = proportion_of_conductivity(-P_src_min, rb, rc);
+      T f_ri = proportion_of_conductivity<T>(-P_src_min, rb, rc);
       T r_R = r_R_H_min[i] / f_ri + r_R_V_sum[i];
       E_i = -grav_head_z[i] * inv_area_leaf / r_R;
     } else if (std::abs((to_passive(psi_soil[i]) - to_passive(P_x_r)) -
@@ -222,8 +222,8 @@ T soil_uptake(const std::vector<T>& psi_soil, T P_x_r, double area_leaf,
       T lo_pos = (to_passive(P_src_min) > 0.0) ? P_src_min : T(0.0);
       T integral(0.0);
       if (to_passive(hi_neg) > to_passive(P_src_min)) {
-        integral += cumulative_vuln(-P_src_min, rb, rc) -
-                    cumulative_vuln(-hi_neg, rb, rc);
+        integral += cumulative_vuln<T>(-P_src_min, rb, rc) -
+                    cumulative_vuln<T>(-hi_neg, rb, rc);
       }
       if (to_passive(P_src_max) > to_passive(lo_pos)) {
         integral += (P_src_max - lo_pos);
