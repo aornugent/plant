@@ -294,6 +294,21 @@ public:
                             std::vector<double>* uptake_out = nullptr,
                             bool reoptimise_uptake = false);
 
+  // Assemble the leaf carbon profit + per-layer soil uptake as active scalars
+  // from the given parameters and crown state, anchored at the converged double
+  // leaf. p* is the single active pivot (interior stationarity node, bound-regime
+  // continuity root-find, or a tracked-collar state) and every output is an
+  // active function of it plus the active physiology recomputed from `p`. Reads
+  // the double leaf's operating point and geometry as passive anchors. Run on a
+  // local per-call tape so the run-shaped reverse tape stays O(#inputs)/step: the
+  // exact partials it yields are injected via supplied_derivative. Fills
+  // `cons_out` (per-layer uptake, mol) and returns the carbon profit.
+  S assemble_leaf_from(const TF24_Pars_<S>& p, S height, S light_active,
+                       double light_openness_double,
+                       const std::vector<S>& psi_soil_signed,
+                       const environment_type& environment,
+                       std::vector<S>& cons_out);
+
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.

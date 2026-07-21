@@ -499,192 +499,127 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
   // is INVALID. The S mass cascade re-enters through the area_leaf_
   // factor below, independent of this seam. On the double path this is exactly
   // leaf.profit_ (to_passive/if constexpr collapse to the identity).
+  // The Leaf is double; its parameter/state sensitivity reaches the tape by
+  // re-assembling the leaf outputs (profit + per-layer uptake) as active scalars
+  // on a LOCAL per-call tape, then injecting the exact partials via
+  // supplied_derivative so the run-shaped reverse tape stays O(#inputs) per step.
+  // Gate on the reverse active type: double takes the production path
+  // (profit_s = leaf.profit_); the forward tangent scalar holds the leaf fixed.
   S profit_s = S(leaf.profit_);
-  // The seam delivers the leaf gradient via supplied_derivative, which is
-  // reverse-mode machinery (tape slots, getSlot). Gate it on the *reverse*
-  // active type specifically: double takes the production path, and the forward
-  // (tangent) scalar -- used only as a verification oracle -- compiles with the
-  // seam absent, so its leaf profit is held fixed (zero tangent), matching the
-  // intent that forward JVP is exact only for non-leaf channels.
   if constexpr (std::is_same_v<S, xad::adj<double>::active_type>) {
-    auto* tape = xad::Tape<double>::getActive();
-    if (tape != nullptr && tape->isActive()) {
+    auto* run_tape = xad::Tape<double>::getActive();
+    if (run_tape != nullptr && run_tape->isActive()) {
       if (!single_solve) {
-        util::stop("TF24 active leaf gradient: the deep-crown seam is not yet "
+        util::stop("TF24 active leaf gradient: the deep-crown assembly is not yet "
                    "implemented; use shading_model 'mean-light' or 'crown-centre'.");
       }
-      const double held_collar_psi = -leaf.root_collar_psi_;
+      const int nsoil = environment.get_soil_number_of_depths();
+      const int mlayer = static_cast<int>(leaf.r_R_H_min.size());
       const double profit0 = leaf.profit_;
-      const double atm_vpd_d = environment.get_atm_vpd();
-      const double ca_d = environment.get_ca();
-      const double leaf_temp_d = environment.get_leaf_temp();
-      const double atm_o2_d = environment.get_atm_o2_kpa();
-      const double atm_kpa_d = environment.get_atm_kpa();
-      const std::vector<double> z_soil_mid_ = environment.get_soil_mid_depths();
-
-      // One reusable scratch leaf for every FD evaluation (copy of the
-      // operating-point leaf, so its hydraulic interpolators are already built).
-      Leaf scratch = leaf;
-
-      // Baseline double parameter set + double field pointers, in the SAME
-      // TF24_AD_FIELDS order as field_ptrs(), so input i pairs with partial i.
-      TF24_Pars_<double> pd;
-#define PLANT_AD_PDPTR(f) &pd.f,
-      std::vector<double*> pdp = { TF24_AD_FIELDS(PLANT_AD_PDPTR) };
-#undef PLANT_AD_PDPTR
-      std::vector<S*> ap = field_ptrs();
-      for (std::size_t i = 0; i < ap.size(); ++i) *pdp[i] = to_passive(*ap[i]);
-
-      // Tier-B soil coupling: baseline per-layer uptake at the operating point
-      // (the forward leaf already holds it) plus per-layer FD partials aligned
-      // with `inputs`. Every push_input() appends one entry to `partials` and to
-      // each uptake_partials[L], keeping all outputs aligned with `inputs`.
-      const int nsoil = static_cast<int>(soil_depths_.size());
       const std::vector<double> uptake0 = leaf.soil_consumption_;
-      std::vector<std::vector<double>> uptake_partials(nsoil);
-      std::vector<double> up_p(nsoil), up_m(nsoil);
-      // Base TF24 optimises the collar (seam hook returns nullptr) -> uptake must
-      // re-optimise the collar per FD point (model-as-run). TF24f tracks the collar
-      // as a state -> the fixed-collar uptake is exact (collar response via the collar-psi
-      // channel). Decides the collar treatment for every uptake evaluation below.
-      const bool reopt = (seam_collar_psi_input() == nullptr);
 
-      // Fixed crown context is shared by every channel; only the perturbed
-      // height, openness, per-layer soil psi, and uptake sink vary, so route all
-      // of them through one closure at the held optimum collar psi.
-      auto profit_at = [&](double h, double light, const std::vector<double>& psi,
-                           std::vector<double>* up) {
-        return leaf_profit_at_fixed_collar(scratch, pd, h, light, PPFD, psi,
-                                  soil_depths_, z_soil_mid_, atm_vpd_d, ca_d,
-                                  leaf_temp_d, atm_o2_d, atm_kpa_d,
-                                  held_collar_psi, up, reopt);
-      };
-      auto fd_step = [](double base) { return 1e-6 * (std::abs(base) + 1e-6); };
-
-      std::vector<S*> inputs;
-      std::vector<double> partials;
-      inputs.reserve(ap.size() + 1);
-      partials.reserve(ap.size() + 1);
-
-      // Push one seeded input with its profit partial and its per-layer uptake
-      // partial, all from the same (plus, minus) evaluations.
-      auto push_input = [&](S* in, double pplus, double pminus,
-                            const std::vector<double>& upp,
-                            const std::vector<double>& upm, double step) {
-        inputs.push_back(in);
-        partials.push_back((pplus - pminus) / (2.0 * step));
-        for (int L = 0; L < nsoil; ++L)
-          uptake_partials[L].push_back((upp[L] - upm[L]) / (2.0 * step));
-      };
-
-      // Per-parameter central FD at the held optimum. Only seeded inputs (valid
-      // tape slot) are wired; the rest are the background inputs the
-      // pair-filter drops. Gate the FD on shouldRecord() *before* the two leaf
-      // solves: an un-seeded field's partial is discarded anyway, so computing it
-      // was pure waste -- and it dominated the active-replay cost (~2*|fields| leaf
-      // solves per node per step, of which typically one field is seeded). Skipping
-      // it leaves the wired (inputs, partials) bit-identical; seeded fields still
-      // get a real partial, so M1 completeness is unchanged (# (.
-      for (std::size_t i = 0; i < ap.size(); ++i) {
-        if (!ap[i]->shouldRecord()) continue;
-        const double base = *pdp[i];
-        const double step = fd_step(base);
-        *pdp[i] = base + step;
-        const double pplus = profit_at(height_d, light_openness_double, psi_soil, &up_p);
-        *pdp[i] = base - step;
-        const double pminus = profit_at(height_d, light_openness_double, psi_soil, &up_m);
-        *pdp[i] = base;
-        push_input(ap[i], pplus, pminus, up_p, up_m, step);
-      }
-
-      // Height channel: the leaf profit depends on the current height state
-      // (conductance, sapwood volume, area_leaf), so the state coupling through
-      // the leaf must be on the tape. Perturb the held height directly.
-      if (height.shouldRecord()) {
-        const double step = fd_step(height_d);
-        const double pplus = profit_at(height_d + step, light_openness_double, psi_soil, &up_p);
-        const double pminus = profit_at(height_d - step, light_openness_double, psi_soil, &up_m);
-        push_input(&height, pplus, pminus, up_p, up_m, step);
-      }
-
-      // Light channel (resident self-shading): the openness the leaf sees is
-      // active on a resident pass (the light field is built from the stand's own
-      // competition), so d(profit)/d(light_openness) must be on the tape. Perturb
-      // the held openness and FD the profit; inject onto the active openness,
-      // whose slot connects to the resident light field. On the mutant pass the
-      // light is a recorded double -> INVALID slot -> the pair-filter drops it.
-      if (light_active.shouldRecord()) {
-        const double base = light_openness_double;
-        const double step = fd_step(base);
-        const double pplus = profit_at(height_d, base + step, psi_soil, &up_p);
-        const double pminus = profit_at(height_d, base - step, psi_soil, &up_m);
-        push_input(&light_active, pplus, pminus, up_p, up_m, step);
-      }
-
-      // Soil-psi channel (resident soil coupling): on a resident pass each
-      // layer's psi is active (a function of the integrated soil state), so the
-      // soil -> leaf feedback must be on the tape. Perturb each layer's held
-      // psi and FD the profit; inject onto the active psi value, whose slot
-      // connects back to the soil state through psi_from_soil_moist. On the
-      // mutant pass the soil is a recorded double, so these slots are
-      // INVALID and the pair-filter drops them.
-      {
-        std::vector<double> psi_pert = psi_soil;  // double copy to perturb
-        for (std::size_t L = 0; L < psi_soil_S.size(); ++L) {
-          if (!const_cast<S&>(psi_soil_S[L]).shouldRecord()) continue;
-          const double base = psi_soil[L];
-          const double step = fd_step(base);
-          psi_pert[L] = base + step;
-          const double pplus = profit_at(height_d, light_openness_double, psi_pert, &up_p);
-          psi_pert[L] = base - step;
-          const double pminus = profit_at(height_d, light_openness_double, psi_pert, &up_m);
-          psi_pert[L] = base;
-          push_input(const_cast<S*>(&psi_soil_S[L]), pplus, pminus, up_p, up_m, step);
+      // Run-tape inputs (aligned with local copies), gated to the seeded ones the
+      // pair-filter would keep. The leaf couples to the tape only through these.
+      std::vector<S*> run_inputs;
+      std::vector<double> in_val;
+      std::vector<int> src;   // 0 = pars field i, 1 = height, 2 = light, 3 = soil L
+      std::vector<int> src_i;
+      std::vector<S*> ap = field_ptrs();
+      for (std::size_t i = 0; i < ap.size(); ++i)
+        if (ap[i]->shouldRecord()) {
+          run_inputs.push_back(ap[i]); in_val.push_back(to_passive(*ap[i]));
+          src.push_back(0); src_i.push_back((int)i);
         }
+      if (height.shouldRecord()) {
+        run_inputs.push_back(&height); in_val.push_back(to_passive(height));
+        src.push_back(1); src_i.push_back(-1);
       }
+      if (light_active.shouldRecord()) {
+        run_inputs.push_back(&light_active); in_val.push_back(to_passive(light_active));
+        src.push_back(2); src_i.push_back(-1);
+      }
+      for (int L = 0; L < mlayer && L < (int)psi_soil_S.size(); ++L)
+        if (const_cast<S&>(psi_soil_S[L]).shouldRecord()) {
+          run_inputs.push_back(const_cast<S*>(&psi_soil_S[L]));
+          in_val.push_back(to_passive(psi_soil_S[L]));
+          src.push_back(3); src_i.push_back(L);
+        }
 
-      // Collar-psi channel: for a variant whose leaf runs at a tracked (non-
-      // optimum) collar psi (TF24f), the fixed-psi FD above is only the partial
-      // d(profit)/d(theta) at fixed psi; the total also needs
-      // d(profit)/d(psi) * d(psi_tracked)/d(theta). The tracked psi is an active
-      // ODE state, so d(psi_tracked)/d(theta) is already on the tape; inject the
-      // partial d(profit)/d(psi) (the leaf's analytic gradient, the same one the
-      // acclimation rate uses) onto it. Base TF24 returns nullptr (at the optimum
-      // this term is zero by the envelope theorem).
-      if (S* collar = seam_collar_psi_input()) {
-        if (collar->shouldRecord()) {
-          inputs.push_back(collar);
-          partials.push_back(seam_collar_psi_partial());
-          // d(uptake)/d(tracked collar) (#47), ANALYTIC per layer (a straight FD is
-          // wrong here: E_from_Soil_to_Root_Collar is piecewise per soil layer, so a
-          // collar step straddles layer-crossing kinks and undershoots ~3x). The
-          // tracked state = -root_collar_psi_ = held_collar_psi and E uses
-          // P_x_r = root_collar_psi_ = -held_collar_psi, so
-          // d(uptake)/d(tracked) = -d(soil_consumption_)/d(P_x_r). Kink layers (NaN)
-          // fall back to 0 (measure-zero).
-          std::vector<double> dEi_dPxr;
-          leaf.dsoil_consumption_dpsi_collar_perlayer(
-              -held_collar_psi, leaf.psi_soil_inverted_, dEi_dPxr);
-          for (int L = 0; L < nsoil; ++L) {
-            const double v = (L < static_cast<int>(dEi_dPxr.size()) &&
-                              std::isfinite(dEi_dPxr[L]))
-                                 ? -dEi_dPxr[L]
-                                 : 0.0;
-            uptake_partials[L].push_back(v);
+      const std::size_t nin = run_inputs.size();
+      std::vector<double> profit_partials(nin, 0.0);
+      std::vector<std::vector<double>> uptake_partials(mlayer,
+                                                       std::vector<double>(nin, 0.0));
+      if (nin > 0) {
+        // Local tape: exact reverse over the assembly, one recording, one adjoint
+        // sweep per output (profit + each layer's uptake). The run tape must be
+        // stood down while the local tape is active (setActive throws otherwise);
+        // it is reactivated before the supplied_derivative injection below.
+        // Fresh local pars (default ctor -> all slots INVALID); set the seeded
+        // fields from the resolved values. Copying `pars` would carry the run
+        // tape's slots and break registerInput on the local tape. The assembly
+        // reads only seeded fields, so every field it touches is set here.
+        TF24_Pars_<S> lp;
+#define PLANT_AD_LSET(f) lp.f = to_passive(pars.f);
+        TF24_AD_FIELDS(PLANT_AD_LSET)
+#undef PLANT_AD_LSET
+#define PLANT_AD_LPTR(f) &lp.f,
+        std::vector<S*> lap = { TF24_AD_FIELDS(PLANT_AD_LPTR) };
+#undef PLANT_AD_LPTR
+        S lheight = height_d;
+        S llight = light_openness_double;
+        std::vector<S> lpsi(mlayer);
+        for (int L = 0; L < mlayer; ++L) lpsi[L] = -to_passive(psi_soil_S[L]);
+
+        // Local input pointers, in run_inputs order.
+        std::vector<S*> loc_inputs(nin);
+        for (std::size_t k = 0; k < nin; ++k) {
+          if (src[k] == 0)      loc_inputs[k] = lap[src_i[k]];
+          else if (src[k] == 1) loc_inputs[k] = &lheight;
+          else if (src[k] == 2) loc_inputs[k] = &llight;
+          else                  loc_inputs[k] = &lpsi[src_i[k]];
+        }
+
+        run_tape->deactivate();
+        {
+          xad::Tape<double> ltape;  // activates (run tape stood down)
+          for (std::size_t k = 0; k < nin; ++k) ltape.registerInput(*loc_inputs[k]);
+          ltape.newRecording();
+
+          std::vector<S> cons;
+          S profit_local =
+              assemble_leaf_from(lp, lheight, llight, light_openness_double, lpsi,
+                                 environment, cons);
+          ltape.registerOutput(profit_local);
+          for (int L = 0; L < mlayer; ++L) ltape.registerOutput(cons[L]);
+
+          xad::derivative(profit_local) = 1.0;
+          ltape.computeAdjoints();
+          for (std::size_t k = 0; k < nin; ++k)
+            profit_partials[k] = xad::derivative(*loc_inputs[k]);
+          for (int L = 0; L < mlayer; ++L) {
+            ltape.clearDerivatives();
+            xad::derivative(cons[L]) = 1.0;
+            ltape.computeAdjoints();
+            for (std::size_t k = 0; k < nin; ++k)
+              uptake_partials[L][k] = xad::derivative(*loc_inputs[k]);
           }
         }
+        xad::Tape<double>::deactivateAll();
+        run_tape->activate();
       }
 
+      // Inject the exact partials onto the run tape (thin: O(#inputs) per step).
       soil_consumption_active_.clear();
-      if (!inputs.empty()) {
-        profit_s = odelia::ode::supplied_derivative(*tape, profit0, inputs, partials);
-        // Tier-B: each layer's uptake becomes an active leaf carrying its (theta,
-        // soil-psi) partials, so the soil ODE's dependence on traits and on the
-        // drying reservoir is on the reverse tape (read by evapotranspiration_dt).
+      if (nin > 0) {
+        profit_s = odelia::ode::supplied_derivative(*run_tape, profit0, run_inputs,
+                                                    profit_partials);
         soil_consumption_active_.resize(nsoil);
         for (int L = 0; L < nsoil; ++L)
           soil_consumption_active_[L] =
-              odelia::ode::supplied_derivative(*tape, uptake0[L], inputs, uptake_partials[L]);
+              (L < mlayer)
+                  ? odelia::ode::supplied_derivative(*run_tape, uptake0[L],
+                                                     run_inputs, uptake_partials[L])
+                  : S(uptake0[L]);
       }
     }
   }
@@ -695,6 +630,172 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
   const S turnover_ =
     turnover(mass_leaf_, mass_bark_, mass_sapwood_, mass_root_);
   return net_mass_production_dt_A(assimilation_, respiration_, turnover_);
+}
+
+template <class S>
+S TF24_Strategy_<S>::assemble_leaf_from(const TF24_Pars_<S>& p, S height,
+                                        S light_active,
+                                        double light_openness_double,
+                                        const std::vector<S>& psi_soil_signed,
+                                        const environment_type& environment,
+                                        std::vector<S>& cons_out) {
+  using std::pow;
+  auto anchor = [](double v, S x) { return S(v) + (x - to_passive(x)); };
+
+  // Geometry active in height + the seeded allometry/root traits.
+  const S eta_c_local = 1.0 - 2.0 / (1.0 + p.eta) + 1.0 / (1.0 + 2.0 * p.eta);
+  const S area_leaf_local = pow(height / p.a_l1, 1.0 / p.a_l2);
+  const S mass_root_local = p.a_r1 * area_leaf_local;
+
+  // Root-mass distribution across soil layers (mirrors net_mass_production_dt's
+  // double loop); the resistances soil_uptake divides by derive from it, so this
+  // is the height/a_r1/a_l1/a_l2/root_depth_shape_eta channel into the uptake.
+  const std::vector<double>& soil_depths_ = environment.z;
+  const int nsoil = environment.get_soil_number_of_depths();
+  const S rooting_depth =
+      (to_passive(height) < rooting_depth_max) ? height : S(rooting_depth_max);
+  const S root_mass_scale = root_mass_carbon_scale * mass_root_local;
+  std::vector<S> mrp(nsoil, S(0.0));
+  S prev_q(1.0);
+  for (int a = 0; a < nsoil; ++a) {
+    if (to_passive(prev_q) == 0.0) break;
+    S qd(0.0);
+    if (soil_depths_[a] <= to_passive(rooting_depth)) {
+      const S tmp = S(1.0) - pow(S(soil_depths_[a]) / rooting_depth,
+                                 p.root_depth_shape_eta);
+      qd = tmp * tmp;
+    }
+    mrp[a] = root_mass_scale * (prev_q - qd);
+    prev_q = qd;
+  }
+
+  const int mlayer = static_cast<int>(leaf.r_R_H_min.size());
+  const double dz_sq = leaf.dz_ * leaf.dz_;
+  std::vector<S> rH(mlayer), rVsum(mlayer);
+  S vsum(0.0);
+  for (int i = 0; i < mlayer; ++i) {
+    const S rm = mrp[i];
+    if (to_passive(rm) == 0.0) {
+      rH[i] = S(0.0);
+      rVsum[i] = vsum;
+      continue;
+    }
+    rH[i] = leaf.beta_R_H / (rm * 2.0 / 3.0);
+    vsum += leaf.beta_R_V * dz_sq / (rm / 3.0);
+    rVsum[i] = vsum;
+  }
+
+  // Physiology from the active parameters, mirroring set_physiology. gstar_Pa,
+  // km, ca, atm_* are passive (temperature/O2/environment only).
+  const double leaf_temp = environment.get_leaf_temp();
+  const double PPFD_env = environment.get_PPFD();
+  const S vcmax = leaf_output::peak_arrh_curve<S>(vcmax_ha, p.vcmax_25, leaf_temp,
+                                                  vcmax_H_d, vcmax_d_S);
+  const S jmax = leaf_output::peak_arrh_curve<S>(jmax_ha, p.jmax_25, leaf_temp,
+                                                 jmax_H_d, jmax_d_S);
+  const S lit = (light_openness_double > 0.0001) ? light_active : S(0.0001);
+  const S radiation = p.k_I * lit * PPFD_env;
+  const S et = leaf_output::electron_transport<S>(p.a, radiation, jmax,
+                                                  p.curv_fact_elec_trans);
+  const S R_d = vcmax * 0.015;
+  const double gstar_Pa = leaf.gamma_ * umol_per_mol_to_Pa;
+  const double km = leaf.km_;
+  const double ca = environment.get_ca();
+  const double atm_kpa = environment.get_atm_kpa();
+  const double atm_vpd = environment.get_atm_vpd();
+  const S kmax = p.K_s * p.theta / (height * eta_c_local);
+  const S b = p.b, c = p.c, psi_crit = p.psi_crit;
+  const S g1 = p.g1_TF24, beta2 = p.beta2, curv_colim = p.curv_fact_colim;
+
+  // Converged double anchors.
+  const double p_star_d = -leaf.root_collar_psi_;
+  const double psi_stem_star_d = leaf.opt_psi_stem_;
+  const double ci_star_d = leaf.ci_;
+  const double root_crit_d = leaf.root_collar_psi_;  // signed; == -p_star_d
+
+  // Assemble the outputs at a given active collar magnitude p_collar, anchoring
+  // psi_stem/ci at the double optimum. Fills the per-layer uptake if asked.
+  auto assemble = [&](S p_collar, std::vector<S>* out) -> S {
+    std::vector<S> cons(mlayer);
+    S eup = leaf_output::soil_uptake<S>(psi_soil_signed, -p_collar, area_leaf_local,
+                                        rH, rVsum, leaf.grav_head_z_, leaf.root_b,
+                                        leaf.root_c, cons);
+    S psi_stem =
+        leaf_output::psistem_node<S>(psi_stem_star_d, p_collar, eup, kmax, b, c);
+    S transp = leaf_output::transpiration<S>(psi_stem, p_collar, kmax, b, c);
+    S gc = leaf_output::stom_cond_CO2<S>(transp, atm_kpa, atm_vpd);
+    S ci = leaf_output::ci_node<S>(ci_star_d, vcmax, et, gstar_Pa, km, R_d,
+                                   curv_colim, gc, ca, atm_kpa);
+    S assim = leaf_output::assim_colimited<S>(ci, vcmax, et, gstar_Pa, km, R_d,
+                                              curv_colim);
+    S cost = leaf_output::hydraulic_cost_TF<S>(psi_stem, g1, beta2, b, c);
+    if (out) *out = cons;
+    return assim - cost;
+  };
+
+  // The active pivot p*.
+  S p_star;
+  if (S* collar = seam_collar_psi_input()) {
+    // Tracked-collar variant: operating collar is the double point (clamped), its
+    // derivative rides the tracked ODE state.
+    p_star = anchor(p_star_d, *collar);
+  } else {
+    // Regime from the converged point: p* sits at the stem-critical bound iff the
+    // continuity residual there is zero. E_column mutates root_collar_psi_/E_up_.
+    const double saved_rcp = leaf.root_collar_psi_, saved_eup = leaf.E_up_;
+    const double e_col =
+        leaf.E_column(root_crit_d, leaf.psi_soil_inverted_, leaf.psi_crit);
+    leaf.root_collar_psi_ = saved_rcp;
+    leaf.E_up_ = saved_eup;
+    if (std::abs(e_col) < 1e-6) {
+      // Bound regime: p* = -root_crit; root_crit solves the continuity residual
+      // at psi_crit (no re-solve -- it is the converged signed collar).
+      p_star = -odelia::implicit_value<S>(root_crit_d, [&](S x) {
+        std::vector<S> cons(mlayer);
+        S eup = leaf_output::soil_uptake<S>(psi_soil_signed, x, area_leaf_local, rH,
+                                            rVsum, leaf.grav_head_z_, leaf.root_b,
+                                            leaf.root_c, cons);
+        S transp = leaf_output::transpiration<S>(psi_crit, -x, kmax, b, c);
+        return eup - transp;
+      });
+    } else {
+      // Interior optimum: dp*/dstate = -P_ps/P_pp via a central difference of the
+      // reduced profit (anchors re-solved off-tape per p), XAD supplying P_ps.
+      const double eps = 1e-2 * (std::abs(p_star_d) + 1.0);
+      auto profit_reduced = [&](S p_collar) -> S {
+        const double p_pass = to_passive(p_collar);
+        const double psi_stem_star =
+            leaf.find_psi_stem_from_psi_root(-p_pass, leaf.psi_soil_inverted_);
+        const double ci_star = leaf.psi_stem_to_ci(psi_stem_star, p_pass);
+        std::vector<S> cons(mlayer);
+        S eup = leaf_output::soil_uptake<S>(psi_soil_signed, -p_collar,
+                                            area_leaf_local, rH, rVsum,
+                                            leaf.grav_head_z_, leaf.root_b,
+                                            leaf.root_c, cons);
+        S psi_stem =
+            leaf_output::psistem_node<S>(psi_stem_star, p_collar, eup, kmax, b, c);
+        S transp = leaf_output::transpiration<S>(psi_stem, p_collar, kmax, b, c);
+        S gc = leaf_output::stom_cond_CO2<S>(transp, atm_kpa, atm_vpd);
+        S ci = leaf_output::ci_node<S>(ci_star, vcmax, et, gstar_Pa, km, R_d,
+                                       curv_colim, gc, ca, atm_kpa);
+        S assim = leaf_output::assim_colimited<S>(ci, vcmax, et, gstar_Pa, km, R_d,
+                                                  curv_colim);
+        S cost = leaf_output::hydraulic_cost_TF<S>(psi_stem, g1, beta2, b, c);
+        return assim - cost;
+      };
+      p_star = odelia::implicit_value<S>(p_star_d, [&](S p_collar) {
+        return (profit_reduced(p_collar + eps) - profit_reduced(p_collar - eps)) /
+               (2.0 * eps);
+      });
+    }
+  }
+
+  std::vector<S> cons;
+  const S profit_assembled = assemble(p_star, &cons);
+  cons_out.assign(mlayer, S(0.0));
+  for (int i = 0; i < mlayer; ++i)
+    cons_out[i] = anchor(leaf.soil_consumption_[i], cons[i]);
+  return anchor(leaf.profit_, profit_assembled);
 }
 
 // Base TF24: optimise the root-collar water potential from scratch each call.

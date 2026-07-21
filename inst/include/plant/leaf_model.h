@@ -122,7 +122,7 @@ T peak_arrh_curve(double Ea, T ref_value, double leaf_temp, double H_d,
 // Electron transport rate under co-limitation; jmax and the quantum yield a are
 // seeded, PPFD and the curvature are passive.
 template <class T>
-T electron_transport(T a, double PPFD, T jmax, double curv) {
+T electron_transport(T a, T PPFD, T jmax, T curv) {
   using std::sqrt;
   T x = a * PPFD + jmax;
   return (x - sqrt(x * x - 4.0 * curv * a * PPFD * jmax)) / (2.0 * curv);
@@ -133,7 +133,7 @@ T electron_transport(T a, double PPFD, T jmax, double curv) {
 // (temperature/O2 only); vcmax, et and R_d carry the seeded rates.
 template <class T>
 T assim_colimited(T ci, T vcmax, T et, double gstar_Pa, double km, T R_d,
-                  double curv) {
+                  T curv) {
   using std::sqrt;
   T ar = vcmax * (ci - gstar_Pa) / (ci + km);
   T ae = et / 4.0 * (ci - gstar_Pa) / (ci + 2.0 * gstar_Pa);
@@ -190,13 +190,13 @@ T hydraulic_cost_TF(T psi_stem, T g1, T beta2, T b, T c) {
 // consumption and returns E_up_ (kg). Branch selection is a value decision
 // (to_passive); the selected operand carries the derivative.
 template <class T>
-T soil_uptake(const std::vector<T>& psi_soil, T P_x_r, double area_leaf,
-              const std::vector<double>& r_R_H_min,
-              const std::vector<double>& r_R_V_sum,
+T soil_uptake(const std::vector<T>& psi_soil, T P_x_r, T area_leaf,
+              const std::vector<T>& r_R_H_min,
+              const std::vector<T>& r_R_V_sum,
               const std::vector<double>& grav_head_z, double root_b,
               double root_c, std::vector<T>& consumption) {
   const std::size_t nlayer = r_R_H_min.size();
-  const double inv_area_leaf = 1.0 / area_leaf;
+  const T inv_area_leaf = T(1.0) / area_leaf;
   const T rb(root_b), rc(root_c);  // root Weibull shape (fixed, not seeded)
   T E_up(0.0);
   for (std::size_t i = 0; i < nlayer; ++i) {
@@ -249,7 +249,7 @@ T soil_uptake(const std::vector<T>& psi_soil, T P_x_r, double area_leaf,
 // (that is the collar optimum). gstar_Pa, km, curv, ca, atm_kpa are passive.
 template <class T>
 T ci_node(double ci_star, T vcmax, T et, double gstar_Pa, double km, T R_d,
-          double curv, T gc, double ca, double atm_kpa) {
+          T curv, T gc, double ca, double atm_kpa) {
   const double inv_atm = 1.0 / (atm_kpa * kPa_to_Pa);
   return odelia::implicit_value<T>(ci_star, [&](T ci) {
     return assim_colimited(ci, vcmax, et, gstar_Pa, km, R_d, curv) * umol_to_mol -
