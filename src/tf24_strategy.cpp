@@ -592,16 +592,23 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
           ltape.registerOutput(profit_local);
           for (int L = 0; L < mlayer; ++L) ltape.registerOutput(cons[L]);
 
+          // Chain-rule sign for the soil-state inputs: the local tape carries
+          // lpsi = -psi_soil_S (the leaf's signed-potential convention), so
+          // d(out)/d(psi_soil_S) = -d(out)/d(lpsi). Missing this negation flips
+          // the sign of the soil-water feedback partials and turns the resident
+          // reverse sweep's soil loop into a positive-feedback blow-up once the
+          // soil dries (life>=3). src[k]==3 are the psi_soil layers.
+          auto chain_sign = [&](std::size_t k) { return src[k] == 3 ? -1.0 : 1.0; };
           xad::derivative(profit_local) = 1.0;
           ltape.computeAdjoints();
           for (std::size_t k = 0; k < nin; ++k)
-            profit_partials[k] = xad::derivative(*loc_inputs[k]);
+            profit_partials[k] = chain_sign(k) * xad::derivative(*loc_inputs[k]);
           for (int L = 0; L < mlayer; ++L) {
             ltape.clearDerivatives();
             xad::derivative(cons[L]) = 1.0;
             ltape.computeAdjoints();
             for (std::size_t k = 0; k < nin; ++k)
-              uptake_partials[L][k] = xad::derivative(*loc_inputs[k]);
+              uptake_partials[L][k] = chain_sign(k) * xad::derivative(*loc_inputs[k]);
           }
         }
         xad::Tape<double>::deactivateAll();
