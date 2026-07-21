@@ -253,6 +253,11 @@ public:
     light_availability.r_init_interpolators(state);
   }
 
+  virtual std::vector<double> get_interpolators_state() const
+  {
+    return light_availability.get_interpolators_state();
+  }
+
   // ------------------------------------------------------------------
   // SOIL WATER BALANCE (multi-layer bucket model)
   // ------------------------------------------------------------------

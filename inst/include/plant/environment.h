@@ -71,6 +71,10 @@ public:
 
   virtual void r_init_interpolators(const std::vector<double>& state) {}
 
+  // Inverse of r_init_interpolators: the light field's knots+values, for a
+  // replay to store and rebuild. Environments with no light profile keep {}.
+  virtual std::vector<double> get_interpolators_state() const { return {}; }
+
   double get_environment_at_height(double height) const { return 0.0; };
 
   virtual ~Environment() = default;

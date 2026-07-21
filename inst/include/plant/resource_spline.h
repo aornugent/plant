@@ -104,7 +104,21 @@ public:
     spline.init(state_x, state_y);
   }
 
-  // This object will store an interpolator spline of 
+  // The knots and values of the current spline, laid out [x..., y...] -- the
+  // exact input r_init_interpolators rebuilds from. Reconstructing via init on
+  // these gives a bit-identical spline (same knots -> same coefficient solve),
+  // so a replay holding only this reproduces the light field without the
+  // adaptive builder.
+  std::vector<double> get_interpolators_state() const {
+    const std::vector<double> x = spline.get_x(), y = spline.get_y();
+    std::vector<double> out;
+    out.reserve(x.size() + y.size());
+    out.insert(out.end(), x.begin(), x.end());
+    out.insert(out.end(), y.begin(), y.end());
+    return out;
+  }
+
+  // This object will store an interpolator spline of
   // resource availability as a function of size
   odelia::interpolator::Interpolator spline;
 

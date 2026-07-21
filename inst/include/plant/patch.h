@@ -49,6 +49,19 @@ struct env_has_event_margins<En, std::void_t<decltype(std::declval<const En&>().
     std::declval<std::vector<double>&>(), std::declval<std::vector<int>&>()))>>
     : std::true_type {};
 
+// One RK sub-step of a resident's environment, as a mutant replay needs it:
+// the light field's knots+values (rebuilt via r_init_interpolators) and the
+// environment ODE state (soil moisture + aux). This is everything a replay
+// reads; it excludes the spline's adaptive builder and band-solve workspace,
+// which are build-only. Held per sub-step, so the whole run's cache is this
+// times (steps x stages) -- the reason it fits where a full environment copy
+// does not.
+struct EnvStepRecord {
+  double time;
+  std::vector<double> light;  // [x..., y...]
+  std::vector<double> state;  // environment ODE state
+};
+
 template <typename T, typename E>
 class Patch {
 public:
@@ -395,8 +408,8 @@ public:
 
   // env. cache for assembly
   std::vector<double> step_history{0.0};  // always start at zero
-  std::vector<std::vector<environment_type>> environment_history;
-  std::vector<environment_type> environment_cache;
+  std::vector<std::vector<EnvStepRecord>> environment_history;
+  std::vector<EnvStepRecord> environment_cache;
 
   void cache_ode_step();
   void cache_RK45_step(int step);
@@ -974,14 +987,19 @@ odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterato
 
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
 
-  // using a pointer here to avoid copying environment object
-  // just point the pointer, used inside compute rates to get env, to relevant env object
-  environment_ptr = &(environment_history[idx][index]);
-  environment.time = environment_ptr->time;
+  // Rebuild the resident's frozen field for this sub-step from its stored
+  // knots + soil state, then point the rates at it. The replay reads only the
+  // field, so reconstructing it into `environment` is equivalent to the full
+  // environment the resident held -- without carrying the spline builder.
+  const EnvStepRecord& rec = environment_history[idx][index];
+  environment.set_ode_state(rec.state.begin());
+  environment.time = rec.time;
+  environment.r_init_interpolators(rec.light);
+  environment_ptr = &environment;
 
   // increment the iterator by an appropriate amount, but don't actually do anything in the env
-  for (size_t i = 0; i < environment_ptr->ode_size(); i++) {*it++;}
- 
+  for (size_t i = 0; i < rec.state.size(); i++) {*it++;}
+
   compute_rates();
   return it;
 }
@@ -1000,11 +1018,16 @@ void Patch<T,E>::cache_ode_step() {
 // saves environment at each RK45 step to the environment cache
 template <typename T, typename E>
 void Patch<T,E>::cache_RK45_step(int step) {
-  if(save_RK45_cache) {  
+  if(save_RK45_cache) {
     if(step == 0) {
       environment_cache.clear();
     }
-    environment_cache.push_back(environment);
+    EnvStepRecord rec;
+    rec.time = environment.time;
+    rec.light = environment.get_interpolators_state();
+    rec.state.resize(environment.ode_size());
+    environment.ode_state(rec.state.begin());
+    environment_cache.push_back(std::move(rec));
   }
 }
 
