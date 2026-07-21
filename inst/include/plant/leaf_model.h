@@ -155,7 +155,7 @@ template <class T>
 T cumulative_vuln(T m, T b, T c) {
   using std::pow;
   if (to_passive(m) <= 0.0) return T(0.0);
-  return (b / c) * odelia::incomplete_gamma(T(1.0) / c, pow(m / b, c));
+  return (b / c) * odelia::incomplete_gamma<T>(T(1.0) / c, pow(m / b, c));
 }
 
 // Supply-side transpiration between two potential magnitudes, k_max * (G(stem) -
@@ -254,6 +254,20 @@ T ci_node(double ci_star, T vcmax, T et, double gstar_Pa, double km, T R_d,
   return odelia::implicit_value<T>(ci_star, [&](T ci) {
     return assim_colimited(ci, vcmax, et, gstar_Pa, km, R_d, curv) * umol_to_mol -
            gc * (ca - ci) * inv_atm;
+  });
+}
+
+// The stem water potential psi_stem defined by the supply balance
+// transpiration(psi_stem, psi_up) = E_up (the flux the soil delivers to the
+// collar), which Leaf inverts with the spline psi_from_transpiration. Returned
+// as an implicit_value node so its derivative through the active soil uptake
+// E_up, the collar magnitude psi_up, and the hydraulic params (k_max, b, c)
+// flows by the implicit function theorem -- no S inverse spline needed. The
+// denominator dF/dpsi_stem = k_max * exp(-(psi_stem/b)^c) > 0 is sign-definite.
+template <class T>
+T psistem_node(double psi_stem_star, T psi_up, T E_up, T k_max, T b, T c) {
+  return odelia::implicit_value<T>(psi_stem_star, [&](T psi_stem) {
+    return transpiration(psi_stem, psi_up, k_max, b, c) - E_up;
   });
 }
 
