@@ -265,35 +265,6 @@ public:
   virtual S* seam_collar_psi_input() { return nullptr; }
   virtual double seam_collar_psi_partial() const { return 0.0; }
 
-  // Reconstruct a throwaway double Leaf from a (possibly perturbed) double
-  // parameter set and the held crown context, evaluate carbon profit at the
-  // fixed optimum collar psi (no re-optimise -- the envelope theorem makes the
-  // held evaluation first-order exact), and return it. This is the
-  // finite-difference engine behind the active leaf supplied_derivative seam:
-  // d(profit)/d(param) is a central difference of this at fixed psi*.
-  // light_openness (canopy openness 0-1) and PPFD are taken instead of the
-  // absorbed radiation so the seam differentiates through k_I (radiation =
-  // pd.k_I * max(light_openness, 1e-4) * PPFD, recomputed here) and through the
-  // resident light itself (the light channel injects d(profit)/d(light_openness)).
-  //
-  // `scratch` is a reusable double Leaf so the ~O(fields) FD evaluations per
-  // node/step do not each rebuild the (expensive) hydraulic interpolators: the
-  // photosynthesis params are reset from pd every call, and the vulnerability
-  // interpolators are rebuilt (setup_transpiration) only when the curve-shaping
-  // params c/b/psi_crit actually change. Caller seeds it as a copy of the
-  // operating-point leaf before the FD loop.
-  double leaf_profit_at_fixed_collar(Leaf& scratch, const TF24_Pars_<double>& pd,
-                            double height_d,
-                            double light_openness, double PPFD,
-                            const std::vector<double>& psi_soil_d,
-                            const std::vector<double>& soil_depths_,
-                            const std::vector<double>& z_soil_mid_,
-                            double atm_vpd, double ca, double leaf_temp,
-                            double atm_o2_kpa, double atm_kpa,
-                            double held_collar_psi,
-                            std::vector<double>* uptake_out = nullptr,
-                            bool reoptimise_uptake = false);
-
   // Assemble the leaf carbon profit + per-layer soil uptake as active scalars
   // from the given parameters and crown state, anchored at the converged double
   // leaf. p* is the single active pivot (interior stationarity node, bound-regime
