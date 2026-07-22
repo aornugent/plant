@@ -368,6 +368,12 @@ public:
   // Embedded leaf hydraulic/photosynthesis sub-model, built in prepare_strategy()
   Leaf leaf;
 
+  // T6 Slice 3b: when true, compute_rates fills the per-cohort uptake Jacobian
+  // (Internals::duptake_jacobian) as a byproduct of the operating-point solve.
+  // Set from control.compute_uptake_jacobian in prepare_strategy(); default false
+  // keeps compute_rates on the bit-identical production path.
+  bool compute_uptake_jacobian_ = false;
+
   // Hydraulic root parameters (not currently exposed to R; see review #9)
   double root_c = 2.680147;
   double root_b = 3.898245;

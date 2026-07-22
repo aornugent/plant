@@ -184,6 +184,39 @@ void TF24_Strategy::compute_rates(const TF24_Environment& environment,  Internal
     vars.set_consumption_rate(i, evapotranspiration_dt(area_leaf_, i)*60*60*12*365/1000*kg_per_mol_h2o);
   }
 
+  // T6 Slice 3b: gated per-cohort uptake-Jacobian byproduct. The leaf is at its
+  // operating point here (net_mass_production_dt ran the collar solve above), so
+  // compute_duptake_dpsi_soil() reuses that point (no re-solve). Store, per (i,k),
+  //   d(consumption_rate[i])/d(theta_k)
+  //     = area_leaf_ * W * d(soil_consumption_[i])/d(psi_inverted_k) * d(psi_inverted_k)/d(theta_k)
+  // using the SAME weight W and area_leaf_ that set_consumption_rate applies, and
+  // the retention chain from the environment. Row-major (i*ns + k). Off by default
+  // (compute_uptake_jacobian_ == false) -> field stays empty, production unchanged.
+  if (compute_uptake_jacobian_) {
+    const int ns = soil_number_of_depths_;
+    // Zero the ns*ns block every call so a skipped fill (shutdown cohort, or the
+    // defensive size guard below) can never leave stale derivatives from a prior
+    // compute_rates evaluation.
+    vars.duptake_jacobian.assign(static_cast<size_t>(ns) * ns, 0.0);
+    // A shut-down cohort (uptake ~0) has no coupling derivative and its collar
+    // operating point is collapsed; its Jacobian stays zero (it also drops out of
+    // consumption_rate), matching the gate's shutdown handling.
+    if (leaf.E_up_ != 0.0) {
+      leaf.compute_duptake_dpsi_soil();
+      if (static_cast<int>(leaf.duptake_dpsi_soil_.size()) == ns * ns) {
+        const double W = 60.0 * 60.0 * 12.0 * 365.0 / 1000.0 * kg_per_mol_h2o;
+        for (int k = 0; k < ns; k++) {
+          const double ret_k = environment.duptake_retention_factor(k);
+          const double col = ret_k * area_leaf_ * W;
+          for (int i = 0; i < ns; i++) {
+            vars.duptake_jacobian[static_cast<size_t>(i) * ns + k] =
+              leaf.duptake_dpsi_soil_[static_cast<size_t>(i) * ns + k] * col;
+          }
+        }
+      }
+    }
+  }
+
   // --- NSC storage pool (#517) ---------------------------------------------
   // A storage pool buffers demography against short-term productivity swings:
   // growth is gated on having ample reserves, and mortality reads the buffered
@@ -818,6 +851,7 @@ void TF24_Strategy::prepare_strategy() {
               control.ci_abs_tol, control.ci_niter, pars.g1_TF24, beta_R_H,
               beta_R_V);
   leaf.newton_collar_solve_ = control.newton_collar_solve;
+  compute_uptake_jacobian_ = control.compute_uptake_jacobian;
 }
 
 TF24_Strategy::ptr make_strategy_ptr(TF24_Strategy s) {

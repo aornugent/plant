@@ -65,6 +65,12 @@ public:
     vars.resize_consumption_rates(i);
   }
   double consumption_rate(int i) const { return vars.consumption_rate(i); }
+  // T6 Slice 3b: (i,k) of the per-individual uptake Jacobian d(consumption_rate[i])/d(theta_k).
+  double duptake_jacobian_entry(int i, int k, int ns) const {
+    return vars.duptake_jacobian_entry(i, k, ns);
+  }
+  // Length of the stored (ns*ns) Jacobian, 0 when the gated fill hasn't run.
+  size_t duptake_jacobian_size() const { return vars.duptake_jacobian.size(); }
 
   double compute_competition(double z) const {
     return strategy->compute_competition(z, vars);

@@ -387,6 +387,17 @@ public:
   parameters_type r_parameters() const {return parameters;}
   environment_type r_environment() const {return environment;}
   std::vector<species_type> r_species() const {return species;}
+  // T6 Slice 3b: stand uptake Jacobian d(a_i)/d(theta_k), row-major (i*ns + k)
+  // over the ns soil layers. Requires compute_rates to have run with the gated
+  // per-cohort fill enabled (control.compute_uptake_jacobian); returns all zeros
+  // otherwise. R-exposed for the offline macro-step gate/falsifier (3b-i/ii).
+  std::vector<double> assemble_duptake_jacobian() const;
+  // T6 Slice 3b: the stand coupling aggregate a_i = resource depletion per env
+  // slot (soil layers + trailing aux). R-exposed so the offline gate can central-
+  // difference it w.r.t. soil state and check assemble_duptake_jacobian. Requires
+  // compute_rates to have run. This is exactly the vector the environment rates
+  // consume; no new computation, just a read of the assembled aggregate.
+  std::vector<double> resource_depletion() const { return assemble_resource_depletion(); }
   std::vector<double> r_compute_competition_effect_error_by_node_for_species_i(size_t species_index) const;
   void r_set_time(double time);
   void r_set_state(double time,
@@ -904,6 +915,34 @@ std::vector<double> Patch<T,E>::assemble_resource_depletion() const {
     depletion.push_back(resource_consumed / area);
   }
   return depletion;
+}
+
+// T6 Slice 3b: stand uptake Jacobian d(a_i)/d(theta_k) = (1/area) * sum_species of
+// the density-weighted trapezium of per-cohort d(consumption_rate[i])/d(theta_k).
+// The retention chain (d psi_inverted/d theta) is already folded into the stored
+// per-cohort entries by the strategy fill, so this is pure linear aggregation --
+// the exact structure of assemble_resource_depletion, one layer per soil slot.
+// Row-major (i*ns + k) over the ns soil layers; the trailing aux env slots carry
+// no consumption (matching assemble_resource_depletion) and are omitted.
+template <typename T, typename E>
+std::vector<double> Patch<T,E>::assemble_duptake_jacobian() const {
+  // ns is inferred from the stored per-cohort Jacobian (env-agnostic; keeps this
+  // generic method compilable for strategies without a soil environment). Zero
+  // when the gated fill hasn't run -> empty result.
+  int ns = 0;
+  for (const auto& s : species) { ns = s.duptake_jacobian_dim(); if (ns > 0) break; }
+  if (ns == 0) return std::vector<double>();
+  std::vector<double> jac(static_cast<size_t>(ns) * ns, 0.0);
+  for (int i = 0; i < ns; i++) {
+    for (int k = 0; k < ns; k++) {
+      double v = std::accumulate(species.begin(), species.end(), 0.0,
+        [i, k, ns](double r, const species_type& s) {
+          return r + s.duptake_jacobian_rate(i, k, ns);
+        });
+      jac[static_cast<size_t>(i) * ns + k] = v / area;
+    }
+  }
+  return jac;
 }
 
 // TODO(#478): We should only be recomputing the light environment for the

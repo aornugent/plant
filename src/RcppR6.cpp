@@ -2389,6 +2389,14 @@ double Patch___FF16__FF16_Env__compute_competition(plant::RcppR6::RcppR6<plant::
   return obj_->compute_competition(height);
 }
 // [[Rcpp::export]]
+std::vector<double> Patch___FF16__FF16_Env__assemble_duptake_jacobian(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->assemble_duptake_jacobian();
+}
+// [[Rcpp::export]]
+std::vector<double> Patch___FF16__FF16_Env__resource_depletion(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->resource_depletion();
+}
+// [[Rcpp::export]]
 double Patch___FF16__FF16_Env__time__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   return obj_->time();
 }
@@ -2518,6 +2526,14 @@ double Patch___TF24__TF24_Env__survival_weighting_icdf(plant::RcppR6::RcppR6<pla
 // [[Rcpp::export]]
 double Patch___TF24__TF24_Env__compute_competition(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, double height) {
   return obj_->compute_competition(height);
+}
+// [[Rcpp::export]]
+std::vector<double> Patch___TF24__TF24_Env__assemble_duptake_jacobian(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->assemble_duptake_jacobian();
+}
+// [[Rcpp::export]]
+std::vector<double> Patch___TF24__TF24_Env__resource_depletion(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->resource_depletion();
 }
 // [[Rcpp::export]]
 double Patch___TF24__TF24_Env__time__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
@@ -2651,6 +2667,14 @@ double Patch___TF24f__TF24_Env__compute_competition(plant::RcppR6::RcppR6<plant:
   return obj_->compute_competition(height);
 }
 // [[Rcpp::export]]
+std::vector<double> Patch___TF24f__TF24_Env__assemble_duptake_jacobian(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->assemble_duptake_jacobian();
+}
+// [[Rcpp::export]]
+std::vector<double> Patch___TF24f__TF24_Env__resource_depletion(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
+  return obj_->resource_depletion();
+}
+// [[Rcpp::export]]
 double Patch___TF24f__TF24_Env__time__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
   return obj_->time();
 }
@@ -2780,6 +2804,14 @@ double Patch___K93__K93_Env__survival_weighting_icdf(plant::RcppR6::RcppR6<plant
 // [[Rcpp::export]]
 double Patch___K93__K93_Env__compute_competition(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, double height) {
   return obj_->compute_competition(height);
+}
+// [[Rcpp::export]]
+std::vector<double> Patch___K93__K93_Env__assemble_duptake_jacobian(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->assemble_duptake_jacobian();
+}
+// [[Rcpp::export]]
+std::vector<double> Patch___K93__K93_Env__resource_depletion(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->resource_depletion();
 }
 // [[Rcpp::export]]
 double Patch___K93__K93_Env__time__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {

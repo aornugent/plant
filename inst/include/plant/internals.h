@@ -37,10 +37,22 @@ public:
   std::vector<double> auxs;
   std::vector<double> consumption_rates;  // not quite as pithy
 
+  // T6 Slice 3b: per-individual uptake Jacobian d(consumption_rate[i])/d(theta_k),
+  // row-major (i*n_soil + k), already in soil-moisture (ODE-state) space -- the
+  // retention chain is folded in by the strategy fill, so all aggregation above
+  // (Individual/Node/Species/Patch) stays env-agnostic. Empty unless the gated
+  // fill runs (control.compute_uptake_jacobian); zero overhead and bit-identical
+  // when off. Lazily sized by the strategy fill, not resize_consumption_rates.
+  std::vector<double> duptake_jacobian;
+
   double state(int i) const { return states[i]; }
   double rate(int i) const { return rates[i]; }
   double aux(int i) const { return auxs[i]; }
   double consumption_rate(int i) const { return consumption_rates[i]; }
+  // (i,k) into the row-major n_soil x n_soil Jacobian; ns = soil layer count.
+  double duptake_jacobian_entry(int i, int k, int ns) const {
+    return duptake_jacobian.empty() ? 0.0 : duptake_jacobian[i * ns + k];
+  }
 
   void set_state(int i, double v) { states[i] = v; }
   void set_rate(int i, double v) { rates[i] = v; }

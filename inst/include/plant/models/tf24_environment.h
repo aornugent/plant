@@ -496,6 +496,28 @@ public:
     return soil_moist_from_psi(psi_soil_, 0);
   }
 
+  // T6 Slice 3b: retention-curve chain factor d(psi_soil_inverted_k)/d(theta_k),
+  // used to map the leaf uptake Jacobian (expressed in inverted-potential space)
+  // to soil-moisture (ODE-state) space. The leaf sees psi_soil_inverted = -psi_mag
+  // and psi_mag = a_psi*(theta/theta_sat)^(-n_psi)/1e6, so
+  //   d psi_mag/d theta      = -n_psi*psi_mag/theta,
+  //   d psi_inverted/d theta = +n_psi*psi_mag/theta  (interior).
+  // Zero where psi_from_soil_moist is floored (theta <= residual) or capped (psi >=
+  // soil_psi_max_): the curve is locally flat in theta there, and root uptake is
+  // already ~0, so the coupling derivative vanishes -- matching find_root_collar_psi.
+  double duptake_retention_factor(size_t layer) const {
+    const double theta = vars.state(layer);
+    if (theta <= soil_moist_residual) return 0.0;                  // floored branch
+    const double a_psi_layer = soil_parameter_value(a_psi_layers, a_psi, layer);
+    const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
+    const double soil_moist_sat_layer =
+      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
+    const double psi_mag =
+      a_psi_layer * std::pow(theta / soil_moist_sat_layer, -n_psi_layer) / 1e6;
+    if (psi_mag >= soil_psi_max_) return 0.0;                      // capped branch
+    return n_psi_layer * psi_mag / theta;
+  }
+
   // Easy wrappers. Cn also use `extrinsic_drivers_evaluate("PPFD", time)
   //
   // Each is read once per individual per ODE derivs evaluation (in the leaf

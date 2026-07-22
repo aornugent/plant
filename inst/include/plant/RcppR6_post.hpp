@@ -344,6 +344,7 @@ template <> inline SEXP wrap(const plant::Control& x) {
   ret["ci_abs_tol"] = Rcpp::wrap(x.ci_abs_tol);
   ret["ci_niter"] = Rcpp::wrap(x.ci_niter);
   ret["newton_collar_solve"] = Rcpp::wrap(x.newton_collar_solve);
+  ret["compute_uptake_jacobian"] = Rcpp::wrap(x.compute_uptake_jacobian);
   ret.attr("class") = "Control";
   return ret;
 }
@@ -418,6 +419,8 @@ template <> inline plant::Control as(SEXP x) {
   ret.ci_niter = Rcpp::as<double >(xl["ci_niter"]);
   // ret.newton_collar_solve = Rcpp::as<decltype(retnewton_collar_solve) >(xl["newton_collar_solve"]);
   ret.newton_collar_solve = Rcpp::as<bool >(xl["newton_collar_solve"]);
+  // ret.compute_uptake_jacobian = Rcpp::as<decltype(retcompute_uptake_jacobian) >(xl["compute_uptake_jacobian"]);
+  ret.compute_uptake_jacobian = Rcpp::as<bool >(xl["compute_uptake_jacobian"]);
   return ret;
 }
 template <> inline SEXP wrap(const odelia::ode::OdeControl& x) {

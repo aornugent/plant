@@ -328,6 +328,7 @@ Control:
     - ci_abs_tol: double
     - ci_niter: double
     - newton_collar_solve: bool
+    - compute_uptake_jacobian: bool
 
 OdeControl:
   name_cpp: "odelia::ode::OdeControl"
@@ -692,6 +693,10 @@ Patch:
     survival_weighting_cdf: {return_type: double, args: [time: double], name_cpp: r_survival_weighting_cdf}
     survival_weighting_icdf: {return_type: double, args: [prob: double], name_cpp: r_survival_weighting_icdf}
     compute_competition: {return_type: double, args: [height: double]}
+    # T6 Slice 3b: stand uptake Jacobian d(a_i)/d(theta_k), row-major (i*ns+k).
+    # Requires compute_rates run with control.compute_uptake_jacobian; else empty.
+    assemble_duptake_jacobian: {return_type: "std::vector<double>"}
+    resource_depletion: {return_type: "std::vector<double>"}
 
 SCM:
   name_cpp: "plant::SCM<T,E>"

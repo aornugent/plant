@@ -129,6 +129,12 @@ struct Control {
   // evals, and no GSS_tol_abs quantization of the argmax. Default false keeps the
   // production GSS path bit-identical. (T6 Slice 1.)
   bool   newton_collar_solve;
+  // When true, compute_rates additionally fills the per-cohort uptake Jacobian
+  // d(consumption_rate[i])/d(theta_k) (Internals::duptake_jacobian) as a byproduct
+  // of the operating-point solve, so Patch::assemble_duptake_jacobian can return
+  // the stand da/du for the multirate macro-step refresh (T6 Slice 3b). Default
+  // false: the fill is skipped and the field stays empty -> bit-identical.
+  bool   compute_uptake_jacobian;
 };
 
 inline odelia::ode::OdeControl make_ode_control(const Control& control) {

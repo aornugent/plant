@@ -69,6 +69,14 @@ public:
   double consumption_rate(int i) const;
   std::vector<double> consumption_rate_by_node_rev(int i) const;
 
+  // T6 Slice 3b: density-weighted trapezium of the per-cohort uptake-Jacobian
+  // entry (i,k), mirroring consumption_rate exactly (same nodes, same weights).
+  double duptake_jacobian_rate(int i, int k, int ns) const;
+  std::vector<double> duptake_jacobian_by_node_rev(int i, int k, int ns) const;
+  // Soil-layer count ns inferred from the stored (ns*ns) per-cohort Jacobian, 0
+  // when the gated fill hasn't run for any cohort of this species.
+  int duptake_jacobian_dim() const;
+
   // * Collocation of the per-layer uptake (plant#53 item 4)
   // consumption_rate(i) is a density-weighted trapezium of per-cohort uptake
   // over the size distribution. When the canopy (and hence the distribution) is
@@ -322,6 +330,37 @@ std::vector<double> Species<T,E>::consumption_rate_by_node_rev(int i) const {
     ret.push_back(it->consumption_rate(i));
   }
   return ret;
+}
+
+template <typename T, typename E>
+double Species<T,E>::duptake_jacobian_rate(int i, int k, int ns) const {
+  if (size() < 2) {
+    return 0.0;  // can't determine density for one node (matches consumption_rate)
+  }
+  return util::trapezium(r_heights_rev(), duptake_jacobian_by_node_rev(i, k, ns));
+}
+
+template <typename T, typename E>
+std::vector<double>
+Species<T,E>::duptake_jacobian_by_node_rev(int i, int k, int ns) const {
+  std::vector<double> ret;
+  ret.reserve(size());
+  for(auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
+    ret.push_back(it->duptake_jacobian_entry(i, k, ns));
+  }
+  return ret;
+}
+
+template <typename T, typename E>
+int Species<T,E>::duptake_jacobian_dim() const {
+  size_t sz = 0;
+  for (const auto& n : nodes) {
+    sz = n.duptake_jacobian_size();
+    if (sz > 0) break;
+  }
+  if (sz == 0) return 0;
+  // stored row-major as ns*ns; recover ns.
+  return static_cast<int>(std::lround(std::sqrt(static_cast<double>(sz))));
 }
 
 template <typename T, typename E>

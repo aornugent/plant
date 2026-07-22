@@ -98,6 +98,12 @@ public:
     return individual.consumption_rate(i) * density;
   }
 
+  // T6 Slice 3b: density-weighted uptake-Jacobian entry, mirroring consumption_rate.
+  double duptake_jacobian_entry(int i, int k, int ns) const {
+    return individual.duptake_jacobian_entry(i, k, ns) * density;
+  }
+  size_t duptake_jacobian_size() const { return individual.duptake_jacobian_size(); }
+
   individual_type individual;
 
 private:
