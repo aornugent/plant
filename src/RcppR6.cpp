@@ -74,6 +74,10 @@ void Leaf__find_root_collar_psi(plant::RcppR6::RcppR6<plant::Leaf> obj_) {
   obj_->find_root_collar_psi();
 }
 // [[Rcpp::export]]
+void Leaf__compute_duptake_dpsi_soil(plant::RcppR6::RcppR6<plant::Leaf> obj_) {
+  obj_->compute_duptake_dpsi_soil();
+}
+// [[Rcpp::export]]
 double Leaf__find_root_psi(plant::RcppR6::RcppR6<plant::Leaf> obj_, double wettest_soil_layer, std::vector<double> psi_soil, int find_root_crit) {
   return obj_->find_root_psi(wettest_soil_layer, psi_soil, find_root_crit);
 }
@@ -172,6 +176,15 @@ std::vector<double> Leaf__soil_consumption___get(plant::RcppR6::RcppR6<plant::Le
 // [[Rcpp::export]]
 void Leaf__soil_consumption___set(plant::RcppR6::RcppR6<plant::Leaf> obj_, std::vector<double> value) {
   obj_->soil_consumption_ = value;
+}
+
+// [[Rcpp::export]]
+std::vector<double> Leaf__duptake_dpsi_soil___get(plant::RcppR6::RcppR6<plant::Leaf> obj_) {
+  return obj_->duptake_dpsi_soil_;
+}
+// [[Rcpp::export]]
+void Leaf__duptake_dpsi_soil___set(plant::RcppR6::RcppR6<plant::Leaf> obj_, std::vector<double> value) {
+  obj_->duptake_dpsi_soil_ = value;
 }
 
 // [[Rcpp::export]]

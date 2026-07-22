@@ -1076,6 +1076,136 @@ double Leaf::dE_from_soil_dpsi_collar(double P_x_r, const std::vector<double>& p
   return dEup_dr_mol * kg_per_mol_h2o;  // match E_up_'s kg units
 }
 
+// T6 Slice 2/3: per-leaf uptake Jacobian d(soil_consumption_[i])/d(psi_soil_inverted_[k]).
+// See the header for the two-branch design (interior IFT / boundary continuity IFT) and the
+// offline gate. Everything is a finite difference of a CLOSED-FORM leaf function evaluated at
+// the fixed operating point -- no re-solve, no FD through a search. The soil-side integral
+// cache (root_vuln_integral_soil_) is keyed to the UNPERTURBED psi_soil, so it is disabled
+// for the duration (E_from_Soil then falls back to direct spline evals) and restored at the
+// end, along with the solved operating-point state.
+void Leaf::compute_duptake_dpsi_soil() {
+  const int n = max_soil_layer;
+  duptake_dpsi_soil_.assign(static_cast<size_t>(n) * n, 0.0);
+
+  // Solved operating point (signed collar potential) and its positive magnitude.
+  const double P0 = root_collar_psi_;      // signed
+  const double Ppos = -P0;                  // positive magnitude (opt_root_psi)
+
+  // Recover the feasible interval + interior/boundary decision (rebuilds psi_soil_inverted_
+  // and the soil caches from psi_soil_, unperturbed). A false return means the operating
+  // point was fully determined by a feasibility early-exit (shut-down / assim<0 / collapsed):
+  // treat uptake as insensitive there and leave the Jacobian zero.
+  double bound_a, bound_b;
+  const bool has_interval = prepare_collar_solve(bound_a, bound_b);
+  if (!has_interval) {
+    // restore the solved operating-point outputs and return
+    E_from_Soil_to_Root_Collar(P0, psi_soil_inverted_);
+    root_collar_psi_ = P0;
+    return;
+  }
+  const double g_a = dprofit_droot_collar_psi(bound_a);
+  const double g_b = dprofit_droot_collar_psi(bound_b);
+  const bool interior = (g_a > 0.0) && (g_b < 0.0);
+
+  // Disable the soil integral cache (stale under psi_soil perturbation); restore later.
+  std::vector<double> saved_integral_soil = root_vuln_integral_soil_;
+  root_vuln_integral_soil_.clear();
+
+  const double hE = 1e-6;    // closed-form E_from_Soil / E_column partials
+  const double hg = 1e-5;    // dprofit partials (inner root-finds -> slightly larger step)
+
+  // dc_i/dP_signed at fixed soil (closed-form E_from_Soil).
+  std::vector<double> dc_dP(n);
+  {
+    const double h = hE * std::max(1.0, std::abs(P0));
+    E_from_Soil_to_Root_Collar(P0 + h, psi_soil_inverted_);
+    std::vector<double> cp = soil_consumption_;
+    E_from_Soil_to_Root_Collar(P0 - h, psi_soil_inverted_);
+    for (int i = 0; i < n; i++) dc_dP[i] = (cp[i] - soil_consumption_[i]) / (2 * h);
+  }
+
+  // Explicit dc_i/dpsi_soil_inverted_k at fixed operating point (only i == k is nonzero,
+  // since E_i depends on psi_soil[i] alone). Also compute the operating-point response term.
+  // For the interior branch: dg/dP and dg/dpsi_k give dP/dpsi_k = g_k/g_P (signed collar).
+  // For the boundary branch: IFT on whichever continuity condition the operating point sits
+  // on (E_column_zero == 0 or E_column(.,psi_crit) == 0), else 0 (constant root_psi_crit).
+  std::vector<double> explicit_diag(n, 0.0);
+  std::vector<double> dP_dpsi(n, 0.0);   // d(P_signed)/d(psi_soil_inverted_k)
+
+  if (interior) {
+    const double hP = hg * std::max(1.0, std::abs(Ppos));
+    const double gP = (dprofit_droot_collar_psi(Ppos + hP) -
+                       dprofit_droot_collar_psi(Ppos - hP)) / (2 * hP);
+    for (int k = 0; k < n; k++) {
+      const double s = psi_soil_inverted_[k];
+      const double hk = hE * std::max(1.0, std::abs(s));
+      // explicit uptake partial (E_from_Soil at fixed P0)
+      psi_soil_inverted_[k] = s + hk;
+      E_from_Soil_to_Root_Collar(P0, psi_soil_inverted_);
+      double ckp = soil_consumption_[k];
+      const double gkp = dprofit_droot_collar_psi(Ppos);   // dg at fixed op, +soil
+      psi_soil_inverted_[k] = s - hk;
+      E_from_Soil_to_Root_Collar(P0, psi_soil_inverted_);
+      double ckm = soil_consumption_[k];
+      const double gkm = dprofit_droot_collar_psi(Ppos);
+      psi_soil_inverted_[k] = s;
+      explicit_diag[k] = (ckp - ckm) / (2 * hk);
+      const double g_k = (gkp - gkm) / (2 * hk);
+      // dP_signed/dpsi_k = -dPpos/dpsi_k = -(-g_k/gP) = g_k/gP
+      dP_dpsi[k] = (std::isfinite(gP) && std::abs(gP) > 0.0) ? (g_k / gP) : 0.0;
+    }
+  } else {
+    // Boundary-pinned: the optimisation pins the operating point to whichever
+    // feasible bound is active, so dispatch by the SAME endpoint-sign test that
+    // decided interior vs boundary (robust -- no residual threshold):
+    //   g_a <= 0  -> pinned at bound_a = -root_zero_E, defined by E_column_zero == 0;
+    //   else (g_b >= 0) -> pinned at bound_b = -root_crit, defined by
+    //                      E_column(.,psi_crit) == 0.
+    // Differentiate the active continuity condition F(x, psi) = 0 by IFT:
+    //   dP0/dpsi_k = -(dF/dpsi_k)/(dF/dx). Both are FD of the CLOSED-FORM E_column*.
+    const bool at_lower = !(g_a > 0.0);                    // pinned at bound_a (zero-E)
+    auto Feval = [&](double x) -> double {
+      double v = at_lower ? E_column_zero(x, psi_soil_inverted_)
+                          : E_column(x, psi_soil_inverted_, psi_crit);
+      root_collar_psi_ = P0;                               // E_column* mutate this; keep P0
+      return v;
+    };
+    const double h = hE * std::max(1.0, std::abs(P0));
+    const double Fx = (Feval(P0 + h) - Feval(P0 - h)) / (2 * h);  // dF/dx at the operating point
+    const bool Fx_ok = std::isfinite(Fx) && std::abs(Fx) > 0.0;
+    for (int k = 0; k < n; k++) {
+      const double s = psi_soil_inverted_[k];
+      const double hk = hE * std::max(1.0, std::abs(s));
+      psi_soil_inverted_[k] = s + hk;
+      E_from_Soil_to_Root_Collar(P0, psi_soil_inverted_);
+      double ckp = soil_consumption_[k];
+      const double Fkp = Feval(P0);
+      psi_soil_inverted_[k] = s - hk;
+      E_from_Soil_to_Root_Collar(P0, psi_soil_inverted_);
+      double ckm = soil_consumption_[k];
+      const double Fkm = Feval(P0);
+      psi_soil_inverted_[k] = s;
+      explicit_diag[k] = (ckp - ckm) / (2 * hk);
+      // IFT on the active continuity condition: dP0/dpsi_k = -(dF/dpsi_k)/(dF/dx).
+      dP_dpsi[k] = Fx_ok ? -((Fkp - Fkm) / (2 * hk)) / Fx : 0.0;
+    }
+  }
+
+  for (int i = 0; i < n; i++)
+    for (int k = 0; k < n; k++)
+      duptake_dpsi_soil_[static_cast<size_t>(i) * n + k] =
+          (i == k ? explicit_diag[k] : 0.0) + dc_dP[i] * dP_dpsi[k];
+
+  // Restore the integral cache and the uptake outputs (soil_consumption_, E_up_,
+  // root_collar_psi_) to the solved operating point. Other leaf members touched by the
+  // FD probes (opt_psi_stem_, ci_, profit_, transpiration_, ...) are left in a scratch
+  // state; a caller that needs them must re-solve. Nothing on the production path calls
+  // this method, so production stays bit-identical.
+  root_vuln_integral_soil_ = saved_integral_soil;
+  E_from_Soil_to_Root_Collar(P0, psi_soil_inverted_);
+  root_collar_psi_ = P0;
+}
+
 double Leaf::arrh_curve(double Ea, double ref_value, double leaf_temp) const {
 
 

@@ -73,6 +73,10 @@ Leaf__find_root_collar_psi <- function(obj_) {
     invisible(.Call('_plant_Leaf__find_root_collar_psi', PACKAGE = 'plant', obj_))
 }
 
+Leaf__compute_duptake_dpsi_soil <- function(obj_) {
+    invisible(.Call('_plant_Leaf__compute_duptake_dpsi_soil', PACKAGE = 'plant', obj_))
+}
+
 Leaf__find_root_psi <- function(obj_, wettest_soil_layer, psi_soil, find_root_crit) {
     .Call('_plant_Leaf__find_root_psi', PACKAGE = 'plant', obj_, wettest_soil_layer, psi_soil, find_root_crit)
 }
@@ -167,6 +171,14 @@ Leaf__soil_consumption___get <- function(obj_) {
 
 Leaf__soil_consumption___set <- function(obj_, value) {
     invisible(.Call('_plant_Leaf__soil_consumption___set', PACKAGE = 'plant', obj_, value))
+}
+
+Leaf__duptake_dpsi_soil___get <- function(obj_) {
+    .Call('_plant_Leaf__duptake_dpsi_soil___get', PACKAGE = 'plant', obj_)
+}
+
+Leaf__duptake_dpsi_soil___set <- function(obj_, value) {
+    invisible(.Call('_plant_Leaf__duptake_dpsi_soil___set', PACKAGE = 'plant', obj_, value))
 }
 
 Leaf__profit___get <- function(obj_) {

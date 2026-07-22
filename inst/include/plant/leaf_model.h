@@ -215,6 +215,9 @@ public:
   
   double opt_psi_stem_;
   double opt_ci_;
+  // T6 Slice 2/3: uptake Jacobian filled by compute_duptake_dpsi_soil(), row-major
+  // (i*max_soil_layer + k) = d(soil_consumption_[i])/d(psi_soil_inverted_[k]).
+  std::vector<double> duptake_dpsi_soil_;
   double count;
   double E_up_;
 
@@ -346,6 +349,21 @@ public:
   // then falls back to a central difference. Used only on the TF24f acclimation
   // gradient path, not the base TF24 value path.
   double dE_from_soil_dpsi_collar(double P_x_r, const std::vector<double>& psi_soil);
+  // T6 Slice 2/3: per-leaf uptake Jacobian d(soil_consumption_[i])/d(psi_soil_inverted_[k])
+  // (signed-potential space, mol H2O m^-2 leaf s^-1 per MPa), the slope the macro-step
+  // uptake refresh needs. Two branches keyed on whether the collar operating point is an
+  // interior optimum or pinned to the feasible-interval boundary (the same distinction
+  // find_root_collar_psi's endpoint-sign safeguard makes):
+  //   interior  -> IFT on the stationarity condition dprofit_droot_collar_psi == 0;
+  //   boundary  -> IFT on the active continuity condition (E_column_zero / E_column), or
+  //                zero response when pinned to the constant root_psi_crit clamp.
+  // Both use finite differences of the CLOSED-FORM leaf functions (E_from_Soil, E_column,
+  // dprofit) evaluated at the FIXED operating point -- no operating-point re-solve and no
+  // finite-difference through a search. Assumes find_root_collar_psi has already run this
+  // step. Result stored row-major (i*max_soil_layer + k) in duptake_dpsi_soil_; degenerate
+  // / shut-down operating points (prepare_collar_solve early-exit) leave it zero (uptake is
+  // insensitive there). Offline-validated in scripts/tf24-benchmarks/duptake_ift_gate.R.
+  void compute_duptake_dpsi_soil();
   // Shut-down operating point used by the find_root_collar_psi early-exits: stem
   // held at psi_crit (no transpiration), paying only respiration + hydraulic
   // cost. Only root_collar_psi_ differs between the cases, so it is the argument.

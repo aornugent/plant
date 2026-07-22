@@ -265,6 +265,16 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// Leaf__compute_duptake_dpsi_soil
+void Leaf__compute_duptake_dpsi_soil(plant::RcppR6::RcppR6<plant::Leaf> obj_);
+RcppExport SEXP _plant_Leaf__compute_duptake_dpsi_soil(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Leaf> >::type obj_(obj_SEXP);
+    Leaf__compute_duptake_dpsi_soil(obj_);
+    return R_NilValue;
+END_RCPP
+}
 // Leaf__find_root_psi
 double Leaf__find_root_psi(plant::RcppR6::RcppR6<plant::Leaf> obj_, double wettest_soil_layer, std::vector<double> psi_soil, int find_root_crit);
 RcppExport SEXP _plant_Leaf__find_root_psi(SEXP obj_SEXP, SEXP wettest_soil_layerSEXP, SEXP psi_soilSEXP, SEXP find_root_critSEXP) {
@@ -539,6 +549,28 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Leaf> >::type obj_(obj_SEXP);
     Rcpp::traits::input_parameter< std::vector<double> >::type value(valueSEXP);
     Leaf__soil_consumption___set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Leaf__duptake_dpsi_soil___get
+std::vector<double> Leaf__duptake_dpsi_soil___get(plant::RcppR6::RcppR6<plant::Leaf> obj_);
+RcppExport SEXP _plant_Leaf__duptake_dpsi_soil___get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Leaf> >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Leaf__duptake_dpsi_soil___get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Leaf__duptake_dpsi_soil___set
+void Leaf__duptake_dpsi_soil___set(plant::RcppR6::RcppR6<plant::Leaf> obj_, std::vector<double> value);
+RcppExport SEXP _plant_Leaf__duptake_dpsi_soil___set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Leaf> >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type value(valueSEXP);
+    Leaf__duptake_dpsi_soil___set(obj_, value);
     return R_NilValue;
 END_RCPP
 }
@@ -12362,6 +12394,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Leaf__set_leaf_states_rates_from_psi_stem", (DL_FUNC) &_plant_Leaf__set_leaf_states_rates_from_psi_stem, 3},
     {"_plant_Leaf__E_from_Soil_to_Root_Collar", (DL_FUNC) &_plant_Leaf__E_from_Soil_to_Root_Collar, 3},
     {"_plant_Leaf__find_root_collar_psi", (DL_FUNC) &_plant_Leaf__find_root_collar_psi, 1},
+    {"_plant_Leaf__compute_duptake_dpsi_soil", (DL_FUNC) &_plant_Leaf__compute_duptake_dpsi_soil, 1},
     {"_plant_Leaf__find_root_psi", (DL_FUNC) &_plant_Leaf__find_root_psi, 4},
     {"_plant_Leaf__find_psi_stem_from_psi_root", (DL_FUNC) &_plant_Leaf__find_psi_stem_from_psi_root, 3},
     {"_plant_Leaf__evaluate_root_collar_psi", (DL_FUNC) &_plant_Leaf__evaluate_root_collar_psi, 2},
@@ -12386,6 +12419,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Leaf__transpiration___set", (DL_FUNC) &_plant_Leaf__transpiration___set, 2},
     {"_plant_Leaf__soil_consumption___get", (DL_FUNC) &_plant_Leaf__soil_consumption___get, 1},
     {"_plant_Leaf__soil_consumption___set", (DL_FUNC) &_plant_Leaf__soil_consumption___set, 2},
+    {"_plant_Leaf__duptake_dpsi_soil___get", (DL_FUNC) &_plant_Leaf__duptake_dpsi_soil___get, 1},
+    {"_plant_Leaf__duptake_dpsi_soil___set", (DL_FUNC) &_plant_Leaf__duptake_dpsi_soil___set, 2},
     {"_plant_Leaf__profit___get", (DL_FUNC) &_plant_Leaf__profit___get, 1},
     {"_plant_Leaf__profit___set", (DL_FUNC) &_plant_Leaf__profit___set, 2},
     {"_plant_Leaf__psi_stem__get", (DL_FUNC) &_plant_Leaf__psi_stem__get, 1},
