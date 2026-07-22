@@ -61,6 +61,17 @@ public:
   // partial is d(profit)/d(psi) (= dprofit_dpsi_, the acclimation gradient).
   S* seam_collar_psi_input() override { return &tracked_root_psi_active_; }
   double seam_collar_psi_partial() const override { return dprofit_dpsi_; }
+  // Per-layer d(soil_consumption_[L])/d(tracked_psi) for the uptake seam. The leaf
+  // helper returns d/d(P_x_r) at the signed operating collar P_x_r = root_collar_psi_;
+  // the tracked state is its magnitude (used = -root_collar_psi_), so d/d(tracked) =
+  // -d/d(P_x_r). At a vulnerability-integral kink the helper emits NaN (no local
+  // derivative) -- inject 0 there so the run-tape reverse sweep stays finite; the
+  // value path (leaf.soil_consumption_) is unaffected.
+  void seam_collar_uptake_partials(std::vector<double>& out) override {
+    this->leaf.dsoil_consumption_dpsi_collar_perlayer(
+        this->leaf.root_collar_psi_, this->leaf.psi_soil_inverted_, out);
+    for (double& d : out) d = util::is_finite(d) ? -d : 0.0;
+  }
 
   // Seed the tracked state at its optimum for a newly introduced individual, so
   // gradient ascent starts at the optimum (no birth transient / no climb from 0,

@@ -615,9 +615,26 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         run_tape->activate();
       }
 
+      // TF24f (tracked collar-psi): the leaf runs OFF the optimum, so
+      // d(profit)/d(psi) and d(uptake)/d(psi) are nonzero. The local assembly
+      // above anchors p* at the DOUBLE optimum, carrying no tracked-state
+      // derivative, so add the tracked collar-psi state as one more injected
+      // input with its analytic partials (profit: the acclimation gradient
+      // seam_collar_psi_partial(); per-layer uptake: seam_collar_uptake_partials()).
+      // Resident TF24 returns nullptr here, so no collar channel is added and the
+      // injection is byte-identical.
+      if (S* collar = seam_collar_psi_input(); collar && collar->shouldRecord()) {
+        std::vector<double> up_c;
+        seam_collar_uptake_partials(up_c);
+        run_inputs.push_back(collar);
+        profit_partials.push_back(seam_collar_psi_partial());
+        for (int L = 0; L < mlayer; ++L)
+          uptake_partials[L].push_back(L < (int)up_c.size() ? up_c[L] : 0.0);
+      }
+
       // Inject the exact partials onto the run tape (thin: O(#inputs) per step).
       soil_consumption_active_.clear();
-      if (nin > 0) {
+      if (!run_inputs.empty()) {
         profit_s = odelia::ode::supplied_derivative(*run_tape, profit0, run_inputs,
                                                     profit_partials);
         soil_consumption_active_.resize(nsoil);

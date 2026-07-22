@@ -264,6 +264,10 @@ public:
   // that channel. Called from net_mass_production_dt after the leaf solve.
   virtual S* seam_collar_psi_input() { return nullptr; }
   virtual double seam_collar_psi_partial() const { return 0.0; }
+  // Per-layer d(soil_consumption_[L])/d(tracked collar-psi), the uptake sibling of
+  // seam_collar_psi_partial(). Base TF24 has no tracked collar, so it leaves `out`
+  // empty and the seam adds no collar channel to the per-layer uptake injection.
+  virtual void seam_collar_uptake_partials(std::vector<double>& out) { out.clear(); }
 
   // Assemble the leaf carbon profit + per-layer soil uptake as active scalars
   // from the given parameters and crown state, anchored at the converged double
