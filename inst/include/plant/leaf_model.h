@@ -139,6 +139,10 @@ public:
   double g1_TF24;
   double beta_R_H;
   double beta_R_V;
+  // T6 Slice 1: when true, find_root_collar_psi solves dprofit_droot_collar_psi==0
+  // with a safeguarded superlinear root-find (analytic gradient) instead of GSS.
+  // Set from control.newton_collar_solve after construction; false = production GSS.
+  bool newton_collar_solve_ = false;
   double soil_number_of_depths_;
   int max_soil_layer;
 

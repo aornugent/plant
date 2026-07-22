@@ -323,6 +323,7 @@ Control:
     - vulnerability_curve_ncontrol: double
     - ci_abs_tol: double
     - ci_niter: double
+    - newton_collar_solve: bool
 
 OdeControl:
   name_cpp: "odelia::ode::OdeControl"

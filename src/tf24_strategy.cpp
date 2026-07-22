@@ -817,6 +817,7 @@ void TF24_Strategy::prepare_strategy() {
               control.GSS_tol_abs, control.vulnerability_curve_ncontrol,
               control.ci_abs_tol, control.ci_niter, pars.g1_TF24, beta_R_H,
               beta_R_V);
+  leaf.newton_collar_solve_ = control.newton_collar_solve;
 }
 
 TF24_Strategy::ptr make_strategy_ptr(TF24_Strategy s) {

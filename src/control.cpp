@@ -70,6 +70,7 @@ Control::Control() {
   vulnerability_curve_ncontrol = 1e2;
   ci_abs_tol = 1e-3;
   ci_niter = 1e3;
+  newton_collar_solve = false;
 }
 
 }

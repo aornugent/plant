@@ -830,19 +830,43 @@ void Leaf::find_root_collar_psi(){
     // root_crit / root_zero_E were consumed inside prepare_collar_solve; recover
     // them for the diagnostic message only if the profit check below fails.
 
-    // Maximise carbon profit over the feasible collar-potential interval via
-    // golden-section search (util::golden_section_max). Unlike Brent, its argmax
-    // is a smooth (fixed-iteration) function of the inputs, so the operating
-    // point varies smoothly with plant height -- the demographic growth-rate
-    // gradient relies on this. The objective maps a candidate collar potential
-    // `bound` to its profit (find the stem psi it implies, then evaluate profit).
-    const double opt_root_psi = util::golden_section_max(
-        [&](double bound) {
-          const double psi_stem =
-              find_psi_stem_from_psi_root(-bound, psi_soil_inverted_);
-          return profit_psi_stem_TF(psi_stem, bound);
-        },
-        bound_a, bound_b, GSS_tol_abs);
+    // Locate the profit-maximising collar potential over the feasible interval.
+    // Two solvers, same optimum:
+    //  * GSS (default): golden-section search on profit. Its argmax is a smooth
+    //    fixed-iteration function of the inputs, so the operating point varies
+    //    smoothly with plant height (the demographic gradient relies on this),
+    //    but it costs ~10-15 profit evals and quantizes the argmax at GSS_tol_abs.
+    //  * Newton (T6 Slice 1, control.newton_collar_solve): a safeguarded
+    //    superlinear root-find on the EXACT analytic gradient
+    //    dprofit_droot_collar_psi == 0 (~5-8 evals, no tol quantization). The
+    //    interior optimum is the sign-change root (gradient +ve at bound_a, -ve at
+    //    bound_b); when the gradient does not change sign the maximum is at the
+    //    profit-increasing boundary, so clamp to that endpoint. Bracketed by the
+    //    same feasible interval, so it can never leave it.
+    double opt_root_psi;
+    if (newton_collar_solve_) {
+      const double g_a = dprofit_droot_collar_psi(bound_a);
+      const double g_b = dprofit_droot_collar_psi(bound_b);
+      if (!(g_a > 0.0)) {
+        opt_root_psi = bound_a;       // profit not increasing off bound_a
+      } else if (!(g_b < 0.0)) {
+        opt_root_psi = bound_b;       // profit still increasing at bound_b
+      } else {
+        opt_root_psi = util::uniroot_smooth(
+            [&](double psi) { return dprofit_droot_collar_psi(psi); },
+            bound_a, bound_b, GSS_tol_abs, 100);
+      }
+    } else {
+      // The objective maps a candidate collar potential `bound` to its profit
+      // (find the stem psi it implies, then evaluate profit).
+      opt_root_psi = util::golden_section_max(
+          [&](double bound) {
+            const double psi_stem =
+                find_psi_stem_from_psi_root(-bound, psi_soil_inverted_);
+            return profit_psi_stem_TF(psi_stem, bound);
+          },
+          bound_a, bound_b, GSS_tol_abs);
+    }
 
     opt_psi_stem_ = find_psi_stem_from_psi_root(-opt_root_psi, psi_soil_inverted_);
 

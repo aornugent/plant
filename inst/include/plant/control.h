@@ -123,6 +123,12 @@ struct Control {
   double vulnerability_curve_ncontrol;
   double ci_abs_tol;
   double ci_niter;
+  // When true, the leaf root-collar operating point is found by a safeguarded
+  // superlinear root-find on the analytic profit gradient (dprofit_droot_collar_psi
+  // == 0) instead of the golden-section search. Same optimum, fewer per-cohort
+  // evals, and no GSS_tol_abs quantization of the argmax. Default false keeps the
+  // production GSS path bit-identical. (T6 Slice 1.)
+  bool   newton_collar_solve;
 };
 
 inline odelia::ode::OdeControl make_ode_control(const Control& control) {

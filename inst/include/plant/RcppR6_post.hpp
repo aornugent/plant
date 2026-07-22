@@ -343,6 +343,7 @@ template <> inline SEXP wrap(const plant::Control& x) {
   ret["vulnerability_curve_ncontrol"] = Rcpp::wrap(x.vulnerability_curve_ncontrol);
   ret["ci_abs_tol"] = Rcpp::wrap(x.ci_abs_tol);
   ret["ci_niter"] = Rcpp::wrap(x.ci_niter);
+  ret["newton_collar_solve"] = Rcpp::wrap(x.newton_collar_solve);
   ret.attr("class") = "Control";
   return ret;
 }
@@ -415,6 +416,8 @@ template <> inline plant::Control as(SEXP x) {
   ret.ci_abs_tol = Rcpp::as<double >(xl["ci_abs_tol"]);
   // ret.ci_niter = Rcpp::as<decltype(retci_niter) >(xl["ci_niter"]);
   ret.ci_niter = Rcpp::as<double >(xl["ci_niter"]);
+  // ret.newton_collar_solve = Rcpp::as<decltype(retnewton_collar_solve) >(xl["newton_collar_solve"]);
+  ret.newton_collar_solve = Rcpp::as<bool >(xl["newton_collar_solve"]);
   return ret;
 }
 template <> inline SEXP wrap(const odelia::ode::OdeControl& x) {
