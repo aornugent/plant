@@ -12283,6 +12283,25 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// mri_coupling_evals_get
+double mri_coupling_evals_get();
+RcppExport SEXP _plant_mri_coupling_evals_get() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(mri_coupling_evals_get());
+    return rcpp_result_gen;
+END_RCPP
+}
+// mri_coupling_evals_reset
+void mri_coupling_evals_reset();
+RcppExport SEXP _plant_mri_coupling_evals_reset() {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    mri_coupling_evals_reset();
+    return R_NilValue;
+END_RCPP
+}
 // node_schedule_times_default
 std::vector<double> node_schedule_times_default(double max_time);
 RcppExport SEXP _plant_node_schedule_times_default(SEXP max_timeSEXP) {
@@ -13555,6 +13574,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_mri_fast_rate_calls_reset", (DL_FUNC) &_plant_mri_fast_rate_calls_reset, 0},
     {"_plant_patch_rhs_calls_get", (DL_FUNC) &_plant_patch_rhs_calls_get, 0},
     {"_plant_patch_rhs_calls_reset", (DL_FUNC) &_plant_patch_rhs_calls_reset, 0},
+    {"_plant_mri_coupling_evals_get", (DL_FUNC) &_plant_mri_coupling_evals_get, 0},
+    {"_plant_mri_coupling_evals_reset", (DL_FUNC) &_plant_mri_coupling_evals_reset, 0},
     {"_plant_node_schedule_times_default", (DL_FUNC) &_plant_node_schedule_times_default, 1},
     {"_plant_FF16_strategy_expand_allometry", (DL_FUNC) &_plant_FF16_strategy_expand_allometry, 4},
     {"_plant_TF24_strategy_expand_allometry", (DL_FUNC) &_plant_TF24_strategy_expand_allometry, 4},

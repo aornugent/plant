@@ -29,6 +29,7 @@ namespace plant {
 // fast_rates; read/reset from R via mri_fast_rate_calls_get/reset.
 extern long mri_fast_rate_calls;
 extern long patch_rhs_calls;
+extern long mri_coupling_evals;
 
 // Does the environment expose the R1 operator split (exact drainage recession +
 // residual)? Only TF24 does; the multirate split inner (Lever 1) is gated on it
@@ -363,6 +364,106 @@ public:
     odelia::ode::ode_rates(species.begin(), species.end(), dx.begin());
   }
 
+  // --- T6 uptake arbitrage hooks (method="mri_uptake"; see odelia mri.hpp
+  // subcycle_uptake / MriUptakeStep). The expensive coupling a = per-layer root
+  // uptake is captured once per re-expansion as an affine model
+  // a ~= a0 + J*(theta - anchor) (J = the Slice 3b-i uptake Jacobian), so the fast
+  // soil sub-cycle avoids the O(M) cohort sum every micro-step. Only reached on the
+  // mri_uptake path; production is bit-identical when ode_method != "mri_uptake". ---
+
+  // Capture the affine uptake model at soil state u (the one O(M) cost): a0 from
+  // the cohort sum and J from the gated byproduct Jacobian (requires
+  // control.compute_uptake_jacobian = true and full-N, i.e. no collocation). Only
+  // meaningful for the soil (split) environment; a no-op otherwise so the generic
+  // Patch template still compiles for FF16/K93.
+  void refresh_anchor(const std::vector<double>& u) {
+    if constexpr (env_has_split<E>::value) {
+      ++mri_coupling_evals;
+      environment.set_ode_state(u.begin());
+      environment_ptr = &environment;
+      uptake_anchor_a0_ = fast_block_uptake();          // O(M): fills the Jacobian too
+      uptake_anchor_jac_ = assemble_duptake_jacobian(); // ns*ns row-major (soil-theta)
+      const size_t ns = static_cast<size_t>(environment.get_soil_number_of_depths());
+      if (uptake_anchor_jac_.size() != ns * ns) {
+        util::stop("method='mri_uptake' needs the uptake Jacobian; set "
+                   "control$compute_uptake_jacobian = true and n_collocation_nodes = 0.");
+      }
+      uptake_anchor_theta_.assign(u.begin(), u.begin() + ns);
+    }
+  }
+
+  // The affine-refreshed per-layer uptake at soil moisture theta: a0 + J*(theta -
+  // anchor). Cheap -- no cohort solve.
+  std::vector<double> predicted_uptake(const std::vector<double>& theta) const {
+    const size_t ns = uptake_anchor_theta_.size();
+    std::vector<double> a(uptake_anchor_a0_);
+    for (size_t i = 0; i < ns; ++i) {
+      for (size_t k = 0; k < ns; ++k) {
+        a[i] += uptake_anchor_jac_[i * ns + k] * (theta[k] - uptake_anchor_theta_[k]);
+      }
+    }
+    return a;
+  }
+
+  // Frozen-coupling gentle remainder: the split inner's residual (rain + inter-layer
+  // cascade - uptake) with uptake from the affine model instead of a cohort solve.
+  // Mirrors residual_rhs exactly but for the coupling source. Drainage is handled
+  // by analytic_flow; aux (cumulative-flux) slots carry zero rate as diagnostics.
+  void residual_frozen(const std::vector<double>& u, std::vector<double>& du) {
+    ++mri_fast_rate_calls;
+    std::fill(du.begin(), du.end(), 0.0);
+    if constexpr (env_has_split<E>::value) {
+      environment.set_ode_state(u.begin());
+      environment_ptr = &environment;
+      const size_t ns = static_cast<size_t>(environment.get_soil_number_of_depths());
+      std::vector<double> theta(u.begin(), u.begin() + ns), drate(ns);
+      environment.residual_rhs(theta, predicted_uptake(theta), drate);
+      std::copy(drate.begin(), drate.end(), du.begin());
+    }
+  }
+
+  // Cheap, probe-free estimate of the affine model's RELATIVE uptake error: the
+  // squared relative excursion e^2 = (||J*(theta-anchor)|| / ||a0||)^2 -- the
+  // 2nd-order remainder estimate (NOT the first-order excursion, which over-
+  // triggers; see Slice 3b-iii). Needs no cohort solve.
+  double trust_excursion(const std::vector<double>& u) const {
+    const size_t ns = uptake_anchor_theta_.size();
+    std::vector<double> theta(u.begin(), u.begin() + ns);
+    const std::vector<double> a = predicted_uptake(theta);
+    double dan = 0.0, a0n = 0.0;
+    for (size_t i = 0; i < ns; ++i) {
+      dan = std::max(dan, std::abs(a[i] - uptake_anchor_a0_[i]));
+      a0n = std::max(a0n, std::abs(uptake_anchor_a0_[i]));
+    }
+    const double e = dan / std::max(a0n, 1e-30);
+    return e * e;
+  }
+
+  // The oracle trust estimate (diagnostic only): the TRUE relative uptake error the
+  // affine model incurs at u. Costs an O(M) cohort solve, so it is never used on the
+  // production mri_uptake path (oracle=false) -- present so subcycle_uptake compiles.
+  double trust_true_error(const std::vector<double>& u) {
+    if constexpr (env_has_split<E>::value) {
+      environment.set_ode_state(u.begin());
+      environment_ptr = &environment;
+      const std::vector<double> at = fast_block_uptake();
+      const size_t ns = static_cast<size_t>(environment.get_soil_number_of_depths());
+      std::vector<double> theta(u.begin(), u.begin() + ns);
+      const std::vector<double> ap = predicted_uptake(theta);
+      double num = 0.0, den = 0.0;
+      for (size_t i = 0; i < ns; ++i) {
+        num = std::max(num, std::abs(ap[i] - at[i]));
+        den = std::max(den, std::abs(at[i]));
+      }
+      return num / std::max(den, 1e-30);
+    } else {
+      return 0.0;
+    }
+  }
+
+  double mri_uptake_tol() const { return control.mri_uptake_tol; }
+  int mri_uptake_nmicro() const { return control.mri_uptake_nmicro; }
+
   // Returns state in structure format as opposed to single 
   // vector as given by ode_state
   Rcpp::List r_get_state() const;
@@ -489,6 +590,13 @@ private:
   // across the run via collect_competition_errors(). Entries start at -Inf and
   // ignore NA contributions, matching apply(., 2, max, na.rm=TRUE) in R.
   std::vector<std::vector<double>> competition_error_by_node;
+
+  // The affine uptake model captured per mri_uptake re-expansion (empty otherwise):
+  // a0 (per soil layer), J (ns*ns row-major, soil-theta space), and the soil theta
+  // it was captured at. See refresh_anchor / predicted_uptake.
+  std::vector<double> uptake_anchor_a0_;
+  std::vector<double> uptake_anchor_jac_;
+  std::vector<double> uptake_anchor_theta_;
 };
 
 template <typename T, typename E>

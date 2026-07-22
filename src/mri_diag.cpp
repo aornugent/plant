@@ -15,6 +15,12 @@ long mri_fast_rate_calls = 0;
 // (rkck, rodas). Lets us compare accepted-step economics across methods and
 // diagnose whether the coupled system is accuracy- or stability-limited.
 long patch_rhs_calls = 0;
+// Expensive coupling snapshots under method="mri_uptake": each Patch::refresh_anchor
+// re-captures a0 = fast_block_uptake() (the O(M) cohort sum) + the uptake Jacobian.
+// This is the scarce resource the uptake arbitrage rations -- comparing it against
+// mri_fast_rate_calls (the cheap frozen-coupling residual evals) measures the
+// realised cohort-sum reduction. Not part of the model.
+long mri_coupling_evals = 0;
 }
 
 // [[Rcpp::export]]
@@ -35,4 +41,14 @@ double patch_rhs_calls_get() {
 // [[Rcpp::export]]
 void patch_rhs_calls_reset() {
   plant::patch_rhs_calls = 0;
+}
+
+// [[Rcpp::export]]
+double mri_coupling_evals_get() {
+  return static_cast<double>(plant::mri_coupling_evals);
+}
+
+// [[Rcpp::export]]
+void mri_coupling_evals_reset() {
+  plant::mri_coupling_evals = 0;
 }

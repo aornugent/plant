@@ -4365,6 +4365,14 @@ patch_rhs_calls_reset <- function() {
     invisible(.Call('_plant_patch_rhs_calls_reset', PACKAGE = 'plant'))
 }
 
+mri_coupling_evals_get <- function() {
+    .Call('_plant_mri_coupling_evals_get', PACKAGE = 'plant')
+}
+
+mri_coupling_evals_reset <- function() {
+    invisible(.Call('_plant_mri_coupling_evals_reset', PACKAGE = 'plant'))
+}
+
 #' Generate a suitable set of default node introduction times,
 #' biased so that introductions are more closely packed at the
 #' beginning of time, become increasingly spread out.

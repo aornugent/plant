@@ -24,8 +24,9 @@ inline odelia::ode::Method scm_ode_method(const Control& control) {
   if (m == "rodas")             return odelia::ode::Method::rodas;
   if (m == "imex")              return odelia::ode::Method::imex;
   if (m == "mri")               return odelia::ode::Method::mri;
+  if (m == "mri_uptake")        return odelia::ode::Method::mri_uptake;
   util::stop("Unknown control$ode_method '" + m +
-             "'; use 'rkck', 'rodas' or 'mri'.");
+             "'; use 'rkck', 'rodas', 'mri' or 'mri_uptake'.");
   return odelia::ode::Method::rkck;  // unreachable; silences the return warning
 }
 

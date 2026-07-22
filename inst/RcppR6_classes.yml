@@ -329,6 +329,8 @@ Control:
     - ci_niter: double
     - newton_collar_solve: bool
     - compute_uptake_jacobian: bool
+    - mri_uptake_tol: double
+    - mri_uptake_nmicro: int
 
 OdeControl:
   name_cpp: "odelia::ode::OdeControl"

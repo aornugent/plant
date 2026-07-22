@@ -72,6 +72,12 @@ Control::Control() {
   ci_niter = 1e3;
   newton_collar_solve = false;
   compute_uptake_jacobian = false;
+
+  // method="mri_uptake" trust threshold + soil micro-steps per macro leg (see
+  // control.h). Only used on the mri_uptake path; the 1e-2 / 40 defaults match the
+  // Slice 3b-ii operating point.
+  mri_uptake_tol = 1e-2;
+  mri_uptake_nmicro = 40;
 }
 
 }

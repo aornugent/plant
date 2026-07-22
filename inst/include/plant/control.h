@@ -135,6 +135,14 @@ struct Control {
   // the stand da/du for the multirate macro-step refresh (T6 Slice 3b). Default
   // false: the fill is skipped and the field stays empty -> bit-identical.
   bool   compute_uptake_jacobian;
+
+  // method="mri_uptake" (T6 Slice 3b-iii): the trust-monitor threshold on the
+  // affine coupling's estimated relative error (re-capture the O(M) cohort sum when
+  // exceeded) and the number of fixed soil micro-steps per macro leg. Only consulted
+  // on the mri_uptake path; requires compute_uptake_jacobian = true and
+  // n_collocation_nodes = 0. Defaults 1e-2 / 40 match the Slice 3b-ii operating point.
+  double mri_uptake_tol;
+  int    mri_uptake_nmicro;
 };
 
 inline odelia::ode::OdeControl make_ode_control(const Control& control) {
