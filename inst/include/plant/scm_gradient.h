@@ -118,12 +118,16 @@ scm_jacobian(Parameters<StratD, EnvD> p, Control control,
   // stderr, no effect on the returned value.
   if (std::getenv("PLANT_TAPE_STATS") && active.tape) {
     std::fprintf(stderr,
-                 "TAPE_STATS steps=%zu node_ode_final=%d mem_bytes=%zu ops=%zu stmts=%zu\n",
+                 "TAPE_STATS steps=%zu node_ode_final=%d mem_bytes=%zu ops=%zu stmts=%zu "
+                 "deriv=%zu chkpt=%zu maxderiv=%zu\n",
                  schedule.size(),
                  active.get_system_ref().node_ode_size(),
                  active.tape->getMemory(),
                  static_cast<std::size_t>(active.tape->getNumOperations()),
-                 static_cast<std::size_t>(active.tape->getNumStatements()));
+                 static_cast<std::size_t>(active.tape->getNumStatements()),
+                 static_cast<std::size_t>(active.tape->diagNumDerivatives()),
+                 static_cast<std::size_t>(active.tape->diagNumCheckpoints()),
+                 static_cast<std::size_t>(active.tape->diagMaxDerivative()));
     std::fflush(stderr);
   }
 
