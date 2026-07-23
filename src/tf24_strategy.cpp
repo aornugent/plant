@@ -171,6 +171,30 @@ S TF24_Strategy_<S>::mass_above_ground(S mass_leaf, S mass_bark,
   return mass_leaf + mass_bark + mass_sapwood + mass_heartwood;
 }
 
+// Census weights (mirror FF16::census_*), reading TF24's runtime aux/state
+// slots. area_leaf is the competition-effect aux; heartwood mass/area are ODE
+// states.
+template <class S>
+S TF24_Strategy_<S>::census_leaf_area(const Internals_<S>& vars) const {
+  return vars.aux(aux_idx_competition_effect);  // = area_leaf(height)
+}
+template <class S>
+S TF24_Strategy_<S>::census_mass(const Internals_<S>& vars) const {
+  const S height        = vars.state(HEIGHT_INDEX);
+  const S area_leaf_     = vars.aux(aux_idx_competition_effect);
+  const S mass_leaf_     = mass_leaf(area_leaf_);
+  const S mass_sapwood_  = mass_sapwood(area_sapwood(area_leaf_), height);
+  const S mass_bark_     = mass_bark(area_bark(area_leaf_), height);
+  const S mass_heartwood_ = vars.state(state_idx_mass_heartwood);
+  return mass_above_ground(mass_leaf_, mass_bark_, mass_sapwood_, mass_heartwood_);
+}
+template <class S>
+S TF24_Strategy_<S>::census_basal_area(const Internals_<S>& vars) const {
+  const S area_leaf_      = vars.aux(aux_idx_competition_effect);
+  const S area_heartwood_ = vars.state(state_idx_area_heartwood);
+  return area_stem(area_bark(area_leaf_), area_sapwood(area_leaf_), area_heartwood_);
+}
+
 // for updating auxiliary state
 template <class S>
 void TF24_Strategy_<S>::update_dependent_aux(const int index, Internals_<S>& vars) {
@@ -550,6 +574,17 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
       std::vector<std::vector<double>> uptake_partials(mlayer,
                                                        std::vector<double>(nin, 0.0));
       if (nin > 0) {
+        // Snapshot the leaf's converged operating point (set by solve_leaf +
+        // crown integration above) and restore it after the assembly. The
+        // assembly re-evaluates the leaf outputs off the optimum -- its inner
+        // find_psi_stem_from_psi_root / E_column / psi_stem_to_ci mutate leaf
+        // scratch (E_up_, root_collar_psi_, ci_, the vuln-integral cache) -- and
+        // those mutations would otherwise leak into the aux E_up_ read after this
+        // call and into the next step's solve, shifting the recorded (active)
+        // trajectory off the double one (a compounding, trait-independent drift
+        // that tripped scm_jacobian's value-reproduction check). A whole-leaf
+        // save/restore is robust to which members the assembly happens to touch.
+        const Leaf leaf_saved = leaf;
         // Local tape: exact reverse over the assembly, one recording, one adjoint
         // sweep per output (profit + each layer's uptake). The run tape must be
         // stood down while the local tape is active (setActive throws otherwise);
@@ -613,6 +648,7 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         }
         xad::Tape<double>::deactivateAll();
         run_tape->activate();
+        leaf = leaf_saved;  // discard the assembly's scratch mutations
       }
 
       // TF24f (tracked collar-psi): the leaf runs OFF the optimum, so

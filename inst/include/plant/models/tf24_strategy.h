@@ -216,6 +216,15 @@ public:
   S mass_above_ground(S mass_leaf, S mass_bark,
                       S mass_sapwood, S mass_heartwood) const;
 
+  // Standing-stock census weights Psi (mirrors FF16), reduced by
+  // Species::census as Sum_i n_i * Psi(state_i): leaf area (-> LAI),
+  // above-ground biomass, and stem basal area. Each carries S so a trait
+  // re-weights the census on a gradient pass. Unlike FF16 the aux/state slots
+  // are runtime indices (aux_idx_competition_effect / state_idx_*).
+  S census_leaf_area(const Internals_<S>& vars) const;
+  S census_mass(const Internals_<S>& vars) const;
+  S census_basal_area(const Internals_<S>& vars) const;
+
   void compute_rates(const environment_type& environment,
                 Internals_<S>& vars);
 
