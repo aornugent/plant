@@ -4,8 +4,30 @@
 #include <odelia/implicit_node.hpp> // odelia::lift_root (birth-height IFT lift)
 #include <limits> // std::numeric_limits (height_seed bounds)
 #include <cmath>  // std::abs (FD step)
+#include <chrono>  // diagnostic leaf-snapshot timing (PLANT_TAPE_STATS)
+#include <cstdio>
+#include <cstdlib>
 
 namespace plant {
+
+// Diagnostic: total wall time and call count spent copying the whole Leaf in the
+// active seam's snapshot/restore (net_mass_production_dt). Env-gated print on exit
+// so the per-step copy cost is a measurement, not an estimate. Zero cost unless
+// PLANT_TAPE_STATS is set (the counters still tick but the branch is cheap).
+namespace {
+struct LeafSnapStats {
+  double seconds = 0.0;
+  long   calls   = 0;
+  std::size_t leaf_bytes = 0;
+  ~LeafSnapStats() {
+    if (std::getenv("PLANT_TAPE_STATS") && calls > 0)
+      std::fprintf(stderr,
+                   "LEAF_SNAP calls=%ld total_s=%.4f sizeof_Leaf=%zu\n",
+                   calls, seconds, leaf_bytes);
+  }
+};
+LeafSnapStats g_leaf_snap;
+}
 
 // Full AD strip to double at the Leaf boundary (the Leaf is never templated on
 // S); a no-op on the double path.
@@ -584,7 +606,12 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         // trajectory off the double one (a compounding, trait-independent drift
         // that tripped scm_jacobian's value-reproduction check). A whole-leaf
         // save/restore is robust to which members the assembly happens to touch.
+        const auto t_snap0 = std::chrono::steady_clock::now();
         const Leaf leaf_saved = leaf;
+        g_leaf_snap.seconds += std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - t_snap0).count();
+        g_leaf_snap.calls += 1;
+        g_leaf_snap.leaf_bytes = sizeof(Leaf);
         // Local tape: exact reverse over the assembly, one recording, one adjoint
         // sweep per output (profit + each layer's uptake). The run tape must be
         // stood down while the local tape is active (setActive throws otherwise);
@@ -648,7 +675,10 @@ S TF24_Strategy_<S>::net_mass_production_dt(const environment_type& environment,
         }
         xad::Tape<double>::deactivateAll();
         run_tape->activate();
+        const auto t_snap1 = std::chrono::steady_clock::now();
         leaf = leaf_saved;  // discard the assembly's scratch mutations
+        g_leaf_snap.seconds += std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - t_snap1).count();
       }
 
       // TF24f (tracked collar-psi): the leaf runs OFF the optimum, so

@@ -25,6 +25,8 @@
 #include <odelia/gradient.hpp>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -108,6 +110,22 @@ scm_jacobian(Parameters<StratD, EnvD> p, Control control,
   auto active = scm.template rebind_from<RevS>();
   active.set_schedule(schedule);
   auto out = odelia::ode::compute_jacobian(active, targets, functional);
+
+  // Diagnostic (PLANT_TAPE_STATS): the reverse tape is still populated here (the
+  // driver's guard deactivates but does not free it). Report its peak memory and
+  // operation count alongside the run shape -- steps (L1 grid) and final node ODE
+  // width -- so the OOM growth curve is a measurement, not a guess. Env-gated,
+  // stderr, no effect on the returned value.
+  if (std::getenv("PLANT_TAPE_STATS") && active.tape) {
+    std::fprintf(stderr,
+                 "TAPE_STATS steps=%zu node_ode_final=%d mem_bytes=%zu ops=%zu stmts=%zu\n",
+                 schedule.size(),
+                 active.get_system_ref().node_ode_size(),
+                 active.tape->getMemory(),
+                 static_cast<std::size_t>(active.tape->getNumOperations()),
+                 static_cast<std::size_t>(active.tape->getNumStatements()));
+    std::fflush(stderr);
+  }
 
   // R5 as structure, not convention: the active value must reproduce the double
   // reference. It does (bit-identically) when every configuration member crosses
