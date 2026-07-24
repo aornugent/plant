@@ -892,11 +892,11 @@ double Leaf::dprofit_droot_collar_psi(double opt_root_psi) {
   // A'(ci) and C'(psi_stem) via forward-mode AD of the analytic algebra.
   AD ci_ad = ci;            xad::derivative(ci_ad) = 1.0;
   const double A_prime = xad::derivative(
-      leaf_output::assim_colimited<AD>(ci_ad, AD(vcmax_), AD(electron_transport_),
+      Leaf::assim_colimited<AD>(ci_ad, AD(vcmax_), AD(electron_transport_),
                                        gstar_Pa, km_, AD(R_d_), curv_fact_colim));
   AD ps_ad = psi_stem;      xad::derivative(ps_ad) = 1.0;
   const double C_prime = xad::derivative(
-      leaf_output::hydraulic_cost_TF<AD>(ps_ad, AD(g1_TF24), AD(beta2), AD(b), AD(c)));
+      Leaf::hydraulic_cost_TF<AD>(ps_ad, AD(g1_TF24), AD(beta2), AD(b), AD(c)));
 
   // Stomatal-conductance supply coefficient gc and its partials. gc =
   // gc_const * transpiration(psi_stem, psi); transpiration is conductance_max *
@@ -1023,27 +1023,17 @@ void Leaf::dsoil_consumption_dpsi_collar_perlayer(
   }
 }
 
-double Leaf::arrh_curve(double Ea, double ref_value, double leaf_temp) const {
-
-
-  return ref_value*exp(Ea*((leaf_temp+C_to_K) - (25 + C_to_K))/((25 + C_to_K)*R*(leaf_temp+C_to_K)));
-}
-
-double Leaf::peak_arrh_curve(double Ea, double ref_value, double leaf_temp, double H_d, double d_S) const {
-  double arrh = arrh_curve(Ea, ref_value, leaf_temp);
-  double arg2 = 1 + exp((d_S*(25 + C_to_K) - H_d)/(R*(25 + C_to_K)));
-  double arg3 = 1 + exp((d_S*(leaf_temp + C_to_K) - H_d)/(R*(leaf_temp + C_to_K)));
-
-  return arrh * arg2/arg3;
-}
+// arrh_curve / peak_arrh_curve are now scalar-generic static member templates
+// (leaf_model.h); the R-exported entry points and set_physiology resolve to them
+// at T=double. No separate double body -- the formula lives once.
 
 
 // transpiration supply functions
 
 // returns proportion of conductance taken from hydraulic vulnerability curve (unitless)
 double Leaf::proportion_of_conductivity(double psi) const {
-
-  return exp(-pow((psi / b), c));
+  // delegate to the single templated closed form (bit-identical: same expression)
+  return proportion_of_conductivity<double>(psi, b, c);
 }
 
 // Build the knot grid {0, step, 2*step, .., <= psi_max} (psi_max = the potential
@@ -1160,8 +1150,10 @@ double Leaf::transpiration_to_psi_stem(double transpiration_, double psi_upstrea
 
 // returns stomatal conductance to CO2, mol C m^-2 LA s^-1
 double Leaf:: stom_cond_CO2(double psi_stem, double psi_upstream) {
-  double transpiration_ = transpiration(psi_stem, psi_upstream);
-  return atm_kpa_ * transpiration_ * kg_to_mol_h2o / atm_vpd_ / H2O_CO2_stom_diff_ratio;
+  // delegate to the single templated closed form; the double supply comes from
+  // the spline transpiration (bit-identical: same expression, same inputs).
+  return stom_cond_CO2<double>(transpiration(psi_stem, psi_upstream), atm_kpa_,
+                               atm_vpd_);
 }
 
 
@@ -1169,14 +1161,8 @@ double Leaf:: stom_cond_CO2(double psi_stem, double psi_upstream) {
 //ensure that units of PPFD_ actually correspond to something real.
 // electron trnansport rate based on light availability and vcmax assuming co-limitation hypothesis
 double Leaf::electron_transport() {
-
-
-
-  double electron_transport_ = (a * PPFD_ + jmax_ - sqrt(pow(a * PPFD_ + jmax_, 2) - 
-  4 * curv_fact_elec_trans * a * PPFD_ * jmax_)) / (2 * curv_fact_elec_trans); // check brackets are correct
-
-  // double electron_transport_ = (4*a*PPFD_)/sqrt(pow(4*a*PPFD_/jmax_,2)+ 1);
-    return electron_transport_;           
+  // delegate to the single templated closed form (bit-identical arithmetic)
+  return electron_transport<double>(a, PPFD_, jmax_, curv_fact_elec_trans);
 }
 
 //calculate the rubisco-limited assimilation rate, returns umol m^-2 s^-1
@@ -1196,15 +1182,12 @@ double Leaf::assim_electron_limited(double ci_) {
 
 // returns co-limited assimilation umol m^-2 s^-1
 double Leaf::assim_colimited(double ci_) {
-  
-  double assim_rubisco_limited_ = assim_rubisco_limited(ci_) ;
-  double assim_electron_limited_ = assim_electron_limited(ci_);
-
-  // no dark respiration included at the moment
-  return (assim_rubisco_limited_ + assim_electron_limited_ - sqrt(pow(assim_rubisco_limited_ + assim_electron_limited_, 2) - 4 * curv_fact_colim * assim_rubisco_limited_ * assim_electron_limited_)) /
-             (2 * curv_fact_colim)- R_d_;
-
-
+  // delegate to the single templated closed form. et carries the cached
+  // electron_transport_; gstar_Pa is gamma_*umol_per_mol_to_Pa (the CO2
+  // compensation point in Pa).
+  return assim_colimited<double>(ci_, vcmax_, electron_transport_,
+                                 gamma_ * umol_per_mol_to_Pa, km_, R_d_,
+                                 curv_fact_colim);
 }
 
 
@@ -1303,10 +1286,10 @@ double Leaf::hydraulic_cost_Sperry(double psi_stem, double psi_upstream) {
 }
 
 double Leaf::hydraulic_cost_TF(double psi_stem) {
-
-  hydraulic_cost_ = g1_TF24 * pow((1 - proportion_of_conductivity(psi_stem)), beta2);
-
-return hydraulic_cost_;
+  // delegate to the single templated closed form (bit-identical: expands to
+  // g1 * pow(1 - exp(-(psi_stem/b)^c), beta2), the same as the double body).
+  hydraulic_cost_ = hydraulic_cost_TF<double>(psi_stem, g1_TF24, beta2, b, c);
+  return hydraulic_cost_;
 }
 
 // Profit functions

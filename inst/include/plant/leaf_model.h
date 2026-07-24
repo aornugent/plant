@@ -87,191 +87,16 @@ const double gravity_head = 9.8e-3; // MPa / m
 // number of intergration steps
 const double n = 5;
 
-// The leaf outputs as scalar-generic closed forms of the converged operating
-// point (ci, psi_stem, root-collar potential) and the active parameters/soil
-// state. The Leaf solver stays double; these carry the parameter and soil
-// derivatives on the active pass, evaluated at the roots the double solve found.
-// The double value path (Leaf's own methods and splines) is unchanged; at double
-// these reproduce it. The four hydraulic splines collapse here to the exact
-// Weibull antiderivative (odelia::incomplete_gamma): the pointwise conductivity
-// is exp(-(psi/b)^c) and its running integral is (b/c)*gamma(1/c,(psi/b)^c).
-namespace leaf_output {
-
-using odelia::util::to_passive;
-
-// Arrhenius temperature scaling. ref_value is a seeded rate at 25C (vcmax_25,
-// jmax_25); leaf_temp is the passive environment.
-template <class T>
-T arrh_curve(double Ea, T ref_value, double leaf_temp) {
-  using std::exp;
-  return ref_value * exp(Ea * ((leaf_temp + C_to_K) - (25 + C_to_K)) /
-                         ((25 + C_to_K) * R * (leaf_temp + C_to_K)));
-}
-
-template <class T>
-T peak_arrh_curve(double Ea, T ref_value, double leaf_temp, double H_d,
-                  double d_S) {
-  using std::exp;
-  T arrh = arrh_curve(Ea, ref_value, leaf_temp);
-  double arg2 = 1 + exp((d_S * (25 + C_to_K) - H_d) / (R * (25 + C_to_K)));
-  double arg3 =
-      1 + exp((d_S * (leaf_temp + C_to_K) - H_d) / (R * (leaf_temp + C_to_K)));
-  return arrh * arg2 / arg3;
-}
-
-// Electron transport rate under co-limitation; jmax and the quantum yield a are
-// seeded, PPFD and the curvature are passive.
-template <class T>
-T electron_transport(T a, T PPFD, T jmax, T curv) {
-  using std::sqrt;
-  T x = a * PPFD + jmax;
-  return (x - sqrt(x * x - 4.0 * curv * a * PPFD * jmax)) / (2.0 * curv);
-}
-
-// Co-limited assimilation: the quadratic mean of the Rubisco- and electron-
-// transport-limited rates, minus dark respiration. gstar_Pa and km are passive
-// (temperature/O2 only); vcmax, et and R_d carry the seeded rates.
-template <class T>
-T assim_colimited(T ci, T vcmax, T et, double gstar_Pa, double km, T R_d,
-                  T curv) {
-  using std::sqrt;
-  T ar = vcmax * (ci - gstar_Pa) / (ci + km);
-  T ae = et / 4.0 * (ci - gstar_Pa) / (ci + 2.0 * gstar_Pa);
-  T s = ar + ae;
-  return (s - sqrt(s * s - 4.0 * curv * ar * ae)) / (2.0 * curv) - R_d;
-}
-
-// Fractional xylem/root conductivity at a potential magnitude m >= 0.
-template <class T>
-T proportion_of_conductivity(T m, T b, T c) {
-  using std::exp;
-  using std::pow;
-  return exp(-pow(m / b, c));
-}
-
-// Cumulative vulnerability integral G(m) = int_0^m exp(-(s/b)^c) ds, the exact
-// antiderivative the transpiration and root-vulnerability splines interpolate.
-template <class T>
-T cumulative_vuln(T m, T b, T c) {
-  using std::pow;
-  if (to_passive(m) <= 0.0) return T(0.0);
-  return (b / c) * odelia::incomplete_gamma<T>(T(1.0) / c, pow(m / b, c));
-}
-
-// Supply-side transpiration between two potential magnitudes, k_max * (G(stem) -
-// G(upstream)); the difference of two cumulative-vulnerability evals.
-template <class T>
-T transpiration(T psi_stem, T psi_upstream, T k_max, T b, T c) {
-  return k_max *
-         (cumulative_vuln(psi_stem, b, c) - cumulative_vuln(psi_upstream, b, c));
-}
-
-// Stomatal conductance to CO2 from the supply-side transpiration.
-template <class T>
-T stom_cond_CO2(T transpiration_, double atm_kpa, double atm_vpd) {
-  return atm_kpa * transpiration_ * kg_to_mol_h2o / atm_vpd /
-         H2O_CO2_stom_diff_ratio;
-}
-
-// TF hydraulic cost g1 * (1 - f(psi_stem))^beta2, with f the xylem conductivity.
-template <class T>
-T hydraulic_cost_TF(T psi_stem, T g1, T beta2, T b, T c) {
-  using std::exp;
-  using std::pow;
-  return g1 * pow(1.0 - exp(-pow(psi_stem / b, c)), beta2);
-}
-
-// Soil -> root-collar uptake, mirroring Leaf::E_from_Soil_to_Root_Collar layer
-// by layer. The per-layer resistances (r_R_H_min, r_R_V_sum) and gravitational
-// head are set_physiology precompute passed in; psi_soil (signed, <= 0) and P_x_r
-// (signed collar potential) carry the active scalar, and the mean fractional
-// conductivity over each layer's potential interval is the exact Weibull integral
-// (root_b/root_c are fixed, not seeded). Writes per-layer uptake (mol) into
-// consumption and returns E_up_ (kg). Branch selection is a value decision
-// (to_passive); the selected operand carries the derivative.
-template <class T>
-T soil_uptake(const std::vector<T>& psi_soil, T P_x_r, T area_leaf,
-              const std::vector<T>& r_R_H_min,
-              const std::vector<T>& r_R_V_sum,
-              const std::vector<double>& grav_head_z, double root_b,
-              double root_c, std::vector<T>& consumption) {
-  const std::size_t nlayer = r_R_H_min.size();
-  const T inv_area_leaf = T(1.0) / area_leaf;
-  const T rb(root_b), rc(root_c);  // root Weibull shape (fixed, not seeded)
-  T E_up(0.0);
-  for (std::size_t i = 0; i < nlayer; ++i) {
-    const bool soil_lt_collar =
-        to_passive(psi_soil[i]) < to_passive(P_x_r);
-    T P_src_min = soil_lt_collar ? psi_soil[i] : P_x_r;
-    T P_src_max = soil_lt_collar ? P_x_r : psi_soil[i];
-
-    T E_i(0.0);
-    if (std::abs(to_passive(P_x_r) - to_passive(psi_soil[i])) < 1e-8) {
-      // Equal potentials: uptake balances the gravitational head only.
-      T f_ri = proportion_of_conductivity<T>(-P_src_min, rb, rc);
-      T r_R = r_R_H_min[i] / f_ri + r_R_V_sum[i];
-      E_i = -grav_head_z[i] * inv_area_leaf / r_R;
-    } else if (std::abs((to_passive(psi_soil[i]) - to_passive(P_x_r)) -
-                        grav_head_z[i]) < 1e-8) {
-      // Gradient exactly balances gravity: no uptake.
-      E_i = T(0.0);
-    } else {
-      // Mean fractional conductivity over [P_src_min, P_src_max], split at 0
-      // (above-atmospheric potentials have conductivity 1).
-      T hi_neg = (to_passive(P_src_max) < 0.0) ? P_src_max : T(0.0);
-      T lo_pos = (to_passive(P_src_min) > 0.0) ? P_src_min : T(0.0);
-      T integral(0.0);
-      if (to_passive(hi_neg) > to_passive(P_src_min)) {
-        integral += cumulative_vuln<T>(-P_src_min, rb, rc) -
-                    cumulative_vuln<T>(-hi_neg, rb, rc);
-      }
-      if (to_passive(P_src_max) > to_passive(lo_pos)) {
-        integral += (P_src_max - lo_pos);
-      }
-      T span = P_src_max - P_src_min;
-      T r_R = r_R_H_min[i] * span / integral + r_R_V_sum[i];
-      E_i = (psi_soil[i] - P_x_r - grav_head_z[i]) * inv_area_leaf / r_R;
-    }
-    consumption[i] = E_i;
-    E_up += E_i;
-  }
-  return E_up * kg_per_mol_h2o;
-}
-
-// The stomatal internal CO2 concentration ci, defined by the supply = demand
-// balance A(ci)*umol_to_mol = gc*(ca - ci)*inv_atm and solved off the tape by
-// Leaf::psi_stem_to_ci. Returned as an implicit_value node so its derivative
-// with respect to the active photosynthesis inputs (through A) and the active
-// stomatal supply gc (through psi_stem/collar and the hydraulic params) flows by
-// the implicit function theorem, without recording the root-find. The
-// denominator dg/dci = A'(ci)*umol_to_mol + gc*inv_atm is strictly positive (A
-// rises with ci, gc > 0), so this node is well-posed -- it is NOT the fold
-// (that is the collar optimum). gstar_Pa, km, curv, ca, atm_kpa are passive.
-template <class T>
-T ci_node(double ci_star, T vcmax, T et, double gstar_Pa, double km, T R_d,
-          T curv, T gc, double ca, double atm_kpa) {
-  const double inv_atm = 1.0 / (atm_kpa * kPa_to_Pa);
-  return odelia::implicit_value<T>(ci_star, [&](T ci) {
-    return assim_colimited(ci, vcmax, et, gstar_Pa, km, R_d, curv) * umol_to_mol -
-           gc * (ca - ci) * inv_atm;
-  });
-}
-
-// The stem water potential psi_stem defined by the supply balance
-// transpiration(psi_stem, psi_up) = E_up (the flux the soil delivers to the
-// collar), which Leaf inverts with the spline psi_from_transpiration. Returned
-// as an implicit_value node so its derivative through the active soil uptake
-// E_up, the collar magnitude psi_up, and the hydraulic params (k_max, b, c)
-// flows by the implicit function theorem -- no S inverse spline needed. The
-// denominator dF/dpsi_stem = k_max * exp(-(psi_stem/b)^c) > 0 is sign-definite.
-template <class T>
-T psistem_node(double psi_stem_star, T psi_up, T E_up, T k_max, T b, T c) {
-  return odelia::implicit_value<T>(psi_stem_star, [&](T psi_stem) {
-    return transpiration(psi_stem, psi_up, k_max, b, c) - E_up;
-  });
-}
-
-}  // namespace leaf_output
+// The leaf output physiology is written once, as scalar-generic closed-form
+// static member templates of Leaf (definitions after the class). The Leaf solver
+// stays double; the double value path (the instance methods below, and the
+// R-exported entry points) delegates to these at T=double, and the reverse-mode
+// leaf assembly (TF24_Strategy::assemble_leaf_from) instantiates them at the
+// active scalar so the parameter/soil/self-shading derivatives flow through the
+// same formulas. The one exception is the hydraulic supply: the double path keeps
+// the transpiration/proportion_of_conductivity splines for speed, while the
+// template carries the exact Weibull antiderivative (odelia::incomplete_gamma):
+// pointwise conductivity exp(-(psi/b)^c), running integral (b/c)*gamma(1/c,(psi/b)^c).
 
 class Leaf {
 public:
@@ -545,8 +370,36 @@ public:
   double E_column(double x, const std::vector<double>& psi_soil, double psi_leaf);
   double E_column_zero(double x, const std::vector<double>& psi_soil);
   
-  double arrh_curve(double Ea, double ref_value, double leaf_temp) const;
-  double peak_arrh_curve(double Ea, double ref_value, double leaf_temp, double H_d, double d_S) const;
+  // --- Scalar-generic leaf output physiology (single source; definitions after
+  // the class). The instance methods below delegate here at T=double; the leaf
+  // assembly instantiates them at the active scalar. arrh_curve/peak_arrh_curve
+  // have no double instance twin -- the R-exported entry points resolve to these
+  // static templates at T=double. ---
+  template <class T> static T arrh_curve(double Ea, T ref_value, double leaf_temp);
+  template <class T> static T peak_arrh_curve(double Ea, T ref_value,
+                                              double leaf_temp, double H_d, double d_S);
+  template <class T> static T electron_transport(T a, T PPFD, T jmax, T curv);
+  template <class T> static T assim_colimited(T ci, T vcmax, T et, double gstar_Pa,
+                                              double km, T R_d, T curv);
+  template <class T> static T proportion_of_conductivity(T m, T b, T c);
+  template <class T> static T cumulative_vuln(T m, T b, T c);
+  template <class T> static T transpiration(T psi_stem, T psi_upstream, T k_max,
+                                            T b, T c);
+  template <class T> static T stom_cond_CO2(T transpiration_, double atm_kpa,
+                                            double atm_vpd);
+  template <class T> static T hydraulic_cost_TF(T psi_stem, T g1, T beta2, T b, T c);
+  template <class T> static T soil_uptake(const std::vector<T>& psi_soil, T P_x_r,
+                                          T area_leaf,
+                                          const std::vector<T>& r_R_H_min,
+                                          const std::vector<T>& r_R_V_sum,
+                                          const std::vector<double>& grav_head_z,
+                                          double root_b, double root_c,
+                                          std::vector<T>& consumption);
+  template <class T> static T ci_node(double ci_star, T vcmax, T et,
+                                      double gstar_Pa, double km, T R_d, T curv,
+                                      T gc, double ca, double atm_kpa);
+  template <class T> static T psistem_node(double psi_stem_star, T psi_up, T E_up,
+                                           T k_max, T b, T c);
 
   // transpiration functions
 
@@ -589,5 +442,188 @@ public:
   void optimise_psi_stem_TF();
 
 };
+
+// ---------------------------------------------------------------------------
+// Scalar-generic leaf output physiology (single source). See the block above
+// class Leaf. Definitions are out-of-line templates so the class declaration
+// stays lean; internal cross-calls resolve to these static members.
+// ---------------------------------------------------------------------------
+using odelia::util::to_passive;
+
+// Arrhenius temperature scaling. ref_value is a seeded rate at 25C (vcmax_25,
+// jmax_25); leaf_temp is the passive environment.
+template <class T>
+T Leaf::arrh_curve(double Ea, T ref_value, double leaf_temp) {
+  using std::exp;
+  return ref_value * exp(Ea * ((leaf_temp + C_to_K) - (25 + C_to_K)) /
+                         ((25 + C_to_K) * R * (leaf_temp + C_to_K)));
+}
+
+template <class T>
+T Leaf::peak_arrh_curve(double Ea, T ref_value, double leaf_temp, double H_d,
+                        double d_S) {
+  using std::exp;
+  T arrh = arrh_curve(Ea, ref_value, leaf_temp);
+  double arg2 = 1 + exp((d_S * (25 + C_to_K) - H_d) / (R * (25 + C_to_K)));
+  double arg3 =
+      1 + exp((d_S * (leaf_temp + C_to_K) - H_d) / (R * (leaf_temp + C_to_K)));
+  return arrh * arg2 / arg3;
+}
+
+// Electron transport rate under co-limitation; jmax and the quantum yield a are
+// seeded, PPFD and the curvature are passive. pow(x,2) (not x*x) to reproduce
+// the double value path bit-for-bit.
+template <class T>
+T Leaf::electron_transport(T a, T PPFD, T jmax, T curv) {
+  using std::sqrt;
+  using std::pow;
+  T x = a * PPFD + jmax;
+  return (x - sqrt(pow(x, 2) - 4 * curv * a * PPFD * jmax)) / (2 * curv);
+}
+
+// Co-limited assimilation: the quadratic mean of the Rubisco- and electron-
+// transport-limited rates, minus dark respiration. gstar_Pa and km are passive
+// (temperature/O2 only); vcmax, et and R_d carry the seeded rates. pow(s,2) (not
+// s*s) reproduces the double value path bit-for-bit.
+template <class T>
+T Leaf::assim_colimited(T ci, T vcmax, T et, double gstar_Pa, double km, T R_d,
+                        T curv) {
+  using std::sqrt;
+  using std::pow;
+  T ar = vcmax * (ci - gstar_Pa) / (ci + km);
+  T ae = et / 4 * (ci - gstar_Pa) / (ci + 2 * gstar_Pa);
+  T s = ar + ae;
+  return (s - sqrt(pow(s, 2) - 4 * curv * ar * ae)) / (2 * curv) - R_d;
+}
+
+// Fractional xylem/root conductivity at a potential magnitude m >= 0.
+template <class T>
+T Leaf::proportion_of_conductivity(T m, T b, T c) {
+  using std::exp;
+  using std::pow;
+  return exp(-pow(m / b, c));
+}
+
+// Cumulative vulnerability integral G(m) = int_0^m exp(-(s/b)^c) ds, the exact
+// antiderivative the transpiration and root-vulnerability splines interpolate.
+template <class T>
+T Leaf::cumulative_vuln(T m, T b, T c) {
+  using std::pow;
+  if (to_passive(m) <= 0.0) return T(0.0);
+  return (b / c) * odelia::incomplete_gamma<T>(T(1.0) / c, pow(m / b, c));
+}
+
+// Supply-side transpiration between two potential magnitudes, k_max * (G(stem) -
+// G(upstream)); the difference of two cumulative-vulnerability evals.
+template <class T>
+T Leaf::transpiration(T psi_stem, T psi_upstream, T k_max, T b, T c) {
+  return k_max *
+         (cumulative_vuln(psi_stem, b, c) - cumulative_vuln(psi_upstream, b, c));
+}
+
+// Stomatal conductance to CO2 from the supply-side transpiration.
+template <class T>
+T Leaf::stom_cond_CO2(T transpiration_, double atm_kpa, double atm_vpd) {
+  return atm_kpa * transpiration_ * kg_to_mol_h2o / atm_vpd /
+         H2O_CO2_stom_diff_ratio;
+}
+
+// TF hydraulic cost g1 * (1 - f(psi_stem))^beta2, with f the xylem conductivity.
+template <class T>
+T Leaf::hydraulic_cost_TF(T psi_stem, T g1, T beta2, T b, T c) {
+  using std::pow;
+  return g1 * pow(1 - proportion_of_conductivity(psi_stem, b, c), beta2);
+}
+
+// Soil -> root-collar uptake, mirroring Leaf::E_from_Soil_to_Root_Collar layer
+// by layer. The per-layer resistances (r_R_H_min, r_R_V_sum) and gravitational
+// head are set_physiology precompute passed in; psi_soil (signed, <= 0) and P_x_r
+// (signed collar potential) carry the active scalar, and the mean fractional
+// conductivity over each layer's potential interval is the exact Weibull integral
+// (root_b/root_c are fixed, not seeded). Writes per-layer uptake (mol) into
+// consumption and returns E_up_ (kg). Branch selection is a value decision
+// (to_passive); the selected operand carries the derivative.
+template <class T>
+T Leaf::soil_uptake(const std::vector<T>& psi_soil, T P_x_r, T area_leaf,
+                    const std::vector<T>& r_R_H_min,
+                    const std::vector<T>& r_R_V_sum,
+                    const std::vector<double>& grav_head_z, double root_b,
+                    double root_c, std::vector<T>& consumption) {
+  const std::size_t nlayer = r_R_H_min.size();
+  const T inv_area_leaf = T(1.0) / area_leaf;
+  const T rb(root_b), rc(root_c);  // root Weibull shape (fixed, not seeded)
+  T E_up(0.0);
+  for (std::size_t i = 0; i < nlayer; ++i) {
+    const bool soil_lt_collar =
+        to_passive(psi_soil[i]) < to_passive(P_x_r);
+    T P_src_min = soil_lt_collar ? psi_soil[i] : P_x_r;
+    T P_src_max = soil_lt_collar ? P_x_r : psi_soil[i];
+
+    T E_i(0.0);
+    if (std::abs(to_passive(P_x_r) - to_passive(psi_soil[i])) < 1e-8) {
+      // Equal potentials: uptake balances the gravitational head only.
+      T f_ri = proportion_of_conductivity<T>(-P_src_min, rb, rc);
+      T r_R = r_R_H_min[i] / f_ri + r_R_V_sum[i];
+      E_i = -grav_head_z[i] * inv_area_leaf / r_R;
+    } else if (std::abs((to_passive(psi_soil[i]) - to_passive(P_x_r)) -
+                        grav_head_z[i]) < 1e-8) {
+      // Gradient exactly balances gravity: no uptake.
+      E_i = T(0.0);
+    } else {
+      // Mean fractional conductivity over [P_src_min, P_src_max], split at 0
+      // (above-atmospheric potentials have conductivity 1).
+      T hi_neg = (to_passive(P_src_max) < 0.0) ? P_src_max : T(0.0);
+      T lo_pos = (to_passive(P_src_min) > 0.0) ? P_src_min : T(0.0);
+      T integral(0.0);
+      if (to_passive(hi_neg) > to_passive(P_src_min)) {
+        integral += cumulative_vuln<T>(-P_src_min, rb, rc) -
+                    cumulative_vuln<T>(-hi_neg, rb, rc);
+      }
+      if (to_passive(P_src_max) > to_passive(lo_pos)) {
+        integral += (P_src_max - lo_pos);
+      }
+      T span = P_src_max - P_src_min;
+      T r_R = r_R_H_min[i] * span / integral + r_R_V_sum[i];
+      E_i = (psi_soil[i] - P_x_r - grav_head_z[i]) * inv_area_leaf / r_R;
+    }
+    consumption[i] = E_i;
+    E_up += E_i;
+  }
+  return E_up * kg_per_mol_h2o;
+}
+
+// The stomatal internal CO2 concentration ci, defined by the supply = demand
+// balance A(ci)*umol_to_mol = gc*(ca - ci)*inv_atm and solved off the tape by
+// Leaf::psi_stem_to_ci. Returned as an implicit_value node so its derivative
+// with respect to the active photosynthesis inputs (through A) and the active
+// stomatal supply gc (through psi_stem/collar and the hydraulic params) flows by
+// the implicit function theorem, without recording the root-find. The
+// denominator dg/dci = A'(ci)*umol_to_mol + gc*inv_atm is strictly positive (A
+// rises with ci, gc > 0), so this node is well-posed -- it is NOT the fold
+// (that is the collar optimum). gstar_Pa, km, curv, ca, atm_kpa are passive.
+template <class T>
+T Leaf::ci_node(double ci_star, T vcmax, T et, double gstar_Pa, double km, T R_d,
+                T curv, T gc, double ca, double atm_kpa) {
+  const double inv_atm = 1.0 / (atm_kpa * kPa_to_Pa);
+  return odelia::implicit_value<T>(ci_star, [&](T ci) {
+    return assim_colimited(ci, vcmax, et, gstar_Pa, km, R_d, curv) * umol_to_mol -
+           gc * (ca - ci) * inv_atm;
+  });
+}
+
+// The stem water potential psi_stem defined by the supply balance
+// transpiration(psi_stem, psi_up) = E_up (the flux the soil delivers to the
+// collar), which Leaf inverts with the spline psi_from_transpiration. Returned
+// as an implicit_value node so its derivative through the active soil uptake
+// E_up, the collar magnitude psi_up, and the hydraulic params (k_max, b, c)
+// flows by the implicit function theorem -- no S inverse spline needed. The
+// denominator dF/dpsi_stem = k_max * exp(-(psi_stem/b)^c) > 0 is sign-definite.
+template <class T>
+T Leaf::psistem_node(double psi_stem_star, T psi_up, T E_up, T k_max, T b, T c) {
+  return odelia::implicit_value<T>(psi_stem_star, [&](T psi_stem) {
+    return transpiration(psi_stem, psi_up, k_max, b, c) - E_up;
+  });
+}
+
 } // namespace plant
 #endif
