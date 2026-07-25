@@ -605,7 +605,12 @@ template <class T>
 T Leaf::ci_node(double ci_star, T vcmax, T et, double gstar_Pa, double km, T R_d,
                 T curv, T gc, double ca, double atm_kpa) {
   const double inv_atm = 1.0 / (atm_kpa * kPa_to_Pa);
-  return odelia::implicit_value<T>(ci_star, [&](T ci) {
+  // The residual lambda MUST declare `-> T`: without it the deduced return type is
+  // an XAD expression template holding references to temporaries created in the
+  // return statement (here the AReal returned by assim_colimited), which die when
+  // the lambda returns -- the caller then materialises a dangling expression and
+  // reads a destroyed tape slot. `-> T` materialises it while they are still alive.
+  return odelia::implicit_value<T>(ci_star, [&](T ci) -> T {
     return assim_colimited(ci, vcmax, et, gstar_Pa, km, R_d, curv) * umol_to_mol -
            gc * (ca - ci) * inv_atm;
   });
@@ -620,7 +625,8 @@ T Leaf::ci_node(double ci_star, T vcmax, T et, double gstar_Pa, double km, T R_d
 // denominator dF/dpsi_stem = k_max * exp(-(psi_stem/b)^c) > 0 is sign-definite.
 template <class T>
 T Leaf::psistem_node(double psi_stem_star, T psi_up, T E_up, T k_max, T b, T c) {
-  return odelia::implicit_value<T>(psi_stem_star, [&](T psi_stem) {
+  // `-> T` is required, not stylistic -- see the note in ci_node above.
+  return odelia::implicit_value<T>(psi_stem_star, [&](T psi_stem) -> T {
     return transpiration(psi_stem, psi_up, k_max, b, c) - E_up;
   });
 }

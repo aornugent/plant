@@ -679,7 +679,7 @@ S TF24_Strategy_<S>::assemble_leaf_from(const TF24_Pars_<S>& p, S height,
     if (std::abs(e_col) < 1e-6) {
       // Bound regime: p* = -root_crit; root_crit solves the continuity residual
       // at psi_crit (no re-solve -- it is the converged signed collar).
-      p_star = -odelia::implicit_value<S>(root_crit_d, [&](S x) {
+      p_star = -odelia::implicit_value<S>(root_crit_d, [&](S x) -> S {
         std::vector<S> cons(mlayer);
         S eup = Leaf::soil_uptake<S>(psi_soil_signed, x, area_leaf_local, rH,
                                             rVsum, leaf.grav_head_z_, leaf.root_b,
@@ -712,7 +712,7 @@ S TF24_Strategy_<S>::assemble_leaf_from(const TF24_Pars_<S>& p, S height,
         S cost = Leaf::hydraulic_cost_TF<S>(psi_stem, g1, beta2, b, c);
         return assim - cost;
       };
-      p_star = odelia::implicit_value<S>(p_star_d, [&](S p_collar) {
+      p_star = odelia::implicit_value<S>(p_star_d, [&](S p_collar) -> S {
         return (profit_reduced(p_collar + eps) - profit_reduced(p_collar - eps)) /
                (2.0 * eps);
       });
@@ -1041,7 +1041,7 @@ void TF24_Strategy_<S>::prepare_strategy() {
   height_0 = height_seed();
   area_leaf_0 = area_leaf(height_0);
   initial_height_ = odelia::implicit_value<S>(
-      to_passive(height_0), [this](S h) { return mass_live_given_height(h) - pars.omega; });
+      to_passive(height_0), [this](S h) -> S { return mass_live_given_height(h) - pars.omega; });
 
   if (this->is_variable_birth_rate) {
     this->extrinsic_drivers.set_variable("birth_rate", this->birth_rate_x, this->birth_rate_y);
