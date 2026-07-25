@@ -560,7 +560,13 @@ S TF24_Strategy_<S>::assemble_leaf_from(const TF24_Pars_<S>& p, S height,
                                         const environment_type& environment,
                                         std::vector<S>& cons_out) {
   using std::pow;
-  auto anchor = [](double v, S x) { return S(v) + (x - to_passive(x)); };
+  // Value-graft: take the value from the converged double leaf and the derivative
+  // from the assembled active expression. The `-> S` is REQUIRED: without it the
+  // deduced return type is an XAD expression template holding references to the
+  // temporary S(v) and to the by-value parameter x, both of which die when this
+  // lambda returns -- the caller would then materialise a dangling expression and
+  // record whatever the reused stack now holds as an operand slot.
+  auto anchor = [](double v, S x) -> S { return S(v) + (x - to_passive(x)); };
 
   // Geometry active in height + the seeded allometry/root traits.
   const S eta_c_local = 1.0 - 2.0 / (1.0 + p.eta) + 1.0 / (1.0 + 2.0 * p.eta);
