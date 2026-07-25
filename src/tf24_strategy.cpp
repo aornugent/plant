@@ -1,6 +1,7 @@
 // Built from  src/ff16_strategy.cpp on Mon Feb 12 09:52:27 2024 using the scaffolder, from the strategy:  FF16
 #include <plant/models/tf24_strategy.h>
 #include <odelia/implicit_node.hpp> // odelia::implicit_value (leaf roots), lift_root (birth-height IFT lift)
+#include <odelia/ode_util.hpp>      // odelia::util::graft_value (leaf output value-graft)
 #include <limits> // std::numeric_limits (height_seed bounds)
 #include <cmath>  // std::abs (FD step)
 
@@ -560,13 +561,11 @@ S TF24_Strategy_<S>::assemble_leaf_from(const TF24_Pars_<S>& p, S height,
                                         const environment_type& environment,
                                         std::vector<S>& cons_out) {
   using std::pow;
-  // Value-graft: take the value from the converged double leaf and the derivative
-  // from the assembled active expression. The `-> S` is REQUIRED: without it the
-  // deduced return type is an XAD expression template holding references to the
-  // temporary S(v) and to the by-value parameter x, both of which die when this
-  // lambda returns -- the caller would then materialise a dangling expression and
-  // record whatever the reused stack now holds as an operand slot.
-  auto anchor = [](double v, S x) -> S { return S(v) + (x - to_passive(x)); };
+  // Value from the converged double leaf, derivative from the assembled active
+  // expression. odelia::graft_value owns this idiom precisely because writing it
+  // inline is a memory-safety trap (a deduced-return-type lambda returns a
+  // dangling expression template); see the note on the primitive.
+  auto anchor = [](double v, const S& x) -> S { return odelia::util::graft_value<S>(v, x); };
 
   // Geometry active in height + the seeded allometry/root traits.
   const S eta_c_local = 1.0 - 2.0 / (1.0 + p.eta) + 1.0 / (1.0 + 2.0 * p.eta);
