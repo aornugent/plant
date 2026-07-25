@@ -653,13 +653,70 @@ S TF24_Strategy_<S>::assemble_leaf_from(const TF24_Pars_<S>& p, S height,
     return assim - cost;
   };
 
-  // The regime probe (E_column) and the interior dp* central difference re-solve
-  // the double leaf off its optimum (find_psi_stem_from_psi_root / psi_stem_to_ci
-  // via E_from_Soil_to_Root_Collar), mutating leaf scratch (E_up_, root_collar_psi_,
-  // ci_, soil_consumption_). Save the converged operating point and restore it
-  // before the output anchors read it -- so the returned value stays the converged
-  // double leaf and no scratch leaks into the post-call aux reads. This is the
-  // localized replacement for the old whole-leaf snapshot in net_mass_production_dt.
+  // --------------------------------------------------------------------------
+  // Stateless double anchors for the interior dp* central difference.
+  //
+  // The Leaf's own solvers (find_psi_stem_from_psi_root / psi_stem_to_ci) mutate
+  // leaf scratch and run bracketing solvers behind std::function. Re-solving the
+  // anchors here from the SAME closed forms at T=double keeps the difference a
+  // pure function: no shared state to save and restore, and nothing between the
+  // active expressions and the tape. Both inner problems are monotone, so a
+  // bisection on the closed form is sufficient and needs no bracket heuristics.
+  // --------------------------------------------------------------------------
+  const double kmax_d  = to_passive(kmax);
+  const double b_d     = to_passive(b);
+  const double c_d     = to_passive(c);
+  const double curv_d  = to_passive(curv_colim);
+  const double vcmax_d = to_passive(vcmax);
+  const double et_d    = to_passive(et);
+  const double R_d_d   = to_passive(R_d);
+  const double area_d  = to_passive(area_leaf_local);
+  const double psi_crit_d = to_passive(psi_crit);
+  std::vector<double> psi_soil_d(psi_soil_signed.size());
+  for (std::size_t i = 0; i < psi_soil_signed.size(); ++i)
+    psi_soil_d[i] = to_passive(psi_soil_signed[i]);
+  std::vector<double> rH_d(mlayer), rV_d(mlayer);
+  for (int i = 0; i < mlayer; ++i) {
+    rH_d[i] = to_passive(rH[i]);
+    rV_d[i] = to_passive(rVsum[i]);
+  }
+
+  // psi_stem from the supply balance transpiration(psi_stem, p) = E_up, and ci
+  // from A(ci) = gc (ca - ci); both strictly monotone in their unknown.
+  auto anchors_at = [&](double p_pass, double& psi_stem_out, double& ci_out) {
+    std::vector<double> cons_d(mlayer);
+    const double eup = Leaf::soil_uptake<double>(psi_soil_d, -p_pass, area_d, rH_d,
+                                                 rV_d, leaf.grav_head_z_,
+                                                 leaf.root_b, leaf.root_c, cons_d);
+    double lo = p_pass, hi = std::max(psi_crit_d, p_pass + 1e-6);
+    for (int k = 0; k < 100; ++k) {
+      const double m = 0.5 * (lo + hi);
+      if (Leaf::transpiration<double>(m, p_pass, kmax_d, b_d, c_d) < eup) lo = m;
+      else hi = m;
+    }
+    psi_stem_out = 0.5 * (lo + hi);
+
+    const double transp =
+        Leaf::transpiration<double>(psi_stem_out, p_pass, kmax_d, b_d, c_d);
+    const double gc_d = Leaf::stom_cond_CO2<double>(transp, atm_kpa, atm_vpd);
+    const double inv_atm = 1.0 / (atm_kpa * kPa_to_Pa);
+    double clo = gstar_Pa, chi = ca;
+    for (int k = 0; k < 100; ++k) {
+      const double m = 0.5 * (clo + chi);
+      const double f = Leaf::assim_colimited<double>(m, vcmax_d, et_d, gstar_Pa, km,
+                                                     R_d_d, curv_d) * umol_to_mol -
+                       gc_d * (ca - m) * inv_atm;
+      if (f < 0.0) clo = m; else chi = m;
+    }
+    ci_out = 0.5 * (clo + chi);
+  };
+
+  // The regime probe (E_column) still re-solves the double leaf off its optimum
+  // and mutates leaf scratch (E_up_, root_collar_psi_, ci_, soil_consumption_).
+  // Save the converged operating point and restore it before the output anchors
+  // read it -- so the returned value stays the converged double leaf and no
+  // scratch leaks into the post-call aux reads. This is the localized replacement
+  // for the old whole-leaf snapshot in net_mass_production_dt.
   const double saved_E_up = leaf.E_up_;
   const double saved_rcp  = leaf.root_collar_psi_;
   const double saved_ci   = leaf.ci_;
@@ -693,9 +750,8 @@ S TF24_Strategy_<S>::assemble_leaf_from(const TF24_Pars_<S>& p, S height,
       const double eps = 1e-2 * (std::abs(p_star_d) + 1.0);
       auto profit_reduced = [&](S p_collar) -> S {
         const double p_pass = to_passive(p_collar);
-        const double psi_stem_star =
-            leaf.find_psi_stem_from_psi_root(-p_pass, leaf.psi_soil_inverted_);
-        const double ci_star = leaf.psi_stem_to_ci(psi_stem_star, p_pass);
+        double psi_stem_star = 0.0, ci_star = 0.0;
+        anchors_at(p_pass, psi_stem_star, ci_star);  // stateless re-solve
         std::vector<S> cons(mlayer);
         S eup = Leaf::soil_uptake<S>(psi_soil_signed, -p_collar,
                                             area_leaf_local, rH, rVsum,
