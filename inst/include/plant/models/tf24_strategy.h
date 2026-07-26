@@ -107,9 +107,9 @@ using TF24_Pars = TF24_Pars_<double>;
 // The TF24 strategy. Templated on the scalar S carried by its physiology; S =
 // double is the production path (the `TF24_Strategy` alias below). Method bodies
 // live in tf24_strategy.cpp with explicit instantiations for double and the
-// active reverse scalar: TF24's density-transport dg/dh is delivered by
-// supplied_derivative (the leaf optimiser, envelope theorem), not the nested
-// forward-over-reverse path, so its instantiation set is closed (no rebind).
+// active reverse scalar: TF24's density-transport dg/dh comes from the leaf
+// optimiser through the envelope theorem, not the nested forward-over-reverse
+// path, so its instantiation set is closed (no rebind).
 // The embedded Leaf hydraulic sub-model stays double throughout; the S mass
 // cascade crosses to it via to_passive at the boundary. Base members of
 // Strategy<E> are reached through this-> because the base is dependent on S.
@@ -269,8 +269,8 @@ public:
   // so there is no collar-psi channel (nullptr / 0). TF24f runs the leaf at a
   // tracked collar-psi ODE state where d(profit)/d(psi) != 0; it returns the
   // active tracked-state value to seed and the partial d(profit)/d(psi) (the same
-  // gradient its acclimation rate uses), so the leaf supplied_derivative seam adds
-  // that channel. Called from net_mass_production_dt after the leaf solve.
+  // gradient its acclimation rate uses), which adds that channel. Called from
+  // net_mass_production_dt after the leaf solve.
   virtual S* seam_collar_psi_input() { return nullptr; }
   virtual double seam_collar_psi_partial() const { return 0.0; }
   // Per-layer d(soil_consumption_[L])/d(tracked collar-psi), the uptake sibling of
@@ -285,7 +285,7 @@ public:
   // active function of it plus the active physiology recomputed from `p`. Reads
   // the double leaf's operating point and geometry as passive anchors. Run on a
   // local per-call tape so the run-shaped reverse tape stays O(#inputs)/step: the
-  // exact partials it yields are injected via supplied_derivative. Fills
+  // exact partials it yields enter through implicit_value nodes. Fills
   // `cons_out` (per-layer uptake, mol) and returns the carbon profit.
   S assemble_leaf_from(const TF24_Pars_<S>& p, S height, S light_active,
                        double light_openness_double,
@@ -426,14 +426,13 @@ public:
 
   // Embedded leaf hydraulic/photosynthesis sub-model, built in prepare_strategy().
   // Always double: the Leaf is never templated on S (design 4.3); its parameter
-  // sensitivity reaches the tape via supplied_derivative, not by templating.
+  // sensitivity reaches the tape through implicit_value nodes, not by templating.
   Leaf leaf;
 
   // Per-layer water uptake carried as an ACTIVE scalar (Tier-B soil coupling): the
   // leaf's soil_consumption_ is a double, so its theta/soil-psi sensitivity
-  // is injected here via supplied_derivative in net_mass_production_dt (mirroring
-  // the profit seam) and read by evapotranspiration_dt. On the double path this is
-  // just the leaf value (supplied_derivative collapses to the identity).
+  // enters here in net_mass_production_dt and is read by evapotranspiration_dt.
+  // On the double path this is just the leaf value.
   std::vector<S> soil_consumption_active_;
 
   // Hydraulic root parameters (not currently exposed to R; see review #9)

@@ -749,7 +749,7 @@ public:
   }
 
   // The aim is to find a plant height that gives the correct seed mass. Kept as a
-  // double root-find (the supplied_derivative IFT seam is deferred, plan §7.2).
+  // double root-find; lifting it through an implicit_value node is deferred.
   // The narrowings strip every AD layer (to_passive), so they are no-ops at
   // S = double and also compile at a nested forward-over-reverse S.
   double height_seed(void) const {

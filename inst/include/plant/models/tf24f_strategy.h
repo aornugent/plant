@@ -14,7 +14,7 @@ namespace plant {
 // leaf-solve hook and the extra state are overridden. Templated on the same S
 // as its base; S = double is the production path (the `TF24f_Strategy` alias
 // below). The tracked state rides the double Leaf, so its parameter sensitivity
-// (like TF24's) reaches the tape via supplied_derivative, not by templating.
+// (like TF24's) reaches the tape through implicit_value nodes, not by templating.
 //
 // Adds one extra ODE state, opt_root_psi_state, holding the tracked optimal
 // root-collar water potential. Instead of TF24's per-step golden-section
