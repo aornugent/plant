@@ -199,7 +199,7 @@ public:
   // is present.
   void record_stage(int stage);
   void record_ode_step();
-  void replay_step();
+  void replay_step(std::size_t k);
 
   // Is the recorded environment populated for replay? True on a mutant pass (a
   // recording is present and this pass is not the one producing it), false while a
@@ -926,36 +926,20 @@ void Patch<T,E>::record_stage(int stage) {
   }
 }
 
-// Per step on the replay pass: advance the recording cursor to this step's time
-// so the mutant set_ode_state reads the right stage snapshots.
+// Per step on the replay pass: point the recording cursor at step `k` so the mutant
+// set_ode_state reads that step's stage snapshots. The index comes from the Solver,
+// which owns the schedule step_history is indexed by, so there is nothing to search
+// for and no assumption that the driver visits steps in order.
 template <typename T, typename E>
-void Patch<T,E>::replay_step() {
-  if (has_recorded_field())
-  {
-    // Minor optimization to check the current and next index before doing a search, as the most common case is that the ODE solver is stepping through the cached environments in order. If the call sequence was not strictly sequential, we fallback to a search through the step history to find the correct environment.
-
-    const double t = time();
-    const size_t n = step_history.size();
-
-    // Fast path: step_to() advances through ode_times in order, so this is
-    // usually either the current cached step index or the next one.
-    if (static_cast<size_t>(idx) < n && util::identical(step_history[idx], t)) {
-      return;
+void Patch<T,E>::replay_step(std::size_t k) {
+  if (has_recorded_field()) {
+    if (k >= step_history.size()) {
+      util::stop("replay step index past the end of the step history");
     }
-    if (static_cast<size_t>(idx + 1) < n &&
-        util::identical(step_history[idx + 1], t)) {
-      ++idx;
-      return;
-    }
-
-    // Fallback to search if the call sequence was not strictly sequential.
-    auto step = std::find(step_history.begin(), step_history.end(), t);
-    if (step == step_history.end()) {
-      util::stop("ODE time not found in step history");
-    }
-    idx = static_cast<int>(std::distance(step_history.begin(), step));
+    idx = static_cast<int>(k);
   }
 }
+
 
 template <typename T, typename E>
 template <typename It>
