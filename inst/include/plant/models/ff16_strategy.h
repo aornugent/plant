@@ -819,8 +819,12 @@ public:
     // The birth height is defined by live mass = seed mass; take it as a
     // differentiable implicit value so it carries each trait's derivative
     // (odelia::implicit_value; value == the double root height_0).
+    // The residual MUST declare `-> S`: a deduced return type here is an XAD
+    // expression template holding a reference to the temporary returned by
+    // mass_live_given_height, which dies when the lambda returns, and the reverse
+    // sweep then reads a reused stack slot.
     initial_height_ = odelia::implicit_value<S>(
-        height_0, [this](S h) { return mass_live_given_height(h) - pars.omega; });
+        height_0, [this](S h) -> S { return mass_live_given_height(h) - pars.omega; });
     area_leaf_0 = area_leaf(initial_height_);
 
     if (this->is_variable_birth_rate) {
