@@ -30,6 +30,9 @@ namespace plant {
 extern long mri_fast_rate_calls;
 extern long patch_rhs_calls;
 extern long mri_coupling_evals;
+extern double anchor_skip_max_reldiff;
+extern long anchor_skip_checks;
+extern bool anchor_skip_diag;
 
 // Does the environment expose the R1 operator split (exact drainage recession +
 // residual)? Only TF24 does; the multirate split inner (Lever 1) is gated on it
@@ -371,22 +374,23 @@ private:
   //
   // WHY THIS IS FREE AND WHY IT IS SAFE. mri_macro_step (odelia mri.hpp) runs, per
   // leg: slow_rates(x,u) -> freeze_slow(x) -> subcycle(u) -> advance x -> repeat.
-  // The subcycle's first micro-step used to find the anchor stale (it belonged to
-  // the previous sub-interval), trip the trust monitor, and call refresh_anchor --
-  // re-running the O(M) cohort sum at EXACTLY the (x,u) slow_rates had just swept.
-  // Measured: 100% of anchor captures were such duplicates at rainfall amp 0-0.6
-  // (4358 of 4358 over 2179 legs), 84.8% at amp=0.9. Publishing here makes the
-  // subcycle open with trust_excursion == 0, so it does not refresh, and a leg
-  // costs 2 member sweeps instead of 4.
+  // The subcycle opens with an UNCONDITIONAL refresh_anchor (odelia mri.hpp, the
+  // "mandatory leg-start capture" -- it is not monitor-gated), which re-ran the
+  // O(M) cohort sum at EXACTLY the (x,u) slow_rates had just swept. Measured: 100%
+  // of anchor captures were such duplicates at rainfall amp 0-0.6 (4358 of 4358
+  // over 2179 legs), 84.8% at amp=0.9. Publishing here lets refresh_anchor
+  // recognise it is already anchored at this theta and return without sweeping, so
+  // a leg costs 2 member sweeps instead of 4.
   //
-  // Safety rests on what an anchor IS: a linearization point, not a cached truth.
-  // The trust monitor measures excursion from this anchor's own theta and
-  // re-captures when it grows, so a badly-placed anchor cannot corrupt the
-  // trajectory -- it can only cost the refresh we were avoiding. The one thing the
-  // monitor does NOT police is x-staleness; that rests on mri_macro_step calling
-  // freeze_slow(x) with the same x it just passed to slow_rates. If that ordering
-  // ever changes (e.g. an adaptive-H schedule that decouples stages from
-  // sub-intervals), this publish must be keyed on the slow state instead.
+  // WHAT MAKES THE SKIP SOUND is the theta match in refresh_anchor plus one
+  // ordering property of mri_macro_step: every x-advance is followed by a
+  // slow_rates before the next subcycle, so an anchor bearing the current theta was
+  // always captured at the current x. The trust monitor is a separate, weaker
+  // safety net -- it polices how far theta drifts from the anchor DURING a
+  // sub-interval, but it cannot see x-staleness, so it does not by itself justify
+  // skipping. If that ordering ever changes (e.g. an adaptive-H schedule that
+  // decouples slow stages from sub-intervals), the theta key is no longer
+  // sufficient and this must be keyed on the slow state as well.
   //
   // Both assemblies below are pure aggregation over per-cohort values compute_rates
   // already filled (no leaf solves): O(M) adds, versus the M leaf solves they save.
@@ -424,6 +428,49 @@ public:
   // Patch template still compiles for FF16/K93.
   void refresh_anchor(const std::vector<double>& u) {
     if constexpr (env_has_split<E>::value) {
+      // Already anchored at exactly this soil state, because the slow stage that
+      // ran immediately before this sub-interval published it (publish_anchor).
+      // odelia's subcycle opens with a MANDATORY capture (mri.hpp "mandatory
+      // leg-start capture") rather than a monitor-gated one, so without this test
+      // the O(M) sweep is paid again for values we already hold.
+      //
+      // Skipping is safe on a bitwise theta match because x is frozen for the
+      // whole sub-interval: any anchor carrying this theta was captured at the
+      // current cohort state, either by the preceding slow stage or mid-subcycle.
+      // An anchor from an OLDER x cannot survive to here -- in mri_macro_step every
+      // x-advance is followed by slow_rates before the next subcycle, which
+      // republishes. That ordering is the same one publish_anchor documents.
+      const size_t nsoil = static_cast<size_t>(environment.get_soil_number_of_depths());
+      if (uptake_anchor_theta_.size() == nsoil &&
+          std::equal(uptake_anchor_theta_.begin(), uptake_anchor_theta_.end(),
+                     u.begin())) {
+        // TEMPORARY diagnostic: sweep anyway and measure how far the published
+        // anchor is from the swept one. Remove once the skip is settled.
+        if (anchor_skip_diag) {
+          const std::vector<double> a0_pub = uptake_anchor_a0_;
+          const std::vector<double> jac_pub = uptake_anchor_jac_;
+          environment.set_ode_state(u.begin());
+          environment_ptr = &environment;
+          const std::vector<double> a0_sweep = fast_block_uptake();
+          const std::vector<double> jac_sweep = assemble_duptake_jacobian();
+          double m = 0.0, s = 0.0;
+          for (size_t i = 0; i < a0_pub.size() && i < a0_sweep.size(); ++i) {
+            m = std::max(m, std::abs(a0_pub[i] - a0_sweep[i]));
+            s = std::max(s, std::abs(a0_sweep[i]));
+          }
+          double mj = 0.0, sj = 0.0;
+          for (size_t i = 0; i < jac_pub.size() && i < jac_sweep.size(); ++i) {
+            mj = std::max(mj, std::abs(jac_pub[i] - jac_sweep[i]));
+            sj = std::max(sj, std::abs(jac_sweep[i]));
+          }
+          const double rel = std::max(m / std::max(s, 1e-30), mj / std::max(sj, 1e-30));
+          anchor_skip_max_reldiff = std::max(anchor_skip_max_reldiff, rel);
+          ++anchor_skip_checks;
+          uptake_anchor_a0_ = a0_pub;
+          uptake_anchor_jac_ = jac_pub;
+        }
+        return;
+      }
       ++mri_coupling_evals;
       environment.set_ode_state(u.begin());
       environment_ptr = &environment;
