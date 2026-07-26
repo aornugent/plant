@@ -4373,22 +4373,6 @@ mri_coupling_evals_reset <- function() {
     invisible(.Call('_plant_mri_coupling_evals_reset', PACKAGE = 'plant'))
 }
 
-anchor_skip_max_reldiff_get <- function() {
-    .Call('_plant_anchor_skip_max_reldiff_get', PACKAGE = 'plant')
-}
-
-anchor_skip_checks_get <- function() {
-    .Call('_plant_anchor_skip_checks_get', PACKAGE = 'plant')
-}
-
-anchor_skip_diag_reset <- function() {
-    invisible(.Call('_plant_anchor_skip_diag_reset', PACKAGE = 'plant'))
-}
-
-anchor_skip_diag_set <- function(on) {
-    invisible(.Call('_plant_anchor_skip_diag_set', PACKAGE = 'plant', on))
-}
-
 #' Generate a suitable set of default node introduction times,
 #' biased so that introductions are more closely packed at the
 #' beginning of time, become increasingly spread out.

@@ -30,9 +30,6 @@ namespace plant {
 extern long mri_fast_rate_calls;
 extern long patch_rhs_calls;
 extern long mri_coupling_evals;
-extern double anchor_skip_max_reldiff;
-extern long anchor_skip_checks;
-extern bool anchor_skip_diag;
 
 // Does the environment expose the R1 operator split (exact drainage recession +
 // residual)? Only TF24 does; the multirate split inner (Lever 1) is gated on it
@@ -365,54 +362,7 @@ public:
     environment_ptr = &environment;
     compute_rates();
     odelia::ode::ode_rates(species.begin(), species.end(), dx.begin());
-    publish_anchor(u);
   }
-
-private:
-  // Adopt the affine uptake model from the member sweep compute_rates() JUST ran,
-  // instead of paying a second identical sweep in refresh_anchor.
-  //
-  // WHY THIS IS FREE AND WHY IT IS SAFE. mri_macro_step (odelia mri.hpp) runs, per
-  // leg: slow_rates(x,u) -> freeze_slow(x) -> subcycle(u) -> advance x -> repeat.
-  // The subcycle opens with an UNCONDITIONAL refresh_anchor (odelia mri.hpp, the
-  // "mandatory leg-start capture" -- it is not monitor-gated), which re-ran the
-  // O(M) cohort sum at EXACTLY the (x,u) slow_rates had just swept. Measured: 100%
-  // of anchor captures were such duplicates at rainfall amp 0-0.6 (4358 of 4358
-  // over 2179 legs), 84.8% at amp=0.9. Publishing here lets refresh_anchor
-  // recognise it is already anchored at this theta and return without sweeping, so
-  // a leg costs 2 member sweeps instead of 4.
-  //
-  // WHAT MAKES THE SKIP SOUND is the theta match in refresh_anchor plus one
-  // ordering property of mri_macro_step: every x-advance is followed by a
-  // slow_rates before the next subcycle, so an anchor bearing the current theta was
-  // always captured at the current x. The trust monitor is a separate, weaker
-  // safety net -- it polices how far theta drifts from the anchor DURING a
-  // sub-interval, but it cannot see x-staleness, so it does not by itself justify
-  // skipping. If that ordering ever changes (e.g. an adaptive-H schedule that
-  // decouples slow stages from sub-intervals), the theta key is no longer
-  // sufficient and this must be keyed on the slow state as well.
-  //
-  // Both assemblies below are pure aggregation over per-cohort values compute_rates
-  // already filled (no leaf solves): O(M) adds, versus the M leaf solves they save.
-  // Returns false when there is no Jacobian to publish, which is the normal case
-  // for every run that is not mri_uptake (control.compute_uptake_jacobian off ->
-  // the per-cohort fill never ran -> assemble returns empty). Callers decide
-  // whether that is benign: publishing is opportunistic and simply declines,
-  // whereas refresh_anchor treats it as the user misconfiguring the method.
-  bool publish_anchor(const std::vector<double>& u) {
-    if constexpr (env_has_split<E>::value) {
-      std::vector<double> jac = assemble_duptake_jacobian();
-      const size_t ns = static_cast<size_t>(environment.get_soil_number_of_depths());
-      if (jac.size() != ns * ns) return false;
-      uptake_anchor_jac_ = std::move(jac);
-      uptake_anchor_a0_ = assemble_resource_depletion();
-      uptake_anchor_theta_.assign(u.begin(), u.begin() + ns);
-      return true;
-    }
-    return false;
-  }
-
-public:
 
   // --- T6 uptake arbitrage hooks (method="mri_uptake"; see odelia mri.hpp
   // subcycle_uptake / MriUptakeStep). The expensive coupling a = per-layer root
@@ -428,59 +378,17 @@ public:
   // Patch template still compiles for FF16/K93.
   void refresh_anchor(const std::vector<double>& u) {
     if constexpr (env_has_split<E>::value) {
-      // Already anchored at exactly this soil state, because the slow stage that
-      // ran immediately before this sub-interval published it (publish_anchor).
-      // odelia's subcycle opens with a MANDATORY capture (mri.hpp "mandatory
-      // leg-start capture") rather than a monitor-gated one, so without this test
-      // the O(M) sweep is paid again for values we already hold.
-      //
-      // Skipping is safe on a bitwise theta match because x is frozen for the
-      // whole sub-interval: any anchor carrying this theta was captured at the
-      // current cohort state, either by the preceding slow stage or mid-subcycle.
-      // An anchor from an OLDER x cannot survive to here -- in mri_macro_step every
-      // x-advance is followed by slow_rates before the next subcycle, which
-      // republishes. That ordering is the same one publish_anchor documents.
-      const size_t nsoil = static_cast<size_t>(environment.get_soil_number_of_depths());
-      if (uptake_anchor_theta_.size() == nsoil &&
-          std::equal(uptake_anchor_theta_.begin(), uptake_anchor_theta_.end(),
-                     u.begin())) {
-        // TEMPORARY diagnostic: sweep anyway and measure how far the published
-        // anchor is from the swept one. Remove once the skip is settled.
-        if (anchor_skip_diag) {
-          const std::vector<double> a0_pub = uptake_anchor_a0_;
-          const std::vector<double> jac_pub = uptake_anchor_jac_;
-          environment.set_ode_state(u.begin());
-          environment_ptr = &environment;
-          const std::vector<double> a0_sweep = fast_block_uptake();
-          const std::vector<double> jac_sweep = assemble_duptake_jacobian();
-          double m = 0.0, s = 0.0;
-          for (size_t i = 0; i < a0_pub.size() && i < a0_sweep.size(); ++i) {
-            m = std::max(m, std::abs(a0_pub[i] - a0_sweep[i]));
-            s = std::max(s, std::abs(a0_sweep[i]));
-          }
-          double mj = 0.0, sj = 0.0;
-          for (size_t i = 0; i < jac_pub.size() && i < jac_sweep.size(); ++i) {
-            mj = std::max(mj, std::abs(jac_pub[i] - jac_sweep[i]));
-            sj = std::max(sj, std::abs(jac_sweep[i]));
-          }
-          const double rel = std::max(m / std::max(s, 1e-30), mj / std::max(sj, 1e-30));
-          anchor_skip_max_reldiff = std::max(anchor_skip_max_reldiff, rel);
-          ++anchor_skip_checks;
-          uptake_anchor_a0_ = a0_pub;
-          uptake_anchor_jac_ = jac_pub;
-        }
-        return;
-      }
       ++mri_coupling_evals;
       environment.set_ode_state(u.begin());
       environment_ptr = &environment;
-      fast_block_uptake();  // the O(M) cohort sweep; fills the per-cohort Jacobians
-      // Same three anchor slots, written in one place (publish_anchor) whether the
-      // sweep happened here or in the slow stage that preceded us.
-      if (!publish_anchor(u)) {
+      uptake_anchor_a0_ = fast_block_uptake();          // O(M): fills the Jacobian too
+      uptake_anchor_jac_ = assemble_duptake_jacobian(); // ns*ns row-major (soil-theta)
+      const size_t ns = static_cast<size_t>(environment.get_soil_number_of_depths());
+      if (uptake_anchor_jac_.size() != ns * ns) {
         util::stop("method='mri_uptake' needs the uptake Jacobian; set "
                    "control$compute_uptake_jacobian = true and n_collocation_nodes = 0.");
       }
+      uptake_anchor_theta_.assign(u.begin(), u.begin() + ns);
     }
   }
 

@@ -52,33 +52,3 @@ double mri_coupling_evals_get() {
 void mri_coupling_evals_reset() {
   plant::mri_coupling_evals = 0;
 }
-
-// TEMPORARY (anchor-fusion diagnostic, remove once the skip is settled): the
-// largest relative disagreement seen between the anchor published by slow_rates
-// and the anchor refresh_anchor would have computed by sweeping at the same
-// (x, u). Zero means the skip is exact; nonzero localises the drift.
-namespace plant {
-double anchor_skip_max_reldiff = 0.0;
-long   anchor_skip_checks = 0;
-}
-
-// [[Rcpp::export]]
-double anchor_skip_max_reldiff_get() {
-  return plant::anchor_skip_max_reldiff;
-}
-
-// [[Rcpp::export]]
-double anchor_skip_checks_get() {
-  return static_cast<double>(plant::anchor_skip_checks);
-}
-
-// [[Rcpp::export]]
-void anchor_skip_diag_reset() {
-  plant::anchor_skip_max_reldiff = 0.0;
-  plant::anchor_skip_checks = 0;
-}
-
-namespace plant { bool anchor_skip_diag = false; }
-
-// [[Rcpp::export]]
-void anchor_skip_diag_set(bool on) { plant::anchor_skip_diag = on; }
