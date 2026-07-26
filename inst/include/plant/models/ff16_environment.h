@@ -145,14 +145,6 @@ public:
     light_availability.set_fixed_value_scalar(value, height_max);
   }
 
-  // d(light)/d(height) by secant -- the coupling channel for the density-transport
-  // dg/dh. The field owns its slope; the dg/dh seam reads this rather than
-  // hand-rolling a secant, with step+direction from the same Control the
-  // production stencil uses.
-  S get_environment_slope_at_height(S height, double step, int direction) const {
-    return light_availability.slope_at_height(height, step, direction);
-  }
-
   S get_environment_at_height(S height) const {
     if (competition_field_ready)
       return step_light(exp(-field_optical_depth(height)));
