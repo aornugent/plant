@@ -734,10 +734,17 @@ void Patch<T,E>::assemble_competition_field() {
   if (n == 0) { environment.clear_competition_field(); return; }
 
   // Merge all species' sources in descending height for the cumulative field.
+  // Cohorts at equal height break the tie on their index, so the merge is a
+  // deterministic function of the state: the cumulative sum adds the same terms in
+  // the same order every time the field is rebuilt from the same cohorts. Without
+  // it, equal heights (every species' boundary cohort sits at its birth height)
+  // would reorder the sum and move the field at round-off.
   std::vector<size_t> ord(n);
   for (size_t j = 0; j < n; ++j) ord[j] = j;
   std::sort(ord.begin(), ord.end(), [&](size_t a, size_t b) {
-    return odelia::util::to_passive(H[a]) > odelia::util::to_passive(H[b]);
+    const double ha = odelia::util::to_passive(H[a]);
+    const double hb = odelia::util::to_passive(H[b]);
+    return ha != hb ? ha > hb : a < b;
   });
   std::array<std::vector<value_type>, E::comp_rank> sw_sorted;
   for (size_t p = 0; p < E::comp_rank; ++p) sw_sorted[p].resize(n);
