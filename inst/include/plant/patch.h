@@ -362,7 +362,53 @@ public:
     environment_ptr = &environment;
     compute_rates();
     odelia::ode::ode_rates(species.begin(), species.end(), dx.begin());
+    publish_anchor(u);
   }
+
+private:
+  // Adopt the affine uptake model from the member sweep compute_rates() JUST ran,
+  // instead of paying a second identical sweep in refresh_anchor.
+  //
+  // WHY THIS IS FREE AND WHY IT IS SAFE. mri_macro_step (odelia mri.hpp) runs, per
+  // leg: slow_rates(x,u) -> freeze_slow(x) -> subcycle(u) -> advance x -> repeat.
+  // The subcycle's first micro-step used to find the anchor stale (it belonged to
+  // the previous sub-interval), trip the trust monitor, and call refresh_anchor --
+  // re-running the O(M) cohort sum at EXACTLY the (x,u) slow_rates had just swept.
+  // Measured: 100% of anchor captures were such duplicates at rainfall amp 0-0.6
+  // (4358 of 4358 over 2179 legs), 84.8% at amp=0.9. Publishing here makes the
+  // subcycle open with trust_excursion == 0, so it does not refresh, and a leg
+  // costs 2 member sweeps instead of 4.
+  //
+  // Safety rests on what an anchor IS: a linearization point, not a cached truth.
+  // The trust monitor measures excursion from this anchor's own theta and
+  // re-captures when it grows, so a badly-placed anchor cannot corrupt the
+  // trajectory -- it can only cost the refresh we were avoiding. The one thing the
+  // monitor does NOT police is x-staleness; that rests on mri_macro_step calling
+  // freeze_slow(x) with the same x it just passed to slow_rates. If that ordering
+  // ever changes (e.g. an adaptive-H schedule that decouples stages from
+  // sub-intervals), this publish must be keyed on the slow state instead.
+  //
+  // Both assemblies below are pure aggregation over per-cohort values compute_rates
+  // already filled (no leaf solves): O(M) adds, versus the M leaf solves they save.
+  // Returns false when there is no Jacobian to publish, which is the normal case
+  // for every run that is not mri_uptake (control.compute_uptake_jacobian off ->
+  // the per-cohort fill never ran -> assemble returns empty). Callers decide
+  // whether that is benign: publishing is opportunistic and simply declines,
+  // whereas refresh_anchor treats it as the user misconfiguring the method.
+  bool publish_anchor(const std::vector<double>& u) {
+    if constexpr (env_has_split<E>::value) {
+      std::vector<double> jac = assemble_duptake_jacobian();
+      const size_t ns = static_cast<size_t>(environment.get_soil_number_of_depths());
+      if (jac.size() != ns * ns) return false;
+      uptake_anchor_jac_ = std::move(jac);
+      uptake_anchor_a0_ = assemble_resource_depletion();
+      uptake_anchor_theta_.assign(u.begin(), u.begin() + ns);
+      return true;
+    }
+    return false;
+  }
+
+public:
 
   // --- T6 uptake arbitrage hooks (method="mri_uptake"; see odelia mri.hpp
   // subcycle_uptake / MriUptakeStep). The expensive coupling a = per-layer root
@@ -381,14 +427,13 @@ public:
       ++mri_coupling_evals;
       environment.set_ode_state(u.begin());
       environment_ptr = &environment;
-      uptake_anchor_a0_ = fast_block_uptake();          // O(M): fills the Jacobian too
-      uptake_anchor_jac_ = assemble_duptake_jacobian(); // ns*ns row-major (soil-theta)
-      const size_t ns = static_cast<size_t>(environment.get_soil_number_of_depths());
-      if (uptake_anchor_jac_.size() != ns * ns) {
+      fast_block_uptake();  // the O(M) cohort sweep; fills the per-cohort Jacobians
+      // Same three anchor slots, written in one place (publish_anchor) whether the
+      // sweep happened here or in the slow stage that preceded us.
+      if (!publish_anchor(u)) {
         util::stop("method='mri_uptake' needs the uptake Jacobian; set "
                    "control$compute_uptake_jacobian = true and n_collocation_nodes = 0.");
       }
-      uptake_anchor_theta_.assign(u.begin(), u.begin() + ns);
     }
   }
 
