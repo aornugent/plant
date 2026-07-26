@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <limits>
+#include <cstdio>
+#include <cstdlib>
 
 using namespace Rcpp;
 
@@ -439,14 +441,55 @@ void Patch<T,E>::check_finite_ode_state() const {
   // runaway at this magnitude -- before density reaches a literal +Inf --
   // widens coverage of mode (1) and heads off some instances of mode (2).
   const double log_density_ceiling = 50.0;
+  // Scratch trace (PLANT_MASS_TRACE=1): one line per derivs evaluation with the
+  // extremes of the size-density measure, to see which of lambda, the density
+  // view, the spacing, or the environment moves first.
+  static const bool trace = std::getenv("PLANT_MASS_TRACE") != nullptr;
+  if (trace) {
+    for (size_t i = 0; i < species.size(); ++i) {
+      double lam_max = -1e300, ld_max = -1e300, dx_min = 1e300, prev = 0.0;
+      double lam_h = 0.0, lam_rate = 0.0;
+      bool first = true;
+      for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it) {
+        const double lam = odelia::util::diagnostic(it->get_log_mass());
+        const double ld  = odelia::util::diagnostic(it->get_log_density());
+        const double hgt = odelia::util::diagnostic(it->height());
+        if (lam > lam_max) {
+          lam_max = lam;
+          lam_h = hgt;
+          lam_rate = odelia::util::diagnostic(it->get_log_density_rate());
+        }
+        if (ld > ld_max) ld_max = ld;
+        if (!first && prev - hgt > 0.0) dx_min = std::min(dx_min, prev - hgt);
+        prev = hgt; first = false;
+      }
+      std::fprintf(stderr,
+                   "TRACE t=%.6f sp=%zu n=%zu lam_max=%g at_h=%g rate=%g "
+                   "ld_max=%g gap_min=%g h_seed=%g",
+                   environment.time, i, species[i].size(), lam_max, lam_h,
+                   lam_rate, ld_max, dx_min,
+                   odelia::util::diagnostic(species[i].r_new_node().height()));
+    }
+    for (size_t k = 0; k < environment.vars.state_size; ++k)
+      std::fprintf(stderr, " env[%zu]=%g", k,
+                   odelia::util::diagnostic(environment.vars.states[k]));
+    std::fprintf(stderr, "\n");
+  }
   for (size_t i = 0; i < species.size(); ++i) {
     for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it) {
       // A coincident cohort on the chart has log_density = -inf (density 0) from
       // odelia's zero-spacing convention, which passes both checks below
       // (is_finite(0), -inf < ceiling) -- a zero-density degenerate cohort is
       // safe, the opposite of the #550 overflow this guards.
-      if (!util::is_finite(it->get_density()) ||
-          it->get_log_density() > log_density_ceiling) {
+      // On the chart the integrated state is lambda, and the density view can
+      // exceed the ceiling at a tiny-but-nonzero spacing while every reduction
+      // stays bounded, so guard the state that is actually transported.
+      const bool on_chart = it->on_mass_chart();
+      const bool runaway =
+          on_chart ? !util::is_finite(it->get_log_mass())
+                   : (!util::is_finite(it->get_density()) ||
+                      it->get_log_density() > log_density_ceiling);
+      if (runaway) {
         // The size-density characteristic equation integrates
         //   d(log density)/dt = -d(growth)/d(height) - mortality
         // (see Node::compute_rates). When growth rate falls steeply with size
@@ -463,7 +506,8 @@ void Patch<T,E>::check_finite_ode_state() const {
                    "(characteristic) equations: species " +
                    util::to_string(i + 1) + " has a node with density=" +
                    util::to_string(odelia::util::diagnostic(it->get_density())) + " (log_density=" +
-                   util::to_string(odelia::util::diagnostic(it->get_log_density())) + ", height=" +
+                   util::to_string(odelia::util::diagnostic(it->get_log_density())) + ", log_mass=" +
+                   util::to_string(odelia::util::diagnostic(it->get_log_mass())) + ", height=" +
                    util::to_string(odelia::util::diagnostic(it->height())) + ") at time=" +
                    util::to_string(environment.time) +
                    ". The density derivative -d(growth)/d(height) - mortality "

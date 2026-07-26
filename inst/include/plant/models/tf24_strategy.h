@@ -123,6 +123,10 @@ public:
   // construction, not reconstructed from Control like FF16/K93); deferred with the
   // TF24 reverse-AD work (b1). The double path never calls rebind_from.
   PLANT_DIFFERENTIABLE(TF24_Strategy_)
+  // Opt TF24 onto the transport-log-mass chart when the Control flag is set:
+  // lambda = log density + log spacing transports by -mortality, so the
+  // compression -d(g)/d(height) is never formed. See node.h.
+  using geometric_transport = void;
   typedef std::shared_ptr<TF24_Strategy_<S>> ptr;
   TF24_Strategy_();
 

@@ -439,6 +439,12 @@ typename Species<T,E>::value_type Species<T,E>::consumption_rate(int i) const {
     // Trapezium rule accumulated in value_type (util::trapezium narrows to
     // double); the derivative w.r.t. traits flows through the node heights and
     // per-node consumption rates. Reproduces the double path exactly.
+    // On the chart each trapezium end is ((gap/dx)*exp(lambda))*rate -- a
+    // moderate spacing ratio times the bounded mass -- so the reconstructed
+    // density exp(lambda)/dx is never formed, as in census(). dx is the same
+    // odelia::cohort_spacing that defines lambda, and a coincident node (dx==0)
+    // contributes nothing.
+    const bool on_chart = nodes.front().on_mass_chart();
     std::vector<value_type> h, c;
     h.reserve(size());
     c.reserve(size());
@@ -446,9 +452,36 @@ typename Species<T,E>::value_type Species<T,E>::consumption_rate(int i) const {
       h.push_back(it->height());
       c.push_back(it->consumption_rate(i));
     }
+    if (!on_chart) {
+      value_type tot = 0.0;
+      for (std::size_t k = 1; k < h.size(); ++k) {
+        tot += (h[k] - h[k - 1]) * (c[k] + c[k - 1]);
+      }
+      return tot * 0.5;
+    }
+    // On the chart each trapezium end is ((gap/dx)*exp(lambda))*rate -- a
+    // moderate spacing ratio times the bounded mass -- so the reconstructed
+    // density exp(lambda)/dx is never formed, as in census(). dx is the same
+    // odelia::cohort_spacing that defines lambda, and a coincident node
+    // (dx == 0) contributes nothing.
+    std::vector<value_type> u, mass;
+    u.reserve(size());
+    mass.reserve(size());
+    for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
+      u.push_back(it->individual.consumption_rate(i));
+      mass.push_back(exp(it->get_log_mass()));
+    }
+    const std::vector<value_type> h_desc(h.rbegin(), h.rend());
+    const std::vector<value_type> dx_desc = odelia::cohort_spacing(h_desc);
+    const std::vector<value_type> dx(dx_desc.rbegin(), dx_desc.rend());
+    auto edge_end = [&](std::size_t k, const value_type& gap) -> value_type {
+      if (!(dx[k] > 0.0)) return value_type(0.0);
+      return (gap / dx[k]) * mass[k] * u[k];
+    };
     value_type tot = 0.0;
     for (std::size_t k = 1; k < h.size(); ++k) {
-      tot += (h[k] - h[k - 1]) * (c[k] + c[k - 1]);
+      const value_type gap = h[k] - h[k - 1];
+      tot += edge_end(k - 1, gap) + edge_end(k, gap);
     }
     return tot * 0.5;
   }
