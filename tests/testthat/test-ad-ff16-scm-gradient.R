@@ -13,14 +13,20 @@
 #      == resolved-schedule FD to ~1e-9 (was broken before the chart). k_l enters
 #      as loss only, so it flows straight through the -loss transport with no
 #      compression residual. lma tightened to ~0.36% (dominant magnitude).
-#  (3) NARROWED adjoint gap: a residual survives on the growth+self-shading-coupled
-#      traits. a_l1 (leaf-area allometry) reverse AD = 0.0629 vs FD plateau 0.1007
-#      (abs 0.038); lma 0.36%. Both AD modes still agree yet disagree with FD, and
-#      channel isolation (freeze_query/freeze_field) shows both self-shading
-#      channels are needed and on -- the residual is inside the full coupled path,
-#      not a togglable channel. This is the remaining work for an exact FF16
-#      gradient, now localised to self-shading feedback (the chart removed the
-#      compression contribution the earlier, larger gap was dominated by).
+#  (3) THE ADJOINT GAP IS CLOSED (superseded 2026-07-27). This header used to record a
+#      residual on the growth+self-shading traits -- a_l1 reverse AD 0.0629 vs FD
+#      plateau 0.1007, a 38% gap -- and that is NO LONGER TRUE. The a1-a4 severance
+#      fixes (templated CanopyShape, smooth_positive on the growth/fecundity clamp,
+#      the IFT-lifted birth size) closed it. Measured on this file's own driver:
+#        lma  -56.0698330 vs FD -56.0699810   rel 2.64e-06
+#        a_l1   0.1007215 vs FD   0.1007221   rel 6.06e-06
+#        k_l   -2.6635231 vs FD  -2.6635231   rel 1.31e-08
+#      So all three channels agree to the FD's own noise floor. NOTE the assertions
+#      below still gate lma and a_l1 at 1e-2, which is ~4 orders looser than the truth
+#      -- a 100x accuracy regression would pass green. Tightening them is deliberate
+#      future work, not an oversight to fix blindly: verify the FD reference first
+#      (HANDOFF Part 1), since these are the channels whose FD is delta-sensitive.
+#      Recorded in docs/v3-requirements.md 7.1 and 6/B5.
 #
 # life = 40: FF16 has reproduced (offspring ~0.6) and the reverse tape fits (life 50
 # exceeds memory; checkpointing deferred).
