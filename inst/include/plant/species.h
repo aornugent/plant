@@ -3,6 +3,9 @@
 #define SPECIES
 
 #include <vector>
+#include <algorithm>
+#include <limits>
+#include <utility>
 #include <plant/util.h>
 #include <plant/environment.h>
 #include <odelia/ode_interface.hpp>
@@ -32,7 +35,6 @@ public:
   // ODE plumbing and the per-element serialisers are inherited from SpeciesBase
   // and iterate all nodes (the deterministic model has no notion of "dead").
   using base_type::ode_size;
-  using base_type::set_ode_state;
   using base_type::ode_state;
   using base_type::ode_rates;
   using base_type::get_node_state;
@@ -51,6 +53,25 @@ public:
 
   double height_max() const;
   double compute_competition(double height) const;
+  // Whether the decreasing-height node ordering still holds (see height_max()).
+  bool heights_are_decreasing() const;
+
+  // The tallest node height and whether the heights are ordered, from a single
+  // pass. compute_competition() needs both on every call, and walking the heights
+  // twice was measurably slower on FF16 (~5% on the SCM benchmark) than the
+  // O(1) nodes.front() it replaced.
+  struct HeightScan { double h_max; bool decreasing; };
+  // Cached: heights change only when the ODE state is set or a node is
+  // introduced/cleared, whereas compute_competition() is called once per spline
+  // knot, so this is hundreds of calls per change. Every mutator invalidates.
+  HeightScan scan_heights() const;
+
+  // Setting the ODE state rewrites every node's height, so the cached scan goes
+  // with it. Shadows (rather than uses) the SpeciesBase version for that reason.
+  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it) {
+    invalidate_height_scan();
+    return base_type::set_ode_state(it);
+  }
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
   std::vector<double> net_reproduction_ratio_by_node() const;
   // Per-node lifetime offspring, weighted by patch-age density and S_D.
@@ -117,6 +138,20 @@ public:
   ExtrinsicDrivers extrinsic_drivers() const {return strategy->extrinsic_drivers;}
 
 private:
+  // compute_competition() for the case where the node heights are no longer
+  // ordered, so the node list cannot be used directly as the quadrature grid.
+  double compute_competition_unordered(double height) const;
+
+  // Cache for scan_heights(). Every path that can change a node height must call
+  // invalidate_height_scan(); a stale cache here would silently reintroduce the
+  // wrong competition profile of #571, so the coverage of these calls was checked
+  // by asserting cache == freshly-computed on every call across the whole suite
+  // and the scenario gateway.
+  HeightScan compute_height_scan() const;
+  void invalidate_height_scan() { height_scan_valid = false; }
+  mutable HeightScan height_scan_cache{0.0, true};
+  mutable bool height_scan_valid = false;
+
   // Storage (strategy, nodes) and control() live in SpeciesBase; the
   // using-declarations let the unqualified references below resolve through the
   // dependent base.
@@ -142,6 +177,7 @@ size_t Species<T,E>::size() const {
 
 template <typename T, typename E>
 void Species<T,E>::clear() {
+  invalidate_height_scan();
   nodes.clear();
   // Reset the new_node to a blank new_node, too.
   new_node = node_type(strategy);
@@ -149,6 +185,7 @@ void Species<T,E>::clear() {
 
 template <typename T, typename E>
 void Species<T,E>::introduce_new_node() {
+  invalidate_height_scan();
   // new_node already holds the initial conditions computed against the current
   // environment by the most recent compute_rates() call (see compute_rates ->
   // new_node.compute_initial_conditions above), and the member is refreshed
@@ -161,11 +198,63 @@ void Species<T,E>::introduce_new_node() {
 
 // If a species contains no individuals, we return the height of a
 // seed of the species.  Otherwise we return the height of the largest
-// individual (always the first in the list) which will be at least
-// tall as a seed.
+// individual, which will be at least as tall as a seed.
+//
+// This used to return nodes.front(), relying on the decreasing-height ordering
+// asserted below. That ordering is guaranteed only while height growth is a
+// function of height and the shared environment, which TF24 broke: its
+// reserve-gated growth (#517) makes dh/dt depend on a cohort's own storage, so
+// two cohorts born moments apart into a rapidly changing environment can cross
+// in height. When they had, this returned a height 0.1 m *below* the tallest and
+// only living cohort, truncating the light spline's domain (#571). Scanning is
+// O(n) in heights only -- negligible against the crown integrals in
+// compute_competition -- and returns exactly nodes.front() whenever the ordering
+// does hold, so results are unchanged in that case.
 template <typename T, typename E>
 double Species<T,E>::height_max() const {
-  return nodes.empty() ? new_node.height() : nodes.front().height();
+  if (nodes.empty()) {
+    return new_node.height();
+  }
+  double ret = -std::numeric_limits<double>::infinity();
+  for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+    ret = std::max(ret, it->height());
+  }
+  return ret;
+}
+
+// Are the node heights still ordered largest to smallest? See height_max() above
+// for why this can no longer be assumed. Heights only, so this is cheap relative
+// to the per-node crown integrals it guards.
+template <typename T, typename E>
+bool Species<T,E>::heights_are_decreasing() const {
+  return scan_heights().decreasing;
+}
+
+template <typename T, typename E>
+typename Species<T,E>::HeightScan Species<T,E>::scan_heights() const {
+  if (!height_scan_valid) {
+    height_scan_cache = compute_height_scan();
+    height_scan_valid = true;
+  }
+  return height_scan_cache;
+}
+
+// Tallest height and orderedness in one pass over the heights.
+template <typename T, typename E>
+typename Species<T,E>::HeightScan Species<T,E>::compute_height_scan() const {
+  HeightScan ret{-std::numeric_limits<double>::infinity(), true};
+  double h_prev = std::numeric_limits<double>::infinity();
+  for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+    const double h = it->height();
+    if (h > h_prev) {
+      ret.decreasing = false;
+    }
+    if (h > ret.h_max) {
+      ret.h_max = h;
+    }
+    h_prev = h;
+  }
+  return ret;
 }
 
 // Because of nodes are always ordered from largest to smallest, we
@@ -195,8 +284,22 @@ double Species<T,E>::height_max() const {
 // the integral).
 template <typename T, typename E>
 double Species<T,E>::compute_competition(double height) const {
-  if (size() == 0 || height_max() < height) {
+  if (size() == 0) {
     return 0.0;
+  }
+  const HeightScan scan = scan_heights();
+  if (scan.h_max < height) {
+    return 0.0;
+  }
+  // The loop below uses the node list itself as the quadrature grid, and the
+  // early exit is valid only if that grid is monotone. When it is not, the exit
+  // fires at the first node below `height` and silently drops every node beyond
+  // it -- including, in #571, the only cohort with non-zero density, which put a
+  // fictitious step in the competition profile. Take the ordered path instead.
+  // Heights only, so the usual (ordered) case keeps this loop and its results
+  // exactly.
+  if (!scan.decreasing) {
+    return compute_competition_unordered(height);
   }
   double tot = 0.0;
   nodes_const_iterator it = nodes.begin();
@@ -226,6 +329,57 @@ double Species<T,E>::compute_competition(double height) const {
   return tot / 2;
 }
 
+// The same trapezium integral as compute_competition(), but over a height-sorted
+// view of the nodes rather than the node list in place. Used only when the
+// ordering has broken (#571): it agrees with the in-place version whenever the
+// ordering holds, so this is a fallback rather than a change of method.
+//
+// Dropping the zero-density nodes instead would be wrong. A node whose density
+// has collapsed to exactly zero contributes f = 0, and that zero is meaningful --
+// it is the reconstruction saying density vanishes at that size. Removing those
+// grid points would interpolate live density straight across the band and
+// overestimate it, so they stay in and the grid gets sorted.
+//
+// No early exit here: it would need the same monotonicity that is missing. Nodes
+// below `height` contribute f = 0 at both ends, so including them costs time but
+// changes nothing. The scratch buffer is thread_local and reused, so the repeated
+// calls that build one spline do not each allocate.
+template <typename T, typename E>
+double Species<T,E>::compute_competition_unordered(double height) const {
+  thread_local std::vector<std::pair<double, double>> hf;
+  hf.clear();
+  hf.reserve(size());
+
+  for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+    const double f = it->compute_competition(height);
+    if (!util::is_finite(f)) {
+      util::stop("Detected non-finite contribution");
+    }
+    hf.push_back({it->height(), f});
+  }
+  std::sort(hf.begin(), hf.end(),
+            [](std::pair<double, double> const& a,
+               std::pair<double, double> const& b) {
+              return a.first > b.first;
+            });
+
+  double tot = 0.0;
+  double h1 = hf.front().first, f_h1 = hf.front().second;
+  for (size_t j = 1; j < hf.size(); ++j) {
+    const double h0 = hf[j].first, f_h0 = hf[j].second;
+    tot += (h1 - h0) * (f_h1 + f_h0);
+    h1   = h0;
+    f_h1 = f_h0;
+  }
+
+  if (size() == 1 || f_h1 > 0) {
+    const double h0 = new_node.height(), f_h0 = new_node.compute_competition(height);
+    tot += (h1 - h0) * (f_h1 + f_h0);
+  }
+
+  return tot / 2;
+}
+
 // NOTE: We should probably prefer to rescale when this is called
 // through the ode stepper.
 template <typename T, typename E>
@@ -238,6 +392,7 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
 
 template <typename T, typename E>
 void Species<T,E>::introduce_new_node(double time, double patch_density) {
+  invalidate_height_scan();
   // Stamp the pushed copy (not new_node) so the member stays pristine for
   // the no-arg introduction paths.
   nodes.push_back(new_node);
@@ -365,6 +520,7 @@ std::vector<double> Species<T,E>::r_heights_rev() const {
 
 template <typename T, typename E>
 void Species<T,E>::r_set_heights(std::vector<double> heights) {
+  invalidate_height_scan();
   util::check_length(heights.size(), size());
   if (!util::is_decreasing(heights.begin(), heights.end())) {
     util::stop("height must be decreasing (ties allowed)");
