@@ -301,7 +301,9 @@ void Leaf::set_physiology(double area_leaf, const std::vector<double>& mass_root
   }
 
   // Set up vector of root water uptake from layer
-  soil_consumption_.resize(soil_number_of_depths_, 0.0);
+  // .assign, not .resize: the solve writes only up to max_soil_layer and resize's
+  // fill reaches only new elements, so deeper layers would hold the previous solve's.
+  soil_consumption_.assign(soil_number_of_depths_, 0.0);
 
   // Soil-moisture state for the Medlyn beta_ stress factor (develop #450). The
   // root-water compute path does not use these; they make the standalone,
