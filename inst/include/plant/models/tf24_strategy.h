@@ -7,7 +7,7 @@
 #include <plant/models/tf24_environment.h>
 #include <plant/qag.h>
 #include <plant/leaf_model.h>
-#include <plant/canopy_shape.h> // ShadingModel
+#include <plant/canopy_shape.h>
 
 namespace plant {
 
@@ -361,6 +361,7 @@ public:
 
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
   double eta_c     = NA_REAL; // crown shape factor, precomputed from pars.eta
+  CanopyShape canopy_shape;
   // Height and leaf area of a (germinated) seed
   double height_0  = NA_REAL;
   double area_leaf_0;
