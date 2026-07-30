@@ -155,6 +155,13 @@ public:
   }
 
   int get_soil_number_of_depths() const {return soil_number_of_depths;}
+
+  // Water is taken up per soil layer; the trailing aux_num state slots only
+  // accumulate diagnostics and are never consumed.
+  size_t n_resources() const override {
+    return static_cast<size_t>(soil_number_of_depths);
+  }
+
   std::vector<double> get_soil_mid_depths() const { return z_mid; }
 
   // TODO: should we use auxilliary in internals

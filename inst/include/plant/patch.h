@@ -255,11 +255,11 @@ void Patch<T,E>::reset() {
    for (auto& s : species) {
     s.clear();
     // allocate variables for tracking resource consumption
-    s.resize_consumption_rates(environment.ode_size());
+    s.resize_consumption_rates(environment.n_resources());
   }
 
   // resize to species count
-  resource_depletion.reserve(environment.ode_size());
+  resource_depletion.reserve(environment.n_resources());
 
   // compute ephemeral effects like light_availability
   environment.clear();
@@ -589,8 +589,8 @@ void Patch<T,E>::compute_rates() {
     species[i].compute_rates(*environment_ptr, pr_patch_survival, birth_rate);
   }
 
-  resource_depletion.reserve(environment_ptr->ode_size());
-  for(size_t i = 0; i < environment_ptr->ode_size(); i++) {
+  resource_depletion.reserve(environment_ptr->n_resources());
+  for(size_t i = 0; i < environment_ptr->n_resources(); i++) {
     double resource_consumed = std::accumulate(species.begin(), species.end(), 0.0, [i](double r, const species_type& s) {
       return r + s.consumption_rate(i); // accumulates r from zero
     });
