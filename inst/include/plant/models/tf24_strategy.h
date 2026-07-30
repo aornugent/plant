@@ -334,12 +334,10 @@ public:
                                vars.aux(aux_idx_height_inverse));
   }
 
-  // [eqn  9] Probability density of leaf area at height `z`
-  double q(double z, double height) const;
-  // [eqn 10] Fraction of leaf area above height `z`
+  // [eqn 10] Cumulative fraction of a quantity distributed over an extent with
+  // shape exponent eta_x, above coordinate `z` of a total `height`. Used for the
+  // root mass distribution over soil depth.
   double Q(double z, double height, double eta_x) const;
-  // [      ] Inverse of Q: height above which fraction 'x' of leaf found
-  double Qp(double x, double height) const;
 
   // The aim is to find a plant height that gives the correct seed mass.
   double height_seed(void) const;
