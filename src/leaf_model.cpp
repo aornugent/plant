@@ -1,4 +1,5 @@
 #include <plant/leaf_model.h>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <exception>
@@ -673,6 +674,10 @@ void Leaf::set_shutdown_state(double root_collar) {
   root_collar_psi_ = root_collar;
   opt_psi_stem_ = psi_crit;
   profit_ = -R_d_ - hydraulic_cost_TF(psi_crit);
+  // The plant transpires nothing at this operating point, and the three exits
+  // that come here reach it at different stages of the solve.
+  E_up_ = 0.0;
+  std::fill(soil_consumption_.begin(), soil_consumption_.end(), 0.0);
 }
 
 // Shared setup + feasibility handling for the root-collar solve. Extracted
