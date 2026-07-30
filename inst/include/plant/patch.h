@@ -91,8 +91,8 @@ public:
 
   // Retrieve ode state from patch and save into the ode solver
   odelia::ode::iterator ode_state(odelia::ode::iterator it) const;
-  // Retrieve ode rates from patch and save into the ode solver
-  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const;
+  // Compute rates of change at the state last set, and save into the ode solver
+  odelia::ode::iterator ode_rates(odelia::ode::iterator it);
   // Retrieve auxillary variables and save into the ode solver
   odelia::ode::iterator ode_aux(odelia::ode::iterator it) const;
 
@@ -696,8 +696,6 @@ odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterato
   compute_environment(true);
   environment_ptr = &environment;
 
-  // Compute rates of change
-  compute_rates();
   return it;
 }
 
@@ -717,8 +715,7 @@ odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterato
 
   // increment the iterator by an appropriate amount, but don't actually do anything in the env
   for (size_t i = 0; i < environment_ptr->ode_size(); i++) {*it++;}
- 
-  compute_rates();
+
   return it;
 }
 
@@ -799,7 +796,8 @@ Rcpp::List Patch<T, E>::r_get_state() const
 }
 
 template <typename T, typename E>
-odelia::ode::iterator Patch<T,E>::ode_rates(odelia::ode::iterator it) const {
+odelia::ode::iterator Patch<T,E>::ode_rates(odelia::ode::iterator it) {
+  compute_rates();
   it = odelia::ode::ode_rates(species.begin(), species.end(), it);
   it = environment.ode_rates(it);
   return it;
