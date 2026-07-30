@@ -327,9 +327,12 @@ public:
   // forward-mode AD for the analytic photosynthesis/cost algebra, the
   // implicit-function theorem at the psi_stem_to_ci root-find, and analytic
   // spline derivatives (Interpolator::deriv) for the smooth transport. Replaces
-  // the noisy finite-difference gradient. Assumes prepare_collar_solve setup has
-  // run (psi_soil_inverted_ etc.), as evaluate_root_collar_psi does.
+  // the noisy finite-difference gradient. Seats the soil potentials it reads on
+  // the current psi_soil_ itself, so a solve need not have run first.
   double dprofit_droot_collar_psi(double opt_root_psi);
+  // Signed (negative) soil potentials and their cumulative-integral lookups, from
+  // the positive magnitudes in psi_soil_; returns the wettest layer's potential.
+  double refresh_soil_potentials();
   // Analytic d(E_up_)/d(collar potential) for the soil->root-collar uptake
   // (kg H2O m^-2 s^-1 per MPa of signed collar potential P_x_r), mirroring the
   // general branch of E_from_Soil_to_Root_Collar layer by layer. The integral's
