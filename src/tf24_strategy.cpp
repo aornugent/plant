@@ -787,8 +787,7 @@ void TF24_Strategy::prepare_strategy() {
 
   canopy_shape.initialise(pars.eta, shading_model_);
 
-  // NOTE: this pre-computes something to save a very small amount of time
-  eta_c = 1 - 2/(1 + pars.eta) + 1/(1 + 2*pars.eta);
+  eta_c = canopy_shape.eta_c();
   // NOTE: Also pre-computing, though less trivial
   height_0 = height_seed();
   area_leaf_0 = area_leaf(height_0);
