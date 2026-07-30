@@ -88,6 +88,12 @@ public:
     return strategy->establishment_probability(environment);
   }
 
+  // The same birth-size quantity, formed from the rates compute_rates has
+  // already written rather than from a fresh evaluation.
+  double establishment_probability_from_rates(const environment_type &environment) {
+    return strategy->establishment_probability(environment, vars);
+  }
+
   double net_mass_production_dt(const environment_type &environment) {
     // TODO(#483):  maybe reuse intervals? default false
     return strategy->net_mass_production_dt(environment, vars);

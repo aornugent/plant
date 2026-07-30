@@ -484,12 +484,17 @@ double FF16_Strategy::mortality_growth_dependent_dt(double productivity_area) co
 
 // [eqn 20] Survival of seedlings during establishment
 double FF16_Strategy::establishment_probability(const FF16_Environment& environment) {
-  
+  return establishment_probability(
+    environment,
+    net_mass_production_dt(environment, height_0, area_leaf_0, height_0_inverse));
+}
+
+// The rate is the one at height_0, whatever height the caller's individual is at.
+double FF16_Strategy::establishment_probability(const FF16_Environment& environment,
+                                               double net_mass_production_dt_) {
+
   double decay_over_time = exp(-pars.recruitment_decay * environment.time);
-  
-  const double net_mass_production_dt_ =
-    net_mass_production_dt(environment, height_0, area_leaf_0,
-                           height_0_inverse);
+
   if (net_mass_production_dt_ > 0) {
     const double tmp = pars.a_d0 * area_leaf_0 / net_mass_production_dt_;
     return 1.0 / (tmp * tmp + 1.0) * decay_over_time;
