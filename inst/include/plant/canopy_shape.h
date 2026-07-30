@@ -162,6 +162,11 @@ public:
     return Q(z / height);
   }
 
+  // Crown-centre coordinate u = z / H, from eta.
+  double eta_c() const {
+    return eta_c_;
+  }
+
   double Qp(double x, double height) const {
     return std::pow(1.0 - std::sqrt(x), eta_inverse_) * height;
   }
