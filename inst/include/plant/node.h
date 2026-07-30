@@ -170,7 +170,10 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   individual.set_initial_states(environment);
   compute_rates(environment, pr_patch_survival);
 
-  const double pr_estab = individual.establishment_probability(environment);
+  // A node is born at height_0 and never stepped, so the rates just computed are
+  // the birth-size ones establishment probability is formed from.
+  const double pr_estab =
+    individual.establishment_probability_from_rates(environment);
   individual.set_state("mortality", -log(pr_estab));
   const double g = individual.rate(HEIGHT_INDEX);
   // NOTE: log(0.0) -> -Inf, which should behave fine.

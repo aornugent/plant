@@ -702,11 +702,17 @@ void TF24_Strategy::set_initial_states(const TF24_Environment& environment,
 
 // [eqn 20] Survival of seedlings during establishment
 double TF24_Strategy::establishment_probability(const TF24_Environment& environment) {
-  
+  return establishment_probability(
+    environment,
+    net_mass_production_dt(environment, height_0, area_leaf_0, 1.0 / height_0));
+}
+
+// The rate is the one at height_0, whatever height the caller's individual is at.
+double TF24_Strategy::establishment_probability(const TF24_Environment& environment,
+                                               double net_mass_production_dt_) {
+
   double decay_over_time = exp(-pars.recruitment_decay * environment.time);
-  
-  const double net_mass_production_dt_ =
-    net_mass_production_dt(environment, height_0, area_leaf_0, 1.0 / height_0);
+
   if (net_mass_production_dt_ > 0) {
     const double tmp = pars.a_d0 * area_leaf_0 / net_mass_production_dt_;
     return 1.0 / (tmp * tmp + 1.0) * decay_over_time;

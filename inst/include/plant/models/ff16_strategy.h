@@ -359,6 +359,17 @@ public:
   double mortality_growth_dependent_dt(double productivity_area) const;
   // [eqn 20] Survival of seedlings during establishment
   double establishment_probability(const FF16_Environment& environment);
+  // Same quantity for a caller that already holds the birth-size net mass
+  // production rate, so it is not evaluated at height_0 a second time.
+  double establishment_probability(const FF16_Environment& environment,
+                                   double net_mass_production_dt_);
+  // Strategy-agnostic entry point used by Individual<FF16>: takes the rate
+  // compute_rates stored in aux.
+  double establishment_probability(const FF16_Environment& environment,
+                                   const Internals& vars) {
+    return establishment_probability(environment,
+                                     vars.aux(NET_MASS_PRODUCTION_DT_AUX_INDEX));
+  }
 
   // * Competitive environment
   // [eqn 11] total projected leaf area above height above height `z` for given plant

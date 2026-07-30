@@ -318,6 +318,17 @@ public:
   void set_initial_states(const TF24_Environment& environment, Internals& vars);
   // [eqn 20] Survival of seedlings during establishment
   double establishment_probability(const TF24_Environment& environment);
+  // Same quantity for a caller that already holds the birth-size net mass
+  // production rate, so the leaf is not solved at height_0 a second time.
+  double establishment_probability(const TF24_Environment& environment,
+                                   double net_mass_production_dt_);
+  // Strategy-agnostic entry point used by Individual<TF24>: takes the rate
+  // compute_rates stored in aux.
+  double establishment_probability(const TF24_Environment& environment,
+                                   const Internals& vars) {
+    return establishment_probability(environment,
+                                     vars.aux(aux_idx_net_mass_production_dt));
+  }
 
   // * Competitive environment
   // [eqn 11] total projected leaf area above height above height `z` for given plant
