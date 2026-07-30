@@ -281,19 +281,21 @@ void Species<T,E>::resize_consumption_rates(int r) {
 
 template <typename T, typename E>
 double Species<T,E>::consumption_rate(int i) const {
-  // can't determine density for one node
-  if(size() < 2) {
+  if (size() == 0) {
     return 0.0;
-  } else {
-    // node heights are in descending order - we need ascending for integration
-    return util::trapezium(r_heights_rev(), consumption_rate_by_node_rev(i));
   }
+  // node heights are in descending order - we need ascending for integration,
+  // starting at new_node, which is where the size distribution starts.
+  std::vector<double> heights = r_heights_rev();
+  heights.insert(heights.begin(), new_node.height());
+  return util::trapezium(heights, consumption_rate_by_node_rev(i));
 }
 
 template <typename T, typename E>
 std::vector<double> Species<T,E>::consumption_rate_by_node_rev(int i) const {
   std::vector<double> ret;
-  ret.reserve(size());
+  ret.reserve(size() + 1);
+  ret.push_back(new_node.consumption_rate(i));
   for(auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
     ret.push_back(it->consumption_rate(i));
   }
