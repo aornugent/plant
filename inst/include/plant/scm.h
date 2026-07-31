@@ -53,12 +53,11 @@ public:
   // mutant parameters, reuse the cached environment/ode times, and run.
   void run_mutant(parameters_type p);
 
-  // One accepted step. The state widens at an introduction, so the record is ragged.
-  struct ode_step_record { double time; double step_size; std::vector<double> state; };
-
-  // Replay the resolved schedule over the recorded step sizes, keeping the state at
-  // each accepted step. Driven by sizes rather than times because the stepper advances
-  // time += step_size and fl(fl(t + h) - t) != h, so a differenced grid loses h.
+  // Run, keeping the state at each accepted step, and return one record per step.
+  // The states are the run's own, recorded as it goes: a run pinned to this run's
+  // times and sizes does not reproduce them, because a rejected step attempt moves
+  // patch state that is not part of the ODE state and a pinned run makes no such
+  // attempts.
   std::vector<ode_step_record> store_trajectory();
 
   // Adaptively refine the node-introduction schedule entirely in C++:
@@ -138,18 +137,11 @@ private:
   // it on return (skipped inside the run() loop to avoid per-step copies).
   std::vector<size_t> run_next_impl(bool sync_patch);
 
-  // Append the record for the step just taken, of size step_size.
-  void record_step(double step_size);
-
   parameters_type parameters;
   Control control;
   patch_type patch;
   NodeSchedule node_schedule;
   odelia::ode::Solver<patch_type> solver;
-  bool recording;
-  std::vector<ode_step_record> trajectory;
-  std::vector<double> replay_step_sizes;
-  size_t replay_step_index;
 };
 
 // ---- Construction --------------------------------------------------------
@@ -164,8 +156,6 @@ SCM<T, E>::SCM(parameters_type p, environment_type e, Control c)
 
   collect = false;
   collect_refinement_errors = false;
-  recording = false;
-  replay_step_index = 0;
   solver.set_collect(false);
 
   if (!util::identical(parameters.patch_area, 1.0)) {
@@ -207,10 +197,6 @@ std::vector<double> SCM<T, E>::uniform_euler_times(double t0, double t1,
 
 template <typename T, typename E> void SCM<T, E>::run() {
   reset();
-  if (recording) {
-    // No step reached the initial time, so its size is NaN.
-    record_step(std::numeric_limits<double>::quiet_NaN());
-  }
   // The solver owns the live patch system; operate on it directly during the
   // run and avoid per-step copies into the `patch` member.
   if (collect) {
@@ -300,18 +286,7 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
       util::stop("fixed_time_step (forward Euler) is not supported for "
                  "ode-time replay / mutant runs");
     }
-    if (recording) {
-      // advance_fixed_steps is a loop of single steps of the sizes it is given, so
-      // taking them one at a time reaches the same states and lets each be recorded.
-      for (size_t i = 1; i < e.times.size(); ++i) {
-        const double h = replay_step_sizes.at(++replay_step_index);
-        solver.advance_fixed_steps(
-            {std::numeric_limits<double>::quiet_NaN(), h});
-        record_step(h);
-      }
-    } else {
-      solver.advance_fixed(e.times);
-    }
+    solver.advance_fixed(e.times);
   } else if (control.fixed_time_step > 0.0) {
     solver.advance_euler(
         uniform_euler_times(t0, e.time_end(), control.fixed_time_step));
@@ -351,35 +326,22 @@ void SCM<T, E>::run_mutant(parameters_type p) {
   run();
 }
 
-// The replay grid is the solver's own recorded times and step sizes. patch.step_history
-// is a second list of times -- the environment cache's index, which holds only its
-// initialiser {0.0} unless control.save_RK45_cache is set -- so pinning to that instead
-// integrates the whole run in one step and reports it as a trajectory.
 template <typename T, typename E>
-std::vector<typename SCM<T, E>::ode_step_record> SCM<T, E>::store_trajectory() {
-  const std::vector<double> times = solver.times();
-  const std::vector<double> sizes = solver.step_sizes();
-  if (times.size() < 2) {
-    util::stop("No accepted steps to replay; run first");
-  }
-
-  node_schedule.r_set_ode_times(times);
-  node_schedule.r_set_use_ode_times(true);
-  replay_step_sizes = sizes;
-
-  recording = true;
+std::vector<ode_step_record> SCM<T, E>::store_trajectory() {
+  patch.record_steps = true;
   run();
-  recording = false;
+  patch.record_steps = false;
 
-  // Leave the schedule adaptive, as it was found.
-  node_schedule.r_clear_ode_times();
-
-  return trajectory;
-}
-
-template <typename T, typename E>
-void SCM<T, E>::record_step(double step_size) {
-  trajectory.push_back({solver.time(), step_size, solver.state()});
+  // The solver holds the size of the step that reached each state, one per record
+  // including the initial NaN, so each size lands beside the state it reached.
+  std::vector<ode_step_record> ret = std::move(patch.trajectory);
+  patch.trajectory.clear();
+  const std::vector<double> sizes = solver.step_sizes();
+  util::check_length(sizes.size(), ret.size());
+  for (size_t i = 0; i < ret.size(); ++i) {
+    ret[i].step_size = sizes[i];
+  }
+  return ret;
 }
 
 // Upwind bisection of flagged intervals. For each flagged node j (j >= 1; the
@@ -450,8 +412,6 @@ template <typename T, typename E> void SCM<T, E>::reset() {
   solver.reset();
   patch = solver.get_system_ref();
   history.clear();
-  trajectory.clear();
-  replay_step_index = 0;
 }
 
 template <typename T, typename E> bool SCM<T, E>::complete() const {
