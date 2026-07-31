@@ -709,7 +709,8 @@ double TF24_Strategy::establishment_probability(const TF24_Environment& environm
     net_mass_production_dt(environment, height_0, area_leaf_0, 1.0 / height_0));
 }
 
-// The rate is the one at height_0, whatever height the caller's individual is at.
+// Both forms above end here. The carbon is birth-size carbon either way, whatever
+// height the caller's plant happens to be at.
 double TF24_Strategy::establishment_probability(const TF24_Environment& environment,
                                                double net_mass_production_dt_) {
 
@@ -794,7 +795,7 @@ void TF24_Strategy::prepare_strategy() {
 
   canopy_shape.initialise(pars.eta, shading_model_);
 
-  eta_c = canopy_shape.eta_c();
+  eta_c = CanopyShape::eta_c(pars.eta);
   // NOTE: Also pre-computing, though less trivial
   height_0 = height_seed();
   area_leaf_0 = area_leaf(height_0);

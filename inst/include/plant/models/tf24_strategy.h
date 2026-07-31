@@ -316,19 +316,20 @@ public:
   double storage_capacity(double area_leaf, double height) const;
   // Seed the storage state for a newly germinated individual (#517).
   void set_initial_states(const TF24_Environment& environment, Internals& vars);
-  // [eqn 20] Survival of seedlings during establishment
+  // [eqn 20] Survival of seedlings during establishment, from the carbon a
+  // seedling produces at birth size. This form works that carbon out.
   double establishment_probability(const TF24_Environment& environment);
-  // Same quantity for a caller that already holds the birth-size net mass
-  // production rate, so the leaf is not solved at height_0 a second time.
-  double establishment_probability(const TF24_Environment& environment,
-                                   double net_mass_production_dt_);
-  // Strategy-agnostic entry point used by Individual<TF24>: takes the rate
-  // compute_rates stored in aux.
+  // The same, for a newborn whose rates have just been computed. A newborn is
+  // already at birth size, so compute_rates has left that carbon in aux and the
+  // leaf need not be solved there twice.
   double establishment_probability(const TF24_Environment& environment,
                                    const Internals& vars) {
     return establishment_probability(environment,
                                      vars.aux(aux_idx_net_mass_production_dt));
   }
+  // The equation the two above share.
+  double establishment_probability(const TF24_Environment& environment,
+                                   double net_mass_production_dt_);
 
   // * Competitive environment
   // [eqn 11] total projected leaf area above height above height `z` for given plant

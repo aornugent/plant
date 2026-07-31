@@ -357,19 +357,20 @@ public:
   double mortality_dt(double productivity_area, double cumulative_mortality) const;
   double mortality_growth_independent_dt()const ;
   double mortality_growth_dependent_dt(double productivity_area) const;
-  // [eqn 20] Survival of seedlings during establishment
+  // [eqn 20] Survival of seedlings during establishment, from the carbon a
+  // seedling produces at birth size. This form works that carbon out.
   double establishment_probability(const FF16_Environment& environment);
-  // Same quantity for a caller that already holds the birth-size net mass
-  // production rate, so it is not evaluated at height_0 a second time.
-  double establishment_probability(const FF16_Environment& environment,
-                                   double net_mass_production_dt_);
-  // Strategy-agnostic entry point used by Individual<FF16>: takes the rate
-  // compute_rates stored in aux.
+  // The same, for a newborn whose rates have just been computed. A newborn is
+  // already at birth size, so compute_rates has left that carbon in aux and the
+  // leaf need not be solved there twice.
   double establishment_probability(const FF16_Environment& environment,
                                    const Internals& vars) {
     return establishment_probability(environment,
                                      vars.aux(NET_MASS_PRODUCTION_DT_AUX_INDEX));
   }
+  // The equation the two above share.
+  double establishment_probability(const FF16_Environment& environment,
+                                   double net_mass_production_dt_);
 
   // * Competitive environment
   // [eqn 11] total projected leaf area above height above height `z` for given plant

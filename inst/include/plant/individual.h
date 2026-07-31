@@ -88,9 +88,9 @@ public:
     return strategy->establishment_probability(environment);
   }
 
-  // The same birth-size quantity, formed from the rates compute_rates has
-  // already written rather than from a fresh evaluation.
-  double establishment_probability_from_rates(const environment_type &environment) {
+  // For a newborn, which sits at birth size: the strategy reads the carbon
+  // compute_rates has already left in aux rather than solving the leaf again.
+  double establishment_probability_of_newborn(const environment_type &environment) {
     return strategy->establishment_probability(environment, vars);
   }
 
