@@ -140,7 +140,7 @@ double TF24_Strategy::mass_above_ground(double mass_leaf, double mass_bark,
 }
 
 // for updating auxiliary state
-void TF24_Strategy::update_dependent_aux(const int index, Internals& vars) {
+void TF24_Strategy::update_dependent_aux(const int index, Internals<double>& vars) {
   if (index == HEIGHT_INDEX) {
     double height = vars.state(HEIGHT_INDEX);
     vars.set_aux(aux_idx_competition_effect, area_leaf(height));
@@ -151,7 +151,7 @@ void TF24_Strategy::update_dependent_aux(const int index, Internals& vars) {
 
 // one-shot update of the scm variables
 // i.e. setting rates of ode vars from the state and updating aux vars
-void TF24_Strategy::compute_rates(const TF24_Environment& environment,  Internals& vars) {
+void TF24_Strategy::compute_rates(const TF24_Environment& environment,  Internals<double>& vars) {
   double height = vars.state(HEIGHT_INDEX);
   double area_leaf_ = vars.aux(aux_idx_competition_effect);
 
@@ -733,7 +733,7 @@ double TF24_Strategy::storage_capacity(double area_leaf_, double height) const {
 // its capacity (Stefaniak et al. 2026, Eq 8), so seedlings are born with
 // reserves rather than starting empty (which would kill them immediately).
 void TF24_Strategy::set_initial_states(const TF24_Environment& environment,
-                                       Internals& vars) {
+                                       Internals<double>& vars) {
   (void)environment;
   const double height = vars.state(HEIGHT_INDEX);
   const double area_leaf_ = area_leaf(height);

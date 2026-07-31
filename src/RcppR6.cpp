@@ -1099,7 +1099,7 @@ plant::FF16_Strategy Individual___FF16__FF16_Env__strategy__get(plant::RcppR6::R
 }
 
 // [[Rcpp::export]]
-plant::Internals Individual___FF16__FF16_Env__internals__get(plant::RcppR6::RcppR6<plant::Individual<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+plant::Internals<double> Individual___FF16__FF16_Env__internals__get(plant::RcppR6::RcppR6<plant::Individual<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   return obj_->r_internals();
 }
 
@@ -1202,7 +1202,7 @@ plant::TF24_Strategy Individual___TF24__TF24_Env__strategy__get(plant::RcppR6::R
 }
 
 // [[Rcpp::export]]
-plant::Internals Individual___TF24__TF24_Env__internals__get(plant::RcppR6::RcppR6<plant::Individual<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
+plant::Internals<double> Individual___TF24__TF24_Env__internals__get(plant::RcppR6::RcppR6<plant::Individual<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
   return obj_->r_internals();
 }
 
@@ -1305,7 +1305,7 @@ plant::TF24f_Strategy Individual___TF24f__TF24_Env__strategy__get(plant::RcppR6:
 }
 
 // [[Rcpp::export]]
-plant::Internals Individual___TF24f__TF24_Env__internals__get(plant::RcppR6::RcppR6<plant::Individual<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
+plant::Internals<double> Individual___TF24f__TF24_Env__internals__get(plant::RcppR6::RcppR6<plant::Individual<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
   return obj_->r_internals();
 }
 
@@ -1408,7 +1408,7 @@ plant::K93_Strategy Individual___K93__K93_Env__strategy__get(plant::RcppR6::Rcpp
 }
 
 // [[Rcpp::export]]
-plant::Internals Individual___K93__K93_Env__internals__get(plant::RcppR6::RcppR6<plant::Individual<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+plant::Internals<double> Individual___K93__K93_Env__internals__get(plant::RcppR6::RcppR6<plant::Individual<plant::K93_Strategy,plant::K93_Environment> > obj_) {
   return obj_->r_internals();
 }
 
@@ -1514,79 +1514,79 @@ void IndividualRunner___K93__K93_Env__individual__set(plant::RcppR6::RcppR6<plan
 
 
 // [[Rcpp::export]]
-plant::Internals Internals__ctor(size_t s_size, size_t a_size) {
-  return plant::Internals(s_size, a_size);
+plant::Internals<double> Internals__ctor(size_t s_size, size_t a_size) {
+  return plant::Internals<double>(s_size, a_size);
 }
 // [[Rcpp::export]]
-double Internals__state(plant::RcppR6::RcppR6<plant::Internals> obj_, int i) {
+double Internals__state(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, int i) {
   return obj_->state(i);
 }
 // [[Rcpp::export]]
-double Internals__rate(plant::RcppR6::RcppR6<plant::Internals> obj_, int i) {
+double Internals__rate(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, int i) {
   return obj_->rate(i);
 }
 // [[Rcpp::export]]
-double Internals__aux(plant::RcppR6::RcppR6<plant::Internals> obj_, int i) {
+double Internals__aux(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, int i) {
   return obj_->aux(i);
 }
 // [[Rcpp::export]]
-void Internals__set_aux(plant::RcppR6::RcppR6<plant::Internals> obj_, int i, double v) {
+void Internals__set_aux(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, int i, double v) {
   obj_->set_aux(i, v);
 }
 // [[Rcpp::export]]
-void Internals__set_state(plant::RcppR6::RcppR6<plant::Internals> obj_, int i, double v) {
+void Internals__set_state(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, int i, double v) {
   obj_->set_state(i, v);
 }
 // [[Rcpp::export]]
-void Internals__set_rate(plant::RcppR6::RcppR6<plant::Internals> obj_, int i, double v) {
+void Internals__set_rate(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, int i, double v) {
   obj_->set_rate(i, v);
 }
 // [[Rcpp::export]]
-void Internals__resize(plant::RcppR6::RcppR6<plant::Internals> obj_, size_t new_size, size_t new_aux_size) {
+void Internals__resize(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, size_t new_size, size_t new_aux_size) {
   obj_->resize(new_size, new_aux_size);
 }
 // [[Rcpp::export]]
-size_t Internals__state_size__get(plant::RcppR6::RcppR6<plant::Internals> obj_) {
+size_t Internals__state_size__get(plant::RcppR6::RcppR6<plant::Internals<double> > obj_) {
   return obj_->state_size;
 }
 // [[Rcpp::export]]
-void Internals__state_size__set(plant::RcppR6::RcppR6<plant::Internals> obj_, size_t value) {
+void Internals__state_size__set(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, size_t value) {
   obj_->state_size = value;
 }
 
 // [[Rcpp::export]]
-size_t Internals__aux_size__get(plant::RcppR6::RcppR6<plant::Internals> obj_) {
+size_t Internals__aux_size__get(plant::RcppR6::RcppR6<plant::Internals<double> > obj_) {
   return obj_->aux_size;
 }
 // [[Rcpp::export]]
-void Internals__aux_size__set(plant::RcppR6::RcppR6<plant::Internals> obj_, size_t value) {
+void Internals__aux_size__set(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, size_t value) {
   obj_->aux_size = value;
 }
 
 // [[Rcpp::export]]
-std::vector<double> Internals__states__get(plant::RcppR6::RcppR6<plant::Internals> obj_) {
+std::vector<double> Internals__states__get(plant::RcppR6::RcppR6<plant::Internals<double> > obj_) {
   return obj_->states;
 }
 // [[Rcpp::export]]
-void Internals__states__set(plant::RcppR6::RcppR6<plant::Internals> obj_, std::vector<double> value) {
+void Internals__states__set(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, std::vector<double> value) {
   obj_->states = value;
 }
 
 // [[Rcpp::export]]
-std::vector<double> Internals__rates__get(plant::RcppR6::RcppR6<plant::Internals> obj_) {
+std::vector<double> Internals__rates__get(plant::RcppR6::RcppR6<plant::Internals<double> > obj_) {
   return obj_->rates;
 }
 // [[Rcpp::export]]
-void Internals__rates__set(plant::RcppR6::RcppR6<plant::Internals> obj_, std::vector<double> value) {
+void Internals__rates__set(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, std::vector<double> value) {
   obj_->rates = value;
 }
 
 // [[Rcpp::export]]
-std::vector<double> Internals__auxs__get(plant::RcppR6::RcppR6<plant::Internals> obj_) {
+std::vector<double> Internals__auxs__get(plant::RcppR6::RcppR6<plant::Internals<double> > obj_) {
   return obj_->auxs;
 }
 // [[Rcpp::export]]
-void Internals__auxs__set(plant::RcppR6::RcppR6<plant::Internals> obj_, std::vector<double> value) {
+void Internals__auxs__set(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, std::vector<double> value) {
   obj_->auxs = value;
 }
 
@@ -4842,7 +4842,7 @@ void TF24_Environment__light_availability__set(plant::RcppR6::RcppR6<plant::TF24
 }
 
 // [[Rcpp::export]]
-plant::Internals TF24_Environment__soil__get(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_) {
+plant::Internals<double> TF24_Environment__soil__get(plant::RcppR6::RcppR6<plant::TF24_Environment> obj_) {
   return obj_->r_internals();
 }
 

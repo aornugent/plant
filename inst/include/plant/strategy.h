@@ -48,11 +48,11 @@ public:
 
   double competition_effect(double size) const;
 
-  double competition_effect_state(Internals& vars);
+  double competition_effect_state(Internals<double>& vars);
 
-  void compute_rates(const environment_type& environment, Internals& vars);
+  void compute_rates(const environment_type& environment, Internals<double>& vars);
 
-  void update_dependent_aux(const int index, Internals& vars);
+  void update_dependent_aux(const int index, Internals<double>& vars);
 
   // Seed strategy-specific initial ODE states for a newly introduced individual,
   // given its birth environment (called once from Node::compute_initial_conditions
@@ -60,7 +60,7 @@ public:
   // acclimating/tracked state (e.g. TF24f, #525) override this to initialise it at
   // its optimum so there is no birth transient. Resolved on the concrete strategy
   // type by Individual<T,E>, so overriding it here is not required to be virtual.
-  void set_initial_states(const environment_type& environment, Internals& vars) {
+  void set_initial_states(const environment_type& environment, Internals<double>& vars) {
     (void)environment;
     (void)vars;
   }

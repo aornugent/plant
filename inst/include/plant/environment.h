@@ -120,7 +120,7 @@ public:
 
   size_t species_arriving_index;
 
-  Internals vars;
+  Internals<double> vars;
   ExtrinsicDrivers extrinsic_drivers;
 
   // Uptake per resource, as compute_rates received it. Sized to n_resources()

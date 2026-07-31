@@ -115,7 +115,7 @@ public:
   void set_soil_number_of_depths(int n) {
     soil_number_of_depths = n;
     
-    vars = Internals(soil_number_of_depths + aux_num);
+    vars = Internals<double>(soil_number_of_depths + aux_num);
     initial_states = vars.states;
 
     z.resize(soil_number_of_depths);
@@ -502,7 +502,7 @@ public:
 
 
   // TODO: I wonder if this needs a better name? See also environment.h
-  Internals r_internals() const { return vars; }
+  Internals<double> r_internals() const { return vars; }
 
   // R interface
   void set_soil_water_state(std::vector<double> state) {

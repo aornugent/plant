@@ -77,9 +77,9 @@ template <> inline std::string generator_name<plant::tools::IndividualRunner<pla
 template <> inline std::string   class_name_r<plant::tools::IndividualRunner<plant::K93_Strategy,plant::K93_Environment> >() {return "IndividualRunner<K93,K93_Env>";}
 template <> inline std::string   package_name<plant::tools::IndividualRunner<plant::K93_Strategy,plant::K93_Environment> >() {return "plant";}
 template <> inline std::string generator_name<plant::tools::IndividualRunner<plant::K93_Strategy,plant::K93_Environment> >() {return ".R6_IndividualRunner___K93__K93_Env";}
-template <> inline std::string   class_name_r<plant::Internals >() {return "Internals";}
-template <> inline std::string   package_name<plant::Internals >() {return "plant";}
-template <> inline std::string generator_name<plant::Internals >() {return ".R6_Internals";}
+template <> inline std::string   class_name_r<plant::Internals<double> >() {return "Internals";}
+template <> inline std::string   package_name<plant::Internals<double> >() {return "plant";}
+template <> inline std::string generator_name<plant::Internals<double> >() {return ".R6_Internals";}
 template <> inline std::string   class_name_r<plant::Parameters<plant::FF16_Strategy,plant::FF16_Environment> >() {return "Parameters<FF16,FF16_Env>";}
 template <> inline std::string   package_name<plant::Parameters<plant::FF16_Strategy,plant::FF16_Environment> >() {return "plant";}
 template <> inline std::string generator_name<plant::Parameters<plant::FF16_Strategy,plant::FF16_Environment> >() {return "";}
@@ -545,11 +545,11 @@ template <> inline SEXP wrap(const plant::tools::IndividualRunner<plant::K93_Str
 template <> inline plant::tools::IndividualRunner<plant::K93_Strategy,plant::K93_Environment> as(SEXP x) {
   return *(plant::RcppR6::RcppR6<plant::tools::IndividualRunner<plant::K93_Strategy,plant::K93_Environment> >(x));
 }
-template <> inline SEXP wrap(const plant::Internals& x) {
-  return wrap(plant::RcppR6::RcppR6<plant::Internals>(x));
+template <> inline SEXP wrap(const plant::Internals<double>& x) {
+  return wrap(plant::RcppR6::RcppR6<plant::Internals<double> >(x));
 }
-template <> inline plant::Internals as(SEXP x) {
-  return *(plant::RcppR6::RcppR6<plant::Internals>(x));
+template <> inline plant::Internals<double> as(SEXP x) {
+  return *(plant::RcppR6::RcppR6<plant::Internals<double> >(x));
 }
 template <> inline SEXP wrap(const plant::Parameters<plant::FF16_Strategy,plant::FF16_Environment>& x) {
   Rcpp::List ret;

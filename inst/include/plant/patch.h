@@ -449,7 +449,7 @@ void Patch<T,E>::check_finite_ode_state() const {
   // environments (size 0 for light-only environments like FF16, so this loop is
   // a no-op there and cannot false-positive). For TF24 these are the per-depth
   // soil-water states.
-  const Internals& env_vars = environment.vars;
+  const Internals<double>& env_vars = environment.vars;
   for (size_t i = 0; i < env_vars.state_size; ++i) {
     if (!util::is_finite(env_vars.states[i])) {
       util::stop("Non-finite environment state (index " + util::to_string(i) +
