@@ -22,7 +22,7 @@ namespace plant {
 template <typename T, typename E>
 class Patch {
 public:
-  using value_type = double;
+  using value_type = typename T::value_type;
 
   typedef T                 strategy_type;
   typedef E                 environment_type;

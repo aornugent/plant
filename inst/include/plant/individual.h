@@ -13,6 +13,8 @@ namespace plant {
 
 template <typename T, typename E> class Individual {
 public:
+  using value_type = typename T::value_type;
+
   typedef T strategy_type;
   typedef E environment_type;
   typedef typename strategy_type::ptr strategy_type_ptr;

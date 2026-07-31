@@ -12,7 +12,7 @@ namespace tools {
 template <typename T, typename E>
 class IndividualRunner {
 public:
-  using value_type = double;
+  using value_type = typename T::value_type;
 
   IndividualRunner(Individual<T,E> individual_, E environment_)
     : individual(individual_), environment(environment_) {

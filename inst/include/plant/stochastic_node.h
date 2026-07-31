@@ -31,7 +31,7 @@ namespace plant {
 template <typename T, typename E>
 class StochasticNode {
 public:
-  using value_type = double;
+  using value_type = typename T::value_type;
 
   typedef Individual<T, E> individual_type;
 

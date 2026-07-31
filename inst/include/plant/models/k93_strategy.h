@@ -36,6 +36,8 @@ struct K93_Pars {
 
 class K93_Strategy: public Strategy<K93_Environment> {
 public:
+  using value_type = double;
+
   typedef std::shared_ptr<K93_Strategy> ptr;
   K93_Strategy();
 

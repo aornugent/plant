@@ -100,6 +100,8 @@ struct FF16_Pars {
 
 class FF16_Strategy: public Strategy<FF16_Environment> {
 public:
+  using value_type = double;
+
   typedef std::shared_ptr<FF16_Strategy> ptr;
   FF16_Strategy();
 
