@@ -52,7 +52,7 @@ public:
   // appended state; we call it then add the extra slot.
   void refresh_indices();
 
-  void compute_rates(const TF24_Environment& environment, Internals& vars);
+  void compute_rates(const TF24_Environment& environment, Internals<double>& vars);
 
   // Override the leaf solve: instead of optimising the root-collar psi, evaluate
   // the leaf at the tracked state and finite-difference the profit gradient
@@ -63,7 +63,7 @@ public:
   // gradient ascent starts at the optimum (no birth transient / no climb from 0,
   // which otherwise lets shaded recruits escape suppression). Runs the base
   // optimiser once via the initializing_ flag below.
-  void set_initial_states(const TF24_Environment& environment, Internals& vars);
+  void set_initial_states(const TF24_Environment& environment, Internals<double>& vars);
 
   // Acclimation gain k in  dpsi/dt = k * d(profit)/d(psi). Exposed to R so the
   // stiffness / accuracy-vs-speed k-sweep (#525) can be driven without a rebuild;

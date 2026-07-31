@@ -205,12 +205,12 @@ public:
                            double mass_sapwood, double mass_heartwood) const;
 
   void compute_rates(const FF16_Environment& environment,
-                Internals& vars);
+                Internals<double>& vars);
 
   // Inline (header): called per state-set / ODE-state update from templated
   // Individual<FF16> code, so inlining avoids a cross-TU call (no LTO build)
   // and lets the now-inline area_leaf fold in.
-  void update_dependent_aux(const int index, Internals& vars) {
+  void update_dependent_aux(const int index, Internals<double>& vars) {
     if (index == HEIGHT_INDEX) {
       double height = vars.state(HEIGHT_INDEX);
       vars.set_aux(COMPETITION_EFFECT_AUX_INDEX, area_leaf(height));
@@ -292,7 +292,7 @@ public:
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know FF16's state/aux layout.
   double net_mass_production_dt(const FF16_Environment& environment,
-                                const Internals& vars) {
+                                const Internals<double>& vars) {
     return net_mass_production_dt(environment, vars.state(HEIGHT_INDEX),
                                   vars.aux(COMPETITION_EFFECT_AUX_INDEX),
                                   vars.aux(HEIGHT_INVERSE_AUX_INDEX));
@@ -364,7 +364,7 @@ public:
   // already at birth size, so compute_rates has left that carbon in aux and the
   // leaf need not be solved there twice.
   double establishment_probability(const FF16_Environment& environment,
-                                   const Internals& vars) {
+                                   const Internals<double>& vars) {
     return establishment_probability(environment,
                                      vars.aux(NET_MASS_PRODUCTION_DT_AUX_INDEX));
   }
@@ -392,7 +392,7 @@ public:
   // cached competition_effect (= area_leaf) and height_inverse aux slots
   // itself. Inline (header) to keep the per-node hot competition path free of
   // a cross-TU call (no LTO build).
-  double compute_competition(double z, const Internals& vars) const {
+  double compute_competition(double z, const Internals<double>& vars) const {
     return compute_competition(z, vars.aux(COMPETITION_EFFECT_AUX_INDEX),
                                vars.aux(HEIGHT_INVERSE_AUX_INDEX));
   }

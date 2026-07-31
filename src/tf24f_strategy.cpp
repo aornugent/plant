@@ -24,7 +24,7 @@ void TF24f_Strategy::refresh_indices() {
 // tracked_root_psi_, and the resulting profit gradient comes back in
 // dprofit_dpsi_, which becomes the tracked state's rate (gradient ascent).
 void TF24f_Strategy::compute_rates(const TF24_Environment& environment,
-                                   Internals& vars) {
+                                   Internals<double>& vars) {
   // k_acclim is a user-settable gain; a negative value would silently turn the
   // gradient ascent into descent (away from the optimum) and a non-finite value
   // would poison the state rate, so fail fast on misconfiguration.
@@ -106,7 +106,7 @@ void TF24f_Strategy::solve_leaf() {
 // store the resulting collar psi as the initial state. leaf.root_collar_psi_ is
 // the signed (negative) potential; the tracked state is the positive magnitude.
 void TF24f_Strategy::set_initial_states(const TF24_Environment& environment,
-                                        Internals& vars) {
+                                        Internals<double>& vars) {
   // Seed the shared TF24 states first (notably the NSC storage pool, #517) --
   // set_initial_states is non-virtual, so without this call TF24f seedlings
   // would be born with empty reserves and die immediately.

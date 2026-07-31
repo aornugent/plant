@@ -233,12 +233,12 @@ public:
                            double mass_sapwood, double mass_heartwood) const;
 
   void compute_rates(const TF24_Environment& environment,
-                Internals& vars);
+                Internals<double>& vars);
   
   void compute_roots(const TF24_Environment& environment,
-                Internals& vars);
+                Internals<double>& vars);
 
-  void update_dependent_aux(const int index, Internals& vars);
+  void update_dependent_aux(const int index, Internals<double>& vars);
 
   // * Mass production
   // [eqn 12] Gross annual CO2 assimilation
@@ -283,7 +283,7 @@ public:
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
   double net_mass_production_dt(const TF24_Environment& environment,
-                                const Internals& vars) {
+                                const Internals<double>& vars) {
     return net_mass_production_dt(environment, vars.state(HEIGHT_INDEX),
                                   vars.aux(aux_idx_competition_effect),
                                   vars.aux(aux_idx_height_inverse));
@@ -345,7 +345,7 @@ public:
   // NSC storage capacity S_max = a_st1 * mass_sapwood [kg NSC].
   double storage_capacity(double area_leaf, double height) const;
   // Seed the storage state for a newly germinated individual (#517).
-  void set_initial_states(const TF24_Environment& environment, Internals& vars);
+  void set_initial_states(const TF24_Environment& environment, Internals<double>& vars);
   // [eqn 20] Survival of seedlings during establishment, from the carbon a
   // seedling produces at birth size. This form works that carbon out.
   double establishment_probability(const TF24_Environment& environment);
@@ -353,7 +353,7 @@ public:
   // already at birth size, so compute_rates has left that carbon in aux and the
   // leaf need not be solved there twice.
   double establishment_probability(const TF24_Environment& environment,
-                                   const Internals& vars) {
+                                   const Internals<double>& vars) {
     return establishment_probability(environment,
                                      vars.aux(aux_idx_net_mass_production_dt));
   }
@@ -371,7 +371,7 @@ public:
                              double height_inverse) const;
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // cached competition_effect and height_inverse aux slots itself.
-  double compute_competition(double z, const Internals& vars) const {
+  double compute_competition(double z, const Internals<double>& vars) const {
     return compute_competition(z, vars.aux(aux_idx_competition_effect),
                                vars.aux(aux_idx_height_inverse));
   }

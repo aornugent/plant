@@ -14,7 +14,7 @@ K93_Strategy::K93_Strategy() {
 }
 
 // Signatures fixed in plant.h
-void K93_Strategy::update_dependent_aux(const int index, Internals& vars) {
+void K93_Strategy::update_dependent_aux(const int index, Internals<double>& vars) {
   if (index == HEIGHT_INDEX) {
     double height = vars.state(HEIGHT_INDEX);
     vars.set_aux(COMPETITION_EFFECT_AUX_INDEX,
@@ -79,7 +79,7 @@ void K93_Strategy::refresh_indices () {
 }
 
 // i.e. setting rates of ode vars from the state and updating aux vars
-void K93_Strategy::compute_rates(const K93_Environment& environment, Internals& vars) {
+void K93_Strategy::compute_rates(const K93_Environment& environment, Internals<double>& vars) {
 
   double height = vars.state(HEIGHT_INDEX);
 

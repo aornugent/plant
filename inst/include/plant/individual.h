@@ -178,12 +178,12 @@ public:
 
   // ! External R code depends on knowing r internals for like growing plant to
   // ! height or something
-  Internals r_internals() const { return vars; }
+  Internals<double> r_internals() const { return vars; }
   const Control &control() const { return strategy->control; }
 
 private:
   strategy_type_ptr strategy;
-  Internals vars;
+  Internals<double> vars;
 };
 
 template <typename T, typename E> Individual<T,E> make_individual(T s) {

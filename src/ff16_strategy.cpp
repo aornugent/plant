@@ -84,7 +84,7 @@ double FF16_Strategy::mass_above_ground(double mass_leaf, double mass_bark,
 
 // one-shot update of the scm variables
 // i.e. setting rates of ode vars from the state and updating aux vars
-void FF16_Strategy::compute_rates(const FF16_Environment& environment,  Internals& vars) {
+void FF16_Strategy::compute_rates(const FF16_Environment& environment,  Internals<double>& vars) {
 
   double height = vars.state(HEIGHT_INDEX);
   double area_leaf_ = vars.aux(COMPETITION_EFFECT_AUX_INDEX);

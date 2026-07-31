@@ -69,7 +69,7 @@ public:
     return std::vector<std::string>({"competition_effect", "height_inverse"});
   }
 
-  void compute_rates(const K93_Environment& environment, Internals& vars);
+  void compute_rates(const K93_Environment& environment, Internals<double>& vars);
 
   void refresh_indices();
 
@@ -77,7 +77,7 @@ public:
   // The rates-carrying entry point Individual calls for every strategy. K93's
   // establishment reads no carbon budget, so the rates are unused here.
   double establishment_probability(const K93_Environment& environment,
-                                   const Internals&) {
+                                   const Internals<double>&) {
     return establishment_probability(environment);
   }
   double net_mass_production_dt(const K93_Environment& environment,
@@ -89,7 +89,7 @@ public:
   // carbon budget, so the worker ignores these arguments and returns NA; the
   // wrapper exists to keep Individual's interface uniform across strategies.
   double net_mass_production_dt(const K93_Environment& environment,
-                                const Internals& vars) {
+                                const Internals<double>& vars) {
     return net_mass_production_dt(environment, vars.state(HEIGHT_INDEX),
                                   vars.aux(COMPETITION_EFFECT_AUX_INDEX),
                                   vars.aux(HEIGHT_INVERSE_AUX_INDEX));
@@ -110,12 +110,12 @@ public:
   }
   // Strategy-agnostic entry point used by Individual<K93> (#266): reads the
   // cached competition_effect and height_inverse aux slots itself.
-  double compute_competition(double z, const Internals& vars) const {
+  double compute_competition(double z, const Internals<double>& vars) const {
     return compute_competition(z, vars.aux(COMPETITION_EFFECT_AUX_INDEX),
                                vars.aux(HEIGHT_INVERSE_AUX_INDEX));
   }
 
-  void update_dependent_aux(const int index, Internals& vars);
+  void update_dependent_aux(const int index, Internals<double>& vars);
 
 
   // K93 Methods  ----------------------------------------------

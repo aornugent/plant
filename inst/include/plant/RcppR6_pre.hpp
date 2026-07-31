@@ -66,8 +66,8 @@ template <> plant::tools::IndividualRunner<plant::TF24f_Strategy,plant::TF24_Env
 
 template <> SEXP wrap(const plant::tools::IndividualRunner<plant::K93_Strategy,plant::K93_Environment>&);
 template <> plant::tools::IndividualRunner<plant::K93_Strategy,plant::K93_Environment> as(SEXP);
-template <> SEXP wrap(const plant::Internals&);
-template <> plant::Internals as(SEXP);
+template <> SEXP wrap(const plant::Internals<double>&);
+template <> plant::Internals<double> as(SEXP);
 template <> SEXP wrap(const plant::Parameters<plant::FF16_Strategy,plant::FF16_Environment>&);
 template <> plant::Parameters<plant::FF16_Strategy,plant::FF16_Environment> as(SEXP);
 
