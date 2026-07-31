@@ -31,6 +31,8 @@ namespace plant {
 template <typename T, typename E>
 class StochasticNode {
 public:
+  using value_type = double;
+
   typedef Individual<T, E> individual_type;
 
   explicit StochasticNode(individual_type individual_)
@@ -61,16 +63,16 @@ public:
   static size_t ode_size() { return individual_type::ode_size(); }
   size_t aux_size() const { return individual.aux_size(); }
 
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it) {
+  template <typename It> It set_ode_state(It it) {
     return individual.set_ode_state(it);
   }
-  odelia::ode::iterator ode_state(odelia::ode::iterator it) const {
+  template <typename It> It ode_state(It it) const {
     return individual.ode_state(it);
   }
-  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const {
+  template <typename It> It ode_rates(It it) const {
     return individual.ode_rates(it);
   }
-  odelia::ode::iterator ode_aux(odelia::ode::iterator it) const {
+  template <typename It> It ode_aux(It it) const {
     for (size_t i = 0; i < individual.aux_size(); ++i) {
       *it++ = individual.aux(i);
     }

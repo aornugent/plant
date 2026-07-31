@@ -22,16 +22,16 @@ public:
   static size_t ode_size() {return Individual<T,E>::ode_size();}
   
   double ode_time() const {return environment.time;}
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it, double time) {
+  template <typename It> It set_ode_state(It it, double time) {
     it = individual.set_ode_state(it);
     environment.time = time;
     individual.compute_rates(environment);
     return it;
   }
-  odelia::ode::iterator ode_state(odelia::ode::iterator it) const {
+  template <typename It> It ode_state(It it) const {
     return individual.ode_state(it);
   }
-  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const {
+  template <typename It> It ode_rates(It it) const {
     return individual.ode_rates(it);
   }
   

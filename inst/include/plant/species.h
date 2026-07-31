@@ -68,7 +68,7 @@ public:
 
   // Setting the ODE state rewrites every node's height, so the cached scan goes
   // with it. Shadows (rather than uses) the SpeciesBase version for that reason.
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it) {
+  template <typename It> It set_ode_state(It it) {
     invalidate_height_scan();
     return base_type::set_ode_state(it);
   }
@@ -114,7 +114,7 @@ public:
   std::vector<double> consumption_rate_by_node_rev(int i) const;
   std::vector<double> consumption_rate_by_node(int i) const;
 
-  odelia::ode::iterator       ode_aux(odelia::ode::iterator it) const;
+  template <typename It> It ode_aux(It it) const;
 
   Rcpp::NumericMatrix r_get_state() const;
 
@@ -601,7 +601,8 @@ size_t Species<T,E>::aux_size() const {
 }
 
 template <typename T, typename E>
-odelia::ode::iterator Species<T,E>::ode_aux(odelia::ode::iterator it) const {
+template <typename It>
+It Species<T,E>::ode_aux(It it) const {
   return odelia::ode::ode_aux(nodes.begin(), nodes.end(), it);
 }
 
