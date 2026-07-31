@@ -714,9 +714,12 @@ type on every such function and lambda, including one-line helpers:
 ```cpp
 // BAD  -- returns a dangling expression template
 auto anchor = [](double v, S x) { return S(v) + (x - to_passive(x)); };
-// GOOD -- materialised while its operands are alive
-auto anchor = [](double v, const S& x) -> S { return graft_value<S>(v, x); };
+// GOOD -- the same arithmetic, materialised while its operands are alive
+auto anchor = [](double v, const S& x) -> S { return S(v) + (x - to_passive(x)); };
 ```
+
+The two differ only in `-> S` and taking `x` by reference. That is the whole
+lesson: the fix is the declared return type.
 
 **Two arguments of one type with unrelated meanings is a silent-swap hazard**,
 the more so under templating, because a template argument makes both of them the
