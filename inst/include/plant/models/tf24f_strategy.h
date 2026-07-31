@@ -56,7 +56,7 @@ public:
   // appended state; we call it then add the extra slot.
   void refresh_indices();
 
-  void compute_rates(const TF24_Environment& environment, Internals<S>& vars);
+  void compute_rates(const TF24_Environment<S>& environment, Internals<S>& vars);
 
   // Override the leaf solve: instead of optimising the root-collar psi, evaluate
   // the leaf at the tracked state and finite-difference the profit gradient
@@ -67,7 +67,7 @@ public:
   // gradient ascent starts at the optimum (no birth transient / no climb from 0,
   // which otherwise lets shaded recruits escape suppression). Runs the base
   // optimiser once via the initializing_ flag below.
-  void set_initial_states(const TF24_Environment& environment, Internals<S>& vars);
+  void set_initial_states(const TF24_Environment<S>& environment, Internals<S>& vars);
 
   // Acclimation gain k in  dpsi/dt = k * d(profit)/d(psi). Exposed to R so the
   // stiffness / accuracy-vs-speed k-sweep (#525) can be driven without a rebuild;
@@ -120,7 +120,7 @@ void TF24f_Strategy<S>::refresh_indices() {
 // tracked_root_psi_, and the resulting profit gradient comes back in
 // dprofit_dpsi_, which becomes the tracked state's rate (gradient ascent).
 template <typename S>
-void TF24f_Strategy<S>::compute_rates(const TF24_Environment& environment,
+void TF24f_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,
                                    Internals<S>& vars) {
   // k_acclim is a user-settable gain; a negative value would silently turn the
   // gradient ascent into descent (away from the optimum) and a non-finite value
@@ -204,7 +204,7 @@ void TF24f_Strategy<S>::solve_leaf() {
 // store the resulting collar psi as the initial state. leaf.root_collar_psi_ is
 // the signed (negative) potential; the tracked state is the positive magnitude.
 template <typename S>
-void TF24f_Strategy<S>::set_initial_states(const TF24_Environment& environment,
+void TF24f_Strategy<S>::set_initial_states(const TF24_Environment<S>& environment,
                                         Internals<S>& vars) {
   // Seed the shared TF24 states first (notably the NSC storage pool, #517) --
   // set_initial_states is non-virtual, so without this call TF24f seedlings
