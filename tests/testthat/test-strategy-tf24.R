@@ -404,3 +404,90 @@ test_that("SCM completes under extreme seasonal drought (#517, #550)", {
   expect_gte(out$offspring_production, 0)
 })
 
+
+compile_tf24_ad_parameters <- function() {
+  cand <- c(tryCatch(here::here("inst/include"), error = function(e) ""),
+            system.file("include", package = "plant"))
+  has_hdr <- file.exists(file.path(cand, "plant/models/tf24_strategy.h"))
+  testthat::skip_if(!any(has_hdr), "TF24 strategy header not found on include path.")
+  plant_inc <- cand[has_hdr][1]
+  odelia_inc <- system.file("include", package = "odelia")
+  odelia_so <- system.file("libs", "odelia.so", package = "odelia")
+  loaded <- getLoadedDLLs()
+  plant_so <- if ("plant" %in% names(loaded)) loaded[["plant"]][["path"]] else ""
+  testthat::skip_if(!nzchar(odelia_so) || !file.exists(odelia_so) ||
+                    !nzchar(plant_so) || !file.exists(plant_so),
+                    "shared libraries not found for linking.")
+  withr::local_envvar(
+    PKG_CPPFLAGS = paste(paste0("-I", shQuote(plant_inc)),
+                         paste0("-I", shQuote(odelia_inc))),
+    PKG_LIBS = paste(shQuote(normalizePath(plant_so)),
+                     shQuote(normalizePath(odelia_so))))
+  tryCatch({
+    Rcpp::sourceCpp(code = '
+      #include <plant.h>
+      #include <string>
+      #include <vector>
+
+      // [[Rcpp::export]]
+      Rcpp::List tf24_ad_parameter_probe() {
+        plant::TF24_Strategy<double> s;
+        const std::vector<std::string> names = s.ad_parameter_names();
+        const std::size_t n = s.ad_parameters().size();
+        const Rcpp::List base = Rcpp::wrap(plant::TF24_Strategy<double>().pars);
+        const Rcpp::CharacterVector fields = base.names();
+        Rcpp::List changed(n);
+        Rcpp::NumericVector written(n), read_back(n);
+        for (std::size_t i = 0; i < n; ++i) {
+          plant::TF24_Strategy<double> t;
+          std::vector<double*> p = t.ad_parameters();
+          const double v = -7.25 - static_cast<double>(i);
+          *p[i] = v;
+          const Rcpp::List got = Rcpp::wrap(t.pars);
+          std::vector<std::string> diff;
+          for (int j = 0; j < fields.size(); ++j) {
+            const std::string f = Rcpp::as<std::string>(fields[j]);
+            if (Rcpp::as<double>(got[f]) != Rcpp::as<double>(base[f])) {
+              diff.push_back(f);
+            }
+          }
+          changed[i] = Rcpp::wrap(diff);
+          written[i] = v;
+          read_back[i] = Rcpp::as<double>(got[names[i]]);
+        }
+        return Rcpp::List::create(
+          Rcpp::_["names"] = Rcpp::wrap(names),
+          Rcpp::_["n_pointers"] = static_cast<double>(n),
+          Rcpp::_["changed"] = changed,
+          Rcpp::_["written"] = written,
+          Rcpp::_["read_back"] = read_back,
+          Rcpp::_["fields"] = fields);
+      }
+    ', env = environment(), rebuild = FALSE, verbose = FALSE)
+    tf24_ad_parameter_probe
+  }, error = function(e) {
+    testthat::skip(paste("could not compile the TF24 parameter probe:",
+                         conditionMessage(e)))
+  })
+}
+
+test_that("ad_parameters and ad_parameter_names agree with the yml", {
+  testthat::skip_if_not_installed("yaml")
+  probe <- compile_tf24_ad_parameters()
+  res <- probe()
+
+  # eta and root_depth_shape_eta reach an unguarded pow exponent; vcmax_25 and
+  # jmax_25 are cached under a key that does not cover them, so a changed value
+  # would not be recomputed.
+  omitted <- c("eta", "vcmax_25", "jmax_25", "root_depth_shape_eta")
+
+  yml <- yaml::read_yaml(file.path(here::here("inst"), "RcppR6_classes.yml"))
+  declared <- vapply(yml$TF24_Pars$list, function(x) names(x)[[1]], character(1))
+  expect_setequal(declared, as.character(res$fields))
+  expect_identical(res$names, setdiff(declared, omitted))
+  expect_identical(res$n_pointers, as.numeric(length(res$names)))
+
+  # Every index reaches exactly the field its name denotes, and nothing else.
+  expect_identical(res$read_back, res$written)
+  expect_identical(lapply(res$changed, sort), as.list(res$names))
+})
