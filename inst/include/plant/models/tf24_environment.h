@@ -13,8 +13,14 @@ using namespace Rcpp;
 
 namespace plant {
 
+// Templated on the scalar S the light profile carries; double is production.
+// The soil water balance below reads the state on the untemplated Environment
+// base, so it stays double.
+template <typename S = double>
 class TF24_Environment : public Environment {
 public:
+  using value_type = S;
+
   std::vector<double> resolve_soil_parameter_values(SEXP values,
                                                     int n,
                                                     double default_value,
@@ -70,7 +76,7 @@ public:
 
 
     // Shading defaults have lower tolerance which are overwritten for speed
-    light_availability = ResourceSpline(
+    light_availability = ResourceSpline<S>(
                    1e-4,  // light_availability_spline_tol,
                    17,    // light_availability_spline_nbase,
                    16,    // light_availability_spline_max_depth,
@@ -192,7 +198,7 @@ public:
                  atm_o2_kpa_cache_time_ = NAN_TIME_, atm_kpa_cache_time_ = NAN_TIME_;
 
   // A ResourceSpline used for storing light availbility (0-1)
-  ResourceSpline light_availability;
+  ResourceSpline<S> light_availability;
 
   // Light interface
   bool canopy_rescale_usually;
@@ -232,16 +238,16 @@ public:
 
   // Ability to prescribe a fixed value
   // TODO: add setting to set other variables like water
-  void set_fixed_environment(double value, double height_max) {
+  void set_fixed_environment(S value, S height_max) {
     light_availability.set_fixed_value(value, height_max);
   }
 
-  void set_fixed_environment(double value) {
-    double height_max = 150.0;
+  void set_fixed_environment(S value) {
+    S height_max = 150.0;
     set_fixed_environment(value, height_max);
   }
 
-  double get_environment_at_height(double height) const {
+  S get_environment_at_height(S height) const {
     return light_availability.get_value_at_height(height);
   }
 
@@ -251,7 +257,7 @@ public:
     return light_availability.max_height();
   }
 
-  double get_environment_at_height(double height, double cap) const {
+  S get_environment_at_height(S height, double cap) const {
     return light_availability.get_value_at_height(height, cap);
   }
 
@@ -495,12 +501,12 @@ public:
 
   // Pre-compute resources available in the environment, as a function of height
   template <typename Function>
-  void compute_environment(Function f_compute_competition, double height_max, bool rescale) {
+  void compute_environment(Function f_compute_competition, S height_max, bool rescale) {
 
     // Define an anonymous function to use in creation of light_availability spline
     // Note: extinction coefficient was already applied in strategy, so
     // f_compute_competition gives sum of projected leaf area (k L) across species. Just need to apply Beer's law, E = exp(- (k L))
-    auto f_light_availability = [&](double height) -> double
+    auto f_light_availability = [&](double height) -> S
     { return exp(-f_compute_competition(height)); };
 
     // Calculates the light_availability spline, by fitting to the function

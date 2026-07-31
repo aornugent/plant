@@ -13,8 +13,12 @@ using namespace Rcpp;
 
 namespace plant {
 
+// Templated on the scalar S the resource values carry; the knot positions and
+// the refinement tolerances stay double. S = double is production.
+template <typename S = double>
 class ResourceSpline {
 public:
+  using value_type = S;
 
   // Constructors
   ResourceSpline() {
@@ -34,14 +38,14 @@ public:
     // Provide a dummy function and construct
     // This will be over-written later with actual function
     spline = spline_construction.construct(
-        [&](double height) { return get_value_at_height(height); }, 0,
+        [&](double height) -> S { return get_value_at_height(height); }, 0,
         1); // these are update with init(x, y) when patch is created
     
     spline_rescale_usually = rescale_usually;
   };
 
   template <typename Function>
-  void compute_environment(Function f_compute_competition, double height_max, bool rescale) {
+  void compute_environment(Function f_compute_competition, S height_max, bool rescale) {
     if (rescale & spline_rescale_usually) {
       rescale_spline(f_compute_competition, height_max);
     } else {
@@ -49,9 +53,9 @@ public:
     }
   };
 
-  void set_fixed_value(double value, double height_max) {
+  void set_fixed_value(S value, S height_max) {
     std::vector<double> x = {0, height_max/2.0, height_max};
-    std::vector<double> y = {value, value, value};
+    std::vector<S> y = {value, value, value};
     clear();
     spline.init(x, y);
   }
@@ -65,13 +69,13 @@ public:
   // loops with get_value_at_height(height, cap).
   double max_height() const { return spline.max(); }
 
-  double get_value_at_height(double height) const {
+  S get_value_at_height(S height) const {
     return get_value_at_height(height, spline.max());
   }
 
   // Variant taking a pre-fetched cap (= max_height()) so callers integrating
   // over many points pay the spline.max() lookup once rather than per point.
-  double get_value_at_height(double height, double cap) const {
+  S get_value_at_height(S height, double cap) const {
     // TODO(#385): change maximum - here hard-coded to 1.0
     // `cap` already guards the upper bound and the crown integral keeps
     // height >= 0 = spline.min(), so use the unchecked operator() rather than
@@ -85,7 +89,7 @@ public:
     // on the spurious negative undershoot. This is the single chokepoint for
     // FF16/K93/TF24, and belongs here in plant rather than in the
     // general-purpose interpolator (which is migrating to odelia).
-    return height <= cap ? std::max(0.0, spline(height)) : 1.0;
+    return height <= cap ? std::max(S(0.0), spline(height)) : S(1.0);
   }
 
   virtual void r_init_interpolators(const std::vector<double>& state) {
@@ -98,7 +102,8 @@ public:
     }
     const size_t state_n = state.size() / 2;
     auto it = state.begin();
-    std::vector<double> state_x, state_y;
+    std::vector<double> state_x;
+    std::vector<S> state_y;
     std::copy_n(it,         state_n, std::back_inserter(state_x));
     std::copy_n(it + state_n, state_n, std::back_inserter(state_y));
     spline.init(state_x, state_y);
@@ -106,7 +111,7 @@ public:
 
   // This object will store an interpolator spline of 
   // resource availability as a function of size
-  odelia::interpolator::Interpolator spline;
+  odelia::interpolator::basic_interpolator<S> spline;
 
   // This object can create an interpolator spline via adaptive refinement
   interpolator::AdaptiveInterpolator spline_construction;
@@ -139,7 +144,7 @@ public:
 private:
 
   template <typename Function>
-  void construct_spline(Function f_compute_competition, double height_max)
+  void construct_spline(Function f_compute_competition, S height_max)
   {
     const double lower_bound = 0.0;
     double upper_bound = height_max;
@@ -149,7 +154,7 @@ private:
   }
 
   template <typename Function>
-  void rescale_spline(Function f_compute_competition, double height_max) {
+  void rescale_spline(Function f_compute_competition, S height_max) {
     std::vector<double> h = spline.get_x();
     const double min = spline.min(), // 0.0?
       height_max_old = spline.max();

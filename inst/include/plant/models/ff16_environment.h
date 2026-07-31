@@ -21,7 +21,7 @@ public:
     time = 0.0;
 
     // Shading defaults have lower tolerance which are overwritten for speed
-    light_availability = ResourceSpline(
+    light_availability = ResourceSpline<double>(
         1e-4, // light_availability_spline_tol,
         17,   // light_availability_spline_nbase,
         16,   // light_availability_spline_max_depth,
@@ -31,7 +31,7 @@ public:
   };
 
   // A ResourceSpline used for storing light availbility (0-1)
-  ResourceSpline light_availability;
+  ResourceSpline<double> light_availability;
 
   // PPA: when true, the light a plant experiences is the stepped (layered)
   // profile rather than the smooth one stored in light_availability. The

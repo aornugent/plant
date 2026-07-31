@@ -123,7 +123,7 @@ struct TF24_Pars {
 // them carry; double is production. The embedded Leaf, the Control tolerances
 // and the extrinsic drivers stay double.
 template <typename S = double>
-class TF24_Strategy: public Strategy<TF24_Environment> {
+class TF24_Strategy: public Strategy<TF24_Environment<S>> {
 public:
   using value_type = S;
 
@@ -149,7 +149,7 @@ public:
   static constexpr int scientific_version = 4;
 
   S compute_average_light_environment(S z, S height,
-                                      const TF24_Environment &environment);
+                                      const TF24_Environment<S> &environment);
 
   // calculate the amount of water transpired relativised by leaf area index.
 
@@ -193,7 +193,7 @@ public:
       "assimilation"
     });
     // add the associated computation to compute_rates and compute there
-    if (collect_all_auxiliary) {
+    if (this->collect_all_auxiliary) {
       ret.push_back("area_sapwood");
     }
     return ret;
@@ -243,17 +243,17 @@ public:
   S mass_above_ground(S mass_leaf, S mass_bark,
                       S mass_sapwood, S mass_heartwood) const;
 
-  void compute_rates(const TF24_Environment& environment,
+  void compute_rates(const TF24_Environment<S>& environment,
                 Internals<S>& vars);
   
-  void compute_roots(const TF24_Environment& environment,
+  void compute_roots(const TF24_Environment<S>& environment,
                 Internals<S>& vars);
 
   void update_dependent_aux(const int index, Internals<S>& vars);
 
   // * Mass production
   // [eqn 12] Gross annual CO2 assimilation
-  S assimilation(const TF24_Environment& environment, S height,
+  S assimilation(const TF24_Environment<S>& environment, S height,
                  S area_leaf);
   // [Appendix S6] Per-leaf photosynthetic rate.
   S assimilation_leaf(S x) const;
@@ -279,7 +279,7 @@ public:
   S net_mass_production_dt_A(S assimilation, S respiration,
                              S turnover) const;
 
-  virtual S net_mass_production_dt(const TF24_Environment& environment,
+  virtual S net_mass_production_dt(const TF24_Environment<S>& environment,
                                 S height, S area_leaf_,
                                 S height_inverse);
 
@@ -293,7 +293,7 @@ public:
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
-  S net_mass_production_dt(const TF24_Environment& environment,
+  S net_mass_production_dt(const TF24_Environment<S>& environment,
                                 const Internals<S>& vars) {
     return net_mass_production_dt(environment, vars.state(HEIGHT_INDEX),
                                   vars.aux(aux_idx_competition_effect),
@@ -356,20 +356,20 @@ public:
   // NSC storage capacity S_max = a_st1 * mass_sapwood [kg NSC].
   S storage_capacity(S area_leaf, S height) const;
   // Seed the storage state for a newly germinated individual (#517).
-  void set_initial_states(const TF24_Environment& environment, Internals<S>& vars);
+  void set_initial_states(const TF24_Environment<S>& environment, Internals<S>& vars);
   // [eqn 20] Survival of seedlings during establishment, from the carbon a
   // seedling produces at birth size. This form works that carbon out.
-  S establishment_probability(const TF24_Environment& environment);
+  S establishment_probability(const TF24_Environment<S>& environment);
   // The same, for a newborn whose rates have just been computed. A newborn is
   // already at birth size, so compute_rates has left that carbon in aux and the
   // leaf need not be solved there twice.
-  S establishment_probability(const TF24_Environment& environment,
+  S establishment_probability(const TF24_Environment<S>& environment,
                               const Internals<S>& vars) {
     return establishment_probability(environment,
                                      vars.aux(aux_idx_net_mass_production_dt));
   }
   // The equation the two above share.
-  S establishment_probability(const TF24_Environment& environment,
+  S establishment_probability(const TF24_Environment<S>& environment,
                               S net_mass_production_dt_);
 
   // * Competitive environment
@@ -489,16 +489,16 @@ inline const double root_mass_carbon_scale = 83.26 * 0.5;
 // TODO: Consider moving to activating as an initialisation list?
 template <typename S>
 TF24_Strategy<S>::TF24_Strategy() {
-  collect_all_auxiliary = false;
+  this->collect_all_auxiliary = false;
   // build the string state/aux name to index map
   refresh_indices();
-  name = "TF24";
+  this->name = "TF24";
 }
 
 // not sure 'average' is the right term here..
 template <typename S>
 S TF24_Strategy<S>::compute_average_light_environment(
-    S z, S height, const TF24_Environment &environment) {
+    S z, S height, const TF24_Environment<S> &environment) {
 // NOTE: the light environment is clamped to a small positive floor (1e-4)
 // rather than allowed to reach 0 (original rationale was never recorded;
 // preserved as-is).
@@ -516,35 +516,35 @@ S TF24_Strategy<S>::evapotranspiration_dt(S area_leaf_, int soil_layer) {
 template <typename S>
 void TF24_Strategy<S>::refresh_indices () {
     // Create and fill the name to state index maps
-  state_index = std::map<std::string,int>();
-  aux_index   = std::map<std::string,int>();
+  this->state_index = std::map<std::string,int>();
+  this->aux_index   = std::map<std::string,int>();
   std::vector<std::string> aux_names_vec = aux_names();
   std::vector<std::string> state_names_vec = state_names();
   for (size_t i = 0; i < state_names_vec.size(); i++) {
-    state_index[state_names_vec[i]] = i;
+    this->state_index[state_names_vec[i]] = i;
   }
   for (size_t i = 0; i < aux_names_vec.size(); i++) {
-    aux_index[aux_names_vec[i]] = i;
+    this->aux_index[aux_names_vec[i]] = i;
   }
 
   // Cache integer indices for the keys used in the hot compute_rates path, so
   // it no longer does a std::map<string,int> lookup per derivs evaluation.
-  aux_idx_competition_effect    = aux_index.at("competition_effect");
-  aux_idx_height_inverse        = aux_index.at("height_inverse");
-  aux_idx_net_mass_production_dt = aux_index.at("net_mass_production_dt");
-  aux_idx_root_mass             = aux_index.at("root_mass");
-  aux_idx_opt_psi_stem          = aux_index.at("opt_psi_stem");
-  aux_idx_opt_root_psi          = aux_index.at("opt_root_psi");
-  aux_idx_transpiration         = aux_index.at("transpiration");
-  aux_idx_E_up                  = aux_index.at("E_up_");
-  aux_idx_profit                = aux_index.at("profit");
-  aux_idx_stom_cond_CO2         = aux_index.at("stom_cond_CO2");
-  aux_idx_assimilation          = aux_index.at("assimilation");
+  aux_idx_competition_effect    = this->aux_index.at("competition_effect");
+  aux_idx_height_inverse        = this->aux_index.at("height_inverse");
+  aux_idx_net_mass_production_dt = this->aux_index.at("net_mass_production_dt");
+  aux_idx_root_mass             = this->aux_index.at("root_mass");
+  aux_idx_opt_psi_stem          = this->aux_index.at("opt_psi_stem");
+  aux_idx_opt_root_psi          = this->aux_index.at("opt_root_psi");
+  aux_idx_transpiration         = this->aux_index.at("transpiration");
+  aux_idx_E_up                  = this->aux_index.at("E_up_");
+  aux_idx_profit                = this->aux_index.at("profit");
+  aux_idx_stom_cond_CO2         = this->aux_index.at("stom_cond_CO2");
+  aux_idx_assimilation          = this->aux_index.at("assimilation");
   // area_sapwood is only registered when collect_all_auxiliary is set.
-  aux_idx_area_sapwood = aux_index.count("area_sapwood") ? aux_index.at("area_sapwood") : -1;
-  state_idx_area_heartwood      = state_index.at("area_heartwood");
-  state_idx_mass_heartwood      = state_index.at("mass_heartwood");
-  state_idx_storage             = state_index.at("storage");
+  aux_idx_area_sapwood = this->aux_index.count("area_sapwood") ? this->aux_index.at("area_sapwood") : -1;
+  state_idx_area_heartwood      = this->state_index.at("area_heartwood");
+  state_idx_mass_heartwood      = this->state_index.at("mass_heartwood");
+  state_idx_storage             = this->state_index.at("storage");
 }
 
 // [eqn 2] area_leaf (inverse of [eqn 3])
@@ -632,7 +632,7 @@ void TF24_Strategy<S>::update_dependent_aux(const int index, Internals<S>& vars)
 // one-shot update of the scm variables
 // i.e. setting rates of ode vars from the state and updating aux vars
 template <typename S>
-void TF24_Strategy<S>::compute_rates(const TF24_Environment& environment,  Internals<S>& vars) {
+void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  Internals<S>& vars) {
   S height = vars.state(HEIGHT_INDEX);
   S area_leaf_ = vars.aux(aux_idx_competition_effect);
 
@@ -712,7 +712,7 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment& environment,  Inter
   const S mass_sapwood_ = mass_sapwood(area_sapwood_, height);
   vars.set_rate(state_idx_mass_heartwood, mass_heartwood_dt(mass_sapwood_));
 
-  if (collect_all_auxiliary) {
+  if (this->collect_all_auxiliary) {
     vars.set_aux(aux_idx_area_sapwood, area_sapwood_);
   }
 
@@ -740,7 +740,7 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment& environment,  Inter
 
 // [eqn 12] Gross annual CO2 assimilation (!!not in use for TF24 model!!)
 template <typename S>
-S TF24_Strategy<S>::assimilation(const TF24_Environment& environment,
+S TF24_Strategy<S>::assimilation(const TF24_Environment<S>& environment,
                                     S height,
                                     S area_leaf) {
 
@@ -844,7 +844,7 @@ S TF24_Strategy<S>::net_mass_production_dt_A(S assimilation, S respiration,
 // One shot calculation of net_mass_production_dt
 // Used by establishment_probability() and compute_rates().
 template <typename S>
-S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment& environment,
+S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environment,
                                 S height, S area_leaf_,
                                 S height_inverse) {
   // height_inverse (= 1/height) is supplied by the shared individual.h interface
@@ -1221,7 +1221,7 @@ S TF24_Strategy<S>::storage_capacity(S area_leaf_, S height) const {
 // its capacity (Stefaniak et al. 2026, Eq 8), so seedlings are born with
 // reserves rather than starting empty (which would kill them immediately).
 template <typename S>
-void TF24_Strategy<S>::set_initial_states(const TF24_Environment& environment,
+void TF24_Strategy<S>::set_initial_states(const TF24_Environment<S>& environment,
                                        Internals<S>& vars) {
   (void)environment;
   const S height = vars.state(HEIGHT_INDEX);
@@ -1232,7 +1232,7 @@ void TF24_Strategy<S>::set_initial_states(const TF24_Environment& environment,
 
 // [eqn 20] Survival of seedlings during establishment
 template <typename S>
-S TF24_Strategy<S>::establishment_probability(const TF24_Environment& environment) {
+S TF24_Strategy<S>::establishment_probability(const TF24_Environment<S>& environment) {
   return establishment_probability(
     environment,
     net_mass_production_dt(environment, height_0, area_leaf_0, 1.0 / height_0));
@@ -1241,7 +1241,7 @@ S TF24_Strategy<S>::establishment_probability(const TF24_Environment& environmen
 // Both forms above end here. The carbon is birth-size carbon either way, whatever
 // height the caller's plant happens to be at.
 template <typename S>
-S TF24_Strategy<S>::establishment_probability(const TF24_Environment& environment,
+S TF24_Strategy<S>::establishment_probability(const TF24_Environment<S>& environment,
                                                S net_mass_production_dt_) {
 
   S decay_over_time = exp(-pars.recruitment_decay * environment.time);
@@ -1305,8 +1305,8 @@ double TF24_Strategy<S>::height_seed(void) const {
     h0 = height_given_mass_leaf(std::numeric_limits<double>::min()),
     h1 = height_given_mass_leaf(pars.omega);
 
-  const S tol = control.offspring_production_tol;
-  const size_t max_iterations = control.offspring_production_iterations;
+  const double tol = this->control.offspring_production_tol;
+  const size_t max_iterations = this->control.offspring_production_iterations;
 
   auto target = [&] (double x) mutable -> S {
     return mass_live_given_height(x) - pars.omega;
@@ -1321,20 +1321,20 @@ void TF24_Strategy<S>::prepare_strategy() {
   // Set up the function_integrator
   function_integrator = quadrature::QK(
       // Gauss-Kronrod quadrature integeration rule (see qkrules)
-      control.function_integration_rule);
+      this->control.function_integration_rule);
 
   // Resolve the crown shading model once. The empty Control default maps to
   // TF24's own default (mean-light, its established behaviour); PPA is an
   // FF16-only stepped-light model and is rejected here.
   shading_model_ =
-    shading_model_from_string(control.shading_model, ShadingModel::MeanLight);
+    shading_model_from_string(this->control.shading_model, ShadingModel::MeanLight);
   // PPA and the flat-top-box variants are FF16-only (they reshape the FF16
   // competition / light profile, which TF24 does not use).
   if (shading_model_ == ShadingModel::PPA ||
       shading_model_ == ShadingModel::FlatTopBox ||
       shading_model_ == ShadingModel::FlatTopSoftBox) {
     throw std::invalid_argument(
-      "shading_model '" + control.shading_model +
+      "shading_model '" + this->control.shading_model +
       "' is not supported for the TF24 strategy");
   }
 
@@ -1345,17 +1345,17 @@ void TF24_Strategy<S>::prepare_strategy() {
   height_0 = height_seed();
   area_leaf_0 = area_leaf(height_0);
 
-  if (is_variable_birth_rate) {
-    extrinsic_drivers.set_variable("birth_rate", birth_rate_x, birth_rate_y);
+  if (this->is_variable_birth_rate) {
+    this->extrinsic_drivers.set_variable("birth_rate", this->birth_rate_x, this->birth_rate_y);
   } else {
-    extrinsic_drivers.set_constant("birth_rate", birth_rate_y[0]);
+    this->extrinsic_drivers.set_constant("birth_rate", this->birth_rate_y[0]);
   }
   leaf = Leaf(pars.vcmax_25, pars.c, pars.b, pars.psi_crit,
               pars.root_c, pars.root_b, pars.root_psi_crit,
               pars.beta2, pars.jmax_25, pars.a,
               pars.curv_fact_elec_trans, pars.curv_fact_colim,
-              control.GSS_tol_abs, control.vulnerability_curve_ncontrol,
-              control.ci_abs_tol, control.ci_niter, pars.g1_TF24, beta_R_H,
+              this->control.GSS_tol_abs, this->control.vulnerability_curve_ncontrol,
+              this->control.ci_abs_tol, this->control.ci_niter, pars.g1_TF24, beta_R_H,
               beta_R_V);
 }
 

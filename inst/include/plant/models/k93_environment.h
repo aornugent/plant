@@ -17,7 +17,7 @@ public:
     // ResourceSpline default (1e-6) to 1e-4 for speed. The spline is rebuilt
     // every ODE step, so its construction dominates K93 runtime; 1e-6 was 100x
     // tighter than FF16 for no comparable accuracy need.
-    light_availability = ResourceSpline(
+    light_availability = ResourceSpline<double>(
         1e-4, // light_availability_spline_tol
         17,   // light_availability_spline_nbase
         16,   // light_availability_spline_max_depth
@@ -26,7 +26,7 @@ public:
   };
 
   // Light interface
-  ResourceSpline light_availability;
+  ResourceSpline<double> light_availability;
 
   void set_fixed_environment(double value, double height_max) {
     light_availability.set_fixed_value(value, height_max);

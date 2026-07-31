@@ -212,8 +212,8 @@ OdeRunner:
     parameters: T
     concrete:
       - ["FF16": "plant::tools::IndividualRunner<plant::FF16_Strategy, plant::FF16_Environment>"]
-      - ["TF24": "plant::tools::IndividualRunner<plant::TF24_Strategy<double>, plant::TF24_Environment>"]
-      - ["TF24f": "plant::tools::IndividualRunner<plant::TF24f_Strategy<double>, plant::TF24_Environment>"]
+      - ["TF24": "plant::tools::IndividualRunner<plant::TF24_Strategy<double>, plant::TF24_Environment<double>>"]
+      - ["TF24f": "plant::tools::IndividualRunner<plant::TF24f_Strategy<double>, plant::TF24_Environment<double>>"]
       - ["K93": "plant::tools::IndividualRunner<plant::K93_Strategy, plant::K93_Environment>"]
   constructor:
     args: [obj: T, control: "odelia::ode::OdeControl=OdeControl()"]
@@ -390,8 +390,8 @@ Individual:
     parameters: [T,E]
     concrete:
       - ["FF16": "plant::FF16_Strategy", "FF16_Env": "plant::FF16_Environment"]
-      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
-      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
+      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
+      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
       - ["K93": "plant::K93_Strategy", "K93_Env": "plant::K93_Environment"]
   constructor:
     args: [s: T]
@@ -452,8 +452,8 @@ IndividualRunner:
     parameters: [T,E]
     concrete:
       - ["FF16": "plant::FF16_Strategy", "FF16_Env": "plant::FF16_Environment"]
-      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
-      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
+      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
+      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
       - ["K93": "plant::K93_Strategy", "K93_Env": "plant::K93_Environment"]
   constructor:
     name_cpp: "plant::tools::IndividualRunner<T,E>"
@@ -506,8 +506,8 @@ Parameters:
     parameters: [T, E]
     concrete:
       - ["FF16": "plant::FF16_Strategy", "FF16_Env": "plant::FF16_Environment"]
-      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
-      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
+      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
+      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
       - ["K93": "plant::K93_Strategy", "K93_Env": "plant::K93_Environment"]
   validator:
     name_cpp: validate
@@ -534,8 +534,8 @@ Node:
     parameters: [T,E]
     concrete:
       - ["FF16": "plant::FF16_Strategy", "FF16_Env": "plant::FF16_Environment"]
-      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
-      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
+      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
+      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
       - ["K93": "plant::K93_Strategy", "K93_Env": "plant::K93_Environment"]
   constructor:
     name_cpp: "plant::make_node<T,E>"
@@ -570,8 +570,8 @@ Species:
     parameters: [T,E]
     concrete:
       - ["FF16": "plant::FF16_Strategy", "FF16_Env": "plant::FF16_Environment"]
-      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
-      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
+      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
+      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
       - ["K93": "plant::K93_Strategy", "K93_Env": "plant::K93_Environment"]
   constructor:
     args: [strategy: T]
@@ -618,8 +618,8 @@ Patch:
     parameters: [T, E]
     concrete:
       - ["FF16": "plant::FF16_Strategy", "FF16_Env": "plant::FF16_Environment"]
-      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
-      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
+      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
+      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
       - ["K93": "plant::K93_Strategy", "K93_Env": "plant::K93_Environment"]
   constructor:
     args:
@@ -690,8 +690,8 @@ SCM:
     parameters: [T, E]
     concrete:
       - ["FF16": "plant::FF16_Strategy", "FF16_Env": "plant::FF16_Environment"]
-      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
-      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
+      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
+      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
       - ["K93": "plant::K93_Strategy", "K93_Env": "plant::K93_Environment"]
   constructor:
     args:
@@ -771,8 +771,8 @@ StochasticSpecies:
     parameters: [T,E]
     concrete:
       - ["FF16": "plant::FF16_Strategy", "FF16_Env": "plant::FF16_Environment"]
-      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
-      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
+      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
+      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
       - ["K93": "plant::K93_Strategy", "K93_Env": "plant::K93_Environment"]
   constructor:
     args: [strategy: "T"]
@@ -816,8 +816,8 @@ StochasticPatch:
     parameters: [T,E]
     concrete:
       - ["FF16": "plant::FF16_Strategy", "FF16_Env": "plant::FF16_Environment"]
-      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
-      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
+      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
+      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
       - ["K93": "plant::K93_Strategy", "K93_Env": "plant::K93_Environment"]
   constructor:
     args:
@@ -885,8 +885,8 @@ StochasticPatchRunner:
     parameters: [T,E]
     concrete:
       - ["FF16": "plant::FF16_Strategy", "FF16_Env": "plant::FF16_Environment"]
-      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
-      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment"]
+      - ["TF24": "plant::TF24_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
+      - ["TF24f": "plant::TF24f_Strategy<double>", "TF24_Env": "plant::TF24_Environment<double>"]
       - ["K93": "plant::K93_Strategy", "K93_Env": "plant::K93_Environment"]
   constructor:
     args:
@@ -922,7 +922,7 @@ StochasticPatchRunner:
       name_cpp_set: r_set_node_schedule
 
 ResourceSpline:
-  name_cpp: "plant::ResourceSpline"
+  name_cpp: "plant::ResourceSpline<double>"
   constructor:
     args:
       - tol: double
@@ -1109,7 +1109,7 @@ FF16_Environment:
     time: {type: double, access: field}
     ode_size: {type: size_t, access: member}
     light_availability:
-      type: "plant::ResourceSpline"
+      type: "plant::ResourceSpline<double>"
       access: field
 
 K93_Pars:
@@ -1168,7 +1168,7 @@ K93_Environment:
       return_type: void
   active:
     time: {type: double, access: field}
-    light_availability: {type: "plant::ResourceSpline", access: field}
+    light_availability: {type: "plant::ResourceSpline<double>", access: field}
     ode_size: {type: size_t, access: member}
 
 ExtrinsicDrivers:
@@ -1280,7 +1280,7 @@ TF24_Strategy:
     - is_variable_birth_rate: bool
 
 TF24_Environment:
-  name_cpp: "plant::TF24_Environment"
+  name_cpp: "plant::TF24_Environment<double>"
   constructor:
     roxygen: |
       @title Create an TF24_Environment object.
@@ -1374,7 +1374,7 @@ TF24_Environment:
     b_infil: {type: double, access: field}
     ode_size: {type: size_t, access: member}
     light_availability:
-      type: "plant::ResourceSpline"
+      type: "plant::ResourceSpline<double>"
       access: field
     soil:
       type: "plant::Internals<double>"
