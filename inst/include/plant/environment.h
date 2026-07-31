@@ -40,21 +40,21 @@ public:
 
   virtual void compute_rates(std::vector<double> const& resource_depletion){};
 
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it) {
+  template <typename It> It set_ode_state(It it) {
     for (size_t i = 0; i < vars.state_size; i++) {
       vars.states[i] = *it++;
     }
     return it;
   }
 
-  odelia::ode::iterator ode_state(odelia::ode::iterator it) const {
+  template <typename It> It ode_state(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.states[i];
     }
     return it;
   }
 
-  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const {
+  template <typename It> It ode_rates(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.rates[i];
     }

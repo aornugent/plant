@@ -49,9 +49,9 @@ public:
   double ode_time() const;
   double area;
 
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it, double time);
-  odelia::ode::iterator       ode_state(odelia::ode::iterator it) const;
-  odelia::ode::iterator       ode_rates(odelia::ode::iterator it) const;
+  template <typename It> It set_ode_state(It it, double time);
+  template <typename It> It ode_state(It it) const;
+  template <typename It> It ode_rates(It it) const;
 
   // * R interface
   // Data accessors:
@@ -236,8 +236,8 @@ double StochasticPatch<T,E>::ode_time() const {
 }
 
 template <typename T, typename E>
-odelia::ode::const_iterator StochasticPatch<T,E>::set_ode_state(odelia::ode::const_iterator it,
-                                                      double time) {
+template <typename It>
+It StochasticPatch<T,E>::set_ode_state(It it, double time) {
   
   // set ode sates
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
@@ -252,12 +252,14 @@ odelia::ode::const_iterator StochasticPatch<T,E>::set_ode_state(odelia::ode::con
 }
 
 template <typename T, typename E>
-odelia::ode::iterator StochasticPatch<T,E>::ode_state(odelia::ode::iterator it) const {
+template <typename It>
+It StochasticPatch<T,E>::ode_state(It it) const {
   return odelia::ode::ode_state(species.begin(), species.end(), it);
 }
 
 template <typename T, typename E>
-odelia::ode::iterator StochasticPatch<T,E>::ode_rates(odelia::ode::iterator it) const {
+template <typename It>
+It StochasticPatch<T,E>::ode_rates(It it) const {
   return odelia::ode::ode_rates(species.begin(), species.end(), it);
 }
 
