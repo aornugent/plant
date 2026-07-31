@@ -19,6 +19,9 @@ using namespace Rcpp;
 
 namespace plant {
 
+// One accepted step. The state widens at an introduction, so the record is ragged.
+struct ode_step_record { double time; double step_size; std::vector<double> state; };
+
 template <typename T, typename E>
 class Patch {
 public:
@@ -155,6 +158,22 @@ public:
   void cache_ode_step();
   void cache_RK45_step(int step);
   void load_ode_step();
+
+  // Per-accepted-step recording. record_ode_step() is called by the stepper once a
+  // step is committed, so the states it keeps are the run's own. The other three are
+  // what the solver's concept asks for and no more; has_recorded_field() is false, so
+  // a derivative evaluation takes the same path it takes for a patch that keeps none
+  // of this.
+  void record_ode_step();
+  void record_stage(int) {}
+  void replay_step() {}
+  bool has_recorded_field() const { return false; }
+
+  bool record_steps = false;
+  // One record per accepted step, the first being the initial state. The step size is
+  // the solver's, filled in beside its own state once the run is over: the stepper
+  // does not pass it here, and it cannot be differenced out of the times.
+  std::vector<ode_step_record> trajectory;
   
   // used cache_ode_step for mutant runs
   bool save_RK45_cache;
@@ -288,6 +307,10 @@ void Patch<T,E>::reset() {
 
   // clear accumulated per-node competition error
   competition_error_by_node.assign(species.size(), {});
+
+  trajectory.clear();
+  // No step reached the initial time, so it records no size.
+  record_ode_step();
 }
 
 // Seed the patch from parameters.initial_state. Introduces the requested number
@@ -895,6 +918,17 @@ It Patch<T,E>::ode_state(It it) const {
   it = odelia::ode::ode_state(species.begin(), species.end(), it);
   it = environment.ode_state(it);
   return it;
+}
+
+template <typename T, typename E>
+void Patch<T,E>::record_ode_step() {
+  if (!record_steps) {
+    return;
+  }
+  ode_step_record record{time(), std::numeric_limits<double>::quiet_NaN(),
+                         std::vector<double>(ode_size())};
+  ode_state(record.state.begin());
+  trajectory.push_back(std::move(record));
 }
 
 template <typename T, typename E>
