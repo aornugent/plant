@@ -1741,6 +1741,10 @@ Species___FF16__FF16_Env__compute_competition_effect_by_nodes_error <- function(
     .Call('_plant_Species___FF16__FF16_Env__compute_competition_effect_by_nodes_error', PACKAGE = 'plant', obj_, scal)
 }
 
+Species___FF16__FF16_Env__set_birth_state <- function(obj_, times, patch_density, pr_patch_survival) {
+    invisible(.Call('_plant_Species___FF16__FF16_Env__set_birth_state', PACKAGE = 'plant', obj_, times, patch_density, pr_patch_survival))
+}
+
 Species___FF16__FF16_Env__size__get <- function(obj_) {
     .Call('_plant_Species___FF16__FF16_Env__size__get', PACKAGE = 'plant', obj_)
 }
@@ -1847,6 +1851,10 @@ Species___TF24__TF24_Env__node_at <- function(obj_, index) {
 
 Species___TF24__TF24_Env__compute_competition_effect_by_nodes_error <- function(obj_, scal) {
     .Call('_plant_Species___TF24__TF24_Env__compute_competition_effect_by_nodes_error', PACKAGE = 'plant', obj_, scal)
+}
+
+Species___TF24__TF24_Env__set_birth_state <- function(obj_, times, patch_density, pr_patch_survival) {
+    invisible(.Call('_plant_Species___TF24__TF24_Env__set_birth_state', PACKAGE = 'plant', obj_, times, patch_density, pr_patch_survival))
 }
 
 Species___TF24__TF24_Env__size__get <- function(obj_) {
@@ -1957,6 +1965,10 @@ Species___TF24f__TF24_Env__compute_competition_effect_by_nodes_error <- function
     .Call('_plant_Species___TF24f__TF24_Env__compute_competition_effect_by_nodes_error', PACKAGE = 'plant', obj_, scal)
 }
 
+Species___TF24f__TF24_Env__set_birth_state <- function(obj_, times, patch_density, pr_patch_survival) {
+    invisible(.Call('_plant_Species___TF24f__TF24_Env__set_birth_state', PACKAGE = 'plant', obj_, times, patch_density, pr_patch_survival))
+}
+
 Species___TF24f__TF24_Env__size__get <- function(obj_) {
     .Call('_plant_Species___TF24f__TF24_Env__size__get', PACKAGE = 'plant', obj_)
 }
@@ -2063,6 +2075,10 @@ Species___K93__K93_Env__node_at <- function(obj_, index) {
 
 Species___K93__K93_Env__compute_competition_effect_by_nodes_error <- function(obj_, scal) {
     .Call('_plant_Species___K93__K93_Env__compute_competition_effect_by_nodes_error', PACKAGE = 'plant', obj_, scal)
+}
+
+Species___K93__K93_Env__set_birth_state <- function(obj_, times, patch_density, pr_patch_survival) {
+    invisible(.Call('_plant_Species___K93__K93_Env__set_birth_state', PACKAGE = 'plant', obj_, times, patch_density, pr_patch_survival))
 }
 
 Species___K93__K93_Env__size__get <- function(obj_) {
@@ -2605,6 +2621,10 @@ SCM___FF16__FF16_Env__run_mutant <- function(obj_, p) {
     invisible(.Call('_plant_SCM___FF16__FF16_Env__run_mutant', PACKAGE = 'plant', obj_, p))
 }
 
+SCM___FF16__FF16_Env__store_trajectory <- function(obj_) {
+    .Call('_plant_SCM___FF16__FF16_Env__store_trajectory', PACKAGE = 'plant', obj_)
+}
+
 SCM___FF16__FF16_Env__refine_schedule <- function(obj_) {
     invisible(.Call('_plant_SCM___FF16__FF16_Env__refine_schedule', PACKAGE = 'plant', obj_))
 }
@@ -2695,6 +2715,10 @@ SCM___TF24__TF24_Env__run <- function(obj_) {
 
 SCM___TF24__TF24_Env__run_mutant <- function(obj_, p) {
     invisible(.Call('_plant_SCM___TF24__TF24_Env__run_mutant', PACKAGE = 'plant', obj_, p))
+}
+
+SCM___TF24__TF24_Env__store_trajectory <- function(obj_) {
+    .Call('_plant_SCM___TF24__TF24_Env__store_trajectory', PACKAGE = 'plant', obj_)
 }
 
 SCM___TF24__TF24_Env__refine_schedule <- function(obj_) {
@@ -2789,6 +2813,10 @@ SCM___TF24f__TF24_Env__run_mutant <- function(obj_, p) {
     invisible(.Call('_plant_SCM___TF24f__TF24_Env__run_mutant', PACKAGE = 'plant', obj_, p))
 }
 
+SCM___TF24f__TF24_Env__store_trajectory <- function(obj_) {
+    .Call('_plant_SCM___TF24f__TF24_Env__store_trajectory', PACKAGE = 'plant', obj_)
+}
+
 SCM___TF24f__TF24_Env__refine_schedule <- function(obj_) {
     invisible(.Call('_plant_SCM___TF24f__TF24_Env__refine_schedule', PACKAGE = 'plant', obj_))
 }
@@ -2879,6 +2907,10 @@ SCM___K93__K93_Env__run <- function(obj_) {
 
 SCM___K93__K93_Env__run_mutant <- function(obj_, p) {
     invisible(.Call('_plant_SCM___K93__K93_Env__run_mutant', PACKAGE = 'plant', obj_, p))
+}
+
+SCM___K93__K93_Env__store_trajectory <- function(obj_) {
+    .Call('_plant_SCM___K93__K93_Env__store_trajectory', PACKAGE = 'plant', obj_)
 }
 
 SCM___K93__K93_Env__refine_schedule <- function(obj_) {

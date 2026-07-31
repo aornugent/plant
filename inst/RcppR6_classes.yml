@@ -656,6 +656,11 @@ Species:
       return_type: "std::vector<double>"
       args: [scal: double=1]
       name_cpp: r_compute_competition_effect_by_nodes_error
+    set_birth_state:
+      return_type: void
+      args: [times: "const std::vector<double>&",
+             patch_density: "const std::vector<double>&",
+             pr_patch_survival: "const std::vector<double>&"]
 
 Patch:
   name_cpp: "plant::Patch<T,E>"
@@ -748,6 +753,9 @@ SCM:
     run_mutant:
       args: [p: "plant::Parameters<T,E>"]
       return_type: void
+    store_trajectory:
+      return_type: "Rcpp::List"
+      name_cpp: r_store_trajectory
     refine_schedule:
       return_type: void
     reset:

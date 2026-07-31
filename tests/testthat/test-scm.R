@@ -321,3 +321,58 @@ test_that("A second run on one SCM reproduces the first", {
   expect_identical(scm$patch$ode_state, first_state)
 })
 
+
+
+test_that("store_trajectory replays the recorded step sizes", {
+  for (x in setdiff(names(strategy_types), "TF24")) {
+    e <- environment_types[[x]]
+    s <- strategy_types[[x]]()
+    p <- Parameters(x, e)(strategies = list(s), patch_area = 1)
+    scm <- SCM(x, e)(p, Environment(x), Control())
+
+    ## Nothing to replay until an adaptive pass has resolved a schedule.
+    expect_error(scm$store_trajectory(), "No accepted steps")
+
+    ## A short schedule: eight introductions from t = 0 to t = 2.
+    sched <- scm$node_schedule
+    t <- seq(0, 2, length.out = 8)
+    sched$set_times(t, 1)
+    sched$max_time <- max(t) + diff(t)[[1]]
+    scm$node_schedule <- sched
+
+    scm$run()
+    grid <- scm$ode_times
+    forward_state <- scm$patch$ode_state
+    expect_gt(length(grid), 1)
+
+    traj <- scm$store_trajectory()
+
+    ## One record per accepted step, and the times are the resolved grid itself
+    ## rather than any second list of times.
+    expect_equal(length(traj), length(grid))
+    expect_identical(vapply(traj, function(r) r$time, numeric(1)), grid)
+
+    ## No step reached the first time, and every later time is its predecessor
+    ## advanced by the recorded size, which is how the stepper reached it.
+    h <- vapply(traj, function(r) r$step_size, numeric(1))
+    times <- vapply(traj, function(r) r$time, numeric(1))
+    expect_true(is.na(h[[1]]))
+    expect_true(all(h[-1] > 0))
+    expect_identical(times[-1], times[-length(times)] + h[-1])
+
+    ## Driving the replay by size rather than by differenced time reproduces the
+    ## forward run's final state bit for bit.
+    expect_identical(traj[[length(traj)]]$state, forward_state)
+
+    ## The state widens at introductions, so the records are ragged, and the
+    ## last is as wide as the patch the replay ended on.
+    widths <- vapply(traj, function(r) length(r$state), integer(1))
+    expect_true(all(diff(widths) >= 0))
+    expect_gt(max(widths), min(widths))
+    expect_equal(widths[[length(widths)]], scm$patch$ode_size)
+
+    ## The replay leaves the schedule adaptive, so the run is repeatable.
+    expect_false(scm$node_schedule$use_ode_times)
+    expect_equal(length(scm$store_trajectory()), length(scm$ode_times))
+  }
+})
