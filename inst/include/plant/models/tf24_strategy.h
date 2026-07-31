@@ -1337,7 +1337,7 @@ S TF24_Strategy<S>::Q(S z, S height, S eta_x) const {
     u_eta = pow(z / height, eta_x);
   } else {
     const S u = z / height;
-    u_eta = odelia::util::to_passive(u) <= 0.0 ? S(0.0) : std::pow(u, eta_x);
+    u_eta = odelia::util::to_passive(u) <= 0.0 ? S(0.0) : pow(u, eta_x);
   }
   const S tmp = 1.0 - u_eta;
   return tmp * tmp;
