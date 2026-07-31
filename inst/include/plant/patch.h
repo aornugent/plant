@@ -788,6 +788,11 @@ void Patch<T,E>::introduce_new_nodes(const std::vector<size_t>& species_index) {
   }
 
   compute_environment(false);
+
+  // The solver reads these rates as the derivative of the widened state, and
+  // takes no error from a mismatch: without this they are the rates of the
+  // state and field from before the new nodes entered.
+  compute_rates();
 }
 
 template <typename T, typename E>
