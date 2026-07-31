@@ -416,7 +416,7 @@ public:
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
   // Crown shape factor, precomputed from pars.eta
   double eta_c     = NA_REAL; // [dimensionless]
-  CanopyShape canopy_shape;
+  CanopyShape<double> canopy_shape;
   // Height and leaf area of a (germinated) seed
   double height_0  = NA_REAL;
   double height_0_inverse = NA_REAL;

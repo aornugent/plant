@@ -571,7 +571,7 @@ void FF16_Strategy::prepare_strategy() {
     break;
   }
 
-  eta_c = CanopyShape::eta_c(pars.eta);
+  eta_c = CanopyShape<double>::eta_c(pars.eta);
   // NOTE: Also pre-computing, though less trivial
   height_0 = height_seed();
   height_0_inverse = 1.0 / height_0;
