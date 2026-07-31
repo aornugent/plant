@@ -5,11 +5,34 @@
 // This class creates an interpolator object, using adaptive refinement
 
 #include <list>
+#include <stdexcept>
+#include <string>
 #include <plant/util.h> // util::stop, util::seq_len
 #include <odelia/interpolator.hpp>
 
 namespace plant {
 namespace interpolator {
+
+// Where refinement gave up: the worst interval still failing the error test at
+// max_depth, and how many others are in the same state. Reported because the
+// location is the diagnosis -- refinement stalls on a feature of the target, and
+// naming the x it stalled at points straight at whatever put the feature there.
+struct StallReport {
+  double x_lo, x_hi;   // the unresolved interval
+  double y_lo, y_hi;   // target values at its ends
+  size_t n_unresolved; // intervals still failing, including this one
+};
+
+// Thrown when adaptive refinement exhausts max_depth. Carries the stall location
+// so a caller with model context can say what lives at that x before the error
+// reaches the user: the interpolator only sees a function with a narrow feature,
+// whereas Patch knows it is a light profile over a set of cohort heights.
+class refinement_failure : public std::runtime_error {
+public:
+  refinement_failure(const std::string& msg, const StallReport& report_)
+    : std::runtime_error(msg), report(report_) {}
+  StallReport report;
+};
 
 class AdaptiveInterpolator {
 public:
@@ -42,6 +65,12 @@ private:
 
   bool check_err(double y_true, double y_pred) const;
   static void check_bounds(double a, double b);
+  static void check_target_value(double x, double y);
+
+  // Locate the interval refinement is stuck on, and throw refinement_failure
+  // naming it. Non-template members, so they live in the .cpp.
+  StallReport stall_report() const;
+  [[noreturn]] void stop_unresolvable() const;
 
   // Control parameters:
   double atol, rtol;
@@ -74,8 +103,10 @@ odelia::interpolator::Interpolator AdaptiveInterpolator::construct(Function targ
   std::vector<double> tmp = util::seq_len(a, b, nbase);
   for (size_t i = 0; i < nbase; i++) {
     const double xi = tmp[i];
+    const double yi = target(xi);
+    check_target_value(xi, yi);
     xx.push_back(xi);
-    yy.push_back(target(xi));
+    yy.push_back(yi);
     zz.push_back(i > 0);
   }
 
@@ -98,7 +129,11 @@ bool AdaptiveInterpolator::refine(Function target) {
   dx /= 2;
 
   if (dx < dxmin) {
-    util::stop("Interpolated function as refined as currently possible");
+    // Say what was actually exhausted, and where. The target is finite here
+    // (construct() and the loop below both check), so this is a genuine
+    // resolution limit: the function has a feature narrower than dxmin, i.e. is
+    // effectively discontinuous at this tolerance.
+    stop_unresolvable();
   }
 
   bool flag = false;
@@ -109,6 +144,7 @@ bool AdaptiveInterpolator::refine(Function target) {
     if (*zi) {
       const double x_mid = *xi - dx;
       const double y_mid = target(x_mid);
+      check_target_value(x_mid, y_mid);
       const double p_mid = interpolator.eval(x_mid);
 
       // Always insert the new points.

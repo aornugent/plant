@@ -148,6 +148,94 @@ were not previously recorded here:
 
 ### New features
 
+* **A dry TF24f patch no longer aborts the whole run on the ci root-find.**
+  `Leaf::dprofit_droot_collar_psi` — TF24f's exact AD/IFT gradient — called
+  `psi_stem_to_ci()` before testing for hydraulic shut-down. In shut-down,
+  `psi_upstream >= psi_stem` (both positive magnitudes), so
+  `gc = const · transpiration` goes negative, the residual stops crossing zero
+  over (Γ*, ca], and TOMS748 throws *"a and b do not bracket the root"* rather
+  than returning non-finite — which is what the existing `isfinite` guard on the
+  next line was written to catch, and cannot see. One dry patch therefore killed
+  the run. The condition is now tested *before* the solve, matching what
+  `set_leaf_states_rates_from_psi_stem()` has always done, and returns a zero
+  gradient. Reproduced at 5 soil layers, θ = 0.005–0.03 with 1 m yr⁻¹ rainfall
+  (ψ_stem = 1.23 against ψ_upstream = 5.92 MPa). Behaviour changes only in states
+  that previously threw, so no scientific version bump.
+* **Adaptive interpolation now names a non-finite target instead of blaming
+  resolution.** `AdaptiveInterpolator::check_err()` compares against NaN, and
+  every NaN comparison is false, so a single NaN or Inf from the target made its
+  interval permanently unacceptable: refinement halved the spacing to
+  `max_depth` and then reported *"Interpolated function as refined as currently
+  possible"*. That message cost real debugging time on a TF24 patch. A
+  non-finite value now fails immediately, naming the point and the value; the
+  resolution-limit message additionally reports the spacing reached, the limit,
+  and the tolerances missed. A new `test_adaptive_interpolator()` test hook
+  drives the refiner from R (the production caller passes a C++ lambda).
+* **The scenario scorecard now reports `persists`.** Whether a strategy replaces
+  itself, R0 >= 1, which is a different question from whether the run completed.
+  It matters because `status`/`outcome` test `total > 0`: at the current baseline
+  five of the eight hydraulic scenarios return R0 between 2e-15 and 6e-14 —
+  numerically extinct — and were all recorded as `"persisted"`. Only **1 of 8**
+  scenarios persists. That is the main reason the gateway discriminates so little
+  (3/8, with no expected failure failing). Reported alongside, not folded into,
+  the existing classification: the scenario CSV's "Model failure" means the model
+  *breaks numerically* (#549/#550), not that the strategy dies out, and the
+  blessed baseline diff is defined on the existing columns.
+  `scenario_summary()` gains `n_persists` and tolerates scorecards recorded
+  before the column existed.
+* **A hydraulically shut-down plant no longer draws water from the soil
+  (`TF24@v4`, `TF24f@v4.1`).** Both shut-down exits in
+  `Leaf::find_root_collar_psi` set `profit_` directly and bypass
+  `profit_psi_stem_TF`, and the first returns before any
+  `E_from_Soil_to_Root_Collar` call in that solve. Because `Leaf` is a value
+  member reused across every `compute_rates` call for an individual, every leaf
+  output they did not assign kept the **previous step's** value. That was not
+  just a reporting problem: `soil_consumption_` feeds
+  `TF24_Strategy::evapotranspiration_dt` and hence the patch water balance, so a
+  plant whose stomata had closed carried on extracting its last wet-step uptake.
+  Measured: an individual moved from θ = 0.30 to θ = 0.02 (past ψ_crit) reported
+  `E_up_` and `transpiration` *identical* to its wet step. Both exits now zero
+  the transport chain (`transpiration_`, `stom_cond_CO2_`, `E_up_`,
+  `soil_consumption_`), and recovery on rewetting is tested. Note the water
+  budget still *closed* in the buggy state — what was recorded as depleted was
+  what was removed — so the conservation tests could not catch this; only the
+  physics was wrong. Because water-limited runs change (scenario gateway:
+  offspring production moves by up to 5e-3 relative on 5 of 8 scenarios, with
+  every success/failure classification unchanged), the TF24 scientific version
+  is bumped **3 → 4** and `TF24f` tracks to **4.1**. This invalidates `logpile`
+  caches for water-limited TF24 runs, which is the intended, safe direction.
+* **Root hydraulic parameters are now settable from R.** `root_b`, `root_c`,
+  `root_psi_crit` and `rooting_depth_max` move into `TF24_Pars` (they were fixed
+  members of `TF24_Strategy` and a file-static constant in
+  `src/tf24_strategy.cpp`, so unreachable from R). Root shutoff was pinned at
+  ψ ≈ 5.87 MPa, too conservative for taxa that operate below it (e.g. *Acacia
+  aneura*), and rooting depth at 1.5 m. **Defaults are unchanged**, so this is
+  an interface change only and the TF24 scientific version does *not* move.
+  Two cautions: `root_psi_crit` is derived from `root_b` and `root_c` exactly as
+  `psi_crit` is from `b` and `c`, so set it whenever you set those; and
+  `rooting_depth_max` beyond the soil column depth (`TF24_Environment$depth`,
+  default 1.5 m) gains nothing, because the layers do not exist.
+* **`check_driver_interpolation()`** reports how a driver's control points
+  survive interpolation — evaluated range, fraction of the series that goes
+  negative, undershoot area, and the interpolated vs supplied integral — and
+  warns when a non-negative series interpolates negative. Extrinsic drivers use
+  a cubic spline, which is a poor fit for intermittent forcing: a realistic
+  daily rainfall series with a ~10% wet-day fraction evaluates negative at ~45%
+  of points, reaching −5.7 m yr⁻¹. Worth running on any site-forcing series
+  before committing to a long run.
+* **`assimilation` is now reported for TF24/TF24f.** The auxiliary variable was
+  listed in `aux_names()` but never written — no index was resolved and no
+  `set_aux` call referenced it — so the slot reported whatever `Internals`
+  happened to hold, and carbon uptake was unavailable as a model output. It now
+  carries net CO₂ assimilation at the optimal operating point, per unit leaf
+  area (µmol CO₂ m⁻² s⁻¹). **Net, not gross:** `Leaf::assim_colimited()`
+  subtracts dark respiration, so gross = `assimilation` + R_d with
+  R_d = 0.015·vcmax at the acclimated vcmax. It is integrated over the crown
+  under `deep-crown` shading alongside the other leaf outputs, and the two
+  hydraulic shut-down exits now set it explicitly (to −R_d) instead of leaving a
+  stale probe value, keeping `profit == assimilation − hydraulic cost` true in
+  every branch.
+
 * **NSC storage pool for TF24 (`TF24@v3`, `TF24f@v3.1`).** TF24 now carries a
   non-structural-carbohydrate storage state so growth and mortality respond to
   *buffered* carbon rather than instantaneous net production (#517, #554).
@@ -221,6 +309,36 @@ were not previously recorded here:
 
 ### Minor changes & bug fixes
 
+* **The TF24 rainfall driver is floored at zero.** Because drivers are
+  interpolated with a cubic spline, an intermittent series undershoots below
+  every supplied value, and negative rainfall gave negative infiltration and an
+  unphysical drying rate. That failed two different ways depending on soil
+  wetness: above residual moisture the water really was removed, while at or
+  below residual the guard in `compute_rates` clamped the rate, so the removal
+  was recorded in `sum_rainfall` but never applied and the water budget stopped
+  closing. Drylands sit at residual for much of the year, so the second case is
+  the common one. Note the floor bounds the *sign* only and is not a correction
+  to the interpolation: the spline conserves the integral exactly (undershoot is
+  compensated by overshoot), so discarding the negative lobes raises total
+  rainfall by the undershoot area — ~7% for a realistic daily series. The remedy
+  is not to spline an intermittent series; see `check_driver_interpolation()`.
+  Runs with constant or smooth seasonal rainfall are unaffected (the scenario
+  gateway's sinusoidal driver never goes negative), so the TF24 scientific
+  version does not move.
+* Corrected the comment on `Leaf::assim_colimited()`, which claimed "no dark
+  respiration included at the moment" while the code subtracts `R_d_`. The
+  function returns a *net* rate; the comment now says so, along with how to
+  recover the gross rate.
+* Water-budget test coverage extended from a single layer to 1, 5 and 15 layers,
+  now including root uptake in the balance (the previous check ran for 0.01 yr,
+  where uptake was negligible), across the saturated-to-dry range and at and
+  below the residual-moisture floor. Closure holds to round-off (relative
+  residual < 1e-12) in every case. A companion test documents *why* the residual
+  clamp never leaks in practice: with `n_psi = 6.57` the conductivity exponent
+  is 2·n_psi+3 ≈ 16, so K(θ) collapses and ψ(θ) diverges far above θ_r —
+  transport has already stopped, making the clamp a safety net rather than an
+  active mass sink.
+
 * `run_scm()` now fails with an actionable message when the SCM size-density
   (characteristic) equations run away under extreme forcing (e.g. severe
   seasonal drought in TF24): a cohort density overflowing to `+Inf`, or the
@@ -258,6 +376,16 @@ were not previously recorded here:
 
 ### Internals & performance
 
+* The scenario gateway's seasonal rainfall driver places its spline knots **per
+  year** (48 yr⁻¹) rather than per run, so the realised seasonality no longer
+  depends on `max_patch_lifetime`. The previous `max(200, mpl × 6)` gave 6 knots
+  per annual cycle at the default `mpl = 100`. Measured, that was more accurate
+  than it looked — cubic interpolation of a sine at 6 points/cycle is accurate to
+  5.4e-3 on a peak of 3.0 (0.18%) and conserves the annual total to 1e-5 % — so
+  this is robustness, not a bug fix; the error is 4th-order in the spacing and
+  would degrade at larger `mpl`. Gateway effect: offspring production moves by up
+  to 6.2% relative (demography amplifies the 0.18% driver change), with every
+  success/failure classification unchanged, so the baseline needs no re-blessing.
 * Each strategy now keeps its biological parameters in a value-member struct
   (`FF16_Pars`/`K93_Pars`/`TF24_Pars`) exposed to R as a nested `pars` list;
   derived/computed members (eta_c, height_0, the TF24 Leaf model, solver
