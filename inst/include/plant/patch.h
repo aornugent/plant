@@ -789,9 +789,9 @@ void Patch<T,E>::introduce_new_nodes(const std::vector<size_t>& species_index) {
 
   compute_environment(false);
 
-  // The solver reads these rates as the derivative of the widened state, and
-  // takes no error from a mismatch: without this they are the rates of the
-  // state and field from before the new nodes entered.
+  // New nodes have just changed the state and the light field, so the stored
+  // rates now describe neither. The solver reads them next without checking, so
+  // they have to be brought up to date here.
   compute_rates();
 }
 
