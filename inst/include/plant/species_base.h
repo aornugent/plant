@@ -44,7 +44,7 @@ public:
   typedef Element                     node_type;
   typedef typename strategy_type::ptr strategy_type_ptr;
 
-  using value_type = double;
+  using value_type = typename T::value_type;
 
   size_t size_individuals() const { return nodes.size(); }
 
