@@ -199,6 +199,58 @@ public:
     return ret;
   }
 
+  // Addresses of the parameters a gradient can be taken with respect to, in the
+  // order ad_parameter_names() gives. Both allocate, so take them once per
+  // gradient evaluation and hold them for the run rather than per block; the
+  // strategy is shared and the fields do not move. Index against .size().
+  std::vector<S*> ad_parameters() {
+    return {
+      &pars.lma, &pars.rho, &pars.hmat, &pars.omega,
+      &pars.theta, &pars.a_l1, &pars.a_l2, &pars.a_r1, &pars.a_b1,
+      &pars.r_s, &pars.r_b, &pars.r_r, &pars.r_l, &pars.a_y, &pars.a_bio,
+      &pars.k_l, &pars.k_b, &pars.k_s, &pars.k_r, &pars.a_p1, &pars.a_p2,
+      &pars.a_f3, &pars.a_f1, &pars.a_f2,
+      &pars.S_D, &pars.a_d0, &pars.d_I, &pars.a_dG1, &pars.a_dG2,
+      &pars.a_st1, &pars.a_st2, &pars.a_st3,
+      &pars.k_I,
+      &pars.p_50, &pars.K_s, &pars.c, &pars.b, &pars.psi_crit,
+      &pars.beta1, &pars.beta2, &pars.g1_TF24, &pars.a,
+      &pars.curv_fact_elec_trans, &pars.curv_fact_colim,
+      &pars.var_sapwood_volume_cost,
+      &pars.nmass_l, &pars.nmass_s, &pars.nmass_b, &pars.nmass_r,
+      &pars.dmass_dN,
+      &pars.root_c, &pars.root_b, &pars.root_psi_crit,
+      &pars.rooting_depth_max, &pars.recruitment_decay
+    };
+  }
+
+  // The TF24_Pars members ad_parameters() addresses, in the same order. Absent
+  // from both: eta and root_depth_shape_eta, whose exponents reach a base of 0
+  // in CanopyShape::Qp and the soil retention curves, where the recorded
+  // derivative u^k * log(u) is a NaN; and vcmax_25 and jmax_25, whose derived
+  // vcmax_ and jmax_ Leaf::photo_temp_cached_ holds under a key of only
+  // (leaf_temp_, atm_o2_kpa_), so a changed value is reused, not recomputed.
+  std::vector<std::string> ad_parameter_names() {
+    return {
+      "lma", "rho", "hmat", "omega",
+      "theta", "a_l1", "a_l2", "a_r1", "a_b1",
+      "r_s", "r_b", "r_r", "r_l", "a_y", "a_bio",
+      "k_l", "k_b", "k_s", "k_r", "a_p1", "a_p2",
+      "a_f3", "a_f1", "a_f2",
+      "S_D", "a_d0", "d_I", "a_dG1", "a_dG2",
+      "a_st1", "a_st2", "a_st3",
+      "k_I",
+      "p_50", "K_s", "c", "b", "psi_crit",
+      "beta1", "beta2", "g1_TF24", "a",
+      "curv_fact_elec_trans", "curv_fact_colim",
+      "var_sapwood_volume_cost",
+      "nmass_l", "nmass_s", "nmass_b", "nmass_r",
+      "dmass_dN",
+      "root_c", "root_b", "root_psi_crit",
+      "rooting_depth_max", "recruitment_decay"
+    };
+  }
+
   // Translate generic methods to TF24 strategy leaf area methods
 
   S competition_effect(S height) const {
