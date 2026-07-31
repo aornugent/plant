@@ -153,7 +153,7 @@ double FF16_Strategy::assimilation_deep_crown(const FF16_Environment& environmen
   const double canopy_top = environment.max_environment_height();
   auto f = [&](double z) -> double {
     return assimilation_leaf(environment.get_environment_at_height(z, canopy_top)) *
-      canopy_shape.q(z * height_inverse, z);
+      canopy_shape.q(z * height_inverse, height_inverse);
   };
 
   // Integrate over crown depth using using Gauss-Kronrod quadrature.
@@ -179,7 +179,7 @@ double FF16_Strategy::assimilation_average_light(const FF16_Environment& environ
   const double canopy_top = environment.max_environment_height();
   auto f = [&](double z) -> double {
     return environment.get_environment_at_height(z, canopy_top) *
-      canopy_shape.q(z * height_inverse, z);
+      canopy_shape.q(z * height_inverse, height_inverse);
   };
   const double mean_light = function_integrator.integrate(f, 0.0, height);
   return area_leaf * assimilation_leaf(mean_light);
@@ -570,8 +570,7 @@ void FF16_Strategy::prepare_strategy() {
     break;
   }
 
-  // NOTE: this pre-computes something to save a very small amount of time
-  eta_c = 1 - 2/(1 + pars.eta) + 1/(1 + 2*pars.eta);
+  eta_c = canopy_shape.eta_c();
   // NOTE: Also pre-computing, though less trivial
   height_0 = height_seed();
   height_0_inverse = 1.0 / height_0;

@@ -7,7 +7,7 @@
 #include <plant/models/tf24_environment.h>
 #include <plant/qag.h>
 #include <plant/leaf_model.h>
-#include <plant/canopy_shape.h> // ShadingModel
+#include <plant/canopy_shape.h>
 
 namespace plant {
 
@@ -345,12 +345,10 @@ public:
                                vars.aux(aux_idx_height_inverse));
   }
 
-  // [eqn  9] Probability density of leaf area at height `z`
-  double q(double z, double height) const;
-  // [eqn 10] Fraction of leaf area above height `z`
+  // [eqn 10] Cumulative fraction of a quantity distributed over an extent with
+  // shape exponent eta_x, above coordinate `z` of a total `height`. Used for the
+  // root mass distribution over soil depth.
   double Q(double z, double height, double eta_x) const;
-  // [      ] Inverse of Q: height above which fraction 'x' of leaf found
-  double Qp(double x, double height) const;
 
   // The aim is to find a plant height that gives the correct seed mass.
   double height_seed(void) const;
@@ -372,6 +370,7 @@ public:
 
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
   double eta_c     = NA_REAL; // crown shape factor, precomputed from pars.eta
+  CanopyShape canopy_shape;
   // Height and leaf area of a (germinated) seed
   double height_0  = NA_REAL;
   double area_leaf_0;
