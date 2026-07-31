@@ -1896,6 +1896,10 @@ std::vector<double> Species___FF16__FF16_Env__compute_competition_effect_by_node
   return obj_->r_compute_competition_effect_by_nodes_error(scal);
 }
 // [[Rcpp::export]]
+void Species___FF16__FF16_Env__set_birth_state(plant::RcppR6::RcppR6<plant::Species<plant::FF16_Strategy,plant::FF16_Environment> > obj_, const std::vector<double>& times, const std::vector<double>& patch_density, const std::vector<double>& pr_patch_survival) {
+  obj_->set_birth_state(times, patch_density, pr_patch_survival);
+}
+// [[Rcpp::export]]
 size_t Species___FF16__FF16_Env__size__get(plant::RcppR6::RcppR6<plant::Species<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   return obj_->size();
 }
@@ -2006,6 +2010,10 @@ plant::Node<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > Spec
 // [[Rcpp::export]]
 std::vector<double> Species___TF24__TF24_Env__compute_competition_effect_by_nodes_error(plant::RcppR6::RcppR6<plant::Species<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, double scal) {
   return obj_->r_compute_competition_effect_by_nodes_error(scal);
+}
+// [[Rcpp::export]]
+void Species___TF24__TF24_Env__set_birth_state(plant::RcppR6::RcppR6<plant::Species<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, const std::vector<double>& times, const std::vector<double>& patch_density, const std::vector<double>& pr_patch_survival) {
+  obj_->set_birth_state(times, patch_density, pr_patch_survival);
 }
 // [[Rcpp::export]]
 size_t Species___TF24__TF24_Env__size__get(plant::RcppR6::RcppR6<plant::Species<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
@@ -2120,6 +2128,10 @@ std::vector<double> Species___TF24f__TF24_Env__compute_competition_effect_by_nod
   return obj_->r_compute_competition_effect_by_nodes_error(scal);
 }
 // [[Rcpp::export]]
+void Species___TF24f__TF24_Env__set_birth_state(plant::RcppR6::RcppR6<plant::Species<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_, const std::vector<double>& times, const std::vector<double>& patch_density, const std::vector<double>& pr_patch_survival) {
+  obj_->set_birth_state(times, patch_density, pr_patch_survival);
+}
+// [[Rcpp::export]]
 size_t Species___TF24f__TF24_Env__size__get(plant::RcppR6::RcppR6<plant::Species<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   return obj_->size();
 }
@@ -2230,6 +2242,10 @@ plant::Node<plant::K93_Strategy,plant::K93_Environment> Species___K93__K93_Env__
 // [[Rcpp::export]]
 std::vector<double> Species___K93__K93_Env__compute_competition_effect_by_nodes_error(plant::RcppR6::RcppR6<plant::Species<plant::K93_Strategy,plant::K93_Environment> > obj_, double scal) {
   return obj_->r_compute_competition_effect_by_nodes_error(scal);
+}
+// [[Rcpp::export]]
+void Species___K93__K93_Env__set_birth_state(plant::RcppR6::RcppR6<plant::Species<plant::K93_Strategy,plant::K93_Environment> > obj_, const std::vector<double>& times, const std::vector<double>& patch_density, const std::vector<double>& pr_patch_survival) {
+  obj_->set_birth_state(times, patch_density, pr_patch_survival);
 }
 // [[Rcpp::export]]
 size_t Species___K93__K93_Env__size__get(plant::RcppR6::RcppR6<plant::Species<plant::K93_Strategy,plant::K93_Environment> > obj_) {
@@ -2852,6 +2868,10 @@ void SCM___FF16__FF16_Env__run_mutant(plant::RcppR6::RcppR6<plant::SCM<plant::FF
   obj_->run_mutant(p);
 }
 // [[Rcpp::export]]
+Rcpp::List SCM___FF16__FF16_Env__store_trajectory(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->r_store_trajectory();
+}
+// [[Rcpp::export]]
 void SCM___FF16__FF16_Env__refine_schedule(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   obj_->refine_schedule();
 }
@@ -2955,6 +2975,10 @@ void SCM___TF24__TF24_Env__run(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Stra
 // [[Rcpp::export]]
 void SCM___TF24__TF24_Env__run_mutant(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, plant::Parameters<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > p) {
   obj_->run_mutant(p);
+}
+// [[Rcpp::export]]
+Rcpp::List SCM___TF24__TF24_Env__store_trajectory(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->r_store_trajectory();
 }
 // [[Rcpp::export]]
 void SCM___TF24__TF24_Env__refine_schedule(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
@@ -3062,6 +3086,10 @@ void SCM___TF24f__TF24_Env__run_mutant(plant::RcppR6::RcppR6<plant::SCM<plant::T
   obj_->run_mutant(p);
 }
 // [[Rcpp::export]]
+Rcpp::List SCM___TF24f__TF24_Env__store_trajectory(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->r_store_trajectory();
+}
+// [[Rcpp::export]]
 void SCM___TF24f__TF24_Env__refine_schedule(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   obj_->refine_schedule();
 }
@@ -3165,6 +3193,10 @@ void SCM___K93__K93_Env__run(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strateg
 // [[Rcpp::export]]
 void SCM___K93__K93_Env__run_mutant(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_, plant::Parameters<plant::K93_Strategy,plant::K93_Environment> p) {
   obj_->run_mutant(p);
+}
+// [[Rcpp::export]]
+Rcpp::List SCM___K93__K93_Env__store_trajectory(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->r_store_trajectory();
 }
 // [[Rcpp::export]]
 void SCM___K93__K93_Env__refine_schedule(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
