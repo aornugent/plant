@@ -142,7 +142,7 @@ public:
   K93_Pars pars;
 
   // Derived / precomputed in prepare_strategy() (NOT user-set)
-  CanopyShape canopy_shape;
+  CanopyShape<double> canopy_shape;
 };
 
 K93_Strategy::ptr make_strategy_ptr(K93_Strategy s);
