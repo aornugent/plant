@@ -5,7 +5,7 @@
 #include <exception>
 #include <boost/math/special_functions/gamma.hpp>
 #include <plant/models/tf24_environment.h>
-#include <XAD/XAD.hpp>
+#include <odelia/gradient.hpp>
 
 namespace plant {
 
@@ -923,7 +923,6 @@ double Leaf::profit_at_collar_psi(double target_opt_root_psi,
 // AD; the gc partials use the analytic spline derivative (transpiration_from_psi
 // .deriv); dpsi_stem/dpsi by a tight central difference on the smooth transport.
 double Leaf::dprofit_droot_collar_psi(double opt_root_psi) {
-  using AD = xad::fwd<double>::active_type;
   const double psi = opt_root_psi;
   const double gstar_Pa = gamma_ * umol_per_mol_to_Pa;
 
@@ -953,13 +952,15 @@ double Leaf::dprofit_droot_collar_psi(double opt_root_psi) {
   }
 
   // A'(ci) and C'(psi_stem) via forward-mode AD of the analytic algebra.
-  AD ci_ad = ci;            xad::derivative(ci_ad) = 1.0;
-  const double A_prime = xad::derivative(
-      assim_colimited_ad(ci_ad, vcmax_, electron_transport_, gstar_Pa, km_,
-                         R_d_, curv_fact_colim));
-  AD ps_ad = psi_stem;      xad::derivative(ps_ad) = 1.0;
-  const double C_prime = xad::derivative(
-      hydraulic_cost_ad(ps_ad, b, c, g1_TF24, beta2));
+  const double A_prime =
+      odelia::ode::forward_derivative(ci, [&](auto x) -> decltype(x) {
+        return assim_colimited_ad(x, vcmax_, electron_transport_, gstar_Pa, km_,
+                                  R_d_, curv_fact_colim);
+      });
+  const double C_prime =
+      odelia::ode::forward_derivative(psi_stem, [&](auto x) -> decltype(x) {
+        return hydraulic_cost_ad(x, b, c, g1_TF24, beta2);
+      });
 
   // Stomatal-conductance supply coefficient gc and its partials. gc =
   // gc_const * transpiration(psi_stem, psi); transpiration is conductance_max *
