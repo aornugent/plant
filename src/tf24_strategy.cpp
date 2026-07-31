@@ -730,8 +730,9 @@ double TF24_Strategy::compute_competition(double z, double area_leaf_,
   return pars.k_I * area_leaf_ * canopy_shape.Q(z * height_inverse);
 }
 
-// [eqn 10] ... Fraction of leaf area above height 'z' for an
-//              individual of height 'height'
+// [eqn 10] Cumulative fraction of a quantity distributed over an extent with
+//          shape exponent 'eta_x', above coordinate 'z' of a total 'height'.
+//          Serves the root mass distribution over soil depth.
 double TF24_Strategy::Q(double z, double height, double eta_x) const {
   if (z > height) {
     return 0.0;
