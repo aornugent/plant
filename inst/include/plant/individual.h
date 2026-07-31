@@ -77,9 +77,9 @@ public:
   }
 
   void compute_rates(const environment_type& environment) {
-    if (vars.resource_size != environment.ode_size()) {
+    if (vars.resource_size != environment.n_resources()) {
       // handles when Individual hasn't been instantiated in a Patch (ie with an environment)
-      vars.resize_consumption_rates(environment.ode_size());
+      vars.resize_consumption_rates(environment.n_resources());
     }
     strategy->compute_rates(environment, vars);
   }

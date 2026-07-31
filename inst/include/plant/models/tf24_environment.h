@@ -155,6 +155,13 @@ public:
   }
 
   int get_soil_number_of_depths() const {return soil_number_of_depths;}
+
+  // Water is taken up per soil layer; the trailing aux_num state slots only
+  // accumulate diagnostics and are never consumed.
+  size_t n_resources() const override {
+    return static_cast<size_t>(soil_number_of_depths);
+  }
+
   std::vector<double> get_soil_mid_depths() const { return z_mid; }
 
   // TODO: should we use auxilliary in internals
@@ -390,7 +397,8 @@ public:
     const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
     const double soil_moist_sat_layer =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
-    return pow((psi_soil_ / a_psi_layer), (-1 / n_psi_layer)) * soil_moist_sat_layer;
+    // psi_soil_ is in MPa; a_psi is in Pa.
+    return pow((psi_soil_ * 1e6 / a_psi_layer), (-1 / n_psi_layer)) * soil_moist_sat_layer;
   }
 
   double soil_moist_from_psi(double psi_soil_) const {

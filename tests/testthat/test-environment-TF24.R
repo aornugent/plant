@@ -105,6 +105,25 @@ test_that("Environment-TF24 soil layers", {
   expect_error(env$set_soil_water_state(c(0.5, 0.4)))
  })
 
+test_that("Environment-TF24 soil moisture and potential invert each other", {
+
+  env <- Environment("TF24")
+  theta_sat <- 0.428
+  theta_residual <- 1e-2
+
+  theta <- seq(theta_residual, theta_sat, length.out = 200)[-1]
+  psi <- vapply(theta, env$psi_from_soil_moist, numeric(1))
+
+  # psi_from_soil_moist caps its output, so the inverse can only recover the
+  # moistures whose potential sits below that ceiling.
+  below_ceiling <- psi < max(psi)
+  expect_true(sum(below_ceiling) > 100)
+
+  theta_back <- vapply(psi[below_ceiling], env$soil_moist_from_psi, numeric(1))
+  expect_equal(theta_back, theta[below_ceiling], tolerance = 1e-12)
+  expect_true(all(theta_back <= theta_sat))
+})
+
 test_that("Environment-TF24 running soil moisture profile", {
 
   env <- Environment("TF24")
