@@ -226,6 +226,28 @@ test_that("Environment-TF24 allows per-layer soil parameters", {
   expect_equal(length(env2$get_soil_water_state()), 2)
 })
 
+test_that("Environment-TF24 clear returns the soil to its starting state", {
+  env <- Environment("TF24")
+  n <- env$get_soil_number_of_depths()
+
+  expect_silent(env$clear())
+  expect_equal(env$get_soil_water_state(), rep(0.428 * 0.5, n))
+  expect_equal(env$get_soil_water_state_cumulative_flux(), rep(0, 4))
+
+  # clear() returns the state last set, not the constructed default.
+  start <- seq(0.30, by = 0.01, length.out = n)
+  env$set_soil_water_state(start)
+  env$clear()
+  expect_identical(env$get_soil_water_state(), start)
+  expect_equal(env$get_soil_water_state_cumulative_flux(), rep(0, 4))
+
+  # After a changed layer count, the starting state is the one set since.
+  env$set_soil_parameters(3, NULL, NULL, NULL, NULL)
+  env$set_soil_water_state(c(0.2, 0.25, 0.3))
+  env$clear()
+  expect_identical(env$get_soil_water_state(), c(0.2, 0.25, 0.3))
+})
+
 test_that("Environment-TF24 set_soil_parameters validates each parameter length", {
   env <- TF24_Environment()
 
