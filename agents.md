@@ -741,6 +741,58 @@ explicit tolerance (noted in that file).
 [#466]: https://github.com/traitecoevo/plant/issues/466
 [#470]: https://github.com/traitecoevo/plant/issues/470
 
+---
+
+## 13. Writing a model that carries an active scalar
+
+A model is templated on the scalar `S` it carries: its state, its traits and
+everything derived from them. `double` is production; an active `S` records the
+computation so a derivative can be taken from it. Write the science once. If new
+physiology does not compile at the active scalar, that is the design working —
+it is telling you the quantity you just wrote is not differentiable the way you
+wrote it, and the rules below are the reasons why.
+
+**Fractions are `double`; positions and values carry `S`.** A knot fraction, a
+quadrature abscissa as a fraction of an interval and a sort key are decided on
+passive values, and declaring them `double` says so. The *position* built from
+one is not: a crown abscissa is `height · ξ`, and reading the field at the
+fraction rather than at the position makes `d/d(height)` exactly zero. A knot
+*count* that depends on an active value makes the recorded computation depend on
+the state.
+
+**Declare an inner solve by its residual**, through `implicit_value`. Never
+differentiate the iteration that found the root: a golden-section result is
+affine in its bracket and independent of the objective's values, so recording
+the search returns the bracket's derivative.
+
+**Never define a rate as a numerical derivative of an active quantity.** If a
+rate is a difference, difference on a grid the model already has.
+
+**A clamp, floor, `min`/`max` or `if` on a computed value is a derivative
+decision.** Record it with the incidence that justifies it.
+
+**Never give a deduced return type to anything returning an active value.** The
+AD operators return expression templates holding references to their operands,
+so a deduced return type hands the caller references to temporaries that die on
+return; the reverse sweep then reads reused stack memory and segfaults
+arbitrarily far from the cause, invisibly to valgrind. Declare the scalar return
+type on every such function and lambda, including one-line helpers:
+
+```cpp
+// BAD  -- returns a dangling expression template
+auto anchor = [](double v, S x) { return S(v) + (x - to_passive(x)); };
+// GOOD -- materialised while its operands are alive
+auto anchor = [](double v, const S& x) -> S { return graft_value<S>(v, x); };
+```
+
+**Two arguments of one type with unrelated meanings is a silent-swap hazard**,
+the more so under templating, because a template argument makes both of them the
+same type wherever it is instantiated. Prefer a named struct or distinct types;
+where you cannot, the call sites are a review checklist rather than a compiler's
+problem.
+
+---
+
 ## Issue & project-board conventions
 
 Development across `plant`, `regnans`, and `overstorey` is tracked on a
