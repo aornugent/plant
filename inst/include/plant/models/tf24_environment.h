@@ -123,6 +123,7 @@ public:
     dz.resize(soil_number_of_depths);
     // positive downwards
     water_flux.resize(soil_number_of_depths);
+    resource_uptake.assign(soil_number_of_depths, 0.0);
 
     delta_z = depth / soil_number_of_depths;
 
@@ -376,6 +377,7 @@ public:
         rate = 0.0;
       }
       vars.set_rate(i, rate);
+      resource_uptake[i] = resource_depletion[i];
       total_resource_depletion += resource_depletion[i];
     }
       vars.set_rate(soil_number_of_depths, rainfall);
