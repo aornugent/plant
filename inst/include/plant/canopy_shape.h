@@ -79,7 +79,7 @@ inline ShadingModel shading_model_from_string(const std::string& name,
 // the Yokozawa (1995) foliage-profile model, written in terms of the
 // height-normalised coordinate u = z / H:
 //
-//   q(z, H) = 2 eta (1 - u^eta) u^(eta - 1) / H
+//   q(z, H) = 2 eta (1 - u^eta) u^eta / z
 //   Q(z, H) = (1 - u^eta)^2
 //   Qp(x, H) = (1 - sqrt(x))^(1 / eta) H
 //
@@ -87,26 +87,20 @@ inline ShadingModel shading_model_from_string(const std::string& name,
 // paths: crown assimilation quadrature and competition/environment rebuilds.
 // The primary q() and Q() methods therefore take the height-normalised ratio
 // u = z / H directly, so callers can hoist the z / H division out of inner
-// loops; q() takes 1 / H alongside it for the same reason.
-//
-// q is written over u^(eta - 1) / H rather than the equivalent u^eta / z, which
-// divides by zero at the crown base. The u -> 0 limit is 0 for eta > 1 and 2 / H
-// at eta = 1, and u^(eta - 1) supplies both with no branch.
-//
-// The *_from_height() helpers keep the full-height form available for
+// loops. The *_from_height() helpers keep the full-height form available for
 // less performance-sensitive code and for reading the original equations.
-// initialise() picks a multiplication chain for u^(eta - 1) once, and caches
-// 1 / eta for Qp(). Q multiplies that chain by u to get u^eta, so one chain
-// serves both and there is a single place where the exponent is applied. When a
-// model can choose eta without changing its intended biology, prefer one of the
-// values with a chain (1, 2, 4, 8, 10, 12); any other eta works and calls
-// std::pow.
+// initialise() selects an eta-specialised multiplication chain once, and
+// caches 1 / eta for Qp(), avoiding repeated generic pow setup where possible
+// while preserving the original q(z, H), Q(z, H), and Qp(x, H) semantics. When a
+// model can choose eta without changing its intended biology, prefer one of
+// the specialised values below (1, 2, 4, 8, 10, 12); other eta values still
+// work, but fall back to std::pow().
 
 class CanopyShape {
 public:
   CanopyShape()
-    : eta_(12.0), eta_inverse_(1.0 / 12.0), eta_minus_1_(11.0),
-      eta_c_(eta_c(12.0)), chain_(&u_pow_11), leaf_above_(&leaf_above_deep) {
+    : eta_(12.0), eta_inverse_(1.0 / 12.0), eta_c_(eta_c(12.0)),
+      pow_eta_(&pow_eta_12), leaf_above_(&leaf_above_deep) {
   }
 
   explicit CanopyShape(double eta) {
@@ -116,9 +110,8 @@ public:
   void initialise(double eta, ShadingModel shading_model = ShadingModel::DeepCrown) {
     eta_ = eta;
     eta_inverse_ = 1.0 / eta;
-    eta_minus_1_ = eta - 1.0;
     eta_c_ = eta_c(eta);
-    chain_ = select_chain(eta);
+    pow_eta_ = select_pow_eta(eta);
     // Most models cast shade via the smooth Yokozawa Q (leaf_area_above == Q).
     // FlatTopBox collapses it to a hard step; FlatTopSoftBox to a smoothed step.
     switch (shading_model) {
@@ -137,29 +130,28 @@ public:
     return leaf_above_(*this, z_over_height);
   }
 
-  // u^(eta - 1) and u^eta. One chain serves both, because the second is the
-  // first times u -- and q needs the first, which is what keeps it finite at
-  // u = 0.
-  double u_pow_eta_minus_1(double u) const { return chain_(u, eta_minus_1_); }
-  double u_pow_eta(double u) const { return u_pow_eta_minus_1(u) * u; }
-
-  // [eqn 9] Leaf area density at u = z / H.
-  double q(double z_over_height, double height_inverse) const {
-    const double u_eta_minus_1 = u_pow_eta_minus_1(z_over_height);
-    return 2.0 * eta_ * (1.0 - u_eta_minus_1 * z_over_height) * u_eta_minus_1 *
-           height_inverse;
+  // Undefined at the crown base, where z is 0: use q_from_height, which carries
+  // the height the limit there needs.
+  double q(double z_over_height, double z) const {
+    const double u_eta = pow_eta_(z_over_height, eta_);
+    return 2.0 * eta_ * (1.0 - u_eta) * u_eta / z;
   }
 
   double q_from_height(double z, double height) const {
-    const double height_inverse = 1.0 / height;
-    return q(z * height_inverse, height_inverse);
+    // The 1 / z above is 0 / 0 at the crown base, so take the limit: 0 for every
+    // eta above 1, and 2 / height at eta = 1. The light field's lowest knot asks
+    // for exactly this, and the crown integral never does.
+    if (z <= 0.0) {
+      return eta_ == 1.0 ? 2.0 / height : 0.0;
+    }
+    return q(z / height, z);
   }
 
   double Q(double z_over_height) const {
     if (z_over_height > 1.0) {
       return 0.0;
     }
-    const double tmp = 1.0 - u_pow_eta(z_over_height);
+    const double tmp = 1.0 - pow_eta_(z_over_height, eta_);
     return tmp * tmp;
   }
 
@@ -170,6 +162,10 @@ public:
     return Q(z / height);
   }
 
+  double Qp(double x, double height) const {
+    return std::pow(1.0 - std::sqrt(x), eta_inverse_) * height;
+  }
+
   // [eqn 12] Crown-centre coordinate u = z / H. Static because the strategies
   // need the same number for their sapwood and conductance terms, and one
   // formula is better than three.
@@ -177,12 +173,8 @@ public:
     return 1.0 - 2.0 / (1.0 + eta) + 1.0 / (1.0 + 2.0 * eta);
   }
 
-  double Qp(double x, double height) const {
-    return std::pow(1.0 - std::sqrt(x), eta_inverse_) * height;
-  }
-
 private:
-  typedef double (*chain_fn)(double u, double exponent);
+  typedef double (*pow_eta_fn)(double, double);
   typedef double (*leaf_above_fn)(const CanopyShape&, double);
 
   // Smooth Yokozawa profile -- the correct shading a crown casts.
@@ -212,46 +204,65 @@ private:
     return 1.0 - t * t * (3.0 - 2.0 * t);
   }
 
-  // u^(eta - 1), by a multiplication chain for the etas a model is likely to
-  // choose. Each function is named for the exponent it computes, so eta = 12
-  // selects u_pow_11. Everything else falls back to std::pow.
-  static chain_fn select_chain(double eta) {
-    if (eta == 1.0)  return &u_pow_0;
-    if (eta == 2.0)  return &u_pow_1;
-    if (eta == 4.0)  return &u_pow_3;
-    if (eta == 8.0)  return &u_pow_7;
-    if (eta == 10.0) return &u_pow_9;
-    if (eta == 12.0) return &u_pow_11;
-    return &u_pow_general;
+  static pow_eta_fn select_pow_eta(double eta) {
+    if (eta == 1.0) {
+      return &pow_eta_1;
+    } else if (eta == 2.0) {
+      return &pow_eta_2;
+    } else if (eta == 4.0) {
+      return &pow_eta_4;
+    } else if (eta == 8.0) {
+      return &pow_eta_8;
+    } else if (eta == 10.0) {
+      return &pow_eta_10;
+    } else if (eta == 12.0) {
+      return &pow_eta_12;
+    } else {
+      return &pow_eta_general;
+    }
   }
 
-  static double u_pow_general(double u, double exponent) { return std::pow(u, exponent); }
-  static double u_pow_0(double, double)  { return 1.0; }
-  static double u_pow_1(double u, double) { return u; }
-  static double u_pow_3(double u, double) { return u * u * u; }
+  static double pow_eta_general(double u, double eta) {
+    return std::pow(u, eta);
+  }
 
-  static double u_pow_7(double u, double) {
+  static double pow_eta_1(double u, double) {
+    return u;
+  }
+
+  static double pow_eta_2(double u, double) {
+    return u * u;
+  }
+
+  static double pow_eta_4(double u, double) {
     const double u2 = u * u;
-    return u2 * u2 * u2 * u;
+    return u2 * u2;
   }
 
-  static double u_pow_9(double u, double) {
+  static double pow_eta_8(double u, double) {
     const double u2 = u * u;
     const double u4 = u2 * u2;
-    return u4 * u4 * u;
+    return u4 * u4;
   }
 
-  static double u_pow_11(double u, double) {
+  static double pow_eta_10(double u, double) {
     const double u2 = u * u;
     const double u4 = u2 * u2;
-    return u4 * u4 * u2 * u;
+    const double u8 = u4 * u4;
+    return u8 * u2;
+  }
+
+  static double pow_eta_12(double u, double) {
+    const double u2 = u * u;
+    const double u4 = u2 * u2;
+    const double u8 = u4 * u4;
+    return u8 * u4;
   }
 
   double eta_;
   double eta_inverse_;
-  double eta_minus_1_;
   double eta_c_;
-  chain_fn chain_;
+  pow_eta_fn pow_eta_;
   leaf_above_fn leaf_above_;
 };
 

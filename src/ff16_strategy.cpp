@@ -153,7 +153,7 @@ double FF16_Strategy::assimilation_deep_crown(const FF16_Environment& environmen
   const double canopy_top = environment.max_environment_height();
   auto f = [&](double z) -> double {
     return assimilation_leaf(environment.get_environment_at_height(z, canopy_top)) *
-      canopy_shape.q(z * height_inverse, height_inverse);
+      canopy_shape.q(z * height_inverse, z);
   };
 
   // Integrate over crown depth using using Gauss-Kronrod quadrature.
@@ -179,7 +179,7 @@ double FF16_Strategy::assimilation_average_light(const FF16_Environment& environ
   const double canopy_top = environment.max_environment_height();
   auto f = [&](double z) -> double {
     return environment.get_environment_at_height(z, canopy_top) *
-      canopy_shape.q(z * height_inverse, height_inverse);
+      canopy_shape.q(z * height_inverse, z);
   };
   const double mean_light = function_integrator.integrate(f, 0.0, height);
   return area_leaf * assimilation_leaf(mean_light);
@@ -489,7 +489,8 @@ double FF16_Strategy::establishment_probability(const FF16_Environment& environm
     net_mass_production_dt(environment, height_0, area_leaf_0, height_0_inverse));
 }
 
-// The rate is the one at height_0, whatever height the caller's individual is at.
+// Both forms above end here. The carbon is birth-size carbon either way, whatever
+// height the caller's plant happens to be at.
 double FF16_Strategy::establishment_probability(const FF16_Environment& environment,
                                                double net_mass_production_dt_) {
 
