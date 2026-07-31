@@ -89,9 +89,11 @@ inline ShadingModel shading_model_from_string(const std::string& name,
 // u = z / H directly, so callers can hoist the z / H division out of inner
 // loops; q() takes 1 / H alongside it for the same reason.
 //
-// q is written over u^(eta - 1) / H rather than the equivalent u^eta / z so that
-// the crown base z = 0 is a value rather than a 0 / 0: the u -> 0 limit is 0 for
-// eta > 1 and 2 / H at eta = 1, which u^(eta - 1) supplies with no branch. The *_from_height() helpers keep the full-height form available for
+// q is written over u^(eta - 1) / H rather than the equivalent u^eta / z, which
+// divides by zero at the crown base. The u -> 0 limit is 0 for eta > 1 and 2 / H
+// at eta = 1, and u^(eta - 1) supplies both with no branch.
+//
+// The *_from_height() helpers keep the full-height form available for
 // less performance-sensitive code and for reading the original equations.
 // initialise() selects an eta-specialised multiplication chain once, and
 // caches 1 / eta for Qp(), avoiding repeated generic pow setup where possible
