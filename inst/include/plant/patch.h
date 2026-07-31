@@ -781,9 +781,8 @@ size_t Patch<T,E>::ode_size() const {
 
 template <typename T, typename E>
 size_t Patch<T,E>::aux_size() const {
-  // TODO(#478): Is this useful for environment vectors?
-  // no use for auxiliary environment variables (yet)
-  return odelia::ode::aux_size(species.begin(), species.end());// + environment.ode_size();
+  return odelia::ode::aux_size(species.begin(), species.end()) +
+    environment.aux_size();
 }
 
 template <typename T, typename E>
@@ -927,6 +926,7 @@ template <typename T, typename E>
 template <typename It>
 It Patch<T,E>::ode_aux(It it) const {
   it = odelia::ode::ode_aux(species.begin(), species.end(), it);
+  it = environment.ode_aux(it);
   return it;
 }
 

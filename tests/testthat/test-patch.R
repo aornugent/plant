@@ -194,4 +194,47 @@ for (x in names(strategy_types)) {
     # This is how we'd like it but Rcpp wouldn't handle a disturbance pointer
     #expect_inherits(patch$disturbance_regime, "Disturbance")
   })
+
+  test_that(sprintf("Patch aux carries one slot per resource %s", x), {
+    # The environment's slots follow the whole species range, so a model with no
+    # resources keeps the width it had.
+    n_resources <- if (x == "TF24") Environment(x)$get_soil_number_of_depths() else 0
+    per_node <- Individual(x, e)(s)$aux_size
+
+    pa <- Patch(x, e)(p, Environment(x), Control())
+    expect_equal(length(pa$ode_aux), n_resources)
+    for (n in 1:2) {
+      pa$introduce_new_node(1)
+      expect_equal(length(pa$ode_aux), n * per_node + n_resources)
+    }
+  })
 }
+
+test_that("TF24 patch aux reports the per-layer uptake", {
+  s <- get_list_of_strategy_types()$TF24()
+  s$birth_rate_y <- 1
+  s$is_variable_birth_rate <- FALSE
+  p <- Parameters("TF24", "TF24_Env")(strategies = list(s),
+                                      patch_type = "meta-population")
+  patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  patch$introduce_new_node(1)
+
+  # A node at its birth height takes up nothing measurable, so grow it and give
+  # it a density before reading the uptake.
+  names_ode <- Node("TF24", "TF24_Env")(s)$ode_names
+  y <- patch$ode_state
+  y[[which(names_ode == "height")]] <- 10
+  y[[which(names_ode == "log_density")]] <- log(5)
+  patch$set_ode_state(y, 1.0)
+
+  n_layers <- Environment("TF24")$get_soil_number_of_depths()
+  uptake <- tail(patch$ode_aux, n_layers)
+
+  # The soil's cumulative total-uptake rate is the last environment rate and is
+  # accumulated on its own, so it checks the published values and not the width.
+  expect_equal(sum(uptake), tail(patch$ode_rates, 1))
+  expect_true(all(is.finite(uptake)))
+  expect_gt(uptake[[1]], 0)
+  # Uptake is signed: the plant can release water into the deepest layer.
+  expect_lt(uptake[[n_layers]], 0)
+})

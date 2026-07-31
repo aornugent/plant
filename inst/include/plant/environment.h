@@ -40,6 +40,11 @@ public:
 
   virtual void compute_rates(std::vector<double> const& resource_depletion){};
 
+  // One aux slot per resource, holding the uptake the individuals supplied to
+  // compute_rates. The soil rates subtract it and keep no record of it, so
+  // without this slot the consumption is unrecoverable from the state.
+  size_t aux_size() const { return n_resources(); }
+
   template <typename It> It set_ode_state(It it) {
     for (size_t i = 0; i < vars.state_size; i++) {
       vars.states[i] = *it++;
@@ -57,6 +62,20 @@ public:
   template <typename It> It ode_rates(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
       *it++ = vars.rates[i];
+    }
+    return it;
+  }
+
+  template <typename It> It ode_aux(It it) const {
+    for (size_t i = 0; i < aux_size(); i++) {
+      *it++ = resource_uptake[i];
+    }
+    return it;
+  }
+
+  template <typename It> It set_ode_aux(It it) {
+    for (size_t i = 0; i < aux_size(); i++) {
+      resource_uptake[i] = *it++;
     }
     return it;
   }
@@ -86,6 +105,10 @@ public:
 
   Internals vars;
   ExtrinsicDrivers extrinsic_drivers;
+
+  // Uptake per resource, as compute_rates received it. Sized to n_resources()
+  // by whichever derived environment defines the resources.
+  std::vector<double> resource_uptake;
 
   // The
   std::vector<std::string> extrinsic_drivers_get_names() const
