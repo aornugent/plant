@@ -4,6 +4,7 @@
 #define PLANT_PLANT_RESOURCE_SPLINE_H_
 
 #include <odelia/hermite_interpolator.hpp>
+#include <odelia/ode_util.hpp>
 #include <odelia/ode_interface.hpp>
 #include <plant/util.h>
 #include <algorithm> // std::max, for the resource-availability floor (#253)
@@ -48,7 +49,10 @@ public:
   };
 
   void set_fixed_value(S value, S height_max) {
-    std::vector<double> x = {0, height_max/2.0, height_max};
+    // Knot positions are the interpolant's grid and stay double, so a position
+    // built from an active height_max is read at its value.
+    const double top = odelia::util::to_passive(height_max);
+    std::vector<double> x = {0, top/2.0, top};
     std::vector<S> y = {value, value, value};
     std::vector<S> m = {S(0.0), S(0.0), S(0.0)};
     spline.clear();
@@ -121,8 +125,8 @@ public:
       S value, slope;
       spline.value_and_slope(x, value, slope);
       ret(i, 0) = x;
-      ret(i, 1) = value;
-      ret(i, 2) = slope;
+      ret(i, 1) = odelia::util::to_passive(value);
+      ret(i, 2) = odelia::util::to_passive(slope);
     }
     ret.attr("dimnames") = Rcpp::List::create(
       R_NilValue,
