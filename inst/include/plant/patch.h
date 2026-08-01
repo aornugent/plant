@@ -190,6 +190,13 @@ public:
 private:
   int idx = 0; // used to access environment cache for mutant runs
   void compute_environment(bool rescale);
+  // One field build, with every species' inflow boundary interval included or not.
+  void compute_environment_once(bool rescale, bool include_boundary);
+  // Evaluate every species' inflow boundary condition in the field as it stands.
+  void compute_boundary_nodes();
+  // The competition profile with every species' boundary interval left off: a
+  // function of the ODE state alone.
+  double compute_competition_excl_boundary(double height) const;
   void compute_rates();
 
   // The environment the rates are computed against: the patch's own on a
@@ -627,9 +634,57 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 }
 
 // Pre-compute environment, as shaped by residents
-// Creates splines of resource availability
+// The competition profile with every species' inflow boundary interval left off.
+template <typename T, typename E>
+double Patch<T,E>::compute_competition_excl_boundary(double height) const {
+  double tot = 0.0;
+  for (size_t i = 0; i < size(); ++i) {
+    tot += species[i].compute_competition_excl_boundary(height) / area;
+  }
+  return tot;
+}
+
+// Evaluate every species' inflow boundary condition in the field as it currently
+// stands. Owned by the field build rather than by compute_rates(), so that the
+// field reads a boundary density derived from this state instead of one carried
+// from the previous evaluation.
+template <typename T, typename E>
+void Patch<T,E>::compute_boundary_nodes() {
+  const double time_ = environment.time;
+  const double pr_patch_survival = survival_weighting->pr_survival(time_);
+  for (size_t i = 0; i < size(); ++i) {
+    const double birth_rate =
+      species[i].extrinsic_drivers().evaluate("birth_rate", time_);
+    species[i].compute_boundary_node(environment, pr_patch_survival, birth_rate);
+  }
+}
+
+// Creates splines of resource availability.
+//
+// The reduction's closing trapezium is the inflow boundary condition
+// n_b = birth_rate * pr_estab / g, and n_b needs a field to be evaluated in --
+// so the field and the boundary condition are mutually dependent. Ordering the
+// build removes the cycle rather than iterating it:
+//
+//   A0  the reduction excluding the boundary interval   (the ODE state alone)
+//   n_b the boundary condition evaluated in A0          (the ODE state alone)
+//   A   A0 plus the boundary interval formed from n_b   (the ODE state alone)
+//
+// so a stage is a function of (y, t) and nothing else. Closing the fixed point by
+// iteration instead only attenuates the carried dependence by the contraction
+// modulus, which is ~1e-3.
 template <typename T, typename E>
 void Patch<T,E>::compute_environment(bool rescale) {
+  if (!(size() > 0 && !is_mutant_run)) {
+    return;
+  }
+  compute_environment_once(rescale, false);
+  compute_boundary_nodes();
+  compute_environment_once(rescale, true);
+}
+
+template <typename T, typename E>
+void Patch<T,E>::compute_environment_once(bool rescale, bool include_boundary) {
 
   // The boundary node is one end of the birth-date quadrature and its birth date
   // is the current time, so refresh it before the profile is built. Its own
@@ -648,7 +703,10 @@ void Patch<T,E>::compute_environment(bool rescale) {
   }
 
   // Define an anonymous function to use in creation of environment
-  auto f = [&](double x) -> double { return compute_competition(x); };
+  auto f = [&](double x) -> double {
+    return include_boundary ? compute_competition(x)
+                            : compute_competition_excl_boundary(x);
+  };
 
   if (size() > 0 & !is_mutant_run) {
     try {

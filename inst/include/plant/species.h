@@ -11,6 +11,7 @@
 #include <odelia/ode_interface.hpp>
 #include <plant/node.h>
 #include <plant/species_base.h>
+#include <plant/transport_census.h>
 #include <odelia/drivers.hpp>
 
 namespace plant {
@@ -53,6 +54,22 @@ public:
 
   double height_max() const;
   double compute_competition(double height) const;
+
+  // The same reduction with the inflow boundary interval left off, so it is a
+  // function of the ODE state alone: it never reads new_node. The boundary
+  // condition n_b = birth_rate * pr_estab / g needs a field to be evaluated in,
+  // and evaluating it in this one is what breaks the cycle. See
+  // Patch::compute_environment.
+  double compute_competition_excl_boundary(double height) const;
+
+  // Evaluate the inflow boundary condition in the environment passed. Split out
+  // of compute_rates() so the field build owns it and the field stops reading a
+  // density carried from the previous evaluation.
+  void compute_boundary_node(const environment_type& environment,
+                             double pr_patch_survival, double birth_rate) {
+    new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+  }
+
   // Whether the decreasing-height node ordering still holds (see height_max()).
   bool heights_are_decreasing() const;
 
@@ -73,6 +90,14 @@ public:
     return base_type::set_ode_state(it);
   }
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
+
+  // -dg/dh on the cohort grid: node i spans the interval down to its lower
+  // neighbour, the lowest down to new_node. The spacing between two
+  // characteristics has an exact rate, d(dh)/dt = g_i - g_below, so this is
+  // exactly d(log dh)/dt rather than an estimate of dg/dh. Where the interval has
+  // no width the node takes the compression of the one above.
+  double growth_rate_gradient(std::size_t i) const;
+
   std::vector<double> net_reproduction_ratio_by_node() const;
   // Per-node lifetime offspring, weighted by patch-age density and S_D.
   std::vector<double> net_reproduction_ratio_by_node_weighted() const;
@@ -181,7 +206,12 @@ private:
   // ordered, so the node list cannot be used directly as the quadrature grid.
   // Height coordinate only -- it integrates in height, and the birth-date
   // abscissa cannot invert (see compute_competition).
-  double compute_competition_unordered(double height) const;
+  double compute_competition_unordered(double height, bool include_boundary) const;
+
+  // The reduction, with the closing boundary trapezium included or not. The
+  // included case is the arithmetic compute_competition() has always done, in one
+  // accumulator, so that path keeps its rounding exactly.
+  double compute_competition_impl(double height, bool include_boundary) const;
 
   // Cache for scan_heights(). Every path that can change a node height must call
   // invalidate_height_scan(); a stale cache here would silently reintroduce the
@@ -346,6 +376,19 @@ typename Species<T,E>::HeightScan Species<T,E>::compute_height_scan() const {
 // the integral).
 template <typename T, typename E>
 double Species<T,E>::compute_competition(double height) const {
+  return compute_competition_impl(height, true);
+}
+
+// The interior sum alone: never touches new_node, so it is a function of the ODE
+// state and the strategy only.
+template <typename T, typename E>
+double Species<T,E>::compute_competition_excl_boundary(double height) const {
+  return compute_competition_impl(height, false);
+}
+
+template <typename T, typename E>
+double Species<T,E>::compute_competition_impl(double height,
+                                             bool include_boundary) const {
   if (size() == 0) {
     return 0.0;
   }
@@ -371,7 +414,7 @@ double Species<T,E>::compute_competition(double height) const {
   // height, so sending the birth-date coordinate down it would silently swap
   // coordinates mid-run.
   if (!birth_date && !scan.decreasing) {
-    return compute_competition_unordered(height);
+    return compute_competition_unordered(height, include_boundary);
   }
   double tot = 0.0;
   nodes_const_iterator it = nodes.begin();
@@ -404,7 +447,7 @@ double Species<T,E>::compute_competition(double height) const {
   // introduction and contributes nothing once the boundary node is below
   // `height`, so it is always safe to include; f1 can legitimately be zero here
   // when the walk ran to the end.
-  if (size() == 1 || birth_date || f1 > 0) {
+  if (include_boundary && (size() == 1 || birth_date || f1 > 0)) {
     const double x0 = abscissa_of(new_node, birth_date),
                  f0 = new_node.compute_competition(height);
     tot += (x0 - x1) * (f1 + f0);
@@ -429,7 +472,8 @@ double Species<T,E>::compute_competition(double height) const {
 // changes nothing. The scratch buffer is thread_local and reused, so the repeated
 // calls that build one spline do not each allocate.
 template <typename T, typename E>
-double Species<T,E>::compute_competition_unordered(double height) const {
+double Species<T,E>::compute_competition_unordered(double height,
+                                                  bool include_boundary) const {
   thread_local std::vector<std::pair<double, double>> hf;
   hf.clear();
   hf.reserve(size());
@@ -456,7 +500,7 @@ double Species<T,E>::compute_competition_unordered(double height) const {
     f_h1 = f_h0;
   }
 
-  if (size() == 1 || f_h1 > 0) {
+  if (include_boundary && (size() == 1 || f_h1 > 0)) {
     const double h0 = new_node.height(), f_h0 = new_node.compute_competition(height);
     tot += (h1 - h0) * (f_h1 + f_h0);
   }
@@ -471,7 +515,35 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   for (auto& c : nodes) {
     c.compute_rates(environment, pr_patch_survival);
   }
-  new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+  // The inflow boundary node is evaluated by the field build (see
+  // Patch::compute_environment), not here: the field reads its density, so
+  // forming it after the field is what made a stage depend on the previous
+  // evaluation. Evaluating it once rather than twice per stage also leaves it
+  // with one adjoint rather than two.
+  if (internals::transport_census_active()) {
+    // The sub-grid value is recovered from the rate each node has just written,
+    // log_density_dt = -growth_rate_gradient - mortality, so the census adds no
+    // rate evaluation of its own.
+    internals::transport_census& census = internals::the_transport_census();
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+      const node_type& below = i + 1 < nodes.size() ? nodes[i + 1] : new_node;
+      census.add(environment.time, nodes[i].height(),
+                 nodes[i].height() - below.height(), nodes[i].growth_rate(),
+                 below.growth_rate(),
+                 -(nodes[i].get_log_density_rate() + nodes[i].mortality_rate()),
+                 growth_rate_gradient(i));
+    }
+  }
+}
+
+template <typename T, typename E>
+double Species<T,E>::growth_rate_gradient(std::size_t i) const {
+  const node_type& below = i + 1 < size() ? nodes[i + 1] : new_node;
+  const double dh = nodes[i].height() - below.height();
+  if (dh == 0.0) {
+    return i > 0 ? growth_rate_gradient(i - 1) : 0.0;
+  }
+  return (nodes[i].growth_rate() - below.growth_rate()) / dh;
 }
 
 template <typename T, typename E>
