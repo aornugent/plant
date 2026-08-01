@@ -515,11 +515,12 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   for (auto& c : nodes) {
     c.compute_rates(environment, pr_patch_survival);
   }
-  // The inflow boundary node is evaluated by the field build (see
-  // Patch::compute_environment), not here: the field reads its density, so
-  // forming it after the field is what made a stage depend on the previous
-  // evaluation. Evaluating it once rather than twice per stage also leaves it
-  // with one adjoint rather than two.
+  // The boundary condition, evaluated in the field the nodes above were just
+  // rated in. This is not the evaluation the field itself reads -- that one is in
+  // a field excluding the boundary interval, and Patch::compute_environment owns
+  // it -- so the two are the same function at different arguments rather than one
+  // computed twice. This value is the one an introduced node inherits.
+  new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
   if (internals::transport_census_active()) {
     // The sub-grid value is recovered from the rate each node has just written,
     // log_density_dt = -growth_rate_gradient - mortality, so the census adds no
