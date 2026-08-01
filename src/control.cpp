@@ -50,7 +50,9 @@ Control::Control() {
 
   save_RK45_cache = false;
 
-  GSS_tol_abs = 1e-3;
+  // Bracket tolerance of the collar-potential search. It has only to land inside
+  // the basin of the Newton polish, which sets the operating point returned.
+  GSS_tol_abs = 1e-1;
   vulnerability_curve_ncontrol = 1e2;
   ci_abs_tol = 1e-3;
   ci_niter = 1e3;

@@ -896,6 +896,8 @@ double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
   const int max_iter = 5;
 
   double psi = opt_root_psi;
+  double dR_dcollar = 0.0;
+  bool have_dR = false;   // dR_dcollar holds a value, taken at psi or before it
   int n_eval = 0;
   for (int iter = 0; iter < max_iter; ++iter) {
     const double R = dprofit_droot_collar_psi(psi);
@@ -909,20 +911,40 @@ double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
     if (psi - h <= bound_a || psi + h >= bound_b) {
       break;
     }
-    const double dR_dcollar = (dprofit_droot_collar_psi(psi + h) -
-                               dprofit_droot_collar_psi(psi - h)) / (2.0 * h);
-    n_eval += 2;
-    // Profit is concave at an interior maximum, so a non-negative curvature says
-    // this is not one and a Newton step would leave it.
-    if (!std::isfinite(dR_dcollar) || dR_dcollar >= 0.0) {
+    // A step after the first reuses the derivative already held: it divides a
+    // step length, so a stale one changes the step and not the point reached.
+    bool stepped = false;
+    bool dR_at_psi = false;
+    while (!stepped) {
+      if (!have_dR) {
+        dR_dcollar = (dprofit_droot_collar_psi(psi + h) -
+                      dprofit_droot_collar_psi(psi - h)) / (2.0 * h);
+        n_eval += 2;
+        have_dR = true;
+        dR_at_psi = true;
+      }
+      // Profit is concave at an interior maximum, so a non-negative curvature
+      // says this is not one and a Newton step would leave it.
+      if (std::isfinite(dR_dcollar) && dR_dcollar < 0.0) {
+        const double psi_next = psi - R / dR_dcollar;
+        if (std::isfinite(psi_next) && psi_next > bound_a &&
+            psi_next < bound_b) {
+          psi = psi_next;
+          stepped = true;
+        }
+      }
+      // A rejected step is retried once against a derivative taken at psi; a
+      // fresh derivative that is still rejected is the bound case.
+      if (!stepped) {
+        if (dR_at_psi) {
+          break;
+        }
+        have_dR = false;
+      }
+    }
+    if (!stepped) {
       break;
     }
-    const double psi_next = psi - R / dR_dcollar;
-    if (!std::isfinite(psi_next) || psi_next <= bound_a ||
-        psi_next >= bound_b) {
-      break;
-    }
-    psi = psi_next;
   }
 
   if (std::getenv("PLANT_POLISH_TRACE") != nullptr) {

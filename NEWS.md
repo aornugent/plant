@@ -7,6 +7,17 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **`Control$GSS_tol_abs`'s default changed, so an unchanged call returns
+  different numbers.** Migration — the default `GSS_tol_abs = 1e-3` -> the
+  default `GSS_tol_abs = 1e-1`; pass `GSS_tol_abs = 1e-3` explicitly to keep the
+  old search. The field is the bracket tolerance of the leaf's collar-potential
+  search, and that search is now followed by a Newton polish to a stationary
+  point of profit. The polish sets the operating point returned, so the bracket
+  has only to land inside its basin, and the polished point agrees to ~1e-09 in
+  potential between `1e-3` and `1e-1`. Two consequences: the field no longer
+  controls the accuracy of the operating point, and any stored SCM output or
+  baseline produced under the old default will not reproduce bit-for-bit.
+
 * Strategy biological parameters are now stored in a nested `pars` sub-object
   rather than as flat fields on the strategy (#410). This applies to every
   strategy type (`FF16_Strategy`, `K93_Strategy`, `TF24_Strategy`). Migration —
