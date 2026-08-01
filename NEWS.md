@@ -7,6 +7,27 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **The size-density equation's compression term is computed on a different
+  grid, so `log_density` rates and every forward result move. A rerun of an
+  existing parameterisation will not reproduce its old offspring number** — on
+  the TF24 reference run it goes from `42.133087152116609` in 4730 accepted
+  steps to `434.77155652828418` in 1248. The term is now
+  `(g_j - g_{j+1}) / (h_j - h_{j+1})`, growth differenced across neighbouring
+  nodes, where it was a finite difference of one node's growth rate against a
+  perturbed copy of itself. These are different discretisations, not two
+  spellings of one: the cohort-grid form is exactly `d(log dh)/dt`, so the count
+  between neighbouring nodes obeys `dN/dt = -mortality * N` exactly, and it
+  drops one individual rate evaluation per node per stage. Migration:
+  * `node$growth_rate_gradient(env)` -> `species$growth_rate_gradient(i)` — the
+    method moves from `Node` to `Species` and takes a 1-based node index in
+    place of an environment. **It returns a different quantity**, and it reads
+    the rates left by the most recent `species$compute_rates()`, so call that
+    first.
+  * `Control$node_gradient_eps` -> no equivalent
+  * `Control$node_gradient_direction` -> no equivalent
+  * `Control$node_gradient_richardson` -> no equivalent
+  * `Control$node_gradient_richardson_depth` -> no equivalent
+
 * Strategy biological parameters are now stored in a nested `pars` sub-object
   rather than as flat fields on the strategy (#410). This applies to every
   strategy type (`FF16_Strategy`, `K93_Strategy`, `TF24_Strategy`). Migration —

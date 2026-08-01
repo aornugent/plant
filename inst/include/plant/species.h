@@ -133,6 +133,10 @@ public:
   const node_type& r_node_at(util::index idx) const {
     return nodes[idx.check_bounds(size())];
   }
+  // Reads the rates the most recent compute_rates() left on the nodes.
+  double r_growth_rate_gradient(util::index idx) const {
+    return growth_rate_gradient(idx.check_bounds(size()));
+  }
 
   // Do this with set_ode_state, using an iterator?
   /* double state(int i) const { return vars.state(i); } */

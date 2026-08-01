@@ -319,10 +319,6 @@ template <> inline SEXP wrap(const plant::Control& x) {
   ret["ppa_layer_smoothing"] = Rcpp::wrap(x.ppa_layer_smoothing);
   ret["offspring_production_tol"] = Rcpp::wrap(x.offspring_production_tol);
   ret["offspring_production_iterations"] = Rcpp::wrap(x.offspring_production_iterations);
-  ret["node_gradient_eps"] = Rcpp::wrap(x.node_gradient_eps);
-  ret["node_gradient_direction"] = Rcpp::wrap(x.node_gradient_direction);
-  ret["node_gradient_richardson"] = Rcpp::wrap(x.node_gradient_richardson);
-  ret["node_gradient_richardson_depth"] = Rcpp::wrap(x.node_gradient_richardson_depth);
   ret["ode_step_size_initial"] = Rcpp::wrap(x.ode_step_size_initial);
   ret["ode_step_size_min"] = Rcpp::wrap(x.ode_step_size_min);
   ret["ode_step_size_max"] = Rcpp::wrap(x.ode_step_size_max);
@@ -363,14 +359,6 @@ template <> inline plant::Control as(SEXP x) {
   ret.offspring_production_tol = Rcpp::as<double >(xl["offspring_production_tol"]);
   // ret.offspring_production_iterations = Rcpp::as<decltype(retoffspring_production_iterations) >(xl["offspring_production_iterations"]);
   ret.offspring_production_iterations = Rcpp::as<int >(xl["offspring_production_iterations"]);
-  // ret.node_gradient_eps = Rcpp::as<decltype(retnode_gradient_eps) >(xl["node_gradient_eps"]);
-  ret.node_gradient_eps = Rcpp::as<double >(xl["node_gradient_eps"]);
-  // ret.node_gradient_direction = Rcpp::as<decltype(retnode_gradient_direction) >(xl["node_gradient_direction"]);
-  ret.node_gradient_direction = Rcpp::as<int >(xl["node_gradient_direction"]);
-  // ret.node_gradient_richardson = Rcpp::as<decltype(retnode_gradient_richardson) >(xl["node_gradient_richardson"]);
-  ret.node_gradient_richardson = Rcpp::as<bool >(xl["node_gradient_richardson"]);
-  // ret.node_gradient_richardson_depth = Rcpp::as<decltype(retnode_gradient_richardson_depth) >(xl["node_gradient_richardson_depth"]);
-  ret.node_gradient_richardson_depth = Rcpp::as<size_t >(xl["node_gradient_richardson_depth"]);
   // ret.ode_step_size_initial = Rcpp::as<decltype(retode_step_size_initial) >(xl["ode_step_size_initial"]);
   ret.ode_step_size_initial = Rcpp::as<double >(xl["ode_step_size_initial"]);
   // ret.ode_step_size_min = Rcpp::as<decltype(retode_step_size_min) >(xl["ode_step_size_min"]);

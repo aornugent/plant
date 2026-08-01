@@ -16,64 +16,13 @@ for (x in names(strategy_types)) {
     env <- Environment(x)
     env$set_fixed_environment(1.0, 100)
 
-    ## The big unknown is the growth rate gradient calculation; that is,
-    ## the derivative d(dh/dt)/dh.
-    growth_rate_given_height <- function(height, plant, env) {
-      plant$set_state("height", height)
-      plant$compute_rates(env)
-      plant$rate("height")
-    }
-
-    grad_forward <- function(f, x, dx, ...) {
-      (f(x + dx, ...) - f(x, ...)) / dx
-    }
-
-    grad_backward <- function(f, x, dx, ...) {
-      (f(x, ...) - f(x - dx, ...)) / dx
-    }
-
+    ## The node's own rates are the individual's. The transport term of the
+    ## size-density equation is not among them: it needs the node's neighbours,
+    ## and lives on Species (see test-species.R).
     plant$compute_rates(env)
-    p2 <- Individual(x, e)(s)
-
-    ## First, a quick sanity check that our little function behaves as
-    ## expected:
-    expect_equal(growth_rate_given_height(plant$state("height"), p2, env),  plant$rate("height"))
-
-    ## With height:
-    ctrl <- s$control
-    method_args <- list(d=ctrl$node_gradient_eps,
-                        eps=ctrl$node_gradient_eps)
-
-    ## With a plant, manually compute the growth rate gradient using
-    ## Richarson extrapolation:
-    dgdh_richardson <- numDeriv::grad(growth_rate_given_height, plant$state("height"),
-                                      plant=p2, env=env,
-                                      method.args=method_args)
-    ## And also using plain forward and backward differencing:
-    dgdh_forward <- grad_forward(growth_rate_given_height, plant$state("height"),
-                                 method_args$eps, plant=p2, env=env)
-    dgdh_backward <- grad_backward(growth_rate_given_height, plant$state("height"),
-                                   method_args$eps, plant=p2, env=env)
-
-    ## These agree, but not that much. TF24's growth rate is a smooth-positive
-    ## part of net production times the reserve gate (#517), so it carries more
-    ## curvature than FF16/K93 and the O(h) forward difference departs from the
-    ## Richardson estimate a little more -- allow a looser tolerance there.
-    tol_grad <- if (grepl("TF24", x)) 1e-5 else 1e-6
-    expect_equal(dgdh_forward, dgdh_richardson, tolerance = tol_grad)
-
-    ## Now, do this with the node. The default control uses backward
-    ## differencing (node_gradient_direction = -1), so it matches the
-    ## backward difference exactly.
-    dgdh <- node$growth_rate_gradient(env)
-
-    expect_equal(dgdh, dgdh_backward)
-
-    ## Again with Richardson extrapolation:
-        node <- Node(x, e)(s)
-    node2 <- Node(x, e)(strategy_types[[x]](control=Control(node_gradient_richardson=TRUE)))
-    expect_true(node2$individual$strategy$control$node_gradient_richardson)
-
+    node$compute_rates(env, pr_patch_survival = 1)
+    expect_identical(node$individual$rate("height"), plant$rate("height"))
+    expect_identical(node$individual$rate("mortality"), plant$rate("mortality"))
   })
 
   ## TODO(#482): Not done yet:
@@ -123,7 +72,9 @@ for (x in names(strategy_types)) {
     cmp <- c(plant$internals$rates,
              ## This is different to the approach in tree1?
              plant$rate("fecundity") * exp(-plant$state("mortality")),
-             -plant$rate("mortality") - node$growth_rate_gradient(env))
+             ## A node held outside a Species has no interval below it, so it
+             ## has no transport term.
+             0)
 
 
     expect_equal(node$ode_rates, cmp)

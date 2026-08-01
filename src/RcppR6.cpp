@@ -1616,10 +1616,6 @@ double Node___FF16__FF16_Env__compute_competition(plant::RcppR6::RcppR6<plant::N
   return obj_->compute_competition(height);
 }
 // [[Rcpp::export]]
-double Node___FF16__FF16_Env__growth_rate_gradient(plant::RcppR6::RcppR6<plant::Node<plant::FF16_Strategy,plant::FF16_Environment> > obj_, plant::FF16_Environment environment) {
-  return obj_->r_growth_rate_gradient(environment);
-}
-// [[Rcpp::export]]
 void Node___FF16__FF16_Env__compute_rates(plant::RcppR6::RcppR6<plant::Node<plant::FF16_Strategy,plant::FF16_Environment> > obj_, plant::FF16_Environment environment, double pr_patch_survival) {
   obj_->compute_rates(environment, pr_patch_survival);
 }
@@ -1679,10 +1675,6 @@ plant::Node<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > Node
 // [[Rcpp::export]]
 double Node___TF24__TF24_Env__compute_competition(plant::RcppR6::RcppR6<plant::Node<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, double height) {
   return obj_->compute_competition(height);
-}
-// [[Rcpp::export]]
-double Node___TF24__TF24_Env__growth_rate_gradient(plant::RcppR6::RcppR6<plant::Node<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, plant::TF24_Environment<double> environment) {
-  return obj_->r_growth_rate_gradient(environment);
 }
 // [[Rcpp::export]]
 void Node___TF24__TF24_Env__compute_rates(plant::RcppR6::RcppR6<plant::Node<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, plant::TF24_Environment<double> environment, double pr_patch_survival) {
@@ -1746,10 +1738,6 @@ double Node___TF24f__TF24_Env__compute_competition(plant::RcppR6::RcppR6<plant::
   return obj_->compute_competition(height);
 }
 // [[Rcpp::export]]
-double Node___TF24f__TF24_Env__growth_rate_gradient(plant::RcppR6::RcppR6<plant::Node<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_, plant::TF24_Environment<double> environment) {
-  return obj_->r_growth_rate_gradient(environment);
-}
-// [[Rcpp::export]]
 void Node___TF24f__TF24_Env__compute_rates(plant::RcppR6::RcppR6<plant::Node<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_, plant::TF24_Environment<double> environment, double pr_patch_survival) {
   obj_->compute_rates(environment, pr_patch_survival);
 }
@@ -1809,10 +1797,6 @@ plant::Node<plant::K93_Strategy,plant::K93_Environment> Node___K93__K93_Env__cto
 // [[Rcpp::export]]
 double Node___K93__K93_Env__compute_competition(plant::RcppR6::RcppR6<plant::Node<plant::K93_Strategy,plant::K93_Environment> > obj_, double height) {
   return obj_->compute_competition(height);
-}
-// [[Rcpp::export]]
-double Node___K93__K93_Env__growth_rate_gradient(plant::RcppR6::RcppR6<plant::Node<plant::K93_Strategy,plant::K93_Environment> > obj_, plant::K93_Environment environment) {
-  return obj_->r_growth_rate_gradient(environment);
 }
 // [[Rcpp::export]]
 void Node___K93__K93_Env__compute_rates(plant::RcppR6::RcppR6<plant::Node<plant::K93_Strategy,plant::K93_Environment> > obj_, plant::K93_Environment environment, double pr_patch_survival) {
@@ -1890,6 +1874,10 @@ void Species___FF16__FF16_Env__introduce_new_node(plant::RcppR6::RcppR6<plant::S
 // [[Rcpp::export]]
 plant::Node<plant::FF16_Strategy,plant::FF16_Environment> Species___FF16__FF16_Env__node_at(plant::RcppR6::RcppR6<plant::Species<plant::FF16_Strategy,plant::FF16_Environment> > obj_, plant::util::index index) {
   return obj_->r_node_at(index);
+}
+// [[Rcpp::export]]
+double Species___FF16__FF16_Env__growth_rate_gradient(plant::RcppR6::RcppR6<plant::Species<plant::FF16_Strategy,plant::FF16_Environment> > obj_, plant::util::index index) {
+  return obj_->r_growth_rate_gradient(index);
 }
 // [[Rcpp::export]]
 std::vector<double> Species___FF16__FF16_Env__compute_competition_effect_by_nodes_error(plant::RcppR6::RcppR6<plant::Species<plant::FF16_Strategy,plant::FF16_Environment> > obj_, double scal) {
@@ -2008,6 +1996,10 @@ plant::Node<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > Spec
   return obj_->r_node_at(index);
 }
 // [[Rcpp::export]]
+double Species___TF24__TF24_Env__growth_rate_gradient(plant::RcppR6::RcppR6<plant::Species<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, plant::util::index index) {
+  return obj_->r_growth_rate_gradient(index);
+}
+// [[Rcpp::export]]
 std::vector<double> Species___TF24__TF24_Env__compute_competition_effect_by_nodes_error(plant::RcppR6::RcppR6<plant::Species<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, double scal) {
   return obj_->r_compute_competition_effect_by_nodes_error(scal);
 }
@@ -2124,6 +2116,10 @@ plant::Node<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > Spe
   return obj_->r_node_at(index);
 }
 // [[Rcpp::export]]
+double Species___TF24f__TF24_Env__growth_rate_gradient(plant::RcppR6::RcppR6<plant::Species<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_, plant::util::index index) {
+  return obj_->r_growth_rate_gradient(index);
+}
+// [[Rcpp::export]]
 std::vector<double> Species___TF24f__TF24_Env__compute_competition_effect_by_nodes_error(plant::RcppR6::RcppR6<plant::Species<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_, double scal) {
   return obj_->r_compute_competition_effect_by_nodes_error(scal);
 }
@@ -2238,6 +2234,10 @@ void Species___K93__K93_Env__introduce_new_node(plant::RcppR6::RcppR6<plant::Spe
 // [[Rcpp::export]]
 plant::Node<plant::K93_Strategy,plant::K93_Environment> Species___K93__K93_Env__node_at(plant::RcppR6::RcppR6<plant::Species<plant::K93_Strategy,plant::K93_Environment> > obj_, plant::util::index index) {
   return obj_->r_node_at(index);
+}
+// [[Rcpp::export]]
+double Species___K93__K93_Env__growth_rate_gradient(plant::RcppR6::RcppR6<plant::Species<plant::K93_Strategy,plant::K93_Environment> > obj_, plant::util::index index) {
+  return obj_->r_growth_rate_gradient(index);
 }
 // [[Rcpp::export]]
 std::vector<double> Species___K93__K93_Env__compute_competition_effect_by_nodes_error(plant::RcppR6::RcppR6<plant::Species<plant::K93_Strategy,plant::K93_Environment> > obj_, double scal) {

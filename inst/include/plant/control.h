@@ -55,11 +55,6 @@ struct Control {
   double offspring_production_tol;
   size_t offspring_production_iterations;
 
-  double node_gradient_eps;
-  int    node_gradient_direction;
-  bool   node_gradient_richardson;
-  size_t node_gradient_richardson_depth;
-
   double ode_step_size_initial;
   double ode_step_size_min;
   double ode_step_size_max;

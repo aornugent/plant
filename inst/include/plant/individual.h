@@ -160,15 +160,6 @@ public:
   
   void reset_mortality() { set_state("mortality", 0.0); }
 
-  double growth_rate_given_height(double height, const environment_type& environment) {
-    // Called repeatedly from the finite-difference gradient (Node::
-    // growth_rate_gradient), so address height by integer slot rather than the
-    // "height" string-map lookup (see #466).
-    set_state(HEIGHT_INDEX, height);
-    compute_rates(environment);
-    return rate(HEIGHT_INDEX);
-  }
-
   double resource_compensation_point() {
     environment_type env = environment_type();
 

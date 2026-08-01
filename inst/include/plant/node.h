@@ -3,7 +3,6 @@
 #define NODE
 
 #include <plant/environment.h>
-#include <plant/gradient.h>
 #include <plant/individual.h>
 #include <odelia/ode_interface.hpp>
 #include <limits> // std::numeric_limits
@@ -23,9 +22,6 @@ public:
 
   void compute_rates(const environment_type& environment, double pr_patch_survival);
   void compute_initial_conditions(const environment_type& environment, double pr_patch_survival, double birth_rate);
-
-  // Wrapper to growth_rate_gradient for testing
-  double r_growth_rate_gradient(const environment_type& environment);
 
   double height() const {return individual.state(HEIGHT_INDEX);}
   double compute_competition(double z) const;
@@ -113,10 +109,6 @@ public:
 
   individual_type individual;
 
-  // dg/dh, finite-differenced on a sub-grid probe. Species::compute_rates reads
-  // it in its second pass, after every node's own rates exist.
-  double growth_rate_gradient(const environment_type& environment) const;
-
 private:
   double log_density;
   double log_density_dt;
@@ -182,11 +174,10 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   // the initialised operating point rather than a default.
   individual.set_initial_states(environment);
   compute_rates(environment, pr_patch_survival);
-  // The inflow boundary node is rated outside any Species pass, so it writes its
-  // own transport term here.
-  log_density_dt =
-    - growth_rate_gradient(environment)
-    - individual.rate(MORTALITY_INDEX);
+  // The transport term needs an interval below, and the inflow boundary node has
+  // none. Its log_density rate is never integrated: a node introduced from this
+  // one is rated by Species::compute_rates before the solver reads it.
+  log_density_dt = 0.0;
 
   const double pr_estab =
     individual.establishment_probability_of_newborn(environment);
@@ -195,48 +186,9 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   // NOTE: log(0.0) -> -Inf, which should behave fine.
   set_log_density(g > 0 ? log(birth_rate * pr_estab / g) : log(0.0));
 
-  // Need to check that the rates are valid after setting the
-  // mortality value here (can go to -Inf and that requires squashing
-  // the rate to zero).
-  if (!util::is_finite(log_density)) {
-    // Can do this at the same time that we do set_log_density, I think.
-    log_density_dt = 0.0;
-  }
   // NOTE: It's *possible* here that we need to set
   // individual.vars.mortality_dt to zero here, but I don't see that's
   // likely.
-}
-
-template <typename T, typename E>
-double Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
-  // Finite-differencing the growth rate needs a mutable Individual to perturb
-  // height on, but it must not disturb this node's already-computed state and
-  // rates, so perturb a copy.
-  individual_type p = individual;
-  auto fun = [&] (double h) -> double {
-    return p.growth_rate_given_height(h, environment);
-  };
-
-  const Control& control = individual.control();
-  const double eps = control.node_gradient_eps;
-  if (control.node_gradient_richardson) {
-    return util::gradient_richardson(fun,  individual.state(HEIGHT_INDEX), eps,
-                                     control.node_gradient_richardson_depth);
-  } else {
-    return util::gradient_fd(fun, individual.state(HEIGHT_INDEX), eps, individual.rate(HEIGHT_INDEX),
-                             control.node_gradient_direction);
-  }
-}
-
-// Wrapper to growth_rate_gradient for testing
-template <typename T, typename E>
-double Node<T,E>::r_growth_rate_gradient(const environment_type& environment) {
-  // We need to compute the physiological variables here, first, so
-  // that reusing intervals works as expected.  This would ordinarily
-  // be taken care of because of the calling order of
-  // compute_rates / growth_rate_gradient.
-  individual.compute_rates(environment);
-  return growth_rate_gradient(environment);
 }
 
 template <typename T, typename E>

@@ -27,11 +27,6 @@ Control::Control() {
   offspring_production_tol= 1e-8;
   offspring_production_iterations = 1000;
 
-  node_gradient_eps = 1e-6;
-  node_gradient_direction = -1;
-  node_gradient_richardson = false;
-  node_gradient_richardson_depth = 4;
-
   ode_step_size_initial = 1e-6;
   ode_step_size_min = 1e-6;
   ode_step_size_max = 5;

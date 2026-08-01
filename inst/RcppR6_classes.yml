@@ -299,10 +299,6 @@ Control:
     - ppa_layer_smoothing: double
     - offspring_production_tol: double
     - offspring_production_iterations: int
-    - node_gradient_eps: double
-    - node_gradient_direction: int
-    - node_gradient_richardson: bool
-    - node_gradient_richardson_depth: size_t
     - ode_step_size_initial: double
     - ode_step_size_min: double
     - ode_step_size_max: double
@@ -553,10 +549,6 @@ Node:
     compute_competition:
       return_type: double
       args: [height: double]
-    growth_rate_gradient:
-      return_type: double
-      name_cpp: "r_growth_rate_gradient"
-      args: [environment: E]
     compute_rates:
       return_type: void
       args: [environment: E, pr_patch_survival: double]
@@ -607,6 +599,10 @@ Species:
       return_type: "plant::Node<T,E>"
       args: [index: "plant::util::index"]
       name_cpp: r_node_at
+    growth_rate_gradient:
+      return_type: double
+      args: [index: "plant::util::index"]
+      name_cpp: r_growth_rate_gradient
     compute_competition_effect_by_nodes_error:
       return_type: "std::vector<double>"
       args: [scal: double=1]
