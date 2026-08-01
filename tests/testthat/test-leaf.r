@@ -1081,3 +1081,99 @@ test_that("Leaf() errors on misspelled argument names (issue #377)", {
     regexp = "vcma"
   )
 })
+
+# Shared setup for the collar-polish tests: one leaf, one soil profile, one
+# height. psi_soil is a vector, so the number of layers is its length. The root
+# mass and leaf area are chosen so that the profit maximum is interior over the
+# whole psi_soil range sampled below; at a tenth of this root mass the maximum
+# sits on the wet bound instead, where profit is not stationary.
+polish_leaf <- function(psi_soil, height, GSS_tol_abs) {
+  theta <- 0.000157; root_c <- 2.65; root_b <- 1.29
+  root_psi_crit <- root_b * (log(1.0 / 0.05))^(1.0 / root_c)
+  l <- Leaf(vcmax_25 = 96, jmax_25 = 96 * 1.64, c = 2.04, b = 3, psi_crit = 5,
+            root_c = root_c, root_b = root_b, root_psi_crit = root_psi_crit,
+            beta2 = 1, a = 0.3, curv_fact_elec_trans = 0.7,
+            curv_fact_colim = 0.99, GSS_tol_abs = GSS_tol_abs,
+            vulnerability_curve_ncontrol = 100, ci_abs_tol = 1e-6,
+            ci_niter = 1000, g1_TF24 = 46.32995,
+            beta_R_H = 3.4e3, beta_R_V = 9.4e4)
+  n <- length(psi_soil)
+  l$set_physiology(area_leaf = 0.05, mass_root_prop = rep(10 / n, n), rho = 608,
+                   a_bio = 0.0245, PPFD = 900, psi_soil = psi_soil,
+                   soil_depth = seq_len(n),
+                   leaf_specific_conductance_max = theta / height,
+                   atm_vpd = 2, ca = 40,
+                   sapwood_volume_per_leaf_area = theta * height,
+                   leaf_temp = 25, atm_o2_kpa = 21, atm_kpa = 101.3)
+  l
+}
+
+# psi_soil values spanning the default driver's range, each as a single layer and
+# as an uneven five-layer profile of the kind a drydown produces, at two heights.
+polish_states <- function() {
+  states <- list()
+  for (h in c(1, 10)) {
+    for (p in c(0.015, 0.05, 0.08, 0.11, 0.14, 0.17)) {
+      states[[length(states) + 1]] <- list(psi_soil = p, height = h)
+      states[[length(states) + 1]] <-
+        list(psi_soil = p * c(0.5, 0.8, 1, 1.5, 2.5), height = h)
+    }
+  }
+  states
+}
+
+# The operating point must be interior for profit to be stationary at it, so the
+# sampled states assert it: a collar potential 2e-3 either side of the returned
+# one must still be inside the feasible interval (evaluate_root_collar_psi clamps
+# to that interval, so a clamped probe is the signature of a bound).
+expect_interior <- function(l, op) {
+  l$evaluate_root_collar_psi(op - 2e-3)
+  expect_equal(-l$root_collar_psi_, op - 2e-3)
+  l$evaluate_root_collar_psi(op + 2e-3)
+  expect_equal(-l$root_collar_psi_, op + 2e-3)
+}
+
+test_that("the returned collar operating point is stationary in profit", {
+  # The envelope relation the reverse pass applies is valid only where
+  # d(profit)/d(collar) is zero. Golden section at production tolerance leaves it
+  # at 8.8e-05 to 1.2e-03; the Newton polish takes it below 1e-07.
+  states <- polish_states()
+  expect_gt(length(states), 6)
+  worst <- 0
+  for (s in states) {
+    l <- polish_leaf(s$psi_soil, s$height, GSS_tol_abs = 1e-3)
+    l$find_root_collar_psi()
+    op <- -l$root_collar_psi_
+    expect_interior(l, op)
+    l$find_root_collar_psi()
+    R <- l$dprofit_droot_collar_psi(op)
+    expect_true(is.finite(R))
+    expect_lt(abs(R), 1e-7)
+    worst <- max(worst, abs(R))
+  }
+  cat(sprintf("\nstationarity: %d states, worst |R| = %.3e\n", length(states), worst))
+})
+
+test_that("the polished collar operating point does not depend on the bracket tolerance", {
+  # Golden section returns a point affine in its bracket, so a looser bracket
+  # moves it by the bracket's size; the polished point may move only by what the
+  # residual allows. |d2(profit)/d(collar)2| is at least 0.17 over this domain, so
+  # a residual of the 1e-07 the test above requires places the stationary point to
+  # within 1e-07/0.17, and two polished points within twice that of each other.
+  allowed <- 2 * 1e-7 / 0.17
+  worst <- 0
+  for (s in polish_states()) {
+    l_tight <- polish_leaf(s$psi_soil, s$height, GSS_tol_abs = 1e-3)
+    l_loose <- polish_leaf(s$psi_soil, s$height, GSS_tol_abs = 1e-1)
+    l_tight$find_root_collar_psi()
+    l_loose$find_root_collar_psi()
+    p_tight <- -l_tight$root_collar_psi_
+    p_loose <- -l_loose$root_collar_psi_
+    expect_lt(abs(l_tight$dprofit_droot_collar_psi(p_tight)), 1e-7)
+    expect_lt(abs(l_loose$dprofit_droot_collar_psi(p_loose)), 1e-7)
+    expect_lt(abs(p_tight - p_loose), allowed)
+    worst <- max(worst, abs(p_tight - p_loose))
+  }
+  cat(sprintf("\nbracket independence: worst |p(1e-3) - p(1e-1)| = %.3e, allowed %.3e\n",
+              worst, allowed))
+})
