@@ -11,7 +11,6 @@
 #include <odelia/ode_interface.hpp>
 #include <plant/node.h>
 #include <plant/species_base.h>
-#include <plant/transport_census.h>
 #include <odelia/drivers.hpp>
 
 namespace plant {
@@ -99,8 +98,9 @@ public:
   // -dg/dh on the cohort grid: node i spans the interval down to its lower
   // neighbour, the lowest down to new_node. The spacing between two
   // characteristics has an exact rate, d(dh)/dt = g_i - g_below, so this is
-  // exactly d(log dh)/dt rather than an estimate of dg/dh. Where the interval has
-  // no width the node takes the compression of the one above.
+  // exactly d(log dh)/dt rather than an estimate of dg/dh. Where that interval
+  // has no positive width the node takes the compression of the one above: the
+  // heights can stop descending, and then list order is not height order.
   double growth_rate_gradient(std::size_t i) const;
 
   std::vector<double> net_reproduction_ratio_by_node() const;
@@ -551,22 +551,8 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   // its neighbours. Every node's own rates, and the boundary node's, exist by
   // here.
   for (std::size_t i = 0; i < nodes.size(); ++i) {
-    nodes[i].set_log_density_rate(- nodes[i].growth_rate_gradient(environment)
+    nodes[i].set_log_density_rate(- growth_rate_gradient(i)
                                   - nodes[i].mortality_rate());
-  }
-  if (internals::transport_census_active()) {
-    // The sub-grid value is recovered from the rate each node has just written,
-    // log_density_dt = -growth_rate_gradient - mortality, so the census adds no
-    // rate evaluation of its own.
-    internals::transport_census& census = internals::the_transport_census();
-    for (std::size_t i = 0; i < nodes.size(); ++i) {
-      const node_type& below = i + 1 < nodes.size() ? nodes[i + 1] : new_node;
-      census.add(environment.time, nodes[i].height(),
-                 nodes[i].height() - below.height(), nodes[i].growth_rate(),
-                 below.growth_rate(),
-                 -(nodes[i].get_log_density_rate() + nodes[i].mortality_rate()),
-                 growth_rate_gradient(i));
-    }
   }
 }
 
@@ -574,7 +560,7 @@ template <typename T, typename E>
 double Species<T,E>::growth_rate_gradient(std::size_t i) const {
   const node_type& below = i + 1 < size() ? nodes[i + 1] : new_node;
   const double dh = nodes[i].height() - below.height();
-  if (dh == 0.0) {
+  if (!(dh > 0.0)) {
     return i > 0 ? growth_rate_gradient(i - 1) : 0.0;
   }
   return (nodes[i].growth_rate() - below.growth_rate()) / dh;
