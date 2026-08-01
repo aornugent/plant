@@ -39,11 +39,12 @@ public:
     : individual(individual_), alive(true) {}
 
   // --- forwards used by StochasticSpecies / StochasticPatch ---------------
-  double height() const { return individual.state(HEIGHT_INDEX); }
-  double compute_competition(double z) const {
+  value_type height() const { return individual.state(HEIGHT_INDEX); }
+  value_type compute_competition(const value_type& z) const {
     return individual.compute_competition(z);
   }
-  std::pair<double, double> compute_competition_and_slope(double z) const {
+  std::pair<value_type, value_type>
+  compute_competition_and_slope(const value_type& z) const {
     return individual.compute_competition_and_slope(z);
   }
   void compute_rates(const E& environment) {
@@ -52,7 +53,7 @@ public:
   void set_initial_states(const E& environment) {
     individual.set_initial_states(environment);
   }
-  double mortality_probability() const {
+  value_type mortality_probability() const {
     return individual.mortality_probability();
   }
   void reset_mortality() { individual.reset_mortality(); }

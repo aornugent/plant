@@ -11,10 +11,15 @@
 // 19 errors, all of them the sites the design refuses: 17 in the DeepCrown
 // branch, which TF24 does not default to, and 2 named static assertions inside
 // prepare_strategy(), which never runs inside a recorded block.
+//
+// Individual and the transport probe are instantiated below, so those 19 are
+// also the whole count: a new line in any other file is a passive seam.
 
 #include <plant/models/tf24_strategy.h>
 #include <plant/individual_runner.h>
+#include <plant/node.h>
 #include <odelia/ode_solver.hpp>
+#include <type_traits>
 
 // The active scalar comes from odelia's own alias, on a Solver plant already
 // instantiates, so plant keeps naming the AD library to odelia.
@@ -30,6 +35,20 @@ static_assert(sizeof(plant::TF24_Strategy<active_scalar>) > 0);
 
 template class plant::TF24_Strategy<active_scalar>;
 
-// Instantiating plant::Individual on top of this needs its state store to carry
-// the scalar as well: it holds Internals<double>, so every place it hands vars to
-// the strategy is a passive seam. So the strategy is what this probe claims.
+using active_environment = plant::TF24_Environment<active_scalar>;
+using active_node = plant::Node<plant::TF24_Strategy<active_scalar>,
+                                active_environment>;
+
+template class plant::Individual<plant::TF24_Strategy<active_scalar>,
+                                 active_environment>;
+
+// Node::growth_rate_gradient is private; r_growth_rate_gradient forwards to it
+// and returns what it returns. A double on either declaration still compiles,
+// because the value is taken through a return type written as double, so the
+// transport term would read a derivative of zero with nothing raised. The
+// assertion is the only check for that.
+static_assert(std::is_same_v<
+    decltype(std::declval<active_node&>().r_growth_rate_gradient(
+               std::declval<const active_environment&>())),
+    active_scalar>,
+  "the transport probe returns the strategy's scalar");

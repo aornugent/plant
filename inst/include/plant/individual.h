@@ -5,6 +5,7 @@
 #include <memory> // std::shared_ptr
 #include <odelia/ode_interface.hpp>
 #include <vector>
+#include <odelia/ode_util.hpp>
 #include <plant/internals.h>
 #include <plant/uniroot.h>
 #include <utility> // std::pair
@@ -35,47 +36,48 @@ public:
   }
   
   // useage: state(HEIGHT_INDEX)
-  double state(std::string name) const {
+  value_type state(std::string name) const {
     return vars.state(strategy->state_index.at(name));
   }
-  double state(int i) const { return vars.state(i); }
+  value_type state(int i) const { return vars.state(i); }
   
   // useage:_rate("area_heartwood")
-  double rate(std::string name) const {
+  value_type rate(std::string name) const {
     return vars.rate(strategy->state_index.at(name));
   }
-  double rate(int i) const { return vars.rate(i); }
+  value_type rate(int i) const { return vars.rate(i); }
 
   // useage: set_state("height", 2.0)
-  void set_state(std::string name, double v) {
+  void set_state(std::string name, const value_type& v) {
     int i = strategy->state_index.at(name);
     vars.set_state(i, v);
     strategy->update_dependent_aux(i, vars);
   }
-  void set_state(int i, double v) {
+  void set_state(int i, const value_type& v) {
     vars.set_state(i, v);
     strategy->update_dependent_aux(i, vars);
   }
 
   // aux vars by name and index
-  double aux(std::string name) const {
+  value_type aux(std::string name) const {
     return vars.aux(strategy->aux_index.at(name));
   }
-  double aux(int i) const { return vars.aux(i); }
+  value_type aux(int i) const { return vars.aux(i); }
 
   // set # consumable resources based on env. variables
   void resize_consumption_rates(int i) {
     vars.resize_consumption_rates(i);
   }
-  double consumption_rate(int i) const { return vars.consumption_rate(i); }
+  value_type consumption_rate(int i) const { return vars.consumption_rate(i); }
 
-  double compute_competition(double z) const {
+  value_type compute_competition(const value_type& z) const {
     return strategy->compute_competition(z, vars);
   }
 
   // The competition contribution and its vertical derivative, from the one pass
   // the strategy makes. The first entry equals compute_competition(z) exactly.
-  std::pair<double, double> compute_competition_and_slope(double z) const {
+  std::pair<value_type, value_type>
+  compute_competition_and_slope(const value_type& z) const {
     return strategy->compute_competition_and_slope(z, vars);
   }
 
@@ -93,17 +95,17 @@ public:
     strategy->compute_rates(environment, vars);
   }
   
-  double establishment_probability(const environment_type &environment) {
+  value_type establishment_probability(const environment_type &environment) {
     return strategy->establishment_probability(environment);
   }
 
   // For a newborn, which sits at birth size: the strategy reads the carbon
   // compute_rates has already left in aux rather than solving the leaf again.
-  double establishment_probability_of_newborn(const environment_type &environment) {
+  value_type establishment_probability_of_newborn(const environment_type &environment) {
     return strategy->establishment_probability(environment, vars);
   }
 
-  double net_mass_production_dt(const environment_type &environment) {
+  value_type net_mass_production_dt(const environment_type &environment) {
     // TODO(#483):  maybe reuse intervals? default false
     return strategy->net_mass_production_dt(environment, vars);
   }
@@ -156,11 +158,17 @@ public:
   // Single individual methods
 
   // Used in the stochastic model:
-  double mortality_probability() const { return 1 - exp(-state(MORTALITY_INDEX)); }
+  value_type mortality_probability() const { return 1 - exp(-state(MORTALITY_INDEX)); }
   
   void reset_mortality() { set_state("mortality", 0.0); }
 
-  double growth_rate_given_height(double height, const environment_type& environment) {
+  // Carries value_type in both directions. Declaring either side double would
+  // still compile, because the value would be taken through a return type
+  // written as double, and Node::growth_rate_gradient differences this function:
+  // the transport term would then read a derivative of exactly zero with nothing
+  // raised, and log_density_dt is built from it.
+  value_type growth_rate_given_height(const value_type& height,
+                                      const environment_type& environment) {
     // Called repeatedly from the finite-difference gradient (Node::
     // growth_rate_gradient), so address height by integer slot rather than the
     // "height" string-map lookup (see #466).
@@ -169,13 +177,16 @@ public:
     return rate(HEIGHT_INDEX);
   }
 
+  // Reached only from R, which takes a double, and the point is located by
+  // iterating on the residual rather than by a declared derivative, so the
+  // residual is read at its value here.
   double resource_compensation_point() {
     environment_type env = environment_type();
 
     auto target = [&] (double x) mutable -> double {
       env.set_fixed_environment(x, 100);
       compute_rates(env);
-      return net_mass_production_dt(env);
+      return odelia::util::to_passive(net_mass_production_dt(env));
     };
 
     const double f1 = target(1.0);
@@ -197,12 +208,27 @@ public:
 
   // ! External R code depends on knowing r internals for like growing plant to
   // ! height or something
-  Internals<double> r_internals() const { return vars; }
+  // R takes a double, so the store is read out at its values.
+  Internals<double> r_internals() const {
+    Internals<double> out(vars.state_size, vars.aux_size, vars.resource_size);
+    for (size_t i = 0; i < vars.state_size; ++i) {
+      out.states[i] = odelia::util::to_passive(vars.states[i]);
+      out.rates[i]  = odelia::util::to_passive(vars.rates[i]);
+    }
+    for (size_t i = 0; i < vars.aux_size; ++i) {
+      out.auxs[i] = odelia::util::to_passive(vars.auxs[i]);
+    }
+    for (size_t i = 0; i < vars.resource_size; ++i) {
+      out.consumption_rates[i] =
+        odelia::util::to_passive(vars.consumption_rates[i]);
+    }
+    return out;
+  }
   const Control &control() const { return strategy->control; }
 
 private:
   strategy_type_ptr strategy;
-  Internals<double> vars;
+  Internals<value_type> vars;
 };
 
 template <typename T, typename E> Individual<T,E> make_individual(T s) {
