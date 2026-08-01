@@ -7,6 +7,7 @@
 #include <exception>
 #include <boost/math/special_functions/gamma.hpp>
 #include <plant/models/tf24_environment.h>
+#include <plant/collar_census.h>
 #include <odelia/gradient.hpp>
 
 namespace plant {
@@ -835,7 +836,13 @@ if(assim_max_ < 0){
 void Leaf::find_root_collar_psi(){
     double bound_a, bound_b;
     if (!prepare_collar_solve(bound_a, bound_b)) {
+      if (internals::collar_census_active()) {
+        internals::the_collar_census().add_early_exit();
+      }
       return;
+    }
+    if (internals::collar_census_active()) {
+      internals::the_collar_census().add_bracket(std::abs(bound_b - bound_a));
     }
     // root_crit / root_zero_E were consumed inside prepare_collar_solve; recover
     // them for the diagnostic message only if the profit check below fails.
@@ -899,16 +906,21 @@ double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
   double dR_dcollar = 0.0;
   bool have_dR = false;   // dR_dcollar holds a value, taken at psi or before it
   int n_eval = 0;
+  int cls = internals::COLLAR_EXHAUSTED;
   for (int iter = 0; iter < max_iter; ++iter) {
     const double R = dprofit_droot_collar_psi(psi);
     ++n_eval;
     if (!std::isfinite(R) || std::abs(R) <= R_tol) {
+      cls = std::isfinite(R) ? internals::COLLAR_INTERIOR
+                             : internals::COLLAR_R_NONFINITE;
       break;
     }
     // Every remaining step needs room inside the bracket. Running out of it is
     // the pinned case: the maximum is the bound, profit is not stationary there,
     // and the point the search returned is the answer.
     if (psi - h <= bound_a || psi + h >= bound_b) {
+      cls = (psi - h <= bound_a) ? internals::COLLAR_BOUND_A
+                                 : internals::COLLAR_BOUND_B;
       break;
     }
     // A step after the first reuses the derivative already held: it divides a
@@ -937,6 +949,9 @@ double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
       // fresh derivative that is still rejected is the bound case.
       if (!stepped) {
         if (dR_at_psi) {
+          cls = (std::isfinite(dR_dcollar) && dR_dcollar < 0.0)
+                    ? internals::COLLAR_BOUND_STEP
+                    : internals::COLLAR_BOUND_CURVATURE;
           break;
         }
         have_dR = false;
@@ -950,6 +965,18 @@ double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
   if (std::getenv("PLANT_POLISH_TRACE") != nullptr) {
     std::fprintf(stderr, "polish_root_collar_psi: n_eval=%d displacement=%.3e\n",
                  n_eval, psi - opt_root_psi);
+  }
+
+  if (internals::collar_census_active()) {
+    // R at the returned point costs one more evaluation, and it leaves the
+    // operating-point outputs at psi, which is where the caller resets them from.
+    double psi_wet = psi_soil_.empty() ? 0.0 : psi_soil_[0];
+    for (size_t i = 1; i < psi_soil_.size(); ++i) {
+      if (psi_soil_[i] < psi_wet) psi_wet = psi_soil_[i];
+    }
+    internals::the_collar_census().add(
+        cls, std::abs(dprofit_droot_collar_psi(psi)), psi_wet, PPFD_,
+        area_leaf_);
   }
   return psi;
 }
