@@ -32,12 +32,13 @@ public:
   double time() const {return environment.time;}
   double get_area() const { return area;}
 
-  double height_max() const;
+  value_type height_max() const;
 
   // [eqn 11] Canopy openness at `height`
-  double compute_competition(double height) const;
+  value_type compute_competition(double height) const;
   // That profile and its vertical derivative, from one pass over the species.
-  std::pair<double, double> compute_competition_and_slope(double height) const;
+  std::pair<value_type, value_type>
+  compute_competition_and_slope(double height) const;
 
   bool introduce_new_node(size_t species_index);
   void introduce_new_node_and_update(size_t species_index);
@@ -79,7 +80,7 @@ public:
   }
 
   species_type r_at(util::index species_index) const {
-    at(species_index.check_bounds(size()));
+    return species[species_index.check_bounds(size())];
   }
   // These are only here because they wrap private functions.
   void r_compute_environment() {compute_environment(false);}
@@ -126,17 +127,22 @@ void StochasticPatch<T,E>::reset() {
 }
 
 template <typename T, typename E>
-double StochasticPatch<T,E>::height_max() const {
-  double ret = 0.0;
+typename StochasticPatch<T,E>::value_type
+StochasticPatch<T,E>::height_max() const {
+  value_type ret = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
-      ret = std::max(ret, species[i].height_max());
+      const value_type h = species[i].height_max();
+      if (h > ret) {
+        ret = h;
+      }
   }
   return ret;
 }
 
 template <typename T, typename E>
-double StochasticPatch<T,E>::compute_competition(double height) const {
-  double tot = 0.0;
+typename StochasticPatch<T,E>::value_type
+StochasticPatch<T,E>::compute_competition(double height) const {
+  value_type tot = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
     tot += species[i].compute_competition(height) / area;
   }
@@ -144,11 +150,12 @@ double StochasticPatch<T,E>::compute_competition(double height) const {
 }
 
 template <typename T, typename E>
-std::pair<double, double>
+std::pair<typename StochasticPatch<T,E>::value_type,
+          typename StochasticPatch<T,E>::value_type>
 StochasticPatch<T,E>::compute_competition_and_slope(double height) const {
-  double tot = 0.0, tot_slope = 0.0;
+  value_type tot = 0.0, tot_slope = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
-    const std::pair<double, double> fs =
+    const std::pair<value_type, value_type> fs =
       species[i].compute_competition_and_slope(height);
     tot       += fs.first / area;
     tot_slope += fs.second / area;
@@ -159,7 +166,10 @@ StochasticPatch<T,E>::compute_competition_and_slope(double height) const {
 template <typename T, typename E>
 void StochasticPatch<T,E>::compute_environment(bool rescale) {
   if (height_max() > 0.0) {
-    auto f = [&] (double x) -> std::pair<double, double> {
+    // Written as std::pair<double, double> this still compiles, taking the
+    // value of an active profile, and the field's knot values and slopes would
+    // then be constants with nothing raised to say so.
+    auto f = [&] (double x) -> std::pair<value_type, value_type> {
       return compute_competition_and_slope(x);
     };
     environment.compute_environment(f, height_max(), rescale);
@@ -204,8 +214,10 @@ void StochasticPatch<T,E>::introduce_new_node_and_update(size_t species_index) {
 
 template <typename T, typename E>
 bool StochasticPatch<T,E>::introduce_new_node(size_t species_index) {
-  const double pr_germinate =
-    species[species_index].establishment_probability(environment);
+  // The draw decides whether an individual is added, so the probability is read
+  // at its value here.
+  const double pr_germinate = odelia::util::to_passive(
+    species[species_index].establishment_probability(environment));
   const bool added = unif_rand() < pr_germinate;
   if (added) {
     introduce_new_node_and_update(species_index);

@@ -26,6 +26,8 @@ template <typename T, typename E>
 class Species : public SpeciesBase<Species<T, E>, T, E, Node<T, E>> {
   typedef SpeciesBase<Species<T, E>, T, E, Node<T, E>> base_type;
 public:
+  using value_type = typename T::value_type;
+
   typedef T         strategy_type;
   typedef E         environment_type;
   typedef Individual<T,E>  individual_type;
@@ -52,23 +54,27 @@ public:
   // density at birth (called by Patch, which knows the time and disturbance).
   void introduce_new_node(double time, double patch_density);
 
-  double height_max() const;
-  double compute_competition(double height) const;
+  value_type height_max() const;
+  // The query height is a knot position on the interpolant's own grid, which is
+  // double (see ResourceSpline::rebuild_spline); what the cohorts put into the
+  // field arrives through the node contributions summed over below.
+  value_type compute_competition(double height) const;
 
   // The reduction and its vertical derivative from one traversal, so each node's
   // u^eta is evaluated once and the two sums add their terms in the same order.
   // The first entry equals compute_competition(height) bit for bit.
-  std::pair<double, double> compute_competition_and_slope(double height) const;
+  std::pair<value_type, value_type>
+  compute_competition_and_slope(double height) const;
 
   // The same reduction with the inflow boundary interval left off, so it is a
   // function of the ODE state alone: it never reads new_node. The boundary
   // condition n_b = birth_rate * pr_estab / g needs a field to be evaluated in,
   // and evaluating it in this one is what breaks the cycle. See
   // Patch::compute_environment.
-  double compute_competition_excl_boundary(double height) const;
+  value_type compute_competition_excl_boundary(double height) const;
 
   // compute_competition_and_slope() with that same interval left off.
-  std::pair<double, double>
+  std::pair<value_type, value_type>
   compute_competition_and_slope_excl_boundary(double height) const;
 
   // Evaluate the inflow boundary condition in the environment passed. Split out
@@ -86,7 +92,9 @@ public:
   // pass. compute_competition() needs both on every call, and walking the heights
   // twice was measurably slower on FF16 (~5% on the SCM benchmark) than the
   // O(1) nodes.front() it replaced.
-  struct HeightScan { double h_max; bool decreasing; };
+  // h_max is the canopy top, a position; decreasing is a comparison outcome and
+  // structural, so it stays bool whatever the heights are made of.
+  struct HeightScan { value_type h_max; bool decreasing; };
   // Cached: heights change only when the ODE state is set or a node is
   // introduced/cleared, whereas compute_competition() is called once per spline
   // knot, so this is hundreds of calls per change. Every mutator invalidates.
@@ -105,7 +113,7 @@ public:
   // characteristics has an exact rate, d(dh)/dt = g_i - g_below, so this is
   // exactly d(log dh)/dt rather than an estimate of dg/dh. Where the interval has
   // no width the node takes the compression of the one above.
-  double growth_rate_gradient(std::size_t i) const;
+  value_type growth_rate_gradient(std::size_t i) const;
 
   std::vector<double> net_reproduction_ratio_by_node() const;
   // Per-node lifetime offspring, weighted by patch-age density and S_D.
@@ -144,9 +152,9 @@ public:
   size_t aux_size() const;
 
   void resize_consumption_rates(int i);
-  double consumption_rate(int i) const;
-  std::vector<double> consumption_rate_by_node_rev(int i) const;
-  std::vector<double> consumption_rate_by_node(int i) const;
+  value_type consumption_rate(int i) const;
+  std::vector<value_type> consumption_rate_by_node_rev(int i) const;
+  std::vector<value_type> consumption_rate_by_node(int i) const;
 
   template <typename It> It ode_aux(It it) const;
 
@@ -215,22 +223,24 @@ private:
   // ordered, so the node list cannot be used directly as the quadrature grid.
   // Height coordinate only -- it integrates in height, and the birth-date
   // abscissa cannot invert (see compute_competition).
-  double compute_competition_unordered(double height, bool include_boundary) const;
+  value_type compute_competition_unordered(double height,
+                                           bool include_boundary) const;
 
   // compute_competition_and_slope() over a height-sorted view, for the same
   // broken-ordering case compute_competition_unordered() handles.
-  std::pair<double, double>
+  std::pair<value_type, value_type>
   compute_competition_and_slope_unordered(double height,
                                           bool include_boundary) const;
 
   // The fused reduction, with the closing boundary trapezium included or not.
-  std::pair<double, double>
+  std::pair<value_type, value_type>
   compute_competition_and_slope_impl(double height, bool include_boundary) const;
 
   // The reduction, with the closing boundary trapezium included or not. The
   // included case is the arithmetic compute_competition() has always done, in one
   // accumulator, so that path keeps its rounding exactly.
-  double compute_competition_impl(double height, bool include_boundary) const;
+  value_type compute_competition_impl(double height,
+                                      bool include_boundary) const;
 
   // Cache for scan_heights(). Every path that can change a node height must call
   // invalidate_height_scan(); a stale cache here would silently reintroduce the
@@ -239,7 +249,7 @@ private:
   // and the scenario gateway.
   HeightScan compute_height_scan() const;
   void invalidate_height_scan() { height_scan_valid = false; }
-  mutable HeightScan height_scan_cache{0.0, true};
+  mutable HeightScan height_scan_cache{value_type(0.0), true};
   mutable bool height_scan_valid = false;
 
   // Storage (strategy, nodes) and control() live in SpeciesBase; the
@@ -322,13 +332,16 @@ void Species<T,E>::introduce_new_node() {
 // compute_competition -- and returns exactly nodes.front() whenever the ordering
 // does hold, so results are unchanged in that case.
 template <typename T, typename E>
-double Species<T,E>::height_max() const {
+typename Species<T,E>::value_type Species<T,E>::height_max() const {
   if (nodes.empty()) {
     return new_node.height();
   }
-  double ret = -std::numeric_limits<double>::infinity();
+  value_type ret = -std::numeric_limits<double>::infinity();
   for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
-    ret = std::max(ret, it->height());
+    const value_type h = it->height();
+    if (h > ret) {
+      ret = h;
+    }
   }
   return ret;
 }
@@ -353,10 +366,10 @@ typename Species<T,E>::HeightScan Species<T,E>::scan_heights() const {
 // Tallest height and orderedness in one pass over the heights.
 template <typename T, typename E>
 typename Species<T,E>::HeightScan Species<T,E>::compute_height_scan() const {
-  HeightScan ret{-std::numeric_limits<double>::infinity(), true};
-  double h_prev = std::numeric_limits<double>::infinity();
+  HeightScan ret{value_type(-std::numeric_limits<double>::infinity()), true};
+  value_type h_prev = std::numeric_limits<double>::infinity();
   for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
-    const double h = it->height();
+    const value_type h = it->height();
     if (h > h_prev) {
       ret.decreasing = false;
     }
@@ -394,26 +407,29 @@ typename Species<T,E>::HeightScan Species<T,E>::compute_height_scan() const {
 // also needed if the last looked at plant was still contributing to
 // the integral).
 template <typename T, typename E>
-double Species<T,E>::compute_competition(double height) const {
+typename Species<T,E>::value_type
+Species<T,E>::compute_competition(double height) const {
   return compute_competition_impl(height, true);
 }
 
 // The interior sum alone: never touches new_node, so it is a function of the ODE
 // state and the strategy only.
 template <typename T, typename E>
-double Species<T,E>::compute_competition_excl_boundary(double height) const {
+typename Species<T,E>::value_type
+Species<T,E>::compute_competition_excl_boundary(double height) const {
   return compute_competition_impl(height, false);
 }
 
 template <typename T, typename E>
-double Species<T,E>::compute_competition_impl(double height,
-                                             bool include_boundary) const {
+typename Species<T,E>::value_type
+Species<T,E>::compute_competition_impl(double height,
+                                       bool include_boundary) const {
   if (size() == 0) {
-    return 0.0;
+    return value_type(0.0);
   }
   const HeightScan scan = scan_heights();
   if (scan.h_max < height) {
-    return 0.0;
+    return value_type(0.0);
   }
   // Read the coordinate once: this is the hottest loop in the solver (one pass
   // per spline knot per Runge-Kutta stage), so the control lookup does not
@@ -435,14 +451,18 @@ double Species<T,E>::compute_competition_impl(double height,
   if (!birth_date && !scan.decreasing) {
     return compute_competition_unordered(height, include_boundary);
   }
-  double tot = 0.0;
+  value_type tot = 0.0;
   nodes_const_iterator it = nodes.begin();
-  double x1 = abscissa_of(*it, birth_date), f1 = it->compute_competition(height);
+  // x1/f1 are the taller end of the interval and its contribution, x0/f0 the
+  // lower end and its; each pair comes from one node, and the width multiplies
+  // the sum of the two contributions.
+  value_type x1 = abscissa_of(*it, birth_date),
+             f1 = it->compute_competition(height);
 
   // Loop over nodes
   for (++it; it != nodes.end(); ++it) {
-    const double x0 = abscissa_of(*it, birth_date), h0 = it->height(),
-                 f0 = it->compute_competition(height);
+    const value_type x0 = abscissa_of(*it, birth_date), h0 = it->height(),
+                     f0 = it->compute_competition(height);
     if (!util::is_finite(f0)) {
       util::stop("Detected non-finite contribution");
     }
@@ -467,8 +487,8 @@ double Species<T,E>::compute_competition_impl(double height,
   // `height`, so it is always safe to include; f1 can legitimately be zero here
   // when the walk ran to the end.
   if (include_boundary && (size() == 1 || birth_date || f1 > 0)) {
-    const double x0 = abscissa_of(new_node, birth_date),
-                 f0 = new_node.compute_competition(height);
+    const value_type x0 = abscissa_of(new_node, birth_date),
+                     f0 = new_node.compute_competition(height);
     tot += (x0 - x1) * (f1 + f0);
   }
 
@@ -482,7 +502,8 @@ double Species<T,E>::compute_competition_impl(double height,
 // lives in test-canopy-methods.R. The early exit and the closing boundary
 // trapezium are driven by the value, as they are there.
 template <typename T, typename E>
-std::pair<double, double>
+std::pair<typename Species<T,E>::value_type,
+          typename Species<T,E>::value_type>
 Species<T,E>::compute_competition_and_slope(double height) const {
   return compute_competition_and_slope_impl(height, true);
 }
@@ -490,34 +511,37 @@ Species<T,E>::compute_competition_and_slope(double height) const {
 // The fused pair for the interior sum alone, so the field the boundary condition
 // is evaluated in is a function of the ODE state only.
 template <typename T, typename E>
-std::pair<double, double>
+std::pair<typename Species<T,E>::value_type,
+          typename Species<T,E>::value_type>
 Species<T,E>::compute_competition_and_slope_excl_boundary(double height) const {
   return compute_competition_and_slope_impl(height, false);
 }
 
 template <typename T, typename E>
-std::pair<double, double>
+std::pair<typename Species<T,E>::value_type,
+          typename Species<T,E>::value_type>
 Species<T,E>::compute_competition_and_slope_impl(double height,
                                                  bool include_boundary) const {
   if (size() == 0) {
-    return {0.0, 0.0};
+    return {value_type(0.0), value_type(0.0)};
   }
   const HeightScan scan = scan_heights();
   if (scan.h_max < height) {
-    return {0.0, 0.0};
+    return {value_type(0.0), value_type(0.0)};
   }
   if (!scan.decreasing) {
     return compute_competition_and_slope_unordered(height, include_boundary);
   }
-  double tot = 0.0, tot_slope = 0.0;
+  value_type tot = 0.0, tot_slope = 0.0;
   nodes_const_iterator it = nodes.begin();
-  std::pair<double, double> fs1 = it->compute_competition_and_slope(height);
-  double h1 = it->height(), f_h1 = fs1.first, s_h1 = fs1.second;
+  std::pair<value_type, value_type> fs1 =
+    it->compute_competition_and_slope(height);
+  value_type h1 = it->height(), f_h1 = fs1.first, s_h1 = fs1.second;
 
   for (++it; it != nodes.end(); ++it) {
-    const std::pair<double, double> fs0 =
+    const std::pair<value_type, value_type> fs0 =
       it->compute_competition_and_slope(height);
-    const double h0 = it->height(), f_h0 = fs0.first, s_h0 = fs0.second;
+    const value_type h0 = it->height(), f_h0 = fs0.first, s_h0 = fs0.second;
     if (!util::is_finite(f_h0) || !util::is_finite(s_h0)) {
       util::stop("Detected non-finite contribution");
     }
@@ -532,9 +556,9 @@ Species<T,E>::compute_competition_and_slope_impl(double height,
   }
 
   if (include_boundary && (size() == 1 || f_h1 > 0)) {
-    const std::pair<double, double> fs0 =
+    const std::pair<value_type, value_type> fs0 =
       new_node.compute_competition_and_slope(height);
-    const double h0 = new_node.height();
+    const value_type h0 = new_node.height();
     tot       += (h1 - h0) * (f_h1 + fs0.first);
     tot_slope += (h1 - h0) * (s_h1 + fs0.second);
   }
@@ -558,36 +582,41 @@ Species<T,E>::compute_competition_and_slope_impl(double height,
 // changes nothing. The scratch buffer is thread_local and reused, so the repeated
 // calls that build one spline do not each allocate.
 template <typename T, typename E>
-double Species<T,E>::compute_competition_unordered(double height,
-                                                  bool include_boundary) const {
-  thread_local std::vector<std::pair<double, double>> hf;
+typename Species<T,E>::value_type
+Species<T,E>::compute_competition_unordered(double height,
+                                            bool include_boundary) const {
+  // Cleared on entry, so no element outlives the call that made it.
+  thread_local std::vector<std::pair<value_type, value_type>> hf;
   hf.clear();
   hf.reserve(size());
 
   for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
-    const double f = it->compute_competition(height);
+    const value_type f = it->compute_competition(height);
     if (!util::is_finite(f)) {
       util::stop("Detected non-finite contribution");
     }
     hf.push_back({it->height(), f});
   }
+  // Ordering the quadrature grid is structural, so the key is compared and
+  // nothing here is differentiated.
   std::sort(hf.begin(), hf.end(),
-            [](std::pair<double, double> const& a,
-               std::pair<double, double> const& b) {
+            [](std::pair<value_type, value_type> const& a,
+               std::pair<value_type, value_type> const& b) {
               return a.first > b.first;
             });
 
-  double tot = 0.0;
-  double h1 = hf.front().first, f_h1 = hf.front().second;
+  value_type tot = 0.0;
+  value_type h1 = hf.front().first, f_h1 = hf.front().second;
   for (size_t j = 1; j < hf.size(); ++j) {
-    const double h0 = hf[j].first, f_h0 = hf[j].second;
+    const value_type h0 = hf[j].first, f_h0 = hf[j].second;
     tot += (h1 - h0) * (f_h1 + f_h0);
     h1   = h0;
     f_h1 = f_h0;
   }
 
   if (include_boundary && (size() == 1 || f_h1 > 0)) {
-    const double h0 = new_node.height(), f_h0 = new_node.compute_competition(height);
+    const value_type h0 = new_node.height(),
+                     f_h0 = new_node.compute_competition(height);
     tot += (h1 - h0) * (f_h1 + f_h0);
   }
 
@@ -598,15 +627,18 @@ double Species<T,E>::compute_competition_unordered(double height,
 // sort key and its tie-break are the same, so the two sums here also visit the
 // same nodes in the same order.
 template <typename T, typename E>
-std::pair<double, double>
+std::pair<typename Species<T,E>::value_type,
+          typename Species<T,E>::value_type>
 Species<T,E>::compute_competition_and_slope_unordered(double height,
                                                       bool include_boundary) const {
-  thread_local std::vector<std::pair<double, std::pair<double, double>>> hfs;
+  // Cleared on entry, so no element outlives the call that made it.
+  thread_local std::vector<
+    std::pair<value_type, std::pair<value_type, value_type>>> hfs;
   hfs.clear();
   hfs.reserve(size());
 
   for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
-    const std::pair<double, double> fs =
+    const std::pair<value_type, value_type> fs =
       it->compute_competition_and_slope(height);
     if (!util::is_finite(fs.first) || !util::is_finite(fs.second)) {
       util::stop("Detected non-finite contribution");
@@ -614,17 +646,17 @@ Species<T,E>::compute_competition_and_slope_unordered(double height,
     hfs.push_back({it->height(), fs});
   }
   std::sort(hfs.begin(), hfs.end(),
-            [](std::pair<double, std::pair<double, double>> const& a,
-               std::pair<double, std::pair<double, double>> const& b) {
+            [](std::pair<value_type, std::pair<value_type, value_type>> const& a,
+               std::pair<value_type, std::pair<value_type, value_type>> const& b) {
               return a.first > b.first;
             });
 
-  double tot = 0.0, tot_slope = 0.0;
-  double h1 = hfs.front().first;
-  double f_h1 = hfs.front().second.first, s_h1 = hfs.front().second.second;
+  value_type tot = 0.0, tot_slope = 0.0;
+  value_type h1 = hfs.front().first;
+  value_type f_h1 = hfs.front().second.first, s_h1 = hfs.front().second.second;
   for (size_t j = 1; j < hfs.size(); ++j) {
-    const double h0 = hfs[j].first;
-    const double f_h0 = hfs[j].second.first, s_h0 = hfs[j].second.second;
+    const value_type h0 = hfs[j].first;
+    const value_type f_h0 = hfs[j].second.first, s_h0 = hfs[j].second.second;
     tot       += (h1 - h0) * (f_h1 + f_h0);
     tot_slope += (h1 - h0) * (s_h1 + s_h0);
     h1   = h0;
@@ -633,9 +665,9 @@ Species<T,E>::compute_competition_and_slope_unordered(double height,
   }
 
   if (include_boundary && (size() == 1 || f_h1 > 0)) {
-    const std::pair<double, double> fs0 =
+    const std::pair<value_type, value_type> fs0 =
       new_node.compute_competition_and_slope(height);
-    const double h0 = new_node.height();
+    const value_type h0 = new_node.height();
     tot       += (h1 - h0) * (f_h1 + fs0.first);
     tot_slope += (h1 - h0) * (s_h1 + fs0.second);
   }
@@ -659,23 +691,29 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
     // log_density_dt = -growth_rate_gradient - mortality, so the census adds no
     // rate evaluation of its own.
     internals::transport_census& census = internals::the_transport_census();
+    // A census is read rather than differentiated, so each column is recorded at
+    // its value.
+    using odelia::util::to_passive;
     for (std::size_t i = 0; i < nodes.size(); ++i) {
       const node_type& below = i + 1 < nodes.size() ? nodes[i + 1] : new_node;
-      census.add(environment.time, nodes[i].height(),
-                 nodes[i].height() - below.height(), nodes[i].growth_rate(),
-                 below.growth_rate(),
-                 -(nodes[i].get_log_density_rate() + nodes[i].mortality_rate()),
-                 growth_rate_gradient(i));
+      census.add(environment.time, to_passive(nodes[i].height()),
+                 to_passive(nodes[i].height() - below.height()),
+                 to_passive(nodes[i].growth_rate()),
+                 to_passive(below.growth_rate()),
+                 to_passive(-(nodes[i].get_log_density_rate() +
+                              nodes[i].mortality_rate())),
+                 to_passive(growth_rate_gradient(i)));
     }
   }
 }
 
 template <typename T, typename E>
-double Species<T,E>::growth_rate_gradient(std::size_t i) const {
+typename Species<T,E>::value_type
+Species<T,E>::growth_rate_gradient(std::size_t i) const {
   const node_type& below = i + 1 < size() ? nodes[i + 1] : new_node;
-  const double dh = nodes[i].height() - below.height();
+  const value_type dh = nodes[i].height() - below.height();
   if (dh == 0.0) {
-    return i > 0 ? growth_rate_gradient(i - 1) : 0.0;
+    return i > 0 ? growth_rate_gradient(i - 1) : value_type(0.0);
   }
   return (nodes[i].growth_rate() - below.growth_rate()) / dh;
 }
@@ -694,7 +732,7 @@ std::vector<double> Species<T,E>::net_reproduction_ratio_by_node() const {
   std::vector<double> ret;
   ret.reserve(size());
   for (auto& c : nodes) {
-    ret.push_back(c.fecundity());
+    ret.push_back(odelia::util::to_passive(c.fecundity()));
   }
   return ret;
 }
@@ -704,7 +742,8 @@ std::vector<double> Species<T,E>::net_reproduction_ratio_by_node_weighted() cons
   std::vector<double> ret;
   ret.reserve(size());
   for (auto& c : nodes) {
-    ret.push_back(c.weighted_fecundity(strategy->pars.S_D));
+    ret.push_back(
+      odelia::util::to_passive(c.weighted_fecundity(strategy->pars.S_D)));
   }
   return ret;
 }
@@ -735,9 +774,10 @@ void Species<T,E>::resize_consumption_rates(int r) {
 }
 
 template <typename T, typename E>
-double Species<T,E>::consumption_rate(int i) const {
+typename Species<T,E>::value_type
+Species<T,E>::consumption_rate(int i) const {
   if (size() == 0) {
-    return 0.0;
+    return value_type(0.0);
   }
   if (control().node_density_in_birth_date) {
     // Introduction times are fixed at birth and nodes are appended in that
@@ -751,37 +791,51 @@ double Species<T,E>::consumption_rate(int i) const {
     return util::trapezium(times, rates);
   }
   // node heights are in descending order - we need ascending for integration,
-  // starting at new_node, which is where the size distribution starts.
-  std::vector<double> heights = r_heights_rev();
-  heights.insert(heights.begin(), new_node.height());
-  std::vector<double> rates = consumption_rate_by_node_rev(i);
+  // starting at new_node, which is where the size distribution starts. The
+  // heights are the integration grid; the rates integrated over it are what the
+  // uptake depends on.
+  std::vector<value_type> heights;
+  heights.reserve(size() + 1);
+  heights.push_back(new_node.height());
+  for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
+    heights.push_back(it->height());
+  }
+  std::vector<value_type> rates = consumption_rate_by_node_rev(i);
 
   // The node list is the quadrature grid here as it is in compute_competition,
   // so an inverted grid (#571) makes neighbouring trapezia cancel rather than
   // accumulate. Sort the pairs when the ordering has broken, as
   // compute_competition_unordered does; an already-ascending grid is untouched.
-  if (!std::is_sorted(heights.begin(), heights.end())) {
-    std::vector<std::pair<double, double>> hr;
-    hr.reserve(heights.size());
-    for (size_t j = 0; j < heights.size(); ++j) {
-      hr.push_back({heights[j], rates[j]});
+  // The order is decided on the passive value: an ordering chosen on an active
+  // key would make the recorded computation depend on the state.
+  auto below = [](const value_type& a, const value_type& b) -> bool {
+    return odelia::util::to_passive(a) < odelia::util::to_passive(b);
+  };
+  if (!std::is_sorted(heights.begin(), heights.end(), below)) {
+    std::vector<size_t> order(heights.size());
+    for (size_t j = 0; j < order.size(); ++j) {
+      order[j] = j;
     }
-    std::sort(hr.begin(), hr.end(),
-              [](std::pair<double, double> const& a,
-                 std::pair<double, double> const& b) {
-                return a.first < b.first;
-              });
-    for (size_t j = 0; j < hr.size(); ++j) {
-      heights[j] = hr[j].first;
-      rates[j] = hr[j].second;
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) -> bool {
+      return below(heights[a], heights[b]);
+    });
+    std::vector<value_type> h_sorted, r_sorted;
+    h_sorted.reserve(heights.size());
+    r_sorted.reserve(rates.size());
+    for (size_t j : order) {
+      h_sorted.push_back(heights[j]);
+      r_sorted.push_back(rates[j]);
     }
+    heights.swap(h_sorted);
+    rates.swap(r_sorted);
   }
   return util::trapezium(heights, rates);
 }
 
 template <typename T, typename E>
-std::vector<double> Species<T,E>::consumption_rate_by_node_rev(int i) const {
-  std::vector<double> ret;
+std::vector<typename Species<T,E>::value_type>
+Species<T,E>::consumption_rate_by_node_rev(int i) const {
+  std::vector<value_type> ret;
   ret.reserve(size() + 1);
   ret.push_back(new_node.consumption_rate(i));
   for(auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
@@ -871,7 +925,7 @@ std::vector<double> Species<T,E>::r_heights() const {
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin();
        it != nodes.end(); ++it) {
-    ret.push_back(it->height());
+    ret.push_back(odelia::util::to_passive(it->height()));
   }
   return ret;
 }
@@ -882,7 +936,7 @@ std::vector<double> Species<T,E>::r_heights_rev() const {
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin();
        it != nodes.end(); ++it) {
-    ret.push_back(it->height());
+    ret.push_back(odelia::util::to_passive(it->height()));
   }
   std::reverse(ret.begin(), ret.end());
   return ret;
@@ -906,7 +960,7 @@ std::vector<double> Species<T,E>::r_compute_competition_effect_by_nodes() const 
   std::vector<double> ret;
   ret.reserve(size());
   for (auto& c : nodes) {
-    ret.push_back(c.compute_competition(0.0));
+    ret.push_back(odelia::util::to_passive(c.compute_competition(0.0)));
   }
   return ret;
 }
@@ -977,7 +1031,7 @@ std::vector<double> Species<T,E>::r_log_densities_state() const {
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin();
        it != nodes.end(); ++it) {
-    ret.push_back(it->get_log_density());
+    ret.push_back(odelia::util::to_passive(it->get_log_density()));
   }
   return ret;
 }
@@ -1002,7 +1056,7 @@ std::vector<double> Species<T,E>::r_log_density_rates() const {
   std::vector<double> ret;
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
-    ret.push_back(it->get_log_density_rate());
+    ret.push_back(odelia::util::to_passive(it->get_log_density_rate()));
   }
   return ret;
 }

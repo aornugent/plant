@@ -41,17 +41,20 @@ public:
   //Try using pointer in place of object itself
   double time() const {return environment.time;}
   double get_area() const { return area;}
-  double height_max() const;
+  value_type height_max() const;
 
-  double compute_competition(double height) const;
+  value_type compute_competition(double height) const;
 
   // The competition profile and its vertical derivative at z, from one pass over
   // the species. The first entry equals compute_competition(z) bit for bit.
-  std::pair<double, double> compute_competition_and_slope(double z) const;
+  std::pair<value_type, value_type>
+  compute_competition_and_slope(double z) const;
   // The same pair for R, which takes only doubles: value first, then slope.
   std::vector<double> r_compute_competition_and_slope(double z) const {
-    const std::pair<double, double> fs = compute_competition_and_slope(z);
-    return {fs.first, fs.second};
+    const std::pair<value_type, value_type> fs =
+      compute_competition_and_slope(z);
+    return {odelia::util::to_passive(fs.first),
+            odelia::util::to_passive(fs.second)};
   }
 
   // Describe the size distribution around `height`, for error messages. The
@@ -154,7 +157,7 @@ public:
     introduce_new_node(species_index.check_bounds(size()));
   }
   species_type r_at(util::index species_index) const {
-    at(species_index.check_bounds(size()));
+    return species[species_index.check_bounds(size())];
   }
   // This is only here because it wraps a private function.
   void r_compute_environment() {compute_environment(false);}
@@ -205,9 +208,9 @@ private:
   void compute_boundary_nodes();
   // The competition profile with every species' boundary interval left off: a
   // function of the ODE state alone.
-  double compute_competition_excl_boundary(double height) const;
+  value_type compute_competition_excl_boundary(double height) const;
   // That same profile and its vertical derivative, from one pass over the species.
-  std::pair<double, double>
+  std::pair<value_type, value_type>
   compute_competition_and_slope_excl_boundary(double height) const;
   void compute_rates();
 
@@ -509,19 +512,23 @@ void Patch<T,E>::check_finite_ode_state() const {
 }
 
 template <typename T, typename E>
-double Patch<T,E>::height_max() const {
-  double ret = 0.0;
+typename Patch<T,E>::value_type Patch<T,E>::height_max() const {
+  value_type ret = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
     if (!is_mutant_run) {
-      ret = std::max(ret, species[i].height_max());
+      const value_type h = species[i].height_max();
+      if (h > ret) {
+        ret = h;
+      }
     }
   }
   return ret;
 }
 
 template <typename T, typename E>
-double Patch<T,E>::compute_competition(double height) const {
-  double tot = 0.0;
+typename Patch<T,E>::value_type
+Patch<T,E>::compute_competition(double height) const {
+  value_type tot = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
     if (!is_mutant_run) {
       tot += species[i].compute_competition(height) / area;
@@ -531,12 +538,12 @@ double Patch<T,E>::compute_competition(double height) const {
 }
 
 template <typename T, typename E>
-std::pair<double, double>
+std::pair<typename Patch<T,E>::value_type, typename Patch<T,E>::value_type>
 Patch<T,E>::compute_competition_and_slope(double z) const {
-  double tot = 0.0, tot_slope = 0.0;
+  value_type tot = 0.0, tot_slope = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
     if (!is_mutant_run) {
-      const std::pair<double, double> fs =
+      const std::pair<value_type, value_type> fs =
         species[i].compute_competition_and_slope(z);
       tot       += fs.first / area;
       tot_slope += fs.second / area;
@@ -547,7 +554,8 @@ Patch<T,E>::compute_competition_and_slope(double z) const {
 
 template <typename T, typename E>
 std::vector<double> Patch<T,E>::r_compute_competition_effect_error_by_node_for_species_i(size_t species_index) const {
-  const double tot_competition_effect = compute_competition(0.0);
+  const double tot_competition_effect =
+    odelia::util::to_passive(compute_competition(0.0));
   return species[species_index].r_compute_competition_effect_by_nodes_error(tot_competition_effect);
 }
 
@@ -663,8 +671,9 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 // Pre-compute environment, as shaped by residents
 // The competition profile with every species' inflow boundary interval left off.
 template <typename T, typename E>
-double Patch<T,E>::compute_competition_excl_boundary(double height) const {
-  double tot = 0.0;
+typename Patch<T,E>::value_type
+Patch<T,E>::compute_competition_excl_boundary(double height) const {
+  value_type tot = 0.0;
   for (size_t i = 0; i < size(); ++i) {
     tot += species[i].compute_competition_excl_boundary(height) / area;
   }
@@ -672,11 +681,11 @@ double Patch<T,E>::compute_competition_excl_boundary(double height) const {
 }
 
 template <typename T, typename E>
-std::pair<double, double>
+std::pair<typename Patch<T,E>::value_type, typename Patch<T,E>::value_type>
 Patch<T,E>::compute_competition_and_slope_excl_boundary(double height) const {
-  double tot = 0.0, tot_slope = 0.0;
+  value_type tot = 0.0, tot_slope = 0.0;
   for (size_t i = 0; i < size(); ++i) {
-    const std::pair<double, double> fs =
+    const std::pair<value_type, value_type> fs =
       species[i].compute_competition_and_slope_excl_boundary(height);
     tot       += fs.first / area;
     tot_slope += fs.second / area;
@@ -744,7 +753,10 @@ void Patch<T,E>::compute_environment_once(bool rescale, bool include_boundary) {
 
   // The competition profile and its vertical derivative at x. The field carries a
   // slope at every knot, so the build asks for the pair.
-  auto f = [&](double x) -> std::pair<double, double> {
+  // Written as std::pair<double, double> this still compiles, taking the value
+  // of an active profile, and every knot value and slope in the field would then
+  // be a constant with nothing raised to say the cohorts had stopped reaching it.
+  auto f = [&](double x) -> std::pair<value_type, value_type> {
     return include_boundary ? compute_competition_and_slope(x)
                             : compute_competition_and_slope_excl_boundary(x);
   };
@@ -789,7 +801,9 @@ std::string Patch<T,E>::describe_nodes_near(double height) const {
     bool prev_live = false;
 
     for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it) {
-      const double h = it->height();
+      // Everything in this scan is counted, compared or formatted into the
+      // message, so the height is read at its value.
+      const double h = odelia::util::to_passive(it->height());
       const bool live = it->get_density() > 0.0;
       if (!live) {
         n_zero_density++;
@@ -875,11 +889,14 @@ void Patch<T,E>::compute_rates() {
 
   resource_depletion.reserve(env.n_resources());
   for(size_t i = 0; i < env.n_resources(); i++) {
-    double resource_consumed = std::accumulate(species.begin(), species.end(), 0.0, [i](double r, const species_type& s) {
+    value_type resource_consumed = std::accumulate(species.begin(), species.end(), value_type(0.0), [i](const value_type& r, const species_type& s) -> value_type {
       return r + s.consumption_rate(i); // accumulates r from zero
     });
 
-    resource_depletion.push_back(resource_consumed/area);
+    // The environment's own store is Internals<double>, so the uptake is read at
+    // its value here; templating that store is what would carry it further.
+    resource_depletion.push_back(
+      odelia::util::to_passive(resource_consumed / area));
   }
   
 
