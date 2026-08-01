@@ -1,10 +1,15 @@
-// Compile-only reproducer for TF24 at the adjoint active scalar. Compilation is
-// the whole check, and it currently reports 41 errors; testthat never runs this.
+// Compile-only reproducer for TF24 at the adjoint active scalar: compilation is
+// the whole check, and what it reports is the list of sites the active build still
+// has to reach. Run it by hand; nothing runs it for you, so the count below is a
+// record of one run rather than a gate.
 //
 //   x86_64-linux-gnu-g++ -std=gnu++20 -fsyntax-only -fmax-errors=200 \
 //     -I$(R.home include) -I$(Rcpp include) -I$(BH include) \
 //     -I$(odelia include) -isystem inst/include -DNDEBUG \
-//     tests/testthat/tf24-active-probe.cpp
+//     scripts/tf24-active-probe.cpp
+//
+// At plant p1/phase-1 against odelia p1/odelia-integration: 41 errors at 33 sites,
+// in the six groups implementation-notes.md records.
 
 #include <plant/models/tf24_strategy.h>
 #include <plant/individual_runner.h>
