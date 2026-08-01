@@ -539,6 +539,18 @@ public:
                                vars.aux(aux_idx_height_inverse));
   }
 
+  // The competition contribution and its vertical derivative from one pass, so
+  // u^eta is evaluated once. The first entry is bit-for-bit the one
+  // compute_competition() returns.
+  std::pair<S, S> compute_competition_and_slope(S z, const Internals<S>& vars) const {
+    const S area_leaf_ = vars.aux(aux_idx_competition_effect);
+    const S height_inverse = vars.aux(aux_idx_height_inverse);
+    const S scale = pars.k_I * area_leaf_;
+    const std::pair<S, S> Qq =
+      canopy_shape.Q_and_q(z * height_inverse, z, height_inverse);
+    return {scale * Qq.first, -(scale * Qq.second)};
+  }
+
   // The fraction of root mass below soil depth `z`, for a plant rooted to
   // `rooting_depth` with shape exponent `eta_x` (pars.root_depth_shape_eta). The
   // canopy's own cumulative form is CanopyShape::Q, at pars.eta.

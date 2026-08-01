@@ -55,6 +55,11 @@ public:
   double height_max() const;
   double compute_competition(double height) const;
 
+  // The reduction and its vertical derivative from one traversal, so each node's
+  // u^eta is evaluated once and the two sums add their terms in the same order.
+  // The first entry equals compute_competition(height) bit for bit.
+  std::pair<double, double> compute_competition_and_slope(double height) const;
+
   // The same reduction with the inflow boundary interval left off, so it is a
   // function of the ODE state alone: it never reads new_node. The boundary
   // condition n_b = birth_rate * pr_estab / g needs a field to be evaluated in,
@@ -207,6 +212,11 @@ private:
   // Height coordinate only -- it integrates in height, and the birth-date
   // abscissa cannot invert (see compute_competition).
   double compute_competition_unordered(double height, bool include_boundary) const;
+
+  // compute_competition_and_slope() over a height-sorted view, for the same
+  // broken-ordering case compute_competition_unordered() handles.
+  std::pair<double, double>
+  compute_competition_and_slope_unordered(double height) const;
 
   // The reduction, with the closing boundary trapezium included or not. The
   // included case is the arithmetic compute_competition() has always done, in one
@@ -456,6 +466,58 @@ double Species<T,E>::compute_competition_impl(double height,
   return tot / 2;
 }
 
+// The same trapezium integral as compute_competition(), and alongside it the
+// integral of the vertical derivative, from one traversal of the nodes. Both
+// sums visit the same nodes in the same order and associate identically, so the
+// first entry is compute_competition(height) bit for bit; a check that it is
+// lives in test-canopy-methods.R. The early exit and the closing boundary
+// trapezium are driven by the value, as they are there.
+template <typename T, typename E>
+std::pair<double, double>
+Species<T,E>::compute_competition_and_slope(double height) const {
+  if (size() == 0) {
+    return {0.0, 0.0};
+  }
+  const HeightScan scan = scan_heights();
+  if (scan.h_max < height) {
+    return {0.0, 0.0};
+  }
+  if (!scan.decreasing) {
+    return compute_competition_and_slope_unordered(height);
+  }
+  double tot = 0.0, tot_slope = 0.0;
+  nodes_const_iterator it = nodes.begin();
+  std::pair<double, double> fs1 = it->compute_competition_and_slope(height);
+  double h1 = it->height(), f_h1 = fs1.first, s_h1 = fs1.second;
+
+  for (++it; it != nodes.end(); ++it) {
+    const std::pair<double, double> fs0 =
+      it->compute_competition_and_slope(height);
+    const double h0 = it->height(), f_h0 = fs0.first, s_h0 = fs0.second;
+    if (!util::is_finite(f_h0) || !util::is_finite(s_h0)) {
+      util::stop("Detected non-finite contribution");
+    }
+    tot       += (h1 - h0) * (f_h1 + f_h0);
+    tot_slope += (h1 - h0) * (s_h1 + s_h0);
+    h1   = h0;
+    f_h1 = f_h0;
+    s_h1 = s_h0;
+    if (h0 < height) {
+      break;
+    }
+  }
+
+  if (size() == 1 || f_h1 > 0) {
+    const std::pair<double, double> fs0 =
+      new_node.compute_competition_and_slope(height);
+    const double h0 = new_node.height();
+    tot       += (h1 - h0) * (f_h1 + fs0.first);
+    tot_slope += (h1 - h0) * (s_h1 + fs0.second);
+  }
+
+  return {tot / 2, tot_slope / 2};
+}
+
 // The same trapezium integral as compute_competition(), but over a height-sorted
 // view of the nodes rather than the node list in place. Used only when the
 // ordering has broken (#571): it agrees with the in-place version whenever the
@@ -506,6 +568,54 @@ double Species<T,E>::compute_competition_unordered(double height,
   }
 
   return tot / 2;
+}
+
+// compute_competition_unordered() with the vertical derivative alongside it. The
+// sort key and its tie-break are the same, so the two sums here also visit the
+// same nodes in the same order.
+template <typename T, typename E>
+std::pair<double, double>
+Species<T,E>::compute_competition_and_slope_unordered(double height) const {
+  thread_local std::vector<std::pair<double, std::pair<double, double>>> hfs;
+  hfs.clear();
+  hfs.reserve(size());
+
+  for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+    const std::pair<double, double> fs =
+      it->compute_competition_and_slope(height);
+    if (!util::is_finite(fs.first) || !util::is_finite(fs.second)) {
+      util::stop("Detected non-finite contribution");
+    }
+    hfs.push_back({it->height(), fs});
+  }
+  std::sort(hfs.begin(), hfs.end(),
+            [](std::pair<double, std::pair<double, double>> const& a,
+               std::pair<double, std::pair<double, double>> const& b) {
+              return a.first > b.first;
+            });
+
+  double tot = 0.0, tot_slope = 0.0;
+  double h1 = hfs.front().first;
+  double f_h1 = hfs.front().second.first, s_h1 = hfs.front().second.second;
+  for (size_t j = 1; j < hfs.size(); ++j) {
+    const double h0 = hfs[j].first;
+    const double f_h0 = hfs[j].second.first, s_h0 = hfs[j].second.second;
+    tot       += (h1 - h0) * (f_h1 + f_h0);
+    tot_slope += (h1 - h0) * (s_h1 + s_h0);
+    h1   = h0;
+    f_h1 = f_h0;
+    s_h1 = s_h0;
+  }
+
+  if (size() == 1 || f_h1 > 0) {
+    const std::pair<double, double> fs0 =
+      new_node.compute_competition_and_slope(height);
+    const double h0 = new_node.height();
+    tot       += (h1 - h0) * (f_h1 + fs0.first);
+    tot_slope += (h1 - h0) * (s_h1 + fs0.second);
+  }
+
+  return {tot / 2, tot_slope / 2};
 }
 
 // NOTE: We should probably prefer to rescale when this is called
