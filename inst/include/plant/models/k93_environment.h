@@ -53,16 +53,16 @@ public:
 
   // Core functions
   template <typename Function>
-  void compute_environment(Function f_compute_competition, double height_max, bool rescale) {
+  void compute_environment(Function f_compute_competition_and_slope, double height_max, bool rescale) {
 
-    // Define an anonymous function to use in creation of light_availability spline
-    // Note: extinction coefficient was already applied in strategy, so
-    // f_compute_competition gives sum of projected leaf area (k L) across species. Just need to apply Beer's law, E = exp(- (k L))
-    auto f_light_availability = [&](double height) -> double
-    { return exp(-f_compute_competition(height)); };
-
-    // Calculates the light_availability spline, by fitting to the function
-    // `f_compute_competition` as a function of height
+    // Beer's law on the competition profile A, whose extinction coefficient the
+    // strategy has already applied: E = exp(-A) and dE/dz = -A' exp(-A).
+    auto f_light_availability = [&](double height) -> std::pair<double, double>
+    {
+      const std::pair<double, double> as = f_compute_competition_and_slope(height);
+      const double E = exp(-as.first);
+      return {E, -(as.second * E)};
+    };
 
     light_availability.compute_environment(f_light_availability, height_max, rescale);
   }
