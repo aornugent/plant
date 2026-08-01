@@ -206,6 +206,9 @@ private:
   // The competition profile with every species' boundary interval left off: a
   // function of the ODE state alone.
   double compute_competition_excl_boundary(double height) const;
+  // That same profile and its vertical derivative, from one pass over the species.
+  std::pair<double, double>
+  compute_competition_and_slope_excl_boundary(double height) const;
   void compute_rates();
 
   // The environment the rates are computed against: the patch's own on a
@@ -668,6 +671,19 @@ double Patch<T,E>::compute_competition_excl_boundary(double height) const {
   return tot;
 }
 
+template <typename T, typename E>
+std::pair<double, double>
+Patch<T,E>::compute_competition_and_slope_excl_boundary(double height) const {
+  double tot = 0.0, tot_slope = 0.0;
+  for (size_t i = 0; i < size(); ++i) {
+    const std::pair<double, double> fs =
+      species[i].compute_competition_and_slope_excl_boundary(height);
+    tot       += fs.first / area;
+    tot_slope += fs.second / area;
+  }
+  return {tot, tot_slope};
+}
+
 // Evaluate every species' inflow boundary condition in the field as it currently
 // stands. Owned by the field build rather than by compute_rates(), so that the
 // field reads a boundary density derived from this state instead of one carried
@@ -726,10 +742,11 @@ void Patch<T,E>::compute_environment_once(bool rescale, bool include_boundary) {
     s.set_new_node_birth_date(environment.time);
   }
 
-  // Define an anonymous function to use in creation of environment
-  auto f = [&](double x) -> double {
-    return include_boundary ? compute_competition(x)
-                            : compute_competition_excl_boundary(x);
+  // The competition profile and its vertical derivative at x. The field carries a
+  // slope at every knot, so the build asks for the pair.
+  auto f = [&](double x) -> std::pair<double, double> {
+    return include_boundary ? compute_competition_and_slope(x)
+                            : compute_competition_and_slope_excl_boundary(x);
   };
 
   if (size() > 0 & !is_mutant_run) {

@@ -67,6 +67,10 @@ public:
   // Patch::compute_environment.
   double compute_competition_excl_boundary(double height) const;
 
+  // compute_competition_and_slope() with that same interval left off.
+  std::pair<double, double>
+  compute_competition_and_slope_excl_boundary(double height) const;
+
   // Evaluate the inflow boundary condition in the environment passed. Split out
   // of compute_rates() so the field build owns it and the field stops reading a
   // density carried from the previous evaluation.
@@ -216,7 +220,12 @@ private:
   // compute_competition_and_slope() over a height-sorted view, for the same
   // broken-ordering case compute_competition_unordered() handles.
   std::pair<double, double>
-  compute_competition_and_slope_unordered(double height) const;
+  compute_competition_and_slope_unordered(double height,
+                                          bool include_boundary) const;
+
+  // The fused reduction, with the closing boundary trapezium included or not.
+  std::pair<double, double>
+  compute_competition_and_slope_impl(double height, bool include_boundary) const;
 
   // The reduction, with the closing boundary trapezium included or not. The
   // included case is the arithmetic compute_competition() has always done, in one
@@ -475,6 +484,21 @@ double Species<T,E>::compute_competition_impl(double height,
 template <typename T, typename E>
 std::pair<double, double>
 Species<T,E>::compute_competition_and_slope(double height) const {
+  return compute_competition_and_slope_impl(height, true);
+}
+
+// The fused pair for the interior sum alone, so the field the boundary condition
+// is evaluated in is a function of the ODE state only.
+template <typename T, typename E>
+std::pair<double, double>
+Species<T,E>::compute_competition_and_slope_excl_boundary(double height) const {
+  return compute_competition_and_slope_impl(height, false);
+}
+
+template <typename T, typename E>
+std::pair<double, double>
+Species<T,E>::compute_competition_and_slope_impl(double height,
+                                                 bool include_boundary) const {
   if (size() == 0) {
     return {0.0, 0.0};
   }
@@ -483,7 +507,7 @@ Species<T,E>::compute_competition_and_slope(double height) const {
     return {0.0, 0.0};
   }
   if (!scan.decreasing) {
-    return compute_competition_and_slope_unordered(height);
+    return compute_competition_and_slope_unordered(height, include_boundary);
   }
   double tot = 0.0, tot_slope = 0.0;
   nodes_const_iterator it = nodes.begin();
@@ -507,7 +531,7 @@ Species<T,E>::compute_competition_and_slope(double height) const {
     }
   }
 
-  if (size() == 1 || f_h1 > 0) {
+  if (include_boundary && (size() == 1 || f_h1 > 0)) {
     const std::pair<double, double> fs0 =
       new_node.compute_competition_and_slope(height);
     const double h0 = new_node.height();
@@ -575,7 +599,8 @@ double Species<T,E>::compute_competition_unordered(double height,
 // same nodes in the same order.
 template <typename T, typename E>
 std::pair<double, double>
-Species<T,E>::compute_competition_and_slope_unordered(double height) const {
+Species<T,E>::compute_competition_and_slope_unordered(double height,
+                                                      bool include_boundary) const {
   thread_local std::vector<std::pair<double, std::pair<double, double>>> hfs;
   hfs.clear();
   hfs.reserve(size());
@@ -607,7 +632,7 @@ Species<T,E>::compute_competition_and_slope_unordered(double height) const {
     s_h1 = s_h0;
   }
 
-  if (size() == 1 || f_h1 > 0) {
+  if (include_boundary && (size() == 1 || f_h1 > 0)) {
     const std::pair<double, double> fs0 =
       new_node.compute_competition_and_slope(height);
     const double h0 = new_node.height();
