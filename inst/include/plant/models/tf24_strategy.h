@@ -23,6 +23,13 @@ template <typename S = double>
 struct TF24_Pars {
   using value_type = S;
 
+  // A default member initialiser has no block to declare the library pow in, so
+  // the derived defaults below raise their base through here instead.
+  static S power(const S& base, const S& exponent) {
+    using std::pow;
+    return pow(base, exponent);
+  }
+
   // * Core traits
   S lma       = 0.1978791;  // Leaf mass per area [kg / m2]
   S rho       = 608.0;      // Wood density [kg/m3]
@@ -79,8 +86,8 @@ struct TF24_Pars {
   S p_50 = 1.85;
   S K_s = 1;
   S c = log(log(1-0.5)/log(1-0.88))/(log(p_50) - log(5.16));
-  S b = p_50 / std::pow(-log(1 - 50.0 / 100.0), 1 / c);
-  S psi_crit = b*std::pow(log(1/0.05),1/c); // derived from b and c
+  S b = p_50 / power(-log(1 - 50.0 / 100.0), 1 / c);
+  S psi_crit = b*power(log(1/0.05),1/c); // derived from b and c
   S beta1 = 20000;
   S beta2 = 1.5;
   S g1_TF24 = 7.5;
@@ -108,7 +115,7 @@ struct TF24_Pars {
   // Potential at 5% remaining root conductivity [MPa]. Derived, exactly as
   // psi_crit is from b and c: if you set root_b or root_c directly, set this
   // too, or the vulnerability curve and the shutoff threshold disagree.
-  S root_psi_crit = root_b*std::pow(log(1/0.05),1/root_c);
+  S root_psi_crit = root_b*power(log(1/0.05),1/root_c);
   // Maximum rooting depth [m]. Rooting depth is min(height, rooting_depth_max),
   // so this also bounds the depth over which roots can draw water. Should not
   // exceed the soil column depth (TF24_Environment `depth`, default 1.5 m):
@@ -570,7 +577,8 @@ S TF24_Strategy<S>::compute_average_light_environment(
 // rather than allowed to reach 0 (original rationale was never recorded;
 // preserved as-is).
 
-     return std::max(environment.get_environment_at_height(z), 0.0001) *
+     using std::max;
+     return max(environment.get_environment_at_height(z), S(0.0001)) *
        canopy_shape.q_from_height(z, height);
 }
 
@@ -656,7 +664,8 @@ S TF24_Strategy<S>::area_stem(S area_bark, S area_sapwood,
 
 template <typename S>
 S TF24_Strategy<S>::diameter_stem(S area_stem) const {
-  return std::sqrt(4 * area_stem / M_PI);
+  using std::sqrt;
+  return sqrt(4 * area_stem / M_PI);
 }
 
 // [eqn 7] Mass of (fine) roots
@@ -743,7 +752,10 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
   // ~1e32 mortality spike that caused the #550 blow-up.
   const S storage     = std::max(vars.state(state_idx_storage), S(0.0));
   const S storage_max = storage_capacity(area_leaf_, height);
-  const S r           = storage_max > 0.0 ? std::min(storage / storage_max, S(1.0)) : S(0.0);
+  using std::exp;
+  using std::min;
+  using std::sqrt;
+  const S r           = storage_max > 0.0 ? min(storage / storage_max, S(1.0)) : S(0.0);
   // Reserve-gated growth (#517), following Daniel's intuition that a plant
   // should not grow unless it has ample carbon in storage. Growth and
   // reproduction proceed at the *production* rate, but scaled by a smooth gate
@@ -756,11 +768,11 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
   // the production rate rather than metered out of the pool as a_st2*S: with
   // sapwood-scaled capacity, storage is tiny relative to seedling productivity,
   // so a discharge-rate limit would choke establishment.
-  const S G = 1.0 / (1.0 + std::exp(-(r - pars.a_st2) / storage_gate_width));
+  const S G = 1.0 / (1.0 + exp(-(r - pars.a_st2) / storage_gate_width));
   // Smooth positive part of net production (replaces the old hard net>0 cutoff).
   const S P = net_mass_production_dt_;
   const S Ppos =
-    0.5 * (P + std::sqrt(P * P + storage_prod_eps * storage_prod_eps));
+    0.5 * (P + sqrt(P * P + storage_prod_eps * storage_prod_eps));
   const S growth_flux = Ppos * G;
 
   const S fraction_allocation_reproduction_ = fraction_allocation_reproduction(height);
@@ -1003,9 +1015,15 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // (profit_, transpiration_, soil_consumption_, opt_psi_stem_, ...) set. Only
   // the radiation argument varies between calls; every other input is
   // depth-independent and already computed above.
-  auto optimise_at = [&](S radiation) {
-    leaf.set_physiology(area_leaf_, mass_root_prop_, pars.rho, pars.a_bio, radiation, psi_soil, soil_depths_, leaf_specific_conductance_max, environment.get_atm_vpd(), environment.get_ca(), sapwood_volume_per_leaf_area, environment.get_leaf_temp(), environment.get_atm_o2_kpa(), environment.get_atm_kpa());
-    solve_leaf();
+  auto optimise_at = [&](S radiation) -> void {
+    if constexpr (std::is_same_v<S, double>) {
+      leaf.set_physiology(area_leaf_, mass_root_prop_, pars.rho, pars.a_bio, radiation, psi_soil, soil_depths_, leaf_specific_conductance_max, environment.get_atm_vpd(), environment.get_ca(), sapwood_volume_per_leaf_area, environment.get_leaf_temp(), environment.get_atm_o2_kpa(), environment.get_atm_kpa());
+      solve_leaf();
+    } else {
+      static_assert(std::is_same_v<S, double>,
+                    "Leaf carries double; an active strategy must supply the leaf's "
+                    "local Jacobian across this boundary, not template Leaf.");
+    }
   };
 
   // Convert canopy openness (0-1) into absorbed radiation: PPFD attenuated by
@@ -1379,7 +1397,16 @@ double TF24_Strategy<S>::height_seed(void) const {
     return mass_live_given_height(x) - pars.omega;
   };
 
-  return util::uniroot(target, h0, h1, tol, max_iterations);
+  if constexpr (std::is_same_v<S, double>) {
+    return util::uniroot(target, h0, h1, tol, max_iterations);
+  } else {
+    // Bisection is affine in its bracket and blind to the residual's values, so
+    // recording the search would return d(h1)/d(trait) rather than the height at
+    // which mass_live equals the seed mass. Declare it by the residual instead.
+    static_assert(std::is_same_v<S, double>,
+                  "height_seed() finds its root by iteration; an active scalar must "
+                  "declare it through implicit_value on the residual.");
+  }
 }
 
 template <typename S>
@@ -1417,13 +1444,19 @@ void TF24_Strategy<S>::prepare_strategy() {
   } else {
     this->extrinsic_drivers.set_constant("birth_rate", this->birth_rate_y[0]);
   }
-  leaf = Leaf(pars.vcmax_25, pars.c, pars.b, pars.psi_crit,
-              pars.root_c, pars.root_b, pars.root_psi_crit,
-              pars.beta2, pars.jmax_25, pars.a,
-              pars.curv_fact_elec_trans, pars.curv_fact_colim,
-              this->control.GSS_tol_abs, this->control.vulnerability_curve_ncontrol,
-              this->control.ci_abs_tol, this->control.ci_niter, pars.g1_TF24, beta_R_H,
-              beta_R_V);
+  if constexpr (std::is_same_v<S, double>) {
+    leaf = Leaf(pars.vcmax_25, pars.c, pars.b, pars.psi_crit,
+                pars.root_c, pars.root_b, pars.root_psi_crit,
+                pars.beta2, pars.jmax_25, pars.a,
+                pars.curv_fact_elec_trans, pars.curv_fact_colim,
+                this->control.GSS_tol_abs, this->control.vulnerability_curve_ncontrol,
+                this->control.ci_abs_tol, this->control.ci_niter, pars.g1_TF24, beta_R_H,
+                beta_R_V);
+  } else {
+    static_assert(std::is_same_v<S, double>,
+                  "Leaf carries double; an active strategy must supply the leaf's "
+                  "local Jacobian across this boundary, not template Leaf.");
+  }
 }
 
 template <typename S>
