@@ -215,8 +215,6 @@ StochasticSpecies<T,E>::compute_competition_and_slope(double height) const {
   return {tot, tot_slope};
 }
 
-// NOTE: We should probably prefer to rescale when this is called
-// through the ode stepper.
 template <typename T, typename E>
 void StochasticSpecies<T,E>::compute_rates(const E& environment) {
   for (auto& n : nodes) {
