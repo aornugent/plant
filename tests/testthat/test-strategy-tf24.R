@@ -450,8 +450,12 @@ test_that("ad_parameters and ad_parameter_names agree with the yml", {
 
   # eta and root_depth_shape_eta reach an unguarded pow exponent; vcmax_25 and
   # jmax_25 are cached under a key that does not cover them, so a changed value
-  # would not be recomputed.
-  omitted <- c("eta", "vcmax_25", "jmax_25", "root_depth_shape_eta")
+  # would not be recomputed; a_p1 and a_p2 belong to the light-response curve the
+  # Farquhar leaf replaced and beta1 is declared and unused, so all three are read
+  # by no equation and the test below is what says so.
+  omitted <- c("eta", "vcmax_25", "jmax_25", "root_depth_shape_eta",
+               "a_p1", "a_p2", "beta1", "S_D", "var_sapwood_volume_cost",
+               "nmass_l", "nmass_s", "nmass_b", "nmass_r", "dmass_dN", "p_50")
 
   yml <- yaml::read_yaml(file.path(here::here("inst"), "RcppR6_classes.yml"))
   declared <- vapply(yml$TF24_Pars$list, function(x) names(x)[[1]], character(1))
@@ -462,4 +466,70 @@ test_that("ad_parameters and ad_parameter_names agree with the yml", {
   # Every index reaches exactly the field its name denotes, and nothing else.
   expect_identical(res$read_back, res$written)
   expect_identical(lapply(res$changed, sort), as.list(res$names))
+})
+
+test_that("every registered TF24 parameter reaches an output", {
+  probe <- compile_tf24_ad_parameters()
+  registered <- probe()$names
+
+  # Every output the parameters can reach: the rates and aux at a state, the
+  # establishment probability, and the state a newborn is seeded with.
+  outputs_at <- function(s, state) {
+    env <- Environment("TF24")
+    env$set_fixed_environment(state$light, height_max = 150)
+    env$set_soil_water_state(rep(state$theta, env$get_soil_number_of_depths()))
+    # Recruitment decays with patch age, so at time zero its rate cannot move.
+    env$time <- 5
+
+    ind <- Individual("TF24", "TF24_Env")(s)
+    ind$set_state("height", state$height)
+    # A fresh individual holds zero storage, and relative reserves of zero make the
+    # reserve gate and the storage-dependent mortality insensitive to their own
+    # parameters -- a degenerate state rather than a dead channel.
+    ind$set_state("storage", 1e-3)
+    ind$compute_rates(env)
+
+    born <- Individual("TF24", "TF24_Env")(s)
+    born$set_initial_states(env)
+
+    vars <- ind$internals
+    c(vars$rates, vars$auxs, ind$establishment_probability(env),
+      born$internals$states)
+  }
+
+  # Four states, because a parameter can reach only one of them: fecundity is zero
+  # below the maturation height, the storage outflow gate opens only where carbon is
+  # negative, and the collar operating point reaches its own bound only in dry soil
+  # -- dry enough to pin it (above 1.5 MPa) and not so dry that the leaf shuts down
+  # before computing the bound at all (below psi_crit, 7.1 MPa): 0.14 is 2.8 MPa.
+  hmat <- TF24_Strategy()$pars$hmat
+  states <- list(seedling = list(height = 0.4, light = 1, theta = 0.4),
+                 mature = list(height = 0.9 * hmat, light = 1, theta = 0.4),
+                 shaded = list(height = 5, light = 0.02, theta = 0.4),
+                 dry = list(height = 5, light = 1, theta = 0.14))
+  base <- lapply(states, function(st) outputs_at(TF24_Strategy(), st))
+
+  reaches_an_output <- function(name) {
+    s <- TF24_Strategy()
+    value <- s$pars[[name]]
+    s$pars[[name]] <- if (value == 0) 0.05 else value * 1.05
+    any(vapply(seq_along(states), function(i) {
+      got <- tryCatch(outputs_at(s, states[[i]]), error = function(e) NULL)
+      # A parameter whose change stops the solve has certainly been read.
+      is.null(got) || !identical(got, base[[i]])
+    }, logical(1)))
+  }
+
+  # root_psi_crit reaches an output only where the collar operating point is pinned
+  # at its bound and that bound is the root's rather than the stem's. That regime
+  # needs a driver rather than a state -- zero incidence on the production driver,
+  # a third of solves at a twentyfold rainfall reduction -- so it is registered
+  # deliberately and no state this probe can pose will move it.
+  only_at_the_bound <- "root_psi_crit"
+  unreached <- Filter(function(name) !reaches_an_output(name),
+                      setdiff(registered, only_at_the_bound))
+
+  # A registered parameter no equation reads gives a gradient row that is exactly
+  # zero, which is this design's worst failure mode because it reads as an answer.
+  expect_equal(unreached, character(0))
 })
