@@ -40,14 +40,15 @@ public:
     spline = spline_construction.construct(
         [&](double height) -> S { return get_value_at_height(height); }, 0,
         1); // these are update with init(x, y) when patch is created
-    
+    set_knot_fractions(spline.get_x(), 1.0);
+
     spline_rescale_usually = rescale_usually;
   };
 
   template <typename Function>
   void compute_environment(Function f_compute_competition, S height_max, bool rescale) {
     if (rescale & spline_rescale_usually) {
-      rescale_spline(f_compute_competition, height_max);
+      rebuild_spline(f_compute_competition, height_max);
     } else {
       construct_spline(f_compute_competition, height_max);
     }
@@ -58,6 +59,7 @@ public:
     std::vector<S> y = {value, value, value};
     clear();
     spline.init(x, y);
+    set_knot_fractions(x, height_max);
   }
 
   void clear() {
@@ -107,6 +109,7 @@ public:
     std::copy_n(it,         state_n, std::back_inserter(state_x));
     std::copy_n(it + state_n, state_n, std::back_inserter(state_y));
     spline.init(state_x, state_y);
+    set_knot_fractions(state_x, spline.max());
   }
 
   // This object will store an interpolator spline of 
@@ -115,6 +118,11 @@ public:
 
   // This object can create an interpolator spline via adaptive refinement
   interpolator::AdaptiveInterpolator spline_construction;
+
+  // Knot positions in units of the canopy top, u_k = x_k / height_max. A rebuild
+  // places knots at u_k * height_max, so it reads no positions off the spline it
+  // is about to replace.
+  std::vector<double> knot_fractions_;
 
   // flag, do we try to rescale the spline when possible? this is quicker
   bool spline_rescale_usually;
@@ -151,22 +159,26 @@ private:
 
     spline =
       spline_construction.construct(f_compute_competition, lower_bound, upper_bound);
+    set_knot_fractions(spline.get_x(), height_max);
   }
 
+  // Refit at the held fractions. The first and last are exactly 0 and 1, so the
+  // rebuilt domain is exactly [0, height_max].
   template <typename Function>
-  void rescale_spline(Function f_compute_competition, S height_max) {
-    std::vector<double> h = spline.get_x();
-    const double min = spline.min(), // 0.0?
-      height_max_old = spline.max();
-
-    util::rescale(h.begin(), h.end(), min, height_max_old, min, height_max);
-    h.back() = height_max; // Avoid round-off error.
-
+  void rebuild_spline(Function f_compute_competition, S height_max) {
     spline.clear();
-    for (auto hi : h) {
-      spline.add_point(hi, f_compute_competition(hi));
+    for (double u : knot_fractions_) {
+      const double x = u * height_max;
+      spline.add_point(x, f_compute_competition(x));
     }
     spline.initialise();
+  }
+
+  void set_knot_fractions(const std::vector<double>& x, double height_max) {
+    knot_fractions_.resize(x.size());
+    for (size_t i = 0; i < x.size(); ++i) {
+      knot_fractions_[i] = x[i] / height_max;
+    }
   }
 
   };
