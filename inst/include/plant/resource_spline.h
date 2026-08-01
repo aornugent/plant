@@ -143,9 +143,13 @@ private:
   template <typename Function>
   void rebuild_spline(Function f_value_and_slope, S height_max) {
     if (spline.size() != knot_fractions_.size() || spline.max() != height_max) {
+      // The grid stays double for the reason set_fixed_value() gives: a position
+      // built from an active canopy top is laid out at its value, and the
+      // field's dependence on the cohorts travels in the values and slopes.
+      const double top = odelia::util::to_passive(height_max);
       std::vector<double> x(knot_fractions_.size());
       for (size_t k = 0; k < x.size(); ++k) {
-        x[k] = knot_fractions_[k] * height_max;
+        x[k] = knot_fractions_[k] * top;
       }
       spline.set_nodes(x);
     }
