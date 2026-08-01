@@ -31,6 +31,13 @@ public:
   double compute_competition(double z) const;
   double fecundity() const {return offspring_produced_survival_weighted;}
 
+  // The two rates the transport term is built from, and the write for its
+  // result. Species::growth_rate_gradient differences growth across neighbouring
+  // nodes, so it reads these rather than perturbing a copy.
+  double growth_rate() const {return individual.rate(HEIGHT_INDEX);}
+  double mortality_rate() const {return individual.rate(MORTALITY_INDEX);}
+  void set_log_density_rate(double rate) {log_density_dt = rate;}
+
   // Bookkeeping recorded at the moment the node is introduced, so that
   // lifetime-fitness calculations need not look these up after the run.
   // patch_density_at_birth is the (unnormalised) probability density of a
