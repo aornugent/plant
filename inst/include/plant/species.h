@@ -53,6 +53,29 @@ public:
 
   double height_max() const;
   double compute_competition(double height) const;
+
+  // The same reduction with the inflow boundary interval left off. A function of
+  // the ODE state alone, because it never reads `new_node`. By construction
+  //   compute_competition(h) == compute_competition_excl_boundary(h)
+  //                             + boundary_interval(h)
+  double compute_competition_excl_boundary(double height) const;
+
+  // The reduction's closing trapezium, formed on `new_node`: the whole of the
+  // boundary condition's contribution to the optical depth at `height`, and O(1)
+  // to form once the interior sum exists.
+  double boundary_interval(double height) const;
+
+  // Evaluate the inflow boundary condition (Node::compute_initial_conditions,
+  // n_b = birth_rate * pr_estab / g) in the environment passed. Split out of
+  // compute_rates() so the field build can own it; see Patch::compute_environment.
+  void compute_boundary_node(const environment_type& environment,
+                             double pr_patch_survival, double birth_rate) {
+    new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+  }
+  // The boundary node's log density and height, for the spike's diagnostics only.
+  double boundary_log_density() const { return new_node.get_log_density(); }
+  double boundary_height() const { return new_node.height(); }
+
   // Whether the decreasing-height node ordering still holds (see height_max()).
   bool heights_are_decreasing() const;
 
@@ -140,7 +163,11 @@ public:
 private:
   // compute_competition() for the case where the node heights are no longer
   // ordered, so the node list cannot be used directly as the quadrature grid.
-  double compute_competition_unordered(double height) const;
+  double compute_competition_unordered(double height, bool include_boundary) const;
+  // The reduction, with the closing boundary trapezium included or not. The
+  // included case is the arithmetic compute_competition() has always done, in one
+  // accumulator, so that path stays bit-for-bit what it was.
+  double compute_competition_impl(double height, bool include_boundary) const;
 
   // Cache for scan_heights(). Every path that can change a node height must call
   // invalidate_height_scan(); a stale cache here would silently reintroduce the
@@ -284,6 +311,63 @@ typename Species<T,E>::HeightScan Species<T,E>::compute_height_scan() const {
 // the integral).
 template <typename T, typename E>
 double Species<T,E>::compute_competition(double height) const {
+  return compute_competition_impl(height, true);
+}
+
+// A0: the interior sum alone. Never touches new_node, so this is a function of the
+// ODE state and the strategy only -- which is what lets the boundary condition be
+// evaluated in a field it does not itself appear in.
+template <typename T, typename E>
+double Species<T,E>::compute_competition_excl_boundary(double height) const {
+  return compute_competition_impl(height, false);
+}
+
+// The closing trapezium on its own, on the same test the reduction uses. Only the
+// spike's diagnostics call this; the field itself takes the single-accumulator
+// path above so its rounding is unchanged.
+template <typename T, typename E>
+double Species<T,E>::boundary_interval(double height) const {
+  if (size() == 0) {
+    return 0.0;
+  }
+  const HeightScan scan = scan_heights();
+  if (scan.h_max < height) {
+    return 0.0;
+  }
+  double h1, f_h1;
+  if (!scan.decreasing) {
+    // Match the sorted grid's last interior point.
+    double h_lo = std::numeric_limits<double>::infinity();
+    for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+      h_lo = std::min(h_lo, it->height());
+    }
+    h1 = h_lo;
+    f_h1 = 0.0;
+    for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+      if (it->height() == h_lo) {
+        f_h1 = it->compute_competition(height);
+      }
+    }
+  } else {
+    nodes_const_iterator it = nodes.begin();
+    h1 = it->height(); f_h1 = it->compute_competition(height);
+    for (++it; it != nodes.end(); ++it) {
+      const double h0 = it->height();
+      h1 = h0; f_h1 = it->compute_competition(height);
+      if (h0 < height) {
+        break;
+      }
+    }
+  }
+  if (size() == 1 || f_h1 > 0) {
+    const double h0 = new_node.height(), f_h0 = new_node.compute_competition(height);
+    return (h1 - h0) * (f_h1 + f_h0) / 2;
+  }
+  return 0.0;
+}
+
+template <typename T, typename E>
+double Species<T,E>::compute_competition_impl(double height, bool include_boundary) const {
   if (size() == 0) {
     return 0.0;
   }
@@ -299,7 +383,7 @@ double Species<T,E>::compute_competition(double height) const {
   // Heights only, so the usual (ordered) case keeps this loop and its results
   // exactly.
   if (!scan.decreasing) {
-    return compute_competition_unordered(height);
+    return compute_competition_unordered(height, include_boundary);
   }
   double tot = 0.0;
   nodes_const_iterator it = nodes.begin();
@@ -321,7 +405,7 @@ double Species<T,E>::compute_competition(double height) const {
     }
   }
 
-  if (size() == 1 || f_h1 > 0) {
+  if (include_boundary && (size() == 1 || f_h1 > 0)) {
     const double h0 = new_node.height(), f_h0 = new_node.compute_competition(height);
     tot += (h1 - h0) * (f_h1 + f_h0);
   }
@@ -345,7 +429,7 @@ double Species<T,E>::compute_competition(double height) const {
 // changes nothing. The scratch buffer is thread_local and reused, so the repeated
 // calls that build one spline do not each allocate.
 template <typename T, typename E>
-double Species<T,E>::compute_competition_unordered(double height) const {
+double Species<T,E>::compute_competition_unordered(double height, bool include_boundary) const {
   thread_local std::vector<std::pair<double, double>> hf;
   hf.clear();
   hf.reserve(size());
@@ -372,7 +456,7 @@ double Species<T,E>::compute_competition_unordered(double height) const {
     f_h1 = f_h0;
   }
 
-  if (size() == 1 || f_h1 > 0) {
+  if (include_boundary && (size() == 1 || f_h1 > 0)) {
     const double h0 = new_node.height(), f_h0 = new_node.compute_competition(height);
     tot += (h1 - h0) * (f_h1 + f_h0);
   }

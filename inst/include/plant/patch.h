@@ -12,6 +12,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>   // SPIKE: getenv, for the boundary diagnostics
+#include <fstream>   // SPIKE: the boundary diagnostic stream
+#include <iomanip>   // SPIKE: setprecision
 #include <limits>
 #include <string>
 
@@ -44,6 +47,10 @@ public:
   double height_max() const;
 
   double compute_competition(double height) const;
+  // The same reduction with the inflow boundary intervals left off, and those
+  // intervals on their own. See compute_environment().
+  double compute_competition_excl_boundary(double height) const;
+  double boundary_interval(double height) const;
 
   // Describe the size distribution around `height`, for error messages. The
   // light spline is built from the cohort heights, so when its refinement fails
@@ -192,6 +199,8 @@ public:
 private:
   int idx = 0; // used to access environment cache for mutant runs
   void compute_environment(bool rescale);
+  void compute_environment_once(bool rescale, bool include_boundary);
+  void compute_boundary_nodes();
   void compute_rates();
 
   // Seed the patch from parameters.initial_state (nodes + birth bookkeeping)
@@ -475,6 +484,44 @@ double Patch<T,E>::compute_competition(double height) const {
   return tot;
 }
 
+// A0: the competition profile with every species' inflow boundary interval left
+// off. A function of the ODE state alone. See compute_environment().
+template <typename T, typename E>
+double Patch<T,E>::compute_competition_excl_boundary(double height) const {
+  double tot = 0.0;
+  for (size_t i = 0; i < species.size(); ++i) {
+    if (!is_mutant_run) {
+      tot += species[i].compute_competition_excl_boundary(height) / area;
+    }
+  }
+  return tot;
+}
+
+// The boundary intervals alone, summed over species; diagnostics only.
+template <typename T, typename E>
+double Patch<T,E>::boundary_interval(double height) const {
+  double tot = 0.0;
+  for (size_t i = 0; i < species.size(); ++i) {
+    if (!is_mutant_run) {
+      tot += species[i].boundary_interval(height) / area;
+    }
+  }
+  return tot;
+}
+
+// Evaluate every species' inflow boundary condition in the environment as it
+// currently stands. Factored out of compute_rates() so the field build can own it.
+template <typename T, typename E>
+void Patch<T,E>::compute_boundary_nodes() {
+  const double t_ = environment.time;
+  const double pr_patch_survival = survival_weighting->pr_survival(t_);
+  for (size_t i = 0; i < size(); ++i) {
+    const double birth_rate =
+      species[i].extrinsic_drivers().evaluate("birth_rate", t_);
+    species[i].compute_boundary_node(environment, pr_patch_survival, birth_rate);
+  }
+}
+
 template <typename T, typename E>
 std::vector<double> Patch<T,E>::r_compute_competition_effect_error_by_node_for_species_i(size_t species_index) const {
   const double tot_competition_effect = compute_competition(0.0);
@@ -592,11 +639,116 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 
 // Pre-compute environment, as shaped by residents
 // Creates splines of resource availability
+//
+// SPIKE (boundary reordering). The reduction's closing trapezium is the inflow
+// boundary condition n_b = birth_rate * pr_estab / g, and n_b needs the field, so
+// the relation is implicit. develop resolved it by lag -- the field read the n_b
+// that the *previous* rate evaluation wrote -- which makes a stage a function of
+// (state, time, a scalar carried from the last evaluation). This makes the
+// dependence acyclic instead:
+//
+//   A0  = the reduction excluding the boundary interval   (state alone)
+//   n_b = the boundary condition evaluated in A0          (state alone)
+//   A   = A0 + the boundary interval formed from n_b      (state alone)
+//
+// so the field, and hence the stage, is a function of (state, time) with nothing
+// carried. n_b is evaluated in a field that omits its own contribution, which is
+// an approximation of the fixed point by one application of its contraction, not
+// a lag. It costs one extra spline build per stage, because n_b reads a *field*
+// (through establishment_probability and the newborn's height rate) and not a
+// single value of A -- the O(1) closed-form correction is only the second half.
+//
+// PLANT_BOUNDARY_PICARD=1 adds one further Picard step on top, re-evaluating n_b
+// in A and rebuilding, which is the contraction check.
 template <typename T, typename E>
 void Patch<T,E>::compute_environment(bool rescale) {
+  if (!(size() > 0 & !is_mutant_run)) {
+    return;
+  }
+  static const bool extra_picard = std::getenv("PLANT_BOUNDARY_PICARD") != nullptr;
+  // SPIKE experiment. ResourceSpline::rescale_spline reuses the *previous* build's
+  // knot positions, rescaled, so the knot grid is inherited from the history of
+  // field builds and not derived from the state. That is a second, independent
+  // path-dependence, and this forces the adaptive construct instead so it can be
+  // measured separately from the boundary node's.
+  static const bool no_rescale = std::getenv("PLANT_NO_RESCALE") != nullptr;
+  if (no_rescale) {
+    rescale = false;
+  }
+  static const bool contract = std::getenv("PLANT_BOUNDARY_CONTRACT") != nullptr;
+  static const char* diag_path = std::getenv("PLANT_BOUNDARY_DIAG");
+  static std::ofstream diag(diag_path ? diag_path : "/dev/null",
+                            std::ios::out | std::ios::trunc);
+  static bool diag_header = false;
+  if (diag_path && !diag_header) {
+    diag << "time h0 A0 bi_lag bi_new bi_p2\n";
+    diag_header = true;
+  }
+
+  // The boundary node as it stands on entry is the lagged one: whatever the last
+  // rate evaluation wrote. Measured against the acyclic one below, at the same
+  // state, this is the value the reordering moves.
+  // Probed at ground level, z = 0, which is where the boundary node's crown lies
+  // entirely above the query and so where its contribution is largest -- and the
+  // height report 01 s3.1's "effect on light at ground level" is taken at. At
+  // z = h0 itself the term is structurally near zero, because a plant of height h0
+  // has no leaf area above h0.
+  const double z_probe = 0.0;
+  double h0 = 0.0, A0 = 0.0, bi_lag = 0.0;
+  if (diag_path) {
+    h0 = species[0].boundary_height();
+    A0 = compute_competition_excl_boundary(z_probe);
+    bi_lag = boundary_interval(z_probe);
+  }
+
+  // SPIKE control. Restores develop's behaviour -- one build, closing on whatever
+  // n_b the last rate evaluation left -- so that "the reordering is what makes the
+  // stage pure" can be measured rather than argued.
+  static const bool lag = std::getenv("PLANT_LAG") != nullptr;
+  if (lag) {
+    compute_environment_once(rescale, true);
+    return;
+  }
+
+  compute_environment_once(rescale, false);   // A0
+  compute_boundary_nodes();                   // n_b, in A0
+  compute_environment_once(rescale, true);    // A = A0 + boundary(n_b)
+  double bi_new = 0.0;
+  if (diag_path) {
+    bi_new = boundary_interval(z_probe);
+  }
+  double bi_p2 = bi_new;
+  if (extra_picard) {
+    compute_boundary_nodes();                 // n_b', in A
+    compute_environment_once(rescale, true);
+    if (diag_path) {
+      bi_p2 = boundary_interval(z_probe);
+    }
+  } else if (contract && diag_path) {
+    // Measure one further Picard step -- n_b re-evaluated in A rather than in A0 --
+    // and then put the field and the boundary node back exactly as they were, so
+    // the run's own values are untouched. Costs two more builds per stage and is
+    // value-neutral (checked at dev scale by comparing offspring with it off).
+    compute_boundary_nodes();                 // n_b', in A
+    bi_p2 = boundary_interval(z_probe);
+    compute_environment_once(rescale, false); // back to A0
+    compute_boundary_nodes();                 // n_b again, in A0
+    compute_environment_once(rescale, true);  // back to A
+  }
+  if (diag_path) {
+    diag << std::setprecision(17) << environment.time << ' ' << h0 << ' ' << A0
+         << ' ' << bi_lag << ' ' << bi_new << ' ' << bi_p2 << '\n';
+  }
+}
+
+template <typename T, typename E>
+void Patch<T,E>::compute_environment_once(bool rescale, bool include_boundary) {
 
   // Define an anonymous function to use in creation of environment
-  auto f = [&](double x) -> double { return compute_competition(x); };
+  auto f = [&](double x) -> double {
+    return include_boundary ? compute_competition(x)
+                            : compute_competition_excl_boundary(x);
+  };
 
   if (size() > 0 & !is_mutant_run) {
     try {
@@ -747,7 +899,13 @@ void Patch<T,E>::compute_rates() {
 // light environment; probably worth just doing a rescale there?
 template <typename T, typename E>
 void Patch<T,E>::introduce_new_node(size_t species_index) {
-  
+
+  // SPIKE: as in introduce_new_nodes() below -- the boundary node the push copies
+  // is re-derived from the current state first.
+  if (size() > 0 && !is_mutant_run) {
+    compute_environment(false);
+  }
+
   species[species_index].introduce_new_node();
 
   compute_environment(false);
@@ -759,6 +917,17 @@ void Patch<T,E>::introduce_new_nodes(const std::vector<size_t>& species_index) {
   // introduced, so lifetime-fitness calcs need not look these up later.
   const double t = time();
   const double patch_density = survival_weighting->density(t);
+
+  // SPIKE (boundary reordering). The pushed node is a copy of new_node, so the
+  // introduction consumes the boundary density too -- and before this line it was
+  // whatever the last rate evaluation wrote, which on the adaptive path may be a
+  // *rejected* attempt. Build the field first, which now re-derives new_node from
+  // the current state alone, so the state the introduction adds is a function of
+  // (state, time) like the rest of the stage.
+  if (size() > 0 && !is_mutant_run && std::getenv("PLANT_LAG") == nullptr) {
+    compute_environment(false);
+  }
+
   for (size_t i : species_index) {
     species[i].introduce_new_node(t, patch_density);
   }
