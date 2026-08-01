@@ -6,6 +6,8 @@
 #include <RcppCommon.h> // as/wrap/SEXP
 #include <R_ext/Arith.h> // NA_REAL etc. (kept; widely relied on transitively)
 #include <cmath> // std::isfinite
+#include <type_traits> // std::is_arithmetic_v
+#include <odelia/ode_util.hpp> // to_passive
 
 namespace plant {
 namespace util {
@@ -34,6 +36,17 @@ inline std::vector<index> index_vector(const std::vector<size_t> x) {
 // the package's -O2 (no -ffast-math) build.
 inline bool is_finite(double x) {
   return std::isfinite(x);
+}
+
+// A scalar that records its computation, as against a built-in number.
+template <typename T>
+concept RecordingScalar = !std::is_arithmetic_v<std::remove_cvref_t<T>>;
+
+// The answer picks a branch and carries no derivative, so it is taken at the
+// value.
+template <RecordingScalar T>
+bool is_finite(const T& x) {
+  return std::isfinite(odelia::util::to_passive(x));
 }
 
 void check_length(size_t received, size_t expected);

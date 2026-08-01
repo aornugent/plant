@@ -8,9 +8,9 @@
 //     -I$(odelia include) -isystem inst/include -DNDEBUG \
 //     scripts/tf24-active-probe.cpp
 //
-// 24 errors: 17 in the DeepCrown branch's double accumulators, 2 at the untemplated
-// quadrature::QK, 1 at util::is_finite(double), 1 conversion in the consumption-rate
-// funnel, and 3 named static assertions at the Leaf boundary and height_seed().
+// 19 errors, all of them the sites the design refuses: 17 in the DeepCrown
+// branch, which TF24 does not default to, and 2 named static assertions inside
+// prepare_strategy(), which never runs inside a recorded block.
 
 #include <plant/models/tf24_strategy.h>
 #include <plant/individual_runner.h>
@@ -23,8 +23,13 @@ using tf24_runner =
                                    plant::TF24_Environment<double> >;
 using active_scalar = odelia::ode::Solver<tf24_runner>::active_scalar;
 
-// The class bodies instantiate; the member bodies below are what still fails.
+// A sizeof assertion passes on a class body alone, so what is checked here is
+// the strategy's member bodies.
 static_assert(sizeof(plant::TF24_Environment<active_scalar>) > 0);
 static_assert(sizeof(plant::TF24_Strategy<active_scalar>) > 0);
 
 template class plant::TF24_Strategy<active_scalar>;
+
+// Instantiating plant::Individual on top of this needs its state store to carry
+// the scalar as well: it holds Internals<double>, so every place it hands vars to
+// the strategy is a passive seam. So the strategy is what this probe claims.

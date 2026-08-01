@@ -837,7 +837,7 @@ S TF24_Strategy<S>::assimilation(const TF24_Environment<S>& environment,
   // Integrate over crown depth using using Gauss-Kronrod quadrature.
   // The number of points used in the integration is determined by the control parameter
   // function_integration_rule. Rules defined in qk_rules.cpp
-  A = function_integrator.integrate(f, 0.0, height);
+  A = function_integrator.integrate(f, S(0.0), height);
 
   return area_leaf * A;
 }
@@ -1015,15 +1015,26 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // (profit_, transpiration_, soil_consumption_, opt_psi_stem_, ...) set. Only
   // the radiation argument varies between calls; every other input is
   // depth-independent and already computed above.
-  auto optimise_at = [&](S radiation) -> void {
+  //
+  // Leaf carries double, so an active strategy hands it the values of its
+  // inputs and reads its outputs back as constants: d(rates)/d(leaf inputs) is
+  // exactly zero here, until the leaf's local Jacobian is injected across this
+  // same boundary. Each leaf output enters the active chain at one place -- the
+  // aux stores and leaf.profit_ in net_mass_production_dt, and
+  // leaf.soil_consumption_ in evapotranspiration_dt -- so a partial attaches to
+  // one expression per output.
+  auto optimise_at = [&](const S& radiation) -> void {
     if constexpr (std::is_same_v<S, double>) {
       leaf.set_physiology(area_leaf_, mass_root_prop_, pars.rho, pars.a_bio, radiation, psi_soil, soil_depths_, leaf_specific_conductance_max, environment.get_atm_vpd(), environment.get_ca(), sapwood_volume_per_leaf_area, environment.get_leaf_temp(), environment.get_atm_o2_kpa(), environment.get_atm_kpa());
-      solve_leaf();
     } else {
-      static_assert(std::is_same_v<S, double>,
-                    "Leaf carries double; an active strategy must supply the leaf's "
-                    "local Jacobian across this boundary, not template Leaf.");
+      using odelia::util::to_passive;
+      std::vector<double> mass_root_prop_value(mass_root_prop_.size());
+      for (size_t a = 0; a < mass_root_prop_.size(); ++a) {
+        mass_root_prop_value[a] = to_passive(mass_root_prop_[a]);
+      }
+      leaf.set_physiology(to_passive(area_leaf_), mass_root_prop_value, to_passive(pars.rho), to_passive(pars.a_bio), to_passive(radiation), psi_soil, soil_depths_, to_passive(leaf_specific_conductance_max), environment.get_atm_vpd(), environment.get_ca(), to_passive(sapwood_volume_per_leaf_area), environment.get_leaf_temp(), environment.get_atm_o2_kpa(), environment.get_atm_kpa());
     }
+    solve_leaf();
   };
 
   // Convert canopy openness (0-1) into absorbed radiation: PPFD attenuated by
@@ -1051,7 +1062,7 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
     auto f = [&](S x) -> S {
       return compute_average_light_environment(x, height, environment);
     };
-    optimise_at(radiation_at(function_integrator.integrate(f, 0.0, height)));
+    optimise_at(radiation_at(function_integrator.integrate(f, S(0.0), height)));
   } else { // DeepCrown
     const std::vector<double> nodes =
       function_integrator.integrate_vector_x(0.0, height);
