@@ -126,7 +126,7 @@ test_that("flat-top-box cannot build a light environment (discontinuous competit
   p1 <- add_strategies(p0, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar, birth_rate = list(20))
   ctrl <- Control(); ctrl$shading_model <- "flat-top-box"
   expect_error(run_scm(p1, Environment("FF16"), ctrl),
-               "Interpolated function as refined as currently possible")
+               "no light environment can be built from it")
 })
 
 test_that("under uniform light, the integrate-based models all agree", {
@@ -477,8 +477,8 @@ test_that("the slope reduction is finite at the ground knot", {
   }
 })
 
-test_that("the vertical slope is refused for the box shading models", {
-  for (m in c("flat-top-box", "flat-top-soft-box")) {
+test_that("the vertical slope is refused for the hard-step shading model", {
+  for (m in c("flat-top-box")) {
     s <- FF16_Strategy()
     s$birth_rate_y <- 1
     s$is_variable_birth_rate <- FALSE
@@ -491,6 +491,6 @@ test_that("the vertical slope is refused for the box shading models", {
     patch <- Patch("FF16", "FF16_Env")(p, Environment("FF16"), ctrl)
     # Introducing a node builds the light field, and the field now asks for a
     # slope at every knot, so the refusal arrives at the introduction.
-    expect_error(patch$introduce_new_node(1), "smooth Yokozawa")
+    expect_error(patch$introduce_new_node(1), "no vertical slope")
   }
 })
