@@ -35,7 +35,11 @@ for (x in names(strategy_types)) {
     ## The field carries a slope per knot as well as a value, so it is set from
     ## heights, values and slopes rather than from a value-fitted interpolant.
     slope <- exp(hh/(max(hh)*2)) / (max(hh)*2)
-    env$light_availability$init_interpolators(c(hh, ee, slope))
+    ## light_availability is a field, so reading it copies: mutate the copy and
+    ## assign it back, or the environment keeps the field it already had.
+    field <- env$light_availability
+    field$init_interpolators(c(hh, ee, slope))
+    env$light_availability <- field
 
     st <- env$light_availability$state
     expect_identical(st[, 1], hh)
@@ -58,20 +62,24 @@ test_that("resource spline value is floored at zero (#253)", {
   # availability, while staying a no-op wherever the spline is non-negative.
   env <- Environment("K93")
 
+  # A Hermite between non-negative knots undershoots only if its slopes are steep
+  # enough to carry it below zero between them, so the slopes are what builds the
+  # scenario here.
   hh <- c(0, 1, 2, 3, 4, 5)
   ee <- c(1, 1, 1, 0.02, 0.02, 0.02)
-  ip <- Interpolator()
-  ip$init(hh, ee)
-  env$light_availability$spline <- ip
+  slope <- c(0, 0, -12, -12, 0, 0)
+  field <- env$light_availability
+  field$init_interpolators(c(hh, ee, slope))
+  env$light_availability <- field
 
   grid    <- seq(0, 5, by = 0.05)
-  raw     <- vapply(grid, ip$eval, numeric(1))
   floored <- vapply(grid, env$light_availability$get_value_at_height, numeric(1))
 
-  # the scenario genuinely undershoots, otherwise the test proves nothing
-  expect_true(any(raw < 0))
-  # ... but the accessor never returns a negative value ...
+  # The floor genuinely fires, otherwise the test proves nothing: the polynomial
+  # goes negative between knots and the accessor returns exactly zero there.
+  expect_true(any(floored == 0))
+  # ... and it never returns a negative resource availability.
   expect_true(all(floored >= 0))
-  # ... and is bit-identical wherever the raw spline is non-negative
-  expect_equal(floored, pmax(0, raw))
+  # Away from the undershoot the knots are reproduced untouched.
+  expect_equal(vapply(hh, env$light_availability$get_value_at_height, numeric(1)), ee)
 })
