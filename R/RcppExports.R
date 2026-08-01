@@ -2125,6 +2125,10 @@ Patch___FF16__FF16_Env__compute_competition <- function(obj_, height) {
     .Call('_plant_Patch___FF16__FF16_Env__compute_competition', PACKAGE = 'plant', obj_, height)
 }
 
+Patch___FF16__FF16_Env__compute_competition_and_slope <- function(obj_, z) {
+    .Call('_plant_Patch___FF16__FF16_Env__compute_competition_and_slope', PACKAGE = 'plant', obj_, z)
+}
+
 Patch___FF16__FF16_Env__time__get <- function(obj_) {
     .Call('_plant_Patch___FF16__FF16_Env__time__get', PACKAGE = 'plant', obj_)
 }
@@ -2243,6 +2247,10 @@ Patch___TF24__TF24_Env__survival_weighting_icdf <- function(obj_, prob) {
 
 Patch___TF24__TF24_Env__compute_competition <- function(obj_, height) {
     .Call('_plant_Patch___TF24__TF24_Env__compute_competition', PACKAGE = 'plant', obj_, height)
+}
+
+Patch___TF24__TF24_Env__compute_competition_and_slope <- function(obj_, z) {
+    .Call('_plant_Patch___TF24__TF24_Env__compute_competition_and_slope', PACKAGE = 'plant', obj_, z)
 }
 
 Patch___TF24__TF24_Env__time__get <- function(obj_) {
@@ -2365,6 +2373,10 @@ Patch___TF24f__TF24_Env__compute_competition <- function(obj_, height) {
     .Call('_plant_Patch___TF24f__TF24_Env__compute_competition', PACKAGE = 'plant', obj_, height)
 }
 
+Patch___TF24f__TF24_Env__compute_competition_and_slope <- function(obj_, z) {
+    .Call('_plant_Patch___TF24f__TF24_Env__compute_competition_and_slope', PACKAGE = 'plant', obj_, z)
+}
+
 Patch___TF24f__TF24_Env__time__get <- function(obj_) {
     .Call('_plant_Patch___TF24f__TF24_Env__time__get', PACKAGE = 'plant', obj_)
 }
@@ -2483,6 +2495,10 @@ Patch___K93__K93_Env__survival_weighting_icdf <- function(obj_, prob) {
 
 Patch___K93__K93_Env__compute_competition <- function(obj_, height) {
     .Call('_plant_Patch___K93__K93_Env__compute_competition', PACKAGE = 'plant', obj_, height)
+}
+
+Patch___K93__K93_Env__compute_competition_and_slope <- function(obj_, z) {
+    .Call('_plant_Patch___K93__K93_Env__compute_competition_and_slope', PACKAGE = 'plant', obj_, z)
 }
 
 Patch___K93__K93_Env__time__get <- function(obj_) {

@@ -693,6 +693,10 @@ Patch:
     survival_weighting_cdf: {return_type: double, args: [time: double], name_cpp: r_survival_weighting_cdf}
     survival_weighting_icdf: {return_type: double, args: [prob: double], name_cpp: r_survival_weighting_icdf}
     compute_competition: {return_type: double, args: [height: double]}
+    compute_competition_and_slope:
+      return_type: "std::vector<double>"
+      args: [z: double]
+      name_cpp: r_compute_competition_and_slope
 
 SCM:
   name_cpp: "plant::SCM<T,E>"

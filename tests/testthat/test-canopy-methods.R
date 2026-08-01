@@ -326,3 +326,108 @@ test_that("TF24 shading models agree under uniform light", {
     expect_equal(tf24_prod("deep-crown", E), ref, tolerance = 1e-8)
   }
 })
+
+# A multi-cohort FF16 patch at a given eta, with the cohort heights pushed apart
+# so the trapezium grid the competition reduction walks is non-degenerate.
+slope_patch <- function(eta, n = 6) {
+  s <- FF16_Strategy()
+  s$pars$eta <- eta
+  s$birth_rate_y <- 1
+  s$is_variable_birth_rate <- FALSE
+  p <- Parameters("FF16", "FF16_Env")(strategies = list(s),
+                                      patch_type = "meta-population")
+  patch <- Patch("FF16", "FF16_Env")(p, Environment("FF16"), Control())
+  for (i in seq_len(n)) {
+    patch$introduce_new_node(1)
+    y <- patch$ode_state
+    y[1] <- y[1] + 0.7 * i
+    patch$set_ode_state(y, i * 1.0)
+  }
+  patch
+}
+
+# Both the eta-specialised multiplication chains (1, 2, 4, 8, 10, 12) and the
+# general std::pow path, which are different code in CanopyShape.
+slope_etas <- c(1, 2, 4, 8, 10, 12, 7.3)
+
+test_that("the slope reduction is the vertical derivative of the value reduction", {
+  for (eta in slope_etas) {
+    patch <- slope_patch(eta)
+    hmax <- patch$height_max
+    z <- seq(0.05 * hmax, 0.95 * hmax, length.out = 25)
+    h <- 1e-6 * hmax
+    got <- vapply(z, function(zz) patch$compute_competition_and_slope(zz)[2], 0)
+    fd <- vapply(z, function(zz) {
+      (patch$compute_competition(zz + h) - patch$compute_competition(zz - h)) / (2 * h)
+    }, 0)
+    expect_equal(got, fd, tolerance = 1e-8,
+                 info = sprintf("eta = %g", eta))
+  }
+})
+
+test_that("the fused value is the value reduction bit for bit", {
+  # Not a tolerance: a value and a slope from sums that associate differently
+  # disagree in their last bits, and equality here is what rules that out.
+  for (eta in slope_etas) {
+    patch <- slope_patch(eta)
+    z <- seq(0, 1.2 * patch$height_max, length.out = 200)
+    fused <- vapply(z, function(zz) patch$compute_competition_and_slope(zz)[1], 0)
+    plain <- vapply(z, function(zz) patch$compute_competition(zz), 0)
+    expect_true(identical(fused, plain), info = sprintf("eta = %g", eta))
+  }
+})
+
+test_that("the fused value tracks the association the value reduction uses", {
+  # Three species, so the patch-level sum has three terms and its association is
+  # observable at double precision -- which is what makes the check above a check.
+  mk <- function(eta) {
+    s <- FF16_Strategy(); s$pars$eta <- eta
+    s$birth_rate_y <- 1; s$is_variable_birth_rate <- FALSE
+    s
+  }
+  p <- Parameters("FF16", "FF16_Env")(strategies = list(mk(12), mk(4), mk(7.3)),
+                                      patch_type = "meta-population")
+  patch <- Patch("FF16", "FF16_Env")(p, Environment("FF16"), Control())
+  n1 <- Node("FF16", "FF16_Env")(p$strategies[[1]])$ode_size
+  for (i in 1:5) {
+    for (k in 1:3) patch$introduce_new_node(k)
+    y <- patch$ode_state
+    y[1]          <- y[1] + 0.70 * i
+    y[1 + n1]     <- y[1 + n1] + 0.31 * i
+    y[1 + 2 * n1] <- y[1 + 2 * n1] + 0.53 * i
+    patch$set_ode_state(y, i * 1.0)
+  }
+  area <- patch$get_area
+  z <- seq(0, 1.2 * patch$height_max, length.out = 400)
+  fused <- vapply(z, function(zz) patch$compute_competition_and_slope(zz)[1], 0)
+  f <- lapply(1:3, function(k)
+    vapply(z, function(zz) patch$species[[k]]$compute_competition(zz), 0) / area)
+  expect_true(identical(fused, (f[[1]] + f[[2]]) + f[[3]]))
+  expect_false(identical(fused, f[[1]] + (f[[2]] + f[[3]])))
+})
+
+test_that("the slope reduction is finite at the ground knot", {
+  # q(z, H) is 0 / 0 at z = 0 for every H, and z = 0 is the light field's lowest
+  # query, so the limit has to be taken rather than evaluated.
+  for (eta in slope_etas) {
+    fs <- slope_patch(eta)$compute_competition_and_slope(0)
+    expect_true(all(is.finite(fs)), info = sprintf("eta = %g", eta))
+  }
+})
+
+test_that("the vertical slope is refused for the box shading models", {
+  for (m in c("flat-top-box", "flat-top-soft-box")) {
+    s <- FF16_Strategy()
+    s$birth_rate_y <- 1
+    s$is_variable_birth_rate <- FALSE
+    p <- Parameters("FF16", "FF16_Env")(strategies = list(s),
+                                        patch_type = "meta-population")
+    # The Patch overwrites every strategy's control with its own, so the shading
+    # model has to be set on the Control the Patch is given.
+    ctrl <- Control()
+    ctrl$shading_model <- m
+    patch <- Patch("FF16", "FF16_Env")(p, Environment("FF16"), ctrl)
+    patch$introduce_new_node(1)
+    expect_error(patch$compute_competition_and_slope(0.1), "smooth Yokozawa")
+  }
+})

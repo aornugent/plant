@@ -399,6 +399,19 @@ public:
                                vars.aux(HEIGHT_INVERSE_AUX_INDEX));
   }
 
+  // The competition contribution and its vertical derivative from one pass, so
+  // u^eta is evaluated once. The first entry is bit-for-bit the one
+  // compute_competition() returns.
+  std::pair<double, double>
+  compute_competition_and_slope(double z, const Internals<double>& vars) const {
+    const double area_leaf_ = vars.aux(COMPETITION_EFFECT_AUX_INDEX);
+    const double height_inverse = vars.aux(HEIGHT_INVERSE_AUX_INDEX);
+    const double scale = pars.k_I * area_leaf_;
+    const std::pair<double, double> Qq =
+      canopy_shape.Q_and_q(z * height_inverse, z, height_inverse);
+    return {scale * Qq.first, -(scale * Qq.second)};
+  }
+
   // [      ] Inverse of Q: height above which fraction 'x' of leaf found
   double Qp(double x, double height) const;
 

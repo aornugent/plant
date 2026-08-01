@@ -6,6 +6,7 @@
 #include <string>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 #include <odelia/ode_util.hpp>
 
 namespace plant {
@@ -119,6 +120,7 @@ public:
     eta_inverse_ = 1.0 / eta;
     eta_c_ = eta_c(eta);
     pow_eta_ = select_pow_eta(eta);
+    shading_model_ = shading_model;
     // Most models cast shade via the smooth Yokozawa Q (leaf_area_above == Q).
     // FlatTopBox collapses it to a hard step; FlatTopSoftBox to a smoothed step.
     switch (shading_model) {
@@ -152,6 +154,33 @@ public:
       return eta_ == 1.0 ? S(2.0) / height : S(0.0);
     }
     return q(z / height, z);
+  }
+
+  // Q(u) and q(z, H) from the single u^eta both need, where u = z / H and
+  // height_inverse = 1 / H. q is exactly -dQ/dz, so the second entry is the
+  // negative vertical derivative of the first. The Q returned is bit-for-bit the
+  // one Q() returns, which is what lets a fused reduction match the value one.
+  //
+  // Defined only for the smooth Yokozawa profile: the box shading models put a
+  // different leaf_area_above in the value path, and q is not its derivative.
+  std::pair<S, S> Q_and_q(S z_over_height, S z, S height_inverse) const {
+    if (shading_model_ == ShadingModel::FlatTopBox ||
+        shading_model_ == ShadingModel::FlatTopSoftBox) {
+      throw std::runtime_error("Vertical canopy slope is defined only for the "
+                               "smooth Yokozawa profile");
+    }
+    if (z_over_height > 1.0) {
+      return {S(0.0), S(0.0)};
+    }
+    if (z <= 0.0) {
+      // The 1 / z below is 0 / 0 at the crown base, so take the limit: 0 for
+      // every eta above 1 and 2 / H at eta = 1. The light field's lowest knot
+      // asks for exactly this, and the crown integral never does.
+      return {Q(z_over_height), eta_ == 1.0 ? 2.0 * height_inverse : S(0.0)};
+    }
+    const S u_eta = pow_eta(z_over_height);
+    const S tmp = 1.0 - u_eta;
+    return {tmp * tmp, 2.0 * eta_ * tmp * u_eta / z};
   }
 
   S Q(S z_over_height) const {
@@ -286,6 +315,9 @@ private:
   S eta_c_;
   pow_eta_fn pow_eta_;
   leaf_above_fn leaf_above_;
+  // Which shape leaf_area_above() is casting. Q_and_q() reads it to refuse the
+  // box profiles, whose derivative is not q.
+  ShadingModel shading_model_ = ShadingModel::DeepCrown;
 };
 
 }

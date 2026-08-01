@@ -7,6 +7,7 @@
 #include <vector>
 #include <plant/internals.h>
 #include <plant/uniroot.h>
+#include <utility> // std::pair
 
 
 namespace plant {
@@ -70,6 +71,12 @@ public:
 
   double compute_competition(double z) const {
     return strategy->compute_competition(z, vars);
+  }
+
+  // The competition contribution and its vertical derivative, from the one pass
+  // the strategy makes. The first entry equals compute_competition(z) exactly.
+  std::pair<double, double> compute_competition_and_slope(double z) const {
+    return strategy->compute_competition_and_slope(z, vars);
   }
 
   // Seed strategy-specific initial ODE states (e.g. an acclimating tracked
