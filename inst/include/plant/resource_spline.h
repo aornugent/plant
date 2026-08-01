@@ -4,7 +4,6 @@
 #define PLANT_PLANT_RESOURCE_SPLINE_H_
 
 #include <odelia/interpolator.hpp>
-#include <plant/adaptive_interpolator.h>
 #include <odelia/ode_interface.hpp>
 #include <plant/util.h>
 #include <algorithm> // std::max, for the resource-availability floor (#253)
@@ -13,14 +12,16 @@ using namespace Rcpp;
 
 namespace plant {
 
-// Templated on the scalar S the resource values carry; the knot positions and
-// the refinement tolerances stay double. S = double is production.
+// Templated on the scalar S the resource values carry; the knot positions stay
+// double. S = double is production.
 template <typename S = double>
 class ResourceSpline {
 public:
   using value_type = S;
 
-  // Constructors
+  // Constructors. The refinement arguments no longer select anything: the knot
+  // positions are the fixed fractions times height_max. They are still taken
+  // because the R constructor and the model environments pass them.
   ResourceSpline() {
     setup(1e-6, 17, 16, false);
   }
@@ -29,11 +30,7 @@ public:
     setup(tol, nbase, max_depth, rescale_usually);
   }
 
-  void setup(double tol, size_t nbase, size_t max_depth, bool rescale_usually) {
-
-    // Initialise adaptive interpolator. This object can create an interpolator spline
-    spline_construction =
-        interpolator::AdaptiveInterpolator(tol, tol, nbase, max_depth);
+  void setup(double, size_t, size_t, bool) {
     // Uniform, and fixed for the run: every build places its knots at
     // u_k * height_max, so the positions and the count depend on height_max and
     // on nothing else in the state. 1/64 is exact, so u_k is too.
@@ -41,12 +38,10 @@ public:
 
     // A field to answer queries with until the first build.
     set_fixed_value(S(1.0), S(1.0));
-
-    spline_rescale_usually = rescale_usually;
   };
 
   template <typename Function>
-  void compute_environment(Function f_compute_competition, S height_max, bool rescale) {
+  void compute_environment(Function f_compute_competition, S height_max, bool) {
     rebuild_spline(f_compute_competition, height_max);
   };
 
@@ -110,16 +105,10 @@ public:
   // resource availability as a function of size
   odelia::interpolator::basic_interpolator<S> spline;
 
-  // This object can create an interpolator spline via adaptive refinement
-  interpolator::AdaptiveInterpolator spline_construction;
-
   // Knot positions in units of the canopy top, u_k = x_k / height_max, uniform and
   // fixed for the run. Nothing may reassign them: a rebuild places knots at
   // u_k * height_max, and that is what makes the positions run-constant.
   std::vector<double> knot_fractions_;
-
-  // flag, do we try to rescale the spline when possible? this is quicker
-  bool spline_rescale_usually;
 
   Rcpp::NumericMatrix r_get_state() const
   {
