@@ -4340,12 +4340,8 @@ void ResourceSpline__clear(plant::RcppR6::RcppR6<plant::ResourceSpline<double> >
   obj_->clear();
 }
 // [[Rcpp::export]]
-odelia::interpolator::Interpolator ResourceSpline__spline__get(plant::RcppR6::RcppR6<plant::ResourceSpline<double> > obj_) {
-  return obj_->spline;
-}
-// [[Rcpp::export]]
-void ResourceSpline__spline__set(plant::RcppR6::RcppR6<plant::ResourceSpline<double> > obj_, odelia::interpolator::Interpolator value) {
-  obj_->spline = value;
+Rcpp::NumericMatrix ResourceSpline__state__get(plant::RcppR6::RcppR6<plant::ResourceSpline<double> > obj_) {
+  return obj_->r_get_state();
 }
 
 

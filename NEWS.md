@@ -7,6 +7,25 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **The light field is a cubic Hermite, so its R-facing state carries a slope
+  and `ResourceSpline$spline` is gone.** The field holds a value *and* a vertical
+  derivative at each knot, and the slope a caller reads is the exact derivative
+  of the value it reads. Migration —
+  * `env$light_availability$spline$x` -> `env$light_availability$state[, "height"]`
+  * `env$light_availability$spline$y` -> `env$light_availability$state[, "light_availability"]`
+  * `env$light_availability$spline <- <an Interpolator>` — no replacement. The
+    field is built from a competition profile and its derivative, and cannot be
+    handed an interpolant fitted to values alone.
+  * `Patch$set_state`'s light-environment argument is the heights, then the
+    values, then the slopes: three entries per knot rather than two.
+  * `Environment$state$light_availability` gains a third column, `slope`.
+
+  The evaluator changes, so light values move at about the fitting tolerance and
+  stored SCM output does not reproduce bit-for-bit. The FF16 and K93
+  `flat-top-box` and `flat-top-soft-box` shading models no longer run: their
+  competition profile has no derivative the field can use, so the build raises
+  rather than carrying a wrong slope.
+
 * **`Control$GSS_tol_abs`'s default changed, so an unchanged call returns
   different numbers.** Migration — the default `GSS_tol_abs = 1e-3` -> the
   default `GSS_tol_abs = 1e-1`; pass `GSS_tol_abs = 1e-3` explicitly to keep the
