@@ -113,10 +113,11 @@ public:
 
   individual_type individual;
 
-private:
-  // This is the gradient of growth rate with respect to height:
+  // dg/dh, finite-differenced on a sub-grid probe. Species::compute_rates reads
+  // it in its second pass, after every node's own rates exist.
   double growth_rate_gradient(const environment_type& environment) const;
 
+private:
   double log_density;
   double log_density_dt;
   double density; // hmm...
@@ -146,11 +147,10 @@ void Node<T,E>::compute_rates(const environment_type& environment,
                                 double pr_patch_survival) {
   individual.compute_rates(environment);
 
-  // NOTE: This must be called *after* compute_rates, but given we
-  // need mortality_dt() that's always going to be the case.
-  log_density_dt =
-    - growth_rate_gradient(environment)
-    - individual.rate(MORTALITY_INDEX);
+  // log_density_dt is not set here: it needs the transport term, which is a
+  // property of the node's place among its neighbours rather than of the node.
+  // Species::compute_rates writes it.
+
   // survival_individual: converts from the mean of the poisson process (on
   // [0,Inf)) to a probability (on [0,1]).
   double survival_individual = exp(-individual.state(MORTALITY_INDEX));
@@ -182,6 +182,11 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   // the initialised operating point rather than a default.
   individual.set_initial_states(environment);
   compute_rates(environment, pr_patch_survival);
+  // The inflow boundary node is rated outside any Species pass, so it writes its
+  // own transport term here.
+  log_density_dt =
+    - growth_rate_gradient(environment)
+    - individual.rate(MORTALITY_INDEX);
 
   const double pr_estab =
     individual.establishment_probability_of_newborn(environment);

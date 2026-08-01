@@ -547,6 +547,13 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   // it -- so the two are the same function at different arguments rather than one
   // computed twice. This value is the one an introduced node inherits.
   new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+  // Second pass: the transport term, which is a property of a node's place among
+  // its neighbours. Every node's own rates, and the boundary node's, exist by
+  // here.
+  for (std::size_t i = 0; i < nodes.size(); ++i) {
+    nodes[i].set_log_density_rate(- nodes[i].growth_rate_gradient(environment)
+                                  - nodes[i].mortality_rate());
+  }
   if (internals::transport_census_active()) {
     // The sub-grid value is recovered from the rate each node has just written,
     // log_density_dt = -growth_rate_gradient - mortality, so the census adds no
