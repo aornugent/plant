@@ -129,7 +129,7 @@ public:
     dz.resize(soil_number_of_depths);
     // positive downwards
     water_flux.resize(soil_number_of_depths);
-    resource_uptake.assign(soil_number_of_depths, 0.0);
+    resize_resource_uptake();
 
     delta_z = depth / soil_number_of_depths;
 
