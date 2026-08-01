@@ -890,9 +890,9 @@ void Patch<T,E>::compute_rates() {
 
 }
 
-// TODO(#478): We should only be recomputing the light environment for the
-// points that are below the height of the seedling -- not the entire
-// light environment; probably worth just doing a rescale there?
+// The whole light environment is rebuilt here, where only the knots below the
+// seedling's height change. The knot fractions are fixed, so a narrower rebuild
+// would write a subrange of the same positions.
 template <typename T, typename E>
 void Patch<T,E>::introduce_new_node(size_t species_index) {
   

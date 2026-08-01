@@ -643,8 +643,6 @@ Species<T,E>::compute_competition_and_slope_unordered(double height,
   return {tot / 2, tot_slope / 2};
 }
 
-// NOTE: We should probably prefer to rescale when this is called
-// through the ode stepper.
 template <typename T, typename E>
 void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival, double birth_rate) {
   for (auto& c : nodes) {
