@@ -8,8 +8,9 @@
 //     -I$(odelia include) -isystem inst/include -DNDEBUG \
 //     scripts/tf24-active-probe.cpp
 //
-// At plant p1/phase-1 against odelia p1/odelia-integration: 41 errors at 33 sites,
-// in the six groups implementation-notes.md records.
+// 24 errors: 17 in the DeepCrown branch's double accumulators, 2 at the untemplated
+// quadrature::QK, 1 at util::is_finite(double), 1 conversion in the consumption-rate
+// funnel, and 3 named static assertions at the Leaf boundary and height_seed().
 
 #include <plant/models/tf24_strategy.h>
 #include <plant/individual_runner.h>

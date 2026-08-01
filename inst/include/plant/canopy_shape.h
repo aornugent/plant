@@ -218,8 +218,8 @@ private:
   typedef S (*leaf_above_fn)(const CanopyShape&, S);
 
   // u^eta. On double the multiplication chain selected in initialise(); on an
-  // active scalar std::pow, whose recorded eta derivative u^eta * log(u) the
-  // chain does not carry. That derivative is 0 * (-inf) -- a NaN -- at u = 0,
+  // active scalar the library pow, whose recorded eta derivative u^eta * log(u)
+  // the chain does not carry. That derivative is 0 * (-inf) -- a NaN -- at u = 0,
   // where the profile's value is 0, so the guard returns 0 there outright.
   S pow_eta(S u) const {
     if constexpr (std::is_same_v<S, double>) {
@@ -228,7 +228,8 @@ private:
       if (odelia::util::to_passive(u) <= 0.0) {
         return S(0.0);
       }
-      return std::pow(u, eta_);
+      using std::pow;
+      return pow(u, eta_);
     }
   }
 
@@ -294,7 +295,8 @@ private:
   }
 
   static S pow_eta_general(S u, S eta) {
-    return std::pow(u, eta);
+    using std::pow;
+    return pow(u, eta);
   }
 
   static S pow_eta_1(S u, S) {
