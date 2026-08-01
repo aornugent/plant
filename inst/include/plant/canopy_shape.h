@@ -161,13 +161,17 @@ public:
   // negative vertical derivative of the first. The Q returned is bit-for-bit the
   // one Q() returns, which is what lets a fused reduction match the value one.
   //
-  // Defined only for the smooth Yokozawa profile: the box shading models put a
-  // different leaf_area_above in the value path, and q is not its derivative.
+  // FlatTopSoftBox carries its own smoothstep derivative, below. FlatTopBox is a
+  // hard step, so its slope is a point mass with no finite value to return -- and
+  // that model already cannot build a light environment at all.
   std::pair<S, S> Q_and_q(S z_over_height, S z, S height_inverse) const {
-    if (shading_model_ == ShadingModel::FlatTopBox ||
-        shading_model_ == ShadingModel::FlatTopSoftBox) {
-      throw std::runtime_error("Vertical canopy slope is defined only for the "
-                               "smooth Yokozawa profile");
+    if (shading_model_ == ShadingModel::FlatTopBox) {
+      throw std::runtime_error("The flat-top-box competition profile is a step, "
+                               "so it has no vertical slope and no light "
+                               "environment can be built from it");
+    }
+    if (shading_model_ == ShadingModel::FlatTopSoftBox) {
+      return Q_and_q_softbox(z_over_height, height_inverse);
     }
     if (z_over_height > 1.0) {
       return {S(0.0), S(0.0)};
@@ -253,6 +257,22 @@ private:
     }
     const S t = (z_over_height - lo) / (1.0 - lo);
     return 1.0 - t * t * (3.0 - 2.0 * t);
+  }
+
+  // The smoothstep above and its exact negative vertical derivative, from one
+  // evaluation of t. d/dt of 1 - t^2(3 - 2t) is -6t(1 - t), so q = -dQ/dz is
+  // 6t(1 - t) / ((1 - lo) H), and it vanishes at both ends of the transition.
+  std::pair<S, S> Q_and_q_softbox(S z_over_height, S height_inverse) const {
+    const S lo = eta_c_ > 0.5 ? 2.0 * eta_c_ - 1.0 : S(0.0);
+    if (z_over_height <= lo) {
+      return {S(1.0), S(0.0)};
+    }
+    if (z_over_height >= 1.0) {
+      return {S(0.0), S(0.0)};
+    }
+    const S t = (z_over_height - lo) / (1.0 - lo);
+    return {1.0 - t * t * (3.0 - 2.0 * t),
+            6.0 * t * (1.0 - t) * height_inverse / (1.0 - lo)};
   }
 
   static pow_eta_fn select_pow_eta(S eta) {
