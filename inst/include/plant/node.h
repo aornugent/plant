@@ -29,6 +29,9 @@ public:
 
   double height() const {return individual.state(HEIGHT_INDEX);}
   double compute_competition(double z) const;
+  // The node's competition contribution and its vertical derivative, both
+  // weighted by density. The first entry equals compute_competition(z) exactly.
+  std::pair<double, double> compute_competition_and_slope(double z) const;
   double fecundity() const {return offspring_produced_survival_weighted;}
 
   // The two rates the transport term is built from, and the write for its
@@ -234,6 +237,14 @@ double Node<T,E>::r_growth_rate_gradient(const environment_type& environment) {
 template <typename T, typename E>
 double Node<T,E>::compute_competition(double height_) const {
   return density * individual.compute_competition(height_);
+}
+
+template <typename T, typename E>
+std::pair<double, double>
+Node<T,E>::compute_competition_and_slope(double height_) const {
+  const std::pair<double, double> fs =
+    individual.compute_competition_and_slope(height_);
+  return {density * fs.first, density * fs.second};
 }
 
 // ODE interface -- note that the don't care about time in the node;

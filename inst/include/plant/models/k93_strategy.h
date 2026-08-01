@@ -117,6 +117,19 @@ public:
                                vars.aux(HEIGHT_INVERSE_AUX_INDEX));
   }
 
+  // The competition contribution and its vertical derivative from one pass, so
+  // u^eta is evaluated once. The first entry is bit-for-bit the one
+  // compute_competition() returns.
+  std::pair<double, double>
+  compute_competition_and_slope(double z, const Internals<double>& vars) const {
+    const double whole_plant_competition = vars.aux(COMPETITION_EFFECT_AUX_INDEX);
+    const double height_inverse = vars.aux(HEIGHT_INVERSE_AUX_INDEX);
+    const std::pair<double, double> Qq =
+      canopy_shape.Q_and_q(z * height_inverse, z, height_inverse);
+    return {whole_plant_competition * Qq.first,
+            -(whole_plant_competition * Qq.second)};
+  }
+
   void update_dependent_aux(const int index, Internals<double>& vars);
 
 

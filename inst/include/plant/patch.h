@@ -45,6 +45,15 @@ public:
 
   double compute_competition(double height) const;
 
+  // The competition profile and its vertical derivative at z, from one pass over
+  // the species. The first entry equals compute_competition(z) bit for bit.
+  std::pair<double, double> compute_competition_and_slope(double z) const;
+  // The same pair for R, which takes only doubles: value first, then slope.
+  std::vector<double> r_compute_competition_and_slope(double z) const {
+    const std::pair<double, double> fs = compute_competition_and_slope(z);
+    return {fs.first, fs.second};
+  }
+
   // Describe the size distribution around `height`, for error messages. The
   // light spline is built from the cohort heights, so when its refinement fails
   // the useful thing to report is what the cohorts are doing there.
@@ -480,6 +489,21 @@ double Patch<T,E>::compute_competition(double height) const {
     }
   }
   return tot;
+}
+
+template <typename T, typename E>
+std::pair<double, double>
+Patch<T,E>::compute_competition_and_slope(double z) const {
+  double tot = 0.0, tot_slope = 0.0;
+  for (size_t i = 0; i < species.size(); ++i) {
+    if (!is_mutant_run) {
+      const std::pair<double, double> fs =
+        species[i].compute_competition_and_slope(z);
+      tot       += fs.first / area;
+      tot_slope += fs.second / area;
+    }
+  }
+  return {tot, tot_slope};
 }
 
 template <typename T, typename E>
