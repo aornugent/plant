@@ -11,6 +11,7 @@
 #include <odelia/ode_interface.hpp>
 #include <plant/node.h>
 #include <plant/species_base.h>
+#include <plant/transport_split_census.h>
 #include <odelia/drivers.hpp>
 
 namespace plant {
@@ -555,8 +556,15 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   // its neighbours. Every node's own rates, and the boundary node's, exist by
   // here.
   for (std::size_t i = 0; i < nodes.size(); ++i) {
-    nodes[i].set_log_density_rate(- growth_rate_gradient(i)
-                                  - nodes[i].mortality_rate());
+    const double gradient = growth_rate_gradient(i);
+    if (internals::split_census_active()) {
+      const node_type& below = i + 1 < size() ? nodes[i + 1] : new_node;
+      internals::the_split_census().add(
+          i + 1 == size(), environment.time, nodes[i].height(),
+          nodes[i].height() - below.height(), nodes[i].growth_rate(),
+          below.growth_rate(), gradient);
+    }
+    nodes[i].set_log_density_rate(- gradient - nodes[i].mortality_rate());
   }
 }
 
