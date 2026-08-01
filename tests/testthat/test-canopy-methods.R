@@ -326,3 +326,47 @@ test_that("TF24 shading models agree under uniform light", {
     expect_equal(tf24_prod("deep-crown", E), ref, tolerance = 1e-8)
   }
 })
+
+test_that("the light interpolant's knot positions are run-constant", {
+  # The field is held on u = z / height_max at uniform fractions fixed for the
+  # run, so every build places its knots at u_k * height_max: the count is the
+  # same at every stage and the positions are a function of height_max alone.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 8
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  scm$collect <- TRUE
+  scm$run()
+
+  u <- seq(0, 1, length.out = 65)
+  expect_gt(length(scm$history), 20)
+  for (h in scm$history) {
+    x <- h$environment$light_availability$spline$x
+    expect_identical(x, u * h$height_max)
+  }
+})
+
+test_that("the light interpolant is a function of the state, not of the build before it", {
+  # Reaching a state by running to it and by setting it directly must give the
+  # same field, bitwise: nothing carries over from the previous build.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 8
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  scm$run()
+
+  ran <- scm$patch
+  n <- vapply(ran$species, function(s) s$size, 0.0)
+  y <- ran$ode_state
+  t <- ran$ode_time
+  ran$set_ode_state(y, t)
+
+  fresh <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  fresh$set_state(t, y, n, c(0, 0.5, 1, 1, 1, 1))
+  fresh$set_ode_state(y, t)
+
+  expect_identical(fresh$environment$light_availability$spline$x,
+                   ran$environment$light_availability$spline$x)
+  expect_identical(fresh$environment$light_availability$spline$y,
+                   ran$environment$light_availability$spline$y)
+})
