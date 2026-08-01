@@ -10778,6 +10778,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ResourceSpline__init_interpolators
+void ResourceSpline__init_interpolators(plant::RcppR6::RcppR6<plant::ResourceSpline<double> > obj_, std::vector<double> state);
+RcppExport SEXP _plant_ResourceSpline__init_interpolators(SEXP obj_SEXP, SEXP stateSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::ResourceSpline<double> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type state(stateSEXP);
+    ResourceSpline__init_interpolators(obj_, state);
+    return R_NilValue;
+END_RCPP
+}
 // ResourceSpline__clear
 void ResourceSpline__clear(plant::RcppR6::RcppR6<plant::ResourceSpline<double> > obj_);
 RcppExport SEXP _plant_ResourceSpline__clear(SEXP obj_SEXP) {
@@ -13172,6 +13183,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__set", (DL_FUNC) &_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__set, 2},
     {"_plant_ResourceSpline__ctor", (DL_FUNC) &_plant_ResourceSpline__ctor, 4},
     {"_plant_ResourceSpline__get_value_at_height", (DL_FUNC) &_plant_ResourceSpline__get_value_at_height, 2},
+    {"_plant_ResourceSpline__init_interpolators", (DL_FUNC) &_plant_ResourceSpline__init_interpolators, 2},
     {"_plant_ResourceSpline__clear", (DL_FUNC) &_plant_ResourceSpline__clear, 1},
     {"_plant_ResourceSpline__state__get", (DL_FUNC) &_plant_ResourceSpline__state__get, 1},
     {"_plant_Interpolator__ctor", (DL_FUNC) &_plant_Interpolator__ctor, 0},

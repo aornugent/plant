@@ -3829,6 +3829,10 @@ ResourceSpline__get_value_at_height <- function(obj_, height) {
     .Call('_plant_ResourceSpline__get_value_at_height', PACKAGE = 'plant', obj_, height)
 }
 
+ResourceSpline__init_interpolators <- function(obj_, state) {
+    invisible(.Call('_plant_ResourceSpline__init_interpolators', PACKAGE = 'plant', obj_, state))
+}
+
 ResourceSpline__clear <- function(obj_) {
     invisible(.Call('_plant_ResourceSpline__clear', PACKAGE = 'plant', obj_))
 }
