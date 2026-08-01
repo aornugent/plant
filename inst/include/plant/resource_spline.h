@@ -3,10 +3,11 @@
 #ifndef PLANT_PLANT_RESOURCE_SPLINE_H_
 #define PLANT_PLANT_RESOURCE_SPLINE_H_
 
-#include <odelia/interpolator.hpp>
+#include <odelia/hermite_interpolator.hpp>
 #include <odelia/ode_interface.hpp>
 #include <plant/util.h>
 #include <algorithm> // std::max, for the resource-availability floor (#253)
+#include <utility>   // std::pair, the value and slope a build supplies
 
 using namespace Rcpp;
 
@@ -40,16 +41,18 @@ public:
     set_fixed_value(S(1.0), S(1.0));
   };
 
+  // f returns the field's value and its vertical derivative at a height.
   template <typename Function>
-  void compute_environment(Function f_compute_competition, S height_max, bool) {
-    rebuild_spline(f_compute_competition, height_max);
+  void compute_environment(Function f_value_and_slope, S height_max, bool) {
+    rebuild_spline(f_value_and_slope, height_max);
   };
 
   void set_fixed_value(S value, S height_max) {
     std::vector<double> x = {0, height_max/2.0, height_max};
     std::vector<S> y = {value, value, value};
+    std::vector<S> m = {S(0.0), S(0.0), S(0.0)};
     clear();
-    spline.init(x, y);
+    spline.init(x, y, m);
   }
 
   void clear() {
@@ -74,76 +77,80 @@ public:
     // eval() to avoid re-running check_active()/bound checks per quadrature
     // point. Same underlying tk_spline(height) call.
     //
-    // Floor the result at 0 (#253): the cubic spline can undershoot below
-    // zero between knots (notably the K93 light spline at high k_I), which is
-    // non-physical for a resource availability. The clamp is a no-op for the
-    // usual positive case (so values stay bit-identical there) and only bites
-    // on the spurious negative undershoot. This is the single chokepoint for
-    // FF16/K93/TF24, and belongs here in plant rather than in the
-    // general-purpose interpolator (which is migrating to odelia).
+    // Floor the result at 0 (#253): an interpolated resource availability must
+    // not be negative. The clamp is a no-op for the usual positive case, so
+    // values stay bit-identical there. This is the single chokepoint for
+    // FF16/K93/TF24.
     return height <= cap ? std::max(S(0.0), spline(height)) : S(1.0);
   }
 
+  // The heights, then the values, then the slopes: the columns of r_get_state()
+  // laid end to end.
   virtual void r_init_interpolators(const std::vector<double>& state) {
-    // See issue #144; this is important as we have to at least refine
-    // the light environment, but doing this is better because it means
-    // that if rescale_usually is on we do get the same light
-    // environment as before.
-    if (state.size() % 2 != 0) {
-      util::stop("Expected even number of elements in light environment");
+    if (state.size() % 3 != 0) {
+      util::stop("Expected a height, a value and a slope for every knot");
     }
-    const size_t state_n = state.size() / 2;
+    const size_t state_n = state.size() / 3;
     auto it = state.begin();
-    std::vector<double> state_x;
-    std::vector<S> state_y;
-    std::copy_n(it,         state_n, std::back_inserter(state_x));
-    std::copy_n(it + state_n, state_n, std::back_inserter(state_y));
-    spline.init(state_x, state_y);
+    std::vector<double> state_x(it, it + state_n);
+    std::vector<S> state_y(it + state_n, it + 2 * state_n);
+    std::vector<S> state_m(it + 2 * state_n, state.end());
+    spline.init(state_x, state_y, state_m);
   }
 
-  // This object will store an interpolator spline of 
-  // resource availability as a function of size
-  odelia::interpolator::basic_interpolator<S> spline;
+  // Resource availability as a function of size, carrying a value and a slope at
+  // every knot: what a caller reads as the slope is the derivative of what it
+  // reads as the value.
+  odelia::interpolator::hermite_interpolator<S> spline;
 
   // Knot positions in units of the canopy top, u_k = x_k / height_max, uniform and
   // fixed for the run. Nothing may reassign them: a rebuild places knots at
   // u_k * height_max, and that is what makes the positions run-constant.
   std::vector<double> knot_fractions_;
 
+  // Knot heights, values and slopes, read back out of the spline that holds them.
   Rcpp::NumericMatrix r_get_state() const
   {
-
-    // format spline as Matrix
-    std::vector<std::vector<double>> xy;
-    xy.push_back(spline.get_x());
-    xy.push_back(spline.get_y());
-
-    const size_t n = xy.size();
-    Rcpp::NumericMatrix ret(static_cast<int>(xy.begin()->size()),
-                            static_cast<int>(n));
-    Rcpp::NumericMatrix::iterator it = ret.begin();
-    for (size_t i = 0; i < n; ++i)
-    {
-      it = std::copy(xy[i].begin(), xy[i].end(), it);
+    const int n = spline.is_initialised()
+                    ? static_cast<int>(spline.size()) : 0;
+    Rcpp::NumericMatrix ret(n, 3);
+    for (int i = 0; i < n; ++i) {
+      const double x = spline.knots()[static_cast<size_t>(i)];
+      S value, slope;
+      spline.value_and_slope(x, value, slope);
+      ret(i, 0) = x;
+      ret(i, 1) = value;
+      ret(i, 2) = slope;
     }
-
-    // Add colnames
-    ret.attr("dimnames") = Rcpp::List::create(R_NilValue, Rcpp::CharacterVector::create("height", "light_availability"));
+    ret.attr("dimnames") = Rcpp::List::create(
+      R_NilValue,
+      Rcpp::CharacterVector::create("height", "light_availability", "slope"));
     return ret;
   }
 
 private:
 
-  // Refit at the held fractions. The first and last are exactly 0 and 1, so the
-  // rebuilt domain is exactly [0, height_max].
+  // Refill at the held fractions. The first and last are exactly 0 and 1, so the
+  // domain is exactly [0, height_max]. The positions are u_k * height_max and
+  // nothing else, so they are laid out again only when the canopy top moves;
+  // every build refreshes the values and slopes.
   template <typename Function>
-  void rebuild_spline(Function f_compute_competition, S height_max) {
-    spline.clear();
-    for (double u : knot_fractions_) {
-      const double x = u * height_max;
-      spline.add_point(x, f_compute_competition(x));
+  void rebuild_spline(Function f_value_and_slope, S height_max) {
+    if (spline.size() != knot_fractions_.size() || spline.max() != height_max) {
+      std::vector<double> x(knot_fractions_.size());
+      for (size_t k = 0; k < x.size(); ++k) {
+        x[k] = knot_fractions_[k] * height_max;
+      }
+      spline.set_nodes(x);
     }
-    spline.initialise();
+    const std::vector<double>& x = spline.knots();
+    std::vector<S> y(x.size()), m(x.size());
+    for (size_t k = 0; k < x.size(); ++k) {
+      const std::pair<S, S> vs = f_value_and_slope(x[k]);
+      y[k] = vs.first;
+      m[k] = vs.second;
+    }
+    spline.set_data(y, m);
   }
 
   // Chosen from the re-blessing tolerance: the crown-mean light shift against an
