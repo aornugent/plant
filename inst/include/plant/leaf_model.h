@@ -300,6 +300,15 @@ public:
 
   void E_from_Soil_to_Root_Collar(double P_x_r, const std::vector<double>& psi_soil);
   void find_root_collar_psi();
+  // Newton on dprofit_droot_collar_psi, taking the collar potential the bracket
+  // search returned to a stationary point of profit (positive magnitude, inside
+  // [bound_a, bound_b]). Returns the polished potential; the operating-point
+  // outputs are left at a probe point, so the caller must set them from the
+  // returned potential. Returns the potential unchanged when no Newton step fits
+  // inside the bracket: the operating point is then the bound, and profit is not
+  // stationary at a bound.
+  double polish_root_collar_psi(double opt_root_psi, double bound_a,
+                                double bound_b);
   // Shared setup for the root-collar solve: builds the soil-side caches, handles
   // every feasibility early-exit (shutdown / assim<0 / collapsed interval) by
   // setting the final operating point itself, and otherwise returns the feasible

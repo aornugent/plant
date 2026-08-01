@@ -1,6 +1,8 @@
 #include <plant/leaf_model.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <exception>
 #include <boost/math/special_functions/gamma.hpp>
@@ -844,7 +846,7 @@ void Leaf::find_root_collar_psi(){
     // point varies smoothly with plant height -- the demographic growth-rate
     // gradient relies on this. The objective maps a candidate collar potential
     // `bound` to its profit (find the stem psi it implies, then evaluate profit).
-    const double opt_root_psi = util::golden_section_max(
+    const double search_root_psi = util::golden_section_max(
         [&](double bound) {
           const double psi_stem =
               find_psi_stem_from_psi_root(-bound, psi_soil_inverted_);
@@ -852,6 +854,13 @@ void Leaf::find_root_collar_psi(){
         },
         bound_a, bound_b, GSS_tol_abs);
 
+    // The search stops at its bracket tolerance, where d(profit)/d(collar) is
+    // still of the bracket's size; Newton takes it to a stationary point.
+    const double opt_root_psi =
+        polish_root_collar_psi(search_root_psi, bound_a, bound_b);
+
+    // Every operating-point output is set from opt_root_psi below, so the probe
+    // points polish_root_collar_psi left behind are overwritten here.
     opt_psi_stem_ = find_psi_stem_from_psi_root(-opt_root_psi, psi_soil_inverted_);
 
     // store as the signed (negative) potential for a sign-consistent aux output;
@@ -868,6 +877,59 @@ void Leaf::find_root_collar_psi(){
              "; assim_colimited_=" + util::to_string(assim_colimited_) +
              "; hydraulic_cost_=" + util::to_string(hydraulic_cost_));
     }
+}
+
+// Newton on R = dprofit_droot_collar_psi (see header). The envelope relation the
+// reverse pass uses holds only where R is zero, and the bracket search returns a
+// point whose R is of the bracket's size.
+//
+// dR/d(collar) is a central difference of the analytic R. It is all double and it
+// enters only as the divisor of a step length, so its error shortens or lengthens
+// a step and does not move the point the steps converge to.
+//
+// Leaves the operating-point outputs at the last probe point of
+// dprofit_droot_collar_psi; the caller must set them from the returned potential.
+double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
+                                   double bound_b) {
+  const double h = 1e-6;          // step of the dR/d(collar) difference
+  const double R_tol = 1e-11;
+  const int max_iter = 5;
+
+  double psi = opt_root_psi;
+  int n_eval = 0;
+  for (int iter = 0; iter < max_iter; ++iter) {
+    const double R = dprofit_droot_collar_psi(psi);
+    ++n_eval;
+    if (!std::isfinite(R) || std::abs(R) <= R_tol) {
+      break;
+    }
+    // Every remaining step needs room inside the bracket. Running out of it is
+    // the pinned case: the maximum is the bound, profit is not stationary there,
+    // and the point the search returned is the answer.
+    if (psi - h <= bound_a || psi + h >= bound_b) {
+      break;
+    }
+    const double dR_dcollar = (dprofit_droot_collar_psi(psi + h) -
+                               dprofit_droot_collar_psi(psi - h)) / (2.0 * h);
+    n_eval += 2;
+    // Profit is concave at an interior maximum, so a non-negative curvature says
+    // this is not one and a Newton step would leave it.
+    if (!std::isfinite(dR_dcollar) || dR_dcollar >= 0.0) {
+      break;
+    }
+    const double psi_next = psi - R / dR_dcollar;
+    if (!std::isfinite(psi_next) || psi_next <= bound_a ||
+        psi_next >= bound_b) {
+      break;
+    }
+    psi = psi_next;
+  }
+
+  if (std::getenv("PLANT_POLISH_TRACE") != nullptr) {
+    std::fprintf(stderr, "polish_root_collar_psi: n_eval=%d displacement=%.3e\n",
+                 n_eval, psi - opt_root_psi);
+  }
+  return psi;
 }
 
 // Evaluate the operating point at a given collar potential rather than
