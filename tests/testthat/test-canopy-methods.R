@@ -341,7 +341,7 @@ test_that("the light interpolant's knot positions are run-constant", {
   u <- seq(0, 1, length.out = 65)
   expect_gt(length(scm$history), 20)
   for (h in scm$history) {
-    x <- h$environment$light_availability$spline$x
+    x <- h$environment$light_availability$state[, "height"]
     expect_identical(x, u * h$height_max)
   }
 })
@@ -362,13 +362,32 @@ test_that("the light interpolant is a function of the state, not of the build be
   ran$set_ode_state(y, t)
 
   fresh <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), Control())
-  fresh$set_state(t, y, n, c(0, 0.5, 1, 1, 1, 1))
+  fresh$set_state(t, y, n, c(0, 0.5, 1, 1, 1, 1, 0, 0, 0))
   fresh$set_ode_state(y, t)
 
-  expect_identical(fresh$environment$light_availability$spline$x,
-                   ran$environment$light_availability$spline$x)
-  expect_identical(fresh$environment$light_availability$spline$y,
-                   ran$environment$light_availability$spline$y)
+  expect_identical(fresh$environment$light_availability$state,
+                   ran$environment$light_availability$state)
+})
+
+test_that("the light field carries Beer's law and its derivative at every knot", {
+  # E = exp(-A) and dE/dz = -A' exp(-A), with A and A' the competition profile
+  # and its vertical derivative, so the slope a consumer reads at a knot is the
+  # derivative of the value it reads there.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 8
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  scm$run()
+  patch <- scm$patch
+
+  state <- patch$environment$light_availability$state
+  expect_identical(colnames(state), c("height", "light_availability", "slope"))
+  expect_equal(nrow(state), 65)
+
+  as <- vapply(state[, "height"], patch$compute_competition_and_slope, c(0, 0))
+  expect_equal(unname(state[, "light_availability"]), exp(-as[1, ]))
+  expect_equal(unname(state[, "slope"]), -as[2, ] * exp(-as[1, ]),
+               tolerance = 1e-14)
 })
 # A multi-cohort FF16 patch at a given eta, with the cohort heights pushed apart
 # so the trapezium grid the competition reduction walks is non-degenerate.
@@ -470,7 +489,8 @@ test_that("the vertical slope is refused for the box shading models", {
     ctrl <- Control()
     ctrl$shading_model <- m
     patch <- Patch("FF16", "FF16_Env")(p, Environment("FF16"), ctrl)
-    patch$introduce_new_node(1)
-    expect_error(patch$compute_competition_and_slope(0.1), "smooth Yokozawa")
+    # Introducing a node builds the light field, and the field now asks for a
+    # slope at every knot, so the refusal arrives at the introduction.
+    expect_error(patch$introduce_new_node(1), "smooth Yokozawa")
   }
 })

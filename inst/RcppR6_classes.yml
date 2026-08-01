@@ -996,7 +996,7 @@ ResourceSpline:
     clear:
       return_type: void
   active:
-    spline: {type: "odelia::interpolator::Interpolator", access: field}
+    state: {type: "Rcpp::NumericMatrix", access: member, name_cpp: r_get_state}
 
 Interpolator:
   name_cpp: "odelia::interpolator::Interpolator"

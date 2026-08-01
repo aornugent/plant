@@ -3933,12 +3933,8 @@ ResourceSpline__clear <- function(obj_) {
     invisible(.Call('_plant_ResourceSpline__clear', PACKAGE = 'plant', obj_))
 }
 
-ResourceSpline__spline__get <- function(obj_) {
-    .Call('_plant_ResourceSpline__spline__get', PACKAGE = 'plant', obj_)
-}
-
-ResourceSpline__spline__set <- function(obj_, value) {
-    invisible(.Call('_plant_ResourceSpline__spline__set', PACKAGE = 'plant', obj_, value))
+ResourceSpline__state__get <- function(obj_) {
+    .Call('_plant_ResourceSpline__state__get', PACKAGE = 'plant', obj_)
 }
 
 Interpolator__ctor <- function() {

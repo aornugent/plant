@@ -10788,26 +10788,15 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
-// ResourceSpline__spline__get
-odelia::interpolator::Interpolator ResourceSpline__spline__get(plant::RcppR6::RcppR6<plant::ResourceSpline<double> > obj_);
-RcppExport SEXP _plant_ResourceSpline__spline__get(SEXP obj_SEXP) {
+// ResourceSpline__state__get
+Rcpp::NumericMatrix ResourceSpline__state__get(plant::RcppR6::RcppR6<plant::ResourceSpline<double> > obj_);
+RcppExport SEXP _plant_ResourceSpline__state__get(SEXP obj_SEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::ResourceSpline<double> > >::type obj_(obj_SEXP);
-    rcpp_result_gen = Rcpp::wrap(ResourceSpline__spline__get(obj_));
+    rcpp_result_gen = Rcpp::wrap(ResourceSpline__state__get(obj_));
     return rcpp_result_gen;
-END_RCPP
-}
-// ResourceSpline__spline__set
-void ResourceSpline__spline__set(plant::RcppR6::RcppR6<plant::ResourceSpline<double> > obj_, odelia::interpolator::Interpolator value);
-RcppExport SEXP _plant_ResourceSpline__spline__set(SEXP obj_SEXP, SEXP valueSEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::ResourceSpline<double> > >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< odelia::interpolator::Interpolator >::type value(valueSEXP);
-    ResourceSpline__spline__set(obj_, value);
-    return R_NilValue;
 END_RCPP
 }
 // Interpolator__ctor
@@ -13184,8 +13173,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ResourceSpline__ctor", (DL_FUNC) &_plant_ResourceSpline__ctor, 4},
     {"_plant_ResourceSpline__get_value_at_height", (DL_FUNC) &_plant_ResourceSpline__get_value_at_height, 2},
     {"_plant_ResourceSpline__clear", (DL_FUNC) &_plant_ResourceSpline__clear, 1},
-    {"_plant_ResourceSpline__spline__get", (DL_FUNC) &_plant_ResourceSpline__spline__get, 1},
-    {"_plant_ResourceSpline__spline__set", (DL_FUNC) &_plant_ResourceSpline__spline__set, 2},
+    {"_plant_ResourceSpline__state__get", (DL_FUNC) &_plant_ResourceSpline__state__get, 1},
     {"_plant_Interpolator__ctor", (DL_FUNC) &_plant_Interpolator__ctor, 0},
     {"_plant_Interpolator__init", (DL_FUNC) &_plant_Interpolator__init, 3},
     {"_plant_Interpolator__eval", (DL_FUNC) &_plant_Interpolator__eval, 2},
