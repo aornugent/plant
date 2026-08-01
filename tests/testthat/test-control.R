@@ -29,7 +29,7 @@ test_that("Defaults", {
     schedule_eps      = 2e-2,
     schedule_verbose  = FALSE,
     
-    GSS_tol_abs = 1e-3,
+    GSS_tol_abs = 1e-1,
     vulnerability_curve_ncontrol = 1e2,
     ci_abs_tol = 1e-3,
     ci_niter = 1000

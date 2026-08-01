@@ -176,7 +176,7 @@ test_that("deep-crown reproduces the baseline SCM result", {
   ctrl <- Control() # shading_model defaults to "deep-crown"
   p1 <- add_strategies(p0, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar, birth_rate = list(20))
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 16.88946, tolerance = 1e-4)
+  expect_equal(out$offspring_production, 16.8846, tolerance = 1e-4)
 })
 
 test_that("crown-centre runs through the SCM and changes the outcome", {

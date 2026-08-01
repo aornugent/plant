@@ -290,7 +290,10 @@ test_that("Can create empty SCM", {
     env <- scm$patch$environment
     patch <- scm$patch
 
-    expect_equal(env$light_availability$spline$size, 0)
+    ## Clearing leaves the flat open field rather than no field: a query reads the
+    ## interpolant's bounds, so there has to be a domain to read.
+    expect_equal(nrow(env$light_availability$state), 3)
+    expect_equal(env$light_availability$state[, 2], rep(1, 3))
     expect_equal(env$get_environment_at_height(0), 1.0)
   }
 })
