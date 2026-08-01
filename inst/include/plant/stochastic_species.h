@@ -61,6 +61,9 @@ public:
 
   double height_max() const;
   double compute_competition(double height) const;
+  // The same sum and its vertical derivative, from one pass over the living
+  // individuals. The first entry equals compute_competition(height) bit for bit.
+  std::pair<double, double> compute_competition_and_slope(double height) const;
   void compute_rates(const E& environment);
   std::vector<double> net_reproduction_ratio_by_node() const;
 
@@ -189,6 +192,27 @@ double StochasticSpecies<T,E>::compute_competition(double height) const {
     }
   }
   return tot;
+}
+
+template <typename T, typename E>
+std::pair<double, double>
+StochasticSpecies<T,E>::compute_competition_and_slope(double height) const {
+  if (size() == 0 || height_max() < height) {
+    return {0.0, 0.0};
+  }
+  double tot = 0.0, tot_slope = 0.0;
+  for (auto& n : nodes) {
+    if (n.alive) {
+      if (n.height() > height) {
+        const std::pair<double, double> fs = n.compute_competition_and_slope(height);
+        tot       += fs.first;
+        tot_slope += fs.second;
+      } else {
+        break;
+      }
+    }
+  }
+  return {tot, tot_slope};
 }
 
 // NOTE: We should probably prefer to rescale when this is called

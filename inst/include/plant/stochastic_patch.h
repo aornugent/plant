@@ -34,6 +34,8 @@ public:
 
   // [eqn 11] Canopy openness at `height`
   double compute_competition(double height) const;
+  // That profile and its vertical derivative, from one pass over the species.
+  std::pair<double, double> compute_competition_and_slope(double height) const;
 
   bool introduce_new_node(size_t species_index);
   void introduce_new_node_and_update(size_t species_index);
@@ -131,9 +133,24 @@ double StochasticPatch<T,E>::compute_competition(double height) const {
 }
 
 template <typename T, typename E>
+std::pair<double, double>
+StochasticPatch<T,E>::compute_competition_and_slope(double height) const {
+  double tot = 0.0, tot_slope = 0.0;
+  for (size_t i = 0; i < species.size(); ++i) {
+    const std::pair<double, double> fs =
+      species[i].compute_competition_and_slope(height);
+    tot       += fs.first / area;
+    tot_slope += fs.second / area;
+  }
+  return {tot, tot_slope};
+}
+
+template <typename T, typename E>
 void StochasticPatch<T,E>::compute_environment(bool rescale) {
   if (height_max() > 0.0) {
-    auto f = [&] (double x) -> double {return compute_competition(x);};
+    auto f = [&] (double x) -> std::pair<double, double> {
+      return compute_competition_and_slope(x);
+    };
     environment.compute_environment(f, height_max(), rescale);
   } else {
     environment.clear_environment();
