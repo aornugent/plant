@@ -993,6 +993,10 @@ ResourceSpline:
     get_value_at_height:
       args: [height: double]
       return_type: double
+    init_interpolators:
+      args: [state: "std::vector<double>"]
+      return_type: void
+      name_cpp: r_init_interpolators
     clear:
       return_type: void
   active:

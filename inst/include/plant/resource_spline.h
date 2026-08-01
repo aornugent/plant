@@ -51,12 +51,14 @@ public:
     std::vector<double> x = {0, height_max/2.0, height_max};
     std::vector<S> y = {value, value, value};
     std::vector<S> m = {S(0.0), S(0.0), S(0.0)};
-    clear();
+    spline.clear();
     spline.init(x, y, m);
   }
 
+  // Restores the open field rather than leaving no field at all: every query
+  // reads the interpolant's bounds, and an emptied interpolant has none.
   void clear() {
-    spline.clear();
+    set_fixed_value(S(1.0), S(1.0));
   }
 
   // Highest height covered by the spline; above this get_value_at_height()

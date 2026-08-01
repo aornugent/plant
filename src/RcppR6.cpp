@@ -4336,6 +4336,10 @@ double ResourceSpline__get_value_at_height(plant::RcppR6::RcppR6<plant::Resource
   return obj_->get_value_at_height(height);
 }
 // [[Rcpp::export]]
+void ResourceSpline__init_interpolators(plant::RcppR6::RcppR6<plant::ResourceSpline<double> > obj_, std::vector<double> state) {
+  obj_->r_init_interpolators(state);
+}
+// [[Rcpp::export]]
 void ResourceSpline__clear(plant::RcppR6::RcppR6<plant::ResourceSpline<double> > obj_) {
   obj_->clear();
 }
