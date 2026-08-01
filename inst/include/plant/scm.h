@@ -328,6 +328,11 @@ void SCM<T, E>::run_mutant(parameters_type p) {
 
 template <typename T, typename E>
 std::vector<ode_step_record> SCM<T, E>::store_trajectory() {
+  // The stepper calls record_ode_step() only for a System it recognises as
+  // Replayable, so this is what makes the store's mechanism present rather than
+  // silently absent -- the four members are satisfied by name, not by declaration.
+  static_assert(odelia::ode::Replayable<patch_type>,
+                "Patch must satisfy Replayable or the stepper records nothing");
   patch.record_steps = true;
   run();
   patch.record_steps = false;
