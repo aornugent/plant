@@ -2181,6 +2181,10 @@ Patch___FF16__FF16_Env__set_ode_state <- function(obj_, values, time) {
     invisible(.Call('_plant_Patch___FF16__FF16_Env__set_ode_state', PACKAGE = 'plant', obj_, values, time))
 }
 
+Patch___FF16__FF16_Env__set_ode_aux <- function(obj_, values) {
+    invisible(.Call('_plant_Patch___FF16__FF16_Env__set_ode_aux', PACKAGE = 'plant', obj_, values))
+}
+
 Patch___FF16__FF16_Env__derivs <- function(obj_, y, time) {
     .Call('_plant_Patch___FF16__FF16_Env__derivs', PACKAGE = 'plant', obj_, y, time)
 }
@@ -2291,6 +2295,10 @@ Patch___TF24__TF24_Env__reset <- function(obj_) {
 
 Patch___TF24__TF24_Env__set_ode_state <- function(obj_, values, time) {
     invisible(.Call('_plant_Patch___TF24__TF24_Env__set_ode_state', PACKAGE = 'plant', obj_, values, time))
+}
+
+Patch___TF24__TF24_Env__set_ode_aux <- function(obj_, values) {
+    invisible(.Call('_plant_Patch___TF24__TF24_Env__set_ode_aux', PACKAGE = 'plant', obj_, values))
 }
 
 Patch___TF24__TF24_Env__derivs <- function(obj_, y, time) {
@@ -2405,6 +2413,10 @@ Patch___TF24f__TF24_Env__set_ode_state <- function(obj_, values, time) {
     invisible(.Call('_plant_Patch___TF24f__TF24_Env__set_ode_state', PACKAGE = 'plant', obj_, values, time))
 }
 
+Patch___TF24f__TF24_Env__set_ode_aux <- function(obj_, values) {
+    invisible(.Call('_plant_Patch___TF24f__TF24_Env__set_ode_aux', PACKAGE = 'plant', obj_, values))
+}
+
 Patch___TF24f__TF24_Env__derivs <- function(obj_, y, time) {
     .Call('_plant_Patch___TF24f__TF24_Env__derivs', PACKAGE = 'plant', obj_, y, time)
 }
@@ -2515,6 +2527,10 @@ Patch___K93__K93_Env__reset <- function(obj_) {
 
 Patch___K93__K93_Env__set_ode_state <- function(obj_, values, time) {
     invisible(.Call('_plant_Patch___K93__K93_Env__set_ode_state', PACKAGE = 'plant', obj_, values, time))
+}
+
+Patch___K93__K93_Env__set_ode_aux <- function(obj_, values) {
+    invisible(.Call('_plant_Patch___K93__K93_Env__set_ode_aux', PACKAGE = 'plant', obj_, values))
 }
 
 Patch___K93__K93_Env__derivs <- function(obj_, y, time) {

@@ -710,6 +710,11 @@ Patch:
       access: function
       name_cpp: "odelia::ode::r_set_ode_state"
       args: [values: "std::vector<double>", time: double]
+    set_ode_aux:
+      return_type: void
+      access: function
+      name_cpp: "odelia::ode::r_set_ode_aux"
+      args: [values: "std::vector<double>"]
     derivs:
       return_type: "std::vector<double>"
       access: function

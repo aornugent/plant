@@ -65,6 +65,9 @@ public:
   template <typename It> It ode_aux(It it) const {
     return odelia::ode::ode_aux(d().node_begin(), d().node_end(), it);
   }
+  template <typename It> It set_ode_aux(It it) {
+    return odelia::ode::set_ode_aux(d().node_begin(), d().node_end(), it);
+  }
 
   // Serialise one element's ODE state / aux into an R matrix column. Generic
   // over the element: Node carries the extra density/offspring equations, a
