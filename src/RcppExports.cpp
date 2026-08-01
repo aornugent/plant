@@ -5902,6 +5902,17 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// Patch___FF16__FF16_Env__set_ode_aux
+void Patch___FF16__FF16_Env__set_ode_aux(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<double> values);
+RcppExport SEXP _plant_Patch___FF16__FF16_Env__set_ode_aux(SEXP obj_SEXP, SEXP valuesSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type values(valuesSEXP);
+    Patch___FF16__FF16_Env__set_ode_aux(obj_, values);
+    return R_NilValue;
+END_RCPP
+}
 // Patch___FF16__FF16_Env__derivs
 std::vector<double> Patch___FF16__FF16_Env__derivs(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, const std::vector<double>& y, double time);
 RcppExport SEXP _plant_Patch___FF16__FF16_Env__derivs(SEXP obj_SEXP, SEXP ySEXP, SEXP timeSEXP) {
@@ -6228,6 +6239,17 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< std::vector<double> >::type values(valuesSEXP);
     Rcpp::traits::input_parameter< double >::type time(timeSEXP);
     Patch___TF24__TF24_Env__set_ode_state(obj_, values, time);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___TF24__TF24_Env__set_ode_aux
+void Patch___TF24__TF24_Env__set_ode_aux(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, std::vector<double> values);
+RcppExport SEXP _plant_Patch___TF24__TF24_Env__set_ode_aux(SEXP obj_SEXP, SEXP valuesSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type values(valuesSEXP);
+    Patch___TF24__TF24_Env__set_ode_aux(obj_, values);
     return R_NilValue;
 END_RCPP
 }
@@ -6560,6 +6582,17 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// Patch___TF24f__TF24_Env__set_ode_aux
+void Patch___TF24f__TF24_Env__set_ode_aux(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_, std::vector<double> values);
+RcppExport SEXP _plant_Patch___TF24f__TF24_Env__set_ode_aux(SEXP obj_SEXP, SEXP valuesSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type values(valuesSEXP);
+    Patch___TF24f__TF24_Env__set_ode_aux(obj_, values);
+    return R_NilValue;
+END_RCPP
+}
 // Patch___TF24f__TF24_Env__derivs
 std::vector<double> Patch___TF24f__TF24_Env__derivs(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_, const std::vector<double>& y, double time);
 RcppExport SEXP _plant_Patch___TF24f__TF24_Env__derivs(SEXP obj_SEXP, SEXP ySEXP, SEXP timeSEXP) {
@@ -6886,6 +6919,17 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< std::vector<double> >::type values(valuesSEXP);
     Rcpp::traits::input_parameter< double >::type time(timeSEXP);
     Patch___K93__K93_Env__set_ode_state(obj_, values, time);
+    return R_NilValue;
+END_RCPP
+}
+// Patch___K93__K93_Env__set_ode_aux
+void Patch___K93__K93_Env__set_ode_aux(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<double> values);
+RcppExport SEXP _plant_Patch___K93__K93_Env__set_ode_aux(SEXP obj_SEXP, SEXP valuesSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type values(valuesSEXP);
+    Patch___K93__K93_Env__set_ode_aux(obj_, values);
     return R_NilValue;
 END_RCPP
 }
@@ -12655,6 +12699,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___FF16__FF16_Env__compute_rates", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__compute_rates, 1},
     {"_plant_Patch___FF16__FF16_Env__reset", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__reset, 1},
     {"_plant_Patch___FF16__FF16_Env__set_ode_state", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__set_ode_state, 3},
+    {"_plant_Patch___FF16__FF16_Env__set_ode_aux", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__set_ode_aux, 2},
     {"_plant_Patch___FF16__FF16_Env__derivs", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__derivs, 3},
     {"_plant_Patch___FF16__FF16_Env__set_time", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__set_time, 2},
     {"_plant_Patch___FF16__FF16_Env__set_state", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__set_state, 5},
@@ -12684,6 +12729,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___TF24__TF24_Env__compute_rates", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__compute_rates, 1},
     {"_plant_Patch___TF24__TF24_Env__reset", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__reset, 1},
     {"_plant_Patch___TF24__TF24_Env__set_ode_state", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__set_ode_state, 3},
+    {"_plant_Patch___TF24__TF24_Env__set_ode_aux", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__set_ode_aux, 2},
     {"_plant_Patch___TF24__TF24_Env__derivs", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__derivs, 3},
     {"_plant_Patch___TF24__TF24_Env__set_time", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__set_time, 2},
     {"_plant_Patch___TF24__TF24_Env__set_state", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__set_state, 5},
@@ -12713,6 +12759,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___TF24f__TF24_Env__compute_rates", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__compute_rates, 1},
     {"_plant_Patch___TF24f__TF24_Env__reset", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__reset, 1},
     {"_plant_Patch___TF24f__TF24_Env__set_ode_state", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__set_ode_state, 3},
+    {"_plant_Patch___TF24f__TF24_Env__set_ode_aux", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__set_ode_aux, 2},
     {"_plant_Patch___TF24f__TF24_Env__derivs", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__derivs, 3},
     {"_plant_Patch___TF24f__TF24_Env__set_time", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__set_time, 2},
     {"_plant_Patch___TF24f__TF24_Env__set_state", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__set_state, 5},
@@ -12742,6 +12789,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___K93__K93_Env__compute_rates", (DL_FUNC) &_plant_Patch___K93__K93_Env__compute_rates, 1},
     {"_plant_Patch___K93__K93_Env__reset", (DL_FUNC) &_plant_Patch___K93__K93_Env__reset, 1},
     {"_plant_Patch___K93__K93_Env__set_ode_state", (DL_FUNC) &_plant_Patch___K93__K93_Env__set_ode_state, 3},
+    {"_plant_Patch___K93__K93_Env__set_ode_aux", (DL_FUNC) &_plant_Patch___K93__K93_Env__set_ode_aux, 2},
     {"_plant_Patch___K93__K93_Env__derivs", (DL_FUNC) &_plant_Patch___K93__K93_Env__derivs, 3},
     {"_plant_Patch___K93__K93_Env__set_time", (DL_FUNC) &_plant_Patch___K93__K93_Env__set_time, 2},
     {"_plant_Patch___K93__K93_Env__set_state", (DL_FUNC) &_plant_Patch___K93__K93_Env__set_state, 5},

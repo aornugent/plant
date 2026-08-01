@@ -106,6 +106,8 @@ public:
   template <typename It> It ode_rates(It it) const;
   // Retrieve auxillary variables and save into the ode solver
   template <typename It> It ode_aux(It it) const;
+  // Hand them back, in the order ode_aux wrote them
+  template <typename It> It set_ode_aux(It it);
 
   // Returns state in structure format as opposed to single 
   // vector as given by ode_state
@@ -961,6 +963,14 @@ template <typename It>
 It Patch<T,E>::ode_aux(It it) const {
   it = odelia::ode::ode_aux(species.begin(), species.end(), it);
   it = environment.ode_aux(it);
+  return it;
+}
+
+template <typename T, typename E>
+template <typename It>
+It Patch<T,E>::set_ode_aux(It it) {
+  it = odelia::ode::set_ode_aux(species.begin(), species.end(), it);
+  it = environment.set_ode_aux(it);
   return it;
 }
 

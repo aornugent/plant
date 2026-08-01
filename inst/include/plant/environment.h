@@ -67,6 +67,7 @@ public:
   }
 
   template <typename It> It ode_aux(It it) const {
+    util::check_length(resource_uptake.size(), aux_size());
     for (size_t i = 0; i < aux_size(); i++) {
       *it++ = resource_uptake[i];
     }
@@ -74,11 +75,16 @@ public:
   }
 
   template <typename It> It set_ode_aux(It it) {
+    util::check_length(resource_uptake.size(), aux_size());
     for (size_t i = 0; i < aux_size(); i++) {
       resource_uptake[i] = *it++;
     }
     return it;
   }
+
+  // n_resources() is the count and this is the buffer it sizes, so an environment
+  // that changes its resource count calls this and the two cannot disagree.
+  void resize_resource_uptake() { resource_uptake.assign(n_resources(), 0.0); }
 
   virtual Rcpp::List r_get_state() const
   {

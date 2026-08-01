@@ -238,3 +238,28 @@ test_that("TF24 patch aux reports the per-layer uptake", {
   # Uptake is signed: the plant can release water into the deepest layer.
   expect_lt(uptake[[n_layers]], 0)
 })
+
+test_that("TF24 patch aux goes back the way it came", {
+  s <- get_list_of_strategy_types()$TF24()
+  s$birth_rate_y <- 1
+  s$is_variable_birth_rate <- FALSE
+  p <- Parameters("TF24", "TF24_Env")(strategies = list(s),
+                                      patch_type = "meta-population")
+  patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  patch$introduce_new_node(1)
+  patch$set_ode_state(patch$ode_state, 1.0)
+
+  aux <- patch$ode_aux
+  expect_gt(length(aux), 0)
+
+  # Restoring what a rate evaluation published is what the reverse pass does with a
+  # stage's aux, so the round trip has to be exact rather than close.
+  patch$set_ode_aux(rev(aux))
+  expect_identical(patch$ode_aux, rev(aux))
+  patch$set_ode_aux(aux)
+  expect_identical(patch$ode_aux, aux)
+
+  # The width is the contract the solver checks, so a wrong one stops here.
+  expect_error(patch$set_ode_aux(aux[-1]), "Incorrect length input")
+})
+

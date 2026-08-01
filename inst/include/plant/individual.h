@@ -136,6 +136,16 @@ public:
     return it;
   }
 
+  // Puts back what ode_aux published, and derives nothing: the slots a state
+  // determines are re-derived by set_ode_state, and the rest are quantities a solve
+  // produced that this individual is being handed rather than asked to recompute.
+  template <typename It> It set_ode_aux(It it) {
+    for (size_t i = 0; i < vars.aux_size; i++) {
+      vars.auxs[i] = *it++;
+    }
+    return it;
+  }
+
   // Single individual methods
 
   // Used in the stochastic model:

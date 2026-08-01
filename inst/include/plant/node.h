@@ -84,6 +84,7 @@ public:
   template <typename It> It ode_state(It it) const;
   template <typename It> It ode_rates(It it) const;
   template <typename It> It ode_aux(It it) const;
+  template <typename It> It set_ode_aux(It it);
 
   static std::vector<std::string> ode_names() {
     std::vector<std::string> names = strategy_type::state_names();
@@ -268,6 +269,12 @@ It Node<T,E>::ode_aux(It it) const {
     *it++ = individual.aux(i);
   }
   return it;
+}
+
+template <typename T, typename E>
+template <typename It>
+It Node<T,E>::set_ode_aux(It it) {
+  return individual.set_ode_aux(it);
 }
 
 
