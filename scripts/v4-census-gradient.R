@@ -7,8 +7,9 @@
 #
 # The harness prints which traits it covered and which it did not. A central
 # difference over all 44 of TF24's differentiable parameters is 88 production
-# runs; the subset below is chosen so each trait discriminates a different
-# channel, and the traits left out are named rather than silently dropped.
+# runs; the subset below is nine traits, so eighteen, chosen so each discriminates
+# a different channel, and the traits left out are named rather than silently
+# dropped.
 
 suppressMessages(library(odelia))
 pkgload::load_all(".", quiet = TRUE)
