@@ -109,6 +109,14 @@ public:
 
   void introduce_new_node(size_t species_index);
   void introduce_new_nodes(const std::vector<size_t>& species_index);
+  // The mirror of introduce_new_nodes: drop each species' newest node and
+  // rebuild the field and the rates at the narrower width.
+  void remove_new_nodes(const std::vector<size_t>& species_index);
+
+  // The species whose newest node was introduced at `time`, in species order.
+  // Read off the nodes' own birth times, which is what the run did; the schedule
+  // is what it was asked to do, and it is consumed by the time a sweep runs.
+  std::vector<size_t> nodes_introduced_at(double time) const;
 
   // Open to better ways to test whether nodes have been introduced
   int node_ode_size() const {
@@ -180,6 +188,23 @@ public:
   void cohort_block_adjoint(const block_seeds& seeds,
                             std::vector<double>& lambda_state,
                             light_knot_adjoints& lambda_knot);
+
+  // Carry lambda back across a node introduction. Called with this patch already
+  // narrowed to the width `state_before` has, so it records the inflow boundary
+  // condition n_b = birth_rate * pr_estab / g in the field `state_before`
+  // builds, and reads the newcomers' rows of `lambda_after` back into
+  // `lambda_before` and into trait_adjoint.
+  //
+  // The newcomers' rows must be contracted here and never dropped: pr_estab and
+  // g are a full rate evaluation at the seed size, so they carry every trait the
+  // seedling's physiology reads and every other cohort's state through the
+  // field. Dropping them narrows the width just as well and returns a gradient
+  // that is finite, correctly signed and wrong.
+  void introduction_adjoint(const std::vector<size_t>& species_index,
+                            const std::vector<double>& state_before,
+                            double time_before,
+                            const std::vector<double>& lambda_after,
+                            std::vector<double>& lambda_before);
 
   // The soil drainage cascade and the water aggregation above it, which
   // between them write the soil state adjoints and the per-cohort uptake.
@@ -1110,6 +1135,28 @@ void Patch<T,E>::introduce_new_nodes(const std::vector<size_t>& species_index) {
 }
 
 template <typename T, typename E>
+void Patch<T,E>::remove_new_nodes(const std::vector<size_t>& species_index) {
+  for (size_t i : species_index) {
+    species[i].remove_newest_node();
+  }
+  compute_environment(false);
+  compute_rates();
+}
+
+template <typename T, typename E>
+std::vector<size_t> Patch<T,E>::nodes_introduced_at(double time_) const {
+  std::vector<size_t> ret;
+  for (size_t i = 0; i < species.size(); ++i) {
+    const size_t n = species[i].size();
+    if (n > 0 &&
+        util::identical(species[i].node_at(n - 1).introduction_time(), time_)) {
+      ret.push_back(i);
+    }
+  }
+  return ret;
+}
+
+template <typename T, typename E>
 void Patch<T,E>::r_set_time(double time) {
   environment.time = time;
 }
@@ -1537,6 +1584,104 @@ void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
       util::check_length(at, ws.in.size());
     }
     trait_at += n_trait;
+  }
+}
+
+template <typename T, typename E>
+void Patch<T,E>::introduction_adjoint(const std::vector<size_t>& species_index,
+                                      const std::vector<double>& state_before,
+                                      double time_before,
+                                      const std::vector<double>& lambda_after,
+                                      std::vector<double>& lambda_before) {
+  using scalar = odelia::ode::active_scalar<double>;
+  using active_strategy = typename at_scalar<scalar>::template apply<T>;
+  const size_t node_stride = node_type::ode_size();
+  const size_t n_trait = trait_adjoint_size();
+  util::check_length(state_before.size(), ode_size());
+  if (trait_adjoint.size() != n_trait) {
+    clear_trait_adjoint();
+  }
+
+  // Each newcomer's rows sit at the end of its own species' node block, so every
+  // later species and the environment sit one node higher after the widening.
+  std::vector<size_t> add(species.size(), 0);
+  for (size_t i : species_index) {
+    ++add[i];
+  }
+  std::vector<size_t> carried;   // widened row each narrow row is the same as
+  std::vector<size_t> newcomer;  // widened rows the introduction wrote
+  size_t post = 0;
+  for (size_t i = 0; i < species.size(); ++i) {
+    for (size_t r = 0; r < species[i].size() * node_stride; ++r) {
+      carried.push_back(post++);
+    }
+    for (size_t r = 0; r < add[i] * node_stride; ++r) {
+      newcomer.push_back(post++);
+    }
+  }
+  for (size_t r = 0; r < environment.ode_size(); ++r) {
+    carried.push_back(post++);
+  }
+  util::check_length(post, lambda_after.size());
+  util::check_length(carried.size(), ode_size());
+
+  lambda_before.assign(ode_size(), 0.0);
+  for (size_t j = 0; j < carried.size(); ++j) {
+    lambda_before[j] = lambda_after[carried[j]];
+  }
+
+  // The twin is built with no tape active, so it holds no derivative slot that
+  // the recording below could alias.
+  Patch<active_strategy, typename at_scalar<scalar>::template apply<E>> active =
+    this->template rebind_from<scalar>();
+
+  std::vector<double> in(state_before);
+  in.reserve(ode_size() + n_trait);
+  for (size_t i = 0; i < species.size(); ++i) {
+    for (const typename T::value_type* p :
+         species[i].strategy_ptr()->ad_parameters()) {
+      in.push_back(odelia::util::to_passive(*p));
+    }
+  }
+  util::check_length(in.size(), ode_size() + n_trait);
+
+  // The traits go in before the state: area_leaf(height) reads lma, so a state
+  // set first is derived at the previous value. set_ode_state_and_field is what
+  // computes the boundary node, and introduce_new_node only pushes it.
+  const size_t n_state = ode_size();
+  auto introduce = [&](const std::vector<scalar>& x,
+                       std::vector<scalar>& y) -> void {
+    size_t at = n_state;
+    for (size_t i = 0; i < active.species.size(); ++i) {
+      for (scalar* p : active.species[i].strategy_ptr()->ad_parameters()) {
+        *p = x[at++];
+      }
+    }
+    active.set_ode_state_and_field(x.begin(), time_before);
+    for (size_t i : species_index) {
+      active.species[i].introduce_new_node();
+    }
+    std::vector<scalar> widened(active.ode_size());
+    active.ode_state(widened.begin());
+    for (size_t j = 0; j < y.size(); ++j) {
+      y[j] = widened[newcomer[j]];
+    }
+  };
+
+  std::vector<double> out_adjoint(newcomer.size());
+  for (size_t j = 0; j < newcomer.size(); ++j) {
+    out_adjoint[j] = lambda_after[newcomer[j]];
+  }
+  std::vector<double> in_adjoint;
+  typename scalar::tape_type tape(false);
+  odelia::ode::vector_jacobian_product(tape, in, out_adjoint, introduce,
+                                       in_adjoint);
+
+  for (size_t j = 0; j < n_state; ++j) {
+    lambda_before[j] += in_adjoint[j];
+  }
+  for (size_t p = 0; p < n_trait; ++p) {
+    trait_adjoint[p] += in_adjoint[n_state + p];
   }
 }
 

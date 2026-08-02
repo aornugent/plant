@@ -110,6 +110,15 @@ public:
   template <class Metrics>
   std::vector<std::vector<double>> census_trait_gradient();
 
+  // Re-introduce every node the sweep's narrowing removed, recovering the state
+  // each block's first step ran from. See the definition.
+  void widen_over_introductions(
+      const std::vector<std::vector<double>>& states,
+      const std::vector<ode_step_record>& trajectory,
+      const std::vector<size_t>& boundary,
+      const std::vector<std::vector<size_t>>& introduced,
+      std::vector<std::vector<double>>& sweep_states);
+
   // The four Control entries that move the trajectory and so move the gradient,
   // in the order stand_gradient() compares them.
   std::vector<double> gradient_control() const {
@@ -648,30 +657,88 @@ std::vector<std::vector<double>> SCM<T, E>::census_trait_gradient() {
     states.push_back(record.state);
   }
 
-  // The sweep carries one lambda of one width, and a node introduction widens
-  // the state, so an earlier record is narrower than the system the sweep
-  // holds. Nothing narrows the system or drops the newcomer's rows, and a sweep
-  // at a width its records do not have would return a number, so the run is
-  // refused here by name.
-  for (const std::vector<double>& state : states) {
-    if (state.size() != states.back().size()) {
-      util::stop("a node introduction widens the ODE state during this run, "
-                 "and the reverse sweep is one fixed width");
+  if (states.size() < 2) {
+    util::stop("no recorded steps to sweep");
+  }
+  patch_type& live = solver.get_system_ref();
+
+  // A node introduction widens the state between two steps, so the sweep runs
+  // one segment per width. states[b] is the state before the introduction at its
+  // own time: the last step of the block ended exactly there, since
+  // advance_adaptive lands its final step on the event time, and the
+  // introduction followed. So the width changes across b, and step b + 1 starts
+  // from the widened state, which no record holds and which is rebuilt below.
+  std::vector<size_t> boundary;
+  for (size_t k = 1; k < states.size(); ++k) {
+    if (states[k].size() != states[k - 1].size()) {
+      boundary.push_back(k - 1);
     }
+  }
+
+  // Which species introduced at each boundary. Read newest-first with the system
+  // narrowed as it goes, so each read sees the nodes that were the newest then.
+  std::vector<std::vector<size_t>> introduced(boundary.size());
+  for (size_t j = boundary.size(); j-- > 0;) {
+    const size_t b = boundary[j];
+    introduced[j] = live.nodes_introduced_at(trajectory[b].time);
+    live.remove_new_nodes(introduced[j]);
+    util::check_length(live.ode_size(), states[b].size());
   }
 
   const std::vector<std::vector<double>> seeds =
       census_state_adjoint<Metrics>();
   std::vector<std::vector<double>> ret;
   ret.reserve(seeds.size());
-  patch_type& live = solver.get_system_ref();
-  for (const std::vector<double>& lambda_T : seeds) {
+  std::vector<std::vector<double>> sweep_states = states;
+  for (size_t m = 0; m < seeds.size(); ++m) {
+    // Widen forward again, keeping the state each block's first step started
+    // from: an introduction is a field build and a push, so this is the widening
+    // the run itself did, and it returns the system to the census width.
+    widen_over_introductions(states, trajectory, boundary, introduced,
+                             sweep_states);
+
     live.clear_trait_adjoint();
-    std::vector<double> lambda = lambda_T;
-    solver.solve_adjoint(states, lambda);
+    std::vector<double> lambda = seeds[m];
+    for (size_t j = boundary.size(); j-- > 0;) {
+      const size_t b = boundary[j];
+      const size_t k_last =
+          j + 1 < boundary.size() ? boundary[j + 1] : states.size() - 1;
+      solver.solve_adjoint(sweep_states, lambda, b, k_last);
+      std::vector<double> narrowed;
+      live.remove_new_nodes(introduced[j]);
+      live.introduction_adjoint(introduced[j], states[b], trajectory[b].time,
+                                lambda, narrowed);
+      lambda = narrowed;
+    }
     ret.push_back(live.trait_adjoint);
   }
+
+  // Leave the system at the width the run left it, so this call is repeatable.
+  widen_over_introductions(states, trajectory, boundary, introduced,
+                           sweep_states);
   return ret;
+}
+
+// Replay each introduction on the solver's system, which must be narrowed to the
+// first boundary's width, and write the state it produced into sweep_states at
+// that boundary: the state the block's first step ran from.
+template <typename T, typename E>
+void SCM<T, E>::widen_over_introductions(
+    const std::vector<std::vector<double>>& states,
+    const std::vector<ode_step_record>& trajectory,
+    const std::vector<size_t>& boundary,
+    const std::vector<std::vector<size_t>>& introduced,
+    std::vector<std::vector<double>>& sweep_states) {
+  patch_type& live = solver.get_system_ref();
+  for (size_t j = 0; j < boundary.size(); ++j) {
+    const size_t b = boundary[j];
+    util::check_length(live.ode_size(), states[b].size());
+    live.set_ode_state_and_field(states[b].begin(), trajectory[b].time);
+    live.introduce_new_nodes(introduced[j]);
+    sweep_states[b].assign(live.ode_size(), 0.0);
+    live.ode_state(sweep_states[b].begin());
+    util::check_length(sweep_states[b].size(), states[b + 1].size());
+  }
 }
 
 } // namespace plant

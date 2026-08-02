@@ -110,6 +110,9 @@ public:
   // Introduce a node, stamping it with the introduction time and patch-age
   // density at birth (called by Patch, which knows the time and disturbance).
   void introduce_new_node(double time, double patch_density);
+  // Drop the node introduce_new_node pushed last, which is the newest: the width
+  // a reverse sweep needs before an introduction.
+  void remove_newest_node();
 
   value_type height_max() const;
   // The query height is a knot position on the interpolant's own grid, which is
@@ -811,6 +814,15 @@ void Species<T,E>::introduce_new_node(double time, double patch_density) {
   // the no-arg introduction paths.
   nodes.push_back(new_node);
   nodes.back().set_introduction(time, patch_density);
+}
+
+template <typename T, typename E>
+void Species<T,E>::remove_newest_node() {
+  if (nodes.empty()) {
+    util::stop("no node to remove from this species");
+  }
+  invalidate_height_scan();
+  nodes.pop_back();
 }
 
 template <typename T, typename E>
