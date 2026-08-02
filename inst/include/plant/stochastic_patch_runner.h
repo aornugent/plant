@@ -2,6 +2,7 @@
 #ifndef PLANT_PLANT_STOCHASTIC_PATCH_RUNNER_H_
 #define PLANT_PLANT_STOCHASTIC_PATCH_RUNNER_H_
 
+#include <odelia/ode_solver.hpp>
 #include <plant/stochastic_patch.h>
 #include <plant/stochastic_utils.h>
 
