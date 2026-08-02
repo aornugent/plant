@@ -41,6 +41,14 @@ census_trait_names_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<do
   return ret;
 }
 
+// One row per census metric, one column per trait in census_trait_names_tf24()
+// order. The active scalar lives inside this call and only doubles leave it.
+// [[Rcpp::export]]
+std::vector<std::vector<double>>
+census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  return obj_->census_trait_gradient<plant::tf24_census>();
+}
+
 // [[Rcpp::export]]
 std::vector<double> gradient_control_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   return obj_->gradient_control();

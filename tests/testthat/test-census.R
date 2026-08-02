@@ -167,3 +167,20 @@ test_that("the Control a gradient is taken at is the four that move it", {
                c(ctrl$GSS_tol_abs, ctrl$ci_abs_tol, ctrl$node_gradient_eps,
                  ctrl$schedule_eps))
 })
+
+test_that("the trait gradient entry point is reachable", {
+  # The symbol exists and stand_gradient reaches it. It cannot return a gradient
+  # on a run whose ODE state widens at a node introduction: the reverse sweep
+  # carries one lambda of one width and nothing narrows the system to meet an
+  # earlier record, so such a run is refused by name rather than swept at a
+  # width its records do not have.
+  scm <- solved_stand(5)
+  expect_true(is.function(census_trait_gradient_tf24))
+  got <- tryCatch(stand_gradient(scm, traits = "lma"), error = identity)
+  if (inherits(got, "error")) {
+    expect_match(conditionMessage(got), "widens the ODE state")
+  } else {
+    expect_equal(rownames(got$gradient), census_metric_names_tf24())
+    expect_equal(colnames(got$gradient), "lma")
+  }
+})
