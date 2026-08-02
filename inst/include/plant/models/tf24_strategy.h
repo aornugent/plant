@@ -946,7 +946,7 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // depth-independent inputs are ready.
 
   // psi_soil (-MPa), computed once per soil state and cached in environment.
-  const std::vector<double>& psi_soil = environment.get_soil_water_potential_state();
+  const std::vector<S>& psi_soil = environment.get_soil_water_potential_state();
   
 // find leaf specific max hydraulic conductance (kg m^-2 LA s^-1 MPa ^-1)
   // pars.K_s: max hydraulic conductivity (kg m^-2 s^-1 MPa^-1),
@@ -1032,7 +1032,11 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
       for (size_t a = 0; a < mass_root_prop_.size(); ++a) {
         mass_root_prop_value[a] = to_passive(mass_root_prop_[a]);
       }
-      leaf.set_physiology(to_passive(area_leaf_), mass_root_prop_value, to_passive(pars.rho), to_passive(pars.a_bio), to_passive(radiation), psi_soil, soil_depths_, to_passive(leaf_specific_conductance_max), environment.get_atm_vpd(), environment.get_ca(), to_passive(sapwood_volume_per_leaf_area), environment.get_leaf_temp(), environment.get_atm_o2_kpa(), environment.get_atm_kpa());
+      std::vector<double> psi_soil_value(psi_soil.size());
+      for (size_t a = 0; a < psi_soil.size(); ++a) {
+        psi_soil_value[a] = to_passive(psi_soil[a]);
+      }
+      leaf.set_physiology(to_passive(area_leaf_), mass_root_prop_value, to_passive(pars.rho), to_passive(pars.a_bio), to_passive(radiation), psi_soil_value, soil_depths_, to_passive(leaf_specific_conductance_max), environment.get_atm_vpd(), environment.get_ca(), to_passive(sapwood_volume_per_leaf_area), environment.get_leaf_temp(), environment.get_atm_o2_kpa(), environment.get_atm_kpa());
     }
     solve_leaf();
   };
