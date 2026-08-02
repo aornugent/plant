@@ -4,6 +4,7 @@
 #include <Rcpp.h>
 #include <plant/models/tf24_strategy.h>
 #include <plant/patch.h>
+#include <odelia/ode_step.hpp>
 #include <odelia/gradient.hpp>
 #include <cmath>
 #include <vector>
@@ -50,7 +51,7 @@ struct block_at {
         env_tmpl.light_availability.spline.knots());
     ind.set_block_inputs(x.begin(), e);
     ind.compute_rates(e);
-    ind.block_outputs(y.begin());
+    ind.block_outputs(y.begin(), e);
   }
 
   void run_double(const std::vector<double>& x, std::vector<double>& y) {
@@ -59,7 +60,7 @@ struct block_at {
     environment_type e = env_tmpl;
     ind.set_block_inputs(x.begin(), e);
     ind.compute_rates(e);
-    ind.block_outputs(y.begin());
+    ind.block_outputs(y.begin(), e);
   }
 };
 
@@ -115,12 +116,15 @@ Rcpp::List patch_adjoint_partial(SEXP obj, Rcpp::NumericVector lambda_dydt,
   std::vector<double> lambda_state(n, 0.0);
   typename patch_type::block_seeds seeds{
       std::vector<double>(p.node_count() * strategy_type::state_size(), 0.0),
+      std::vector<double>(p.node_count(), 0.0),
       std::vector<double>(p.node_count() * n_resource, 0.0)};
   for (size_t k = 0; k < p.node_count(); ++k) {
     for (size_t s = 0; s < strategy_type::state_size(); ++s) {
       seeds.rate[k * strategy_type::state_size() + s] =
           lam[k * patch_type::node_type::ode_size() + s];
     }
+    seeds.transport[k] = lam[k * patch_type::node_type::ode_size() +
+                             strategy_type::state_size() + 1];
   }
   if (upto >= 1) p.soil_adjoint(lam, lambda_state, seeds);
   if (upto >= 2) p.offspring_adjoint(lam, lambda_state, seeds);
@@ -170,11 +174,14 @@ Rcpp::NumericMatrix knot_contributions(SEXP obj, Rcpp::NumericVector lambda_dydt
   std::vector<double> lambda_state(n, 0.0);
   typename patch_type::block_seeds seeds{
       std::vector<double>(p.node_count() * n_state, 0.0),
+      std::vector<double>(p.node_count(), 0.0),
       std::vector<double>(p.node_count() * n_resource, 0.0)};
   for (size_t k = 0; k < p.node_count(); ++k) {
     for (size_t s = 0; s < n_state; ++s) {
       seeds.rate[k * n_state + s] = lam[k * patch_type::node_type::ode_size() + s];
     }
+    seeds.transport[k] =
+        lam[k * patch_type::node_type::ode_size() + n_state + 1];
   }
   p.soil_adjoint(lam, lambda_state, seeds);
   p.offspring_adjoint(lam, lambda_state, seeds);
@@ -187,8 +194,9 @@ Rcpp::NumericMatrix knot_contributions(SEXP obj, Rcpp::NumericVector lambda_dydt
       block_at b(p, i, j);
       std::vector<double> lam_out(b.n_out, 0.0);
       for (size_t s = 0; s < n_state; ++s) lam_out[s] = seeds.rate[k * n_state + s];
+      lam_out[n_state] = seeds.transport[k];
       for (size_t r = 0; r < n_resource; ++r) {
-        lam_out[n_state + r] = seeds.uptake[k * n_resource + r];
+        lam_out[n_state + 1 + r] = seeds.uptake[k * n_resource + r];
       }
       std::vector<double> adj;
       odelia::ode::vector_jacobian_product(
@@ -257,4 +265,48 @@ Rcpp::DataFrame collar_curvature_sweep(SEXP obj, int species_index, int node_ind
   }
   return Rcpp::DataFrame::create(Rcpp::_["h"] = hs, Rcpp::_["dR_dcollar"] = out,
                                  Rcpp::_["recorded"] = rec);
+}
+
+// V3: one step's lambda_y, and the same step forward so a finite difference of
+// it can be taken. Both take the start state and time as arguments: a step
+// leaves the patch at the state and time it reached, so reading either off the
+// patch would move the linearisation point under the difference.
+// [[Rcpp::export]]
+Rcpp::NumericVector step_forward(SEXP obj, double time, double step_size,
+                                 Rcpp::NumericVector y_in) {
+  patch_type& p = *as_patch(obj);
+  const size_t n = p.ode_size();
+  std::vector<double> y(y_in.begin(), y_in.end());
+  std::vector<double> yerr(n), dydt_in(n), dydt_out(n);
+  odelia::ode::Step<patch_type> stepper;
+  stepper.resize(n);
+  odelia::ode::derivs(p, y, dydt_in, time);
+  stepper.step(p, time, step_size, y, yerr, dydt_in, dydt_out);
+  return Rcpp::wrap(y);
+}
+
+// [[Rcpp::export]]
+Rcpp::List step_adjoint_gate(SEXP obj, double time, double step_size,
+                             Rcpp::NumericVector y_in,
+                             Rcpp::NumericVector lambda_out) {
+  patch_type& p = *as_patch(obj);
+  const size_t n = p.ode_size();
+  std::vector<double> y(y_in.begin(), y_in.end());
+  std::vector<double> lam(lambda_out.begin(), lambda_out.end()), lambda_in;
+  odelia::ode::Step<patch_type> stepper;
+  stepper.resize(n);
+  p.clear_trait_adjoint();
+  p.block_sweeps = 0;
+  stepper.step_adjoint(p, time, step_size, y, lam, lambda_in);
+  return Rcpp::List::create(Rcpp::_["lambda_in"] = lambda_in,
+                            Rcpp::_["trait"] = p.trait_adjoint,
+                            Rcpp::_["sweeps"] = (double)p.block_sweeps,
+                            Rcpp::_["recording"] = (double)p.block_recording_size);
+}
+
+// Whether the System reaches the sweep through its own rate transpose rather
+// than through a recording of the whole patch.
+// [[Rcpp::export]]
+bool patch_carries_rates_adjoint() {
+  return odelia::ode::AdjointRates<patch_type>;
 }

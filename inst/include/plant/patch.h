@@ -145,6 +145,7 @@ public:
   // consumes, in the order ode_state visits the nodes.
   struct block_seeds {
     std::vector<double> rate;
+    std::vector<double> transport;
     std::vector<double> uptake;
   };
 
@@ -212,6 +213,11 @@ public:
   // The decision which to use is determined by `use_cached_environment` below
   template <typename It> It set_ode_state(It it, double time);
   template <typename It> It set_ode_state(It it, int index);
+
+  // The state and the field: what set_ode_state establishes before it computes
+  // rates. ode_rates_adjoint is taken here, where the block recordings carry the
+  // rate chain and a rate evaluation in double would repeat all of it.
+  template <typename It> It set_ode_state_and_field(It it, double time);
 
   // * R interface
   // Data accessors:
@@ -1101,8 +1107,8 @@ double Patch<T,E>::ode_time() const {
 // First set_ode_state function is for resident runs. Second is for mutant runs
 template <typename T, typename E>
 template <typename It>
-It Patch<T,E>::set_ode_state(It it, double time) {
-  
+It Patch<T,E>::set_ode_state_and_field(It it, double time) {
+
   // Set ode states
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
   it = environment.set_ode_state(it);
@@ -1118,6 +1124,13 @@ It Patch<T,E>::set_ode_state(It it, double time) {
   // Pre-compute environment, as shaped by residents
   compute_environment(true);
   environment_ptr = &environment;
+  return it;
+}
+
+template <typename T, typename E>
+template <typename It>
+It Patch<T,E>::set_ode_state(It it, double time) {
+  it = set_ode_state_and_field(it, time);
 
   // Compute rates of change
   compute_rates();
@@ -1389,6 +1402,7 @@ void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
   const size_t env_offset = ode_size() - environment.ode_size();
   util::check_length(lambda_state.size(), ode_size());
   util::check_length(seeds.rate.size(), node_count() * n_state);
+  util::check_length(seeds.transport.size(), node_count());
   util::check_length(seeds.uptake.size(), node_count() * n_resource);
   util::check_length(lambda_knot.value.size(), n_knot);
   util::check_length(lambda_knot.slope.size(), n_knot);
@@ -1425,19 +1439,23 @@ void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
       ws.in.resize(individual.block_input_size(block_environment));
       species[i].node_at(j).individual.block_inputs(ws.in.begin(), environment);
 
-      ws.out_adjoint.assign(n_state + n_resource, 0.0);
+      ws.out_adjoint.assign(n_state + 1 + n_resource, 0.0);
       for (size_t s = 0; s < n_state; ++s) {
         ws.out_adjoint[s] = seeds.rate[k * n_state + s];
       }
+      ws.out_adjoint[n_state] = seeds.transport[k];
       for (size_t r = 0; r < n_resource; ++r) {
-        ws.out_adjoint[n_state + r] = seeds.uptake[k * n_resource + r];
+        ws.out_adjoint[n_state + 1 + r] = seeds.uptake[k * n_resource + r];
       }
 
+      // The transport term inside block_outputs evaluates the cohort a second
+      // time at a displaced height, so the recording holds both evaluations and
+      // the quotient over them.
       auto block = [&](const std::vector<scalar>& x,
                        std::vector<scalar>& y) -> void {
         individual.set_block_inputs(x.begin(), block_environment);
         individual.compute_rates(block_environment);
-        individual.block_outputs(y.begin());
+        individual.block_outputs(y.begin(), block_environment);
       };
       block_recording_size = odelia::ode::vector_jacobian_product(
         ws.tape, ws.in, ws.out_adjoint, block, ws.in_adjoint);
@@ -1536,14 +1554,17 @@ ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y) {
   }
   std::vector<double> lambda_state(n, 0.0);
   block_seeds seeds{std::vector<double>(node_count() * T::state_size(), 0.0),
+                    std::vector<double>(node_count(), 0.0),
                     std::vector<double>(node_count() * n_resource, 0.0)};
-  // The strategy rate adjoints the stage recursion supplies, before the
-  // closed-form steps add to them.
+  // The strategy rate adjoints the stage recursion supplies, and beside them the
+  // transport term's, which is a block output rather than a closed-form seed.
   for (size_t k = 0; k < node_count(); ++k) {
     for (size_t s = 0; s < T::state_size(); ++s) {
       seeds.rate[k * T::state_size() + s] =
         lambda_in[k * node_type::ode_size() + s];
     }
+    seeds.transport[k] =
+      lambda_in[k * node_type::ode_size() + T::state_size() + 1];
   }
 
   soil_adjoint(lambda_in, lambda_state, seeds);

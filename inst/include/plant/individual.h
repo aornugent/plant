@@ -7,6 +7,7 @@
 #include <vector>
 #include <odelia/ode_util.hpp>
 #include <plant/internals.h>
+#include <plant/gradient.h>
 #include <plant/util.h>
 #include <plant/uniroot.h>
 #include <utility> // std::pair
@@ -181,9 +182,10 @@ public:
            strategy->ad_parameters().size();
   }
 
-  // The strategy rates, then one consumption rate per resource.
+  // The strategy rates, then the density transport term, then one consumption
+  // rate per resource.
   size_t block_output_size(const environment_type& environment) const {
-    return strategy_type::state_size() + environment.n_resources();
+    return strategy_type::state_size() + 1 + environment.n_resources();
   }
 
   template <typename It>
@@ -217,12 +219,47 @@ public:
     return it;
   }
 
-  template <typename It> It block_outputs(It it) const {
+  // The transport term is read after the rates and before the consumption
+  // rates: it runs a second rate evaluation on a copy, and the copy shares this
+  // strategy, so the rates already read must be off the strategy first.
+  template <typename It>
+  It block_outputs(It it, const environment_type& environment) const {
     it = ode_rates(it);
+    *it++ = util::as_iterator_scalar<It>(log_density_rate(environment));
     for (size_t i = 0; i < vars.resource_size; ++i) {
       *it++ = util::as_iterator_scalar<It>(vars.consumption_rates[i]);
     }
     return it;
+  }
+
+  // The size-density equation's transport term, from the rates just computed.
+  value_type log_density_rate(const environment_type& environment) const {
+    return -growth_rate_gradient(environment) - rate(MORTALITY_INDEX);
+  }
+
+  // d(growth rate)/d(height), as a sub-grid probe: one further rate evaluation
+  // at a displaced height, differenced against the rate already computed.
+  // Differencing the growth rate needs a mutable Individual to perturb height
+  // on, and it must not disturb this one's computed state and rates, so perturb
+  // a copy. Both evaluations carry the scalar, so a recording of this holds the
+  // quotient and the reverse pass forms no seed for the growth rate by hand.
+  value_type growth_rate_gradient(const environment_type& environment) const {
+    Individual probe = *this;
+    // The lambda carries value_type in and out. Written as double it would
+    // still compile, taking the value of an active growth rate, and the
+    // transport term would then be built from a derivative of exactly zero with
+    // nothing raised.
+    auto fun = [&](const value_type& h) -> value_type {
+      return probe.growth_rate_given_height(h, environment);
+    };
+    const Control& ctrl = control();
+    const double eps = ctrl.node_gradient_eps;
+    if (ctrl.node_gradient_richardson) {
+      return util::gradient_richardson(fun, state(HEIGHT_INDEX), eps,
+                                       ctrl.node_gradient_richardson_depth);
+    }
+    return util::gradient_fd(fun, state(HEIGHT_INDEX), eps,
+                             rate(HEIGHT_INDEX), ctrl.node_gradient_direction);
   }
 
   // Single individual methods
