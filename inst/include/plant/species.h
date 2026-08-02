@@ -79,9 +79,8 @@ public:
   std::pair<value_type, value_type>
   compute_competition_and_slope_excl_boundary(double height) const;
 
-  // Transpose of compute_competition_and_slope at `height`, with the closing
-  // boundary trapezium the field build includes. `out` points at this species'
-  // first node. The boundary node's own height and density are not ODE state.
+  // Transpose of compute_competition_and_slope at `height`, closing boundary
+  // trapezium and all. `out` points at this species' first node.
   void compute_competition_and_slope_adjoint(double height,
                                              double lambda_value,
                                              double lambda_slope,
@@ -930,6 +929,7 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
   }
 
   if (size() == 1 || f_h1 > 0) {
+    // The boundary node's own height and density are not ODE state.
     const std::pair<value_type, value_type> fs0 =
       new_node.compute_competition_and_slope(height);
     const double h0 = to_passive(new_node.height());

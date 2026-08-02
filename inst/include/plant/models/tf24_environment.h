@@ -635,10 +635,8 @@ public:
       std::pow(theta / soil_moist_sat_layer, p - 1) / soil_moist_sat_layer;
   }
 
-  // Transpose of compute_rates in the soil state. Drainage runs downward only,
-  // so the Jacobian is lower bidiagonal and nothing is solved.
-  // A layer the positivity guard clamped has an identically zero forward row,
-  // so its transposed row is zero too.
+  // Transpose of compute_rates in the soil state: drainage runs downward only,
+  // so this is lower bidiagonal, and a guard-clamped layer's row is zero.
   void compute_rates_adjoint(const std::vector<double>& lambda_rate,
                              std::vector<double>& lambda_state,
                              std::vector<double>& lambda_uptake) const {
