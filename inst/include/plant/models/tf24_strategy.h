@@ -477,6 +477,16 @@ public:
   // net_mass_production_dt, so it must be virtual to dispatch to the override
   // when net_mass_production_dt is reused unchanged by the subclass.
   virtual void solve_leaf();
+
+  // value + sum_i partial_i * (x_i - to_passive(x_i)). Every term is zero in
+  // value, so the number is the leaf's and the derivative is the supplied one.
+  S graft(double value, const std::vector<double>& partial,
+          const std::vector<S>& x) const;
+  // Read the leaf's local Jacobian at the operating point its solve left, and
+  // put a row on each of the two outputs that re-enter the active chain.
+  void graft_leaf_outputs(const S& radiation, const S& area_leaf_,
+                          const std::vector<S>& psi_soil,
+                          const S& leaf_specific_conductance_max);
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
@@ -756,6 +766,11 @@ public:
   // set_root_network takes it by const reference precisely so this buffer keeps
   // its capacity across calls. Stays double: the leaf is a black-box node.
   phylloptim::RootNetwork root_network_;
+
+  // The leaf's two outputs on the active chain, carrying its supplied Jacobian.
+  // Written by net_mass_production_dt before compute_rates reads either.
+  S leaf_profit_;
+  std::vector<S> leaf_soil_consumption_;
 };
 
 template <typename S>
@@ -806,7 +821,67 @@ S TF24_Strategy<S>::compute_average_light_environment(
 // assumes optimise_psi_stem_TF has been run for optimal psi_stem
 template <typename S>
 S TF24_Strategy<S>::evapotranspiration_dt(S area_leaf_, int soil_layer) {
-  return leaf.soil_consumption_[soil_layer] * area_leaf_;
+  if constexpr (std::is_same_v<S, double>) {
+    return leaf.soil_consumption_[soil_layer] * area_leaf_;
+  } else {
+    return leaf_soil_consumption_[soil_layer] * area_leaf_;
+  }
+}
+
+template <typename S>
+S TF24_Strategy<S>::graft(double value, const std::vector<double>& partial,
+                          const std::vector<S>& x) const {
+  using odelia::util::to_passive;
+  util::check_length(partial.size(), x.size());
+  S out = value;
+  for (size_t i = 0; i < x.size(); ++i) {
+    out += partial[i] * (x[i] - to_passive(x[i]));
+  }
+  return out;
+}
+
+// One reverse contraction per output gives that output's row, so the leaf is
+// asked for its profit row and one row per layer it draws from.
+template <typename S>
+void TF24_Strategy<S>::graft_leaf_outputs(
+    const S& radiation, const S& area_leaf_, const std::vector<S>& psi_soil,
+    const S& leaf_specific_conductance_max) {
+  const size_t n = static_cast<size_t>(leaf.max_soil_layer);
+  const size_t n_layer = leaf.soil_consumption_.size();
+
+  // The leaf's state-dependent inputs, in the order inputs() names them. Its
+  // parameter rows are not built yet and are left off rather than read as NaN.
+  std::vector<S> x;
+  x.reserve(2 * n + 3);
+  x.push_back(radiation);
+  for (size_t j = 0; j < n; ++j) {
+    x.push_back(psi_soil[j]);
+  }
+  x.push_back(area_leaf_);
+  for (size_t j = 0; j < n; ++j) {
+    x.push_back(mass_root_prop_[j]);
+  }
+  x.push_back(leaf_specific_conductance_max);
+
+  std::vector<double> row, lambda(n, 0.0);
+  leaf.input_adjoints(1.0, lambda, row);
+  row.resize(x.size());
+  leaf_profit_ = graft(leaf.profit_, row, x);
+
+  // soil_consumption_ is sized to the layer count and written only where there
+  // is root mass, so the rows stop at max_soil_layer and the rest stay flat.
+  leaf_soil_consumption_.assign(n_layer, S(0.0));
+  for (size_t j = 0; j < n_layer; ++j) {
+    if (j >= n) {
+      leaf_soil_consumption_[j] = leaf.soil_consumption_[j];
+      continue;
+    }
+    std::fill(lambda.begin(), lambda.end(), 0.0);
+    lambda[j] = 1.0;
+    leaf.input_adjoints(0.0, lambda, row);
+    row.resize(x.size());
+    leaf_soil_consumption_[j] = graft(leaf.soil_consumption_[j], row, x);
+  }
 }
 
 template <typename S>
@@ -1244,7 +1319,9 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // aux stores and leaf.profit_ in net_mass_production_dt, and
   // leaf.soil_consumption_ in evapotranspiration_dt -- so a partial attaches to
   // one expression per output.
+  S radiation_used = 0.0;
   auto optimise_at = [&](const S& radiation) -> void {
+    radiation_used = radiation;
     if constexpr (std::is_same_v<S, double>) {
       leaf.set_physiology(area_leaf_, mass_root_prop_, pars.rho, pars.a_bio, radiation, psi_soil, soil_depths_, leaf_specific_conductance_max, environment.get_atm_vpd(), environment.get_ca(), sapwood_volume_per_leaf_area, environment.get_leaf_temp(), environment.get_atm_o2_kpa(), environment.get_atm_kpa());
     } else {
@@ -1338,7 +1415,13 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   //TODO: one point constant ratio and integral width for daylength
   // convert assimilation per leaf area per second (umol m^-2 s^-1) to canopy-level total yearly assimilation (mol yr^-1)
   // converts to canopy area, then years, then mols
-  const S assimilation_ = leaf.profit_ * area_leaf_* 60*60*12*365/1e6;
+  S profit_ = leaf.profit_;
+  if constexpr (!std::is_same_v<S, double>) {
+    graft_leaf_outputs(radiation_used, area_leaf_, psi_soil,
+                       leaf_specific_conductance_max);
+    profit_ = leaf_profit_;
+  }
+  const S assimilation_ = profit_ * area_leaf_* 60*60*12*365/1e6;
   // const double assimilation_ = assimilation(environment, height, area_leaf_);
   const S respiration_ =
     respiration(mass_leaf_, mass_sapwood_, mass_bark_, mass_root_);
