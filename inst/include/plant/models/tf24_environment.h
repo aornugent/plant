@@ -226,6 +226,43 @@ public:
 
   std::vector<double> get_soil_mid_depths() const { return z_mid; }
 
+  // The same environment at scalar U.
+  template <class U> using rebind = TF24_Environment<U>;
+
+  // This environment copied onto scalar U. Everything but the light spline is
+  // double; the spline is rebuilt by Patch::compute_environment.
+  template <class U>
+  TF24_Environment<U> rebind_from() const {
+    TF24_Environment<U> out;
+    static_cast<Environment&>(out) = static_cast<const Environment&>(*this);
+    out.water_flux = water_flux;
+    out.z = z;
+    out.z_mid = z_mid;
+    out.dz = dz;
+    out.initial_states = initial_states;
+    out.canopy_rescale_usually = canopy_rescale_usually;
+    out.soil_number_of_depths = soil_number_of_depths;
+    out.delta_z = delta_z;
+    out.depth = depth;
+    out.soil_moist_sat = soil_moist_sat;
+    out.K_sat = K_sat;
+    out.a_psi = a_psi;
+    out.n_psi = n_psi;
+    out.soil_moist_sat_layers = soil_moist_sat_layers;
+    out.K_sat_layers = K_sat_layers;
+    out.a_psi_layers = a_psi_layers;
+    out.n_psi_layers = n_psi_layers;
+    out.use_layered_soil_parameters = use_layered_soil_parameters;
+    out.a_infil = a_infil;
+    out.b_infil = b_infil;
+    out.soil_moist_residual = soil_moist_residual;
+    out.soil_psi_max_ = soil_psi_max_;
+    out.psi_soil_cache_.assign(soil_number_of_depths, 0.0);
+    out.psi_soil_cache_state_.assign(soil_number_of_depths, 0.0);
+    out.psi_soil_cache_valid_ = false;
+    return out;
+  }
+
   // TODO: should we use auxilliary in internals
   std::vector<double> water_flux;
   std::vector<double> z;

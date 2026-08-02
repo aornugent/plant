@@ -85,6 +85,9 @@ public:
 
 protected:
   explicit SpeciesBase(strategy_type s) : strategy(make_strategy_ptr(s)) {}
+  // An already-prepared strategy, taken as is. prepare_strategy() is refused at
+  // an active scalar, so a species there is reachable only through this.
+  explicit SpeciesBase(strategy_type_ptr s) : strategy(s) {}
 
   const Control& control() const { return strategy->control; }
 

@@ -19,6 +19,13 @@ using namespace Rcpp;
 
 namespace plant {
 
+// A strategy or environment named at scalar U. Reached through U so the lookup
+// of the rebind alias waits until a rebind is actually asked for.
+template <typename U>
+struct at_scalar {
+  template <typename X> using apply = typename X::template rebind<U>;
+};
+
 // One accepted step. The state widens at an introduction, so the record is ragged.
 struct ode_step_record { double time; double step_size; std::vector<double> state; };
 
@@ -33,9 +40,21 @@ public:
   typedef Node<T,E>         node_type;
   typedef Species<T,E>      species_type;
   typedef Parameters<T,E>   parameters_type;
+  typedef typename strategy_type::ptr strategy_type_ptr;
 
   Patch(parameters_type p, environment_type e, plant::Control c);
   void reset();
+
+  // This patch at scalar U: strategies (already prepared), environment, node
+  // structure, ODE state, and the birth stamps that divide the fecundity rate.
+  template <class U,
+            class T2 = typename at_scalar<U>::template apply<T>,
+            class E2 = typename at_scalar<U>::template apply<E>>
+  Patch<T2,E2> rebind_from() const;
+
+  // Every scalar's Patch is one class, so a rebind reaches the rebound patch's
+  // members.
+  template <typename, typename> friend class Patch;
   size_t size() const {return species.size();}
 
   //Try using pointer in place of object itself
@@ -200,6 +219,11 @@ public:
   void overwrite_strategies(std::vector<strategy_type> strategies);
 
 private:
+  // A patch whose species take the prepared strategies given, rather than
+  // preparing the ones in the parameters. rebind_from's only route in.
+  Patch(parameters_type p, environment_type e, plant::Control c,
+        const std::vector<strategy_type_ptr>& prepared);
+
   int idx = 0; // used to access environment cache for mutant runs
   void compute_environment(bool rescale);
   // One field build, with every species' inflow boundary interval included or not.
@@ -286,6 +310,85 @@ Patch<T,E>::Patch(parameters_type p, environment_type e, Control c)
   add_strategies(parameters.strategies);
 
   reset();
+}
+
+template <typename T, typename E>
+Patch<T,E>::Patch(parameters_type p, environment_type e, Control c,
+                  const std::vector<strategy_type_ptr>& prepared)
+  : parameters(p),
+    area(p.patch_area),
+    environment(e),
+    control(c),
+    environment_cache(6) {
+
+  parameters.validate();
+
+  save_RK45_cache = control.save_RK45_cache;
+  survival_weighting = p.disturbance;
+
+  environment.set_shading_model(control.shading_model,
+                                control.ppa_layer_optical_depth,
+                                control.ppa_layer_smoothing);
+
+  for (const strategy_type_ptr& s : prepared) {
+    species.push_back(Species<T,E>(s));
+  }
+
+  reset();
+}
+
+template <typename T, typename E>
+template <class U, class T2, class E2>
+Patch<T2,E2> Patch<T,E>::rebind_from() const {
+  Parameters<T2,E2> p2;
+  p2.patch_area = parameters.patch_area;
+  p2.n_patches = parameters.n_patches;
+  p2.patch_type = parameters.patch_type;
+  p2.max_patch_lifetime = parameters.max_patch_lifetime;
+  p2.node_schedule_times_default = parameters.node_schedule_times_default;
+  p2.node_schedule_times = parameters.node_schedule_times;
+  p2.ode_times = parameters.ode_times;
+  p2.initial_time = parameters.initial_time;
+  p2.strategy_default = parameters.strategy_default.template rebind_from<U>();
+
+  // The strategies the species run, not the ones in the parameters: those are
+  // the prepared copies, and preparing again is refused at an active scalar.
+  std::vector<typename T2::ptr> prepared;
+  for (const species_type& s : species) {
+    prepared.push_back(std::make_shared<T2>(
+      s.strategy_ptr()->template rebind_from<U>()));
+    p2.strategies.push_back(*prepared.back());
+  }
+
+  E2 env = environment.template rebind_from<U>();
+  Patch<T2,E2> out(p2, env, control, prepared);
+
+  for (size_t i = 0; i < species.size(); ++i) {
+    for (size_t j = 0; j < species[i].size(); ++j) {
+      out.species[i].introduce_new_node();
+    }
+    // Not in the ODE state, and pr_patch_survival_at_birth divides the
+    // fecundity rate: without these the rebound rates differ.
+    out.species[i].set_birth_state(species[i].node_times(),
+                                   species[i].r_patch_densities(),
+                                   species[i].r_pr_patch_survival_at_birth());
+  }
+
+  std::vector<U> node_state(node_ode_size());
+  odelia::ode::ode_state(species.begin(), species.end(), node_state.begin());
+  odelia::ode::set_ode_state(out.species.begin(), out.species.end(),
+                             node_state.begin());
+
+  // reset() in the constructor cleared the environment back to its initial
+  // soil state, so restore the current one before the spline is rebuilt.
+  out.environment = env;
+  out.environment.set_shading_model(control.shading_model,
+                                    control.ppa_layer_optical_depth,
+                                    control.ppa_layer_smoothing);
+  out.compute_environment(false);
+  out.environment_ptr = &out.environment;
+  out.compute_rates();
+  return out;
 }
 
 template <typename T, typename E>

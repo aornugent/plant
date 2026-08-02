@@ -131,9 +131,37 @@ struct TF24_Pars {
   // double: the gate is compared rather than differentiated, and d has no row in
   // the leaf's supplied Jacobian, so declaring it active would read an exact zero
   // that is indistinguishable from insensitivity.
+  //
+  // Being double, neither is in field_ptrs() below, so a rebind does not carry
+  // them and a rebound strategy runs with PM off at the default leaf dimension.
+  // That matches every configuration measured so far, and it is wrong the moment
+  // PM is enabled on a differentiated run -- pair them with the copy in
+  // rebind_from() before turning use_energy_balance on.
   double use_energy_balance = 0.0;
   double d = 0.05;
+
+  // Every member above, in declaration order. Carries the whole parameter set
+  // across a scalar change; ad_parameters() is the differentiable subset only.
+  std::vector<S*> field_ptrs() {
+    return {
+      &lma, &rho, &hmat, &omega, &eta, &theta, &a_l1, &a_l2, &a_r1, &a_b1,
+      &r_s, &r_b, &r_r, &r_l, &a_y, &a_bio, &k_l, &k_b, &k_s, &k_r,
+      &a_p1, &a_p2, &a_f3, &a_f1, &a_f2, &S_D, &a_d0, &d_I, &a_dG1, &a_dG2,
+      &a_st1, &a_st2, &a_st3, &k_I, &vcmax_25, &p_50, &K_s, &c, &b, &psi_crit,
+      &beta1, &beta2, &g1_TF24, &jmax_25, &a, &curv_fact_elec_trans,
+      &curv_fact_colim, &var_sapwood_volume_cost, &nmass_l, &nmass_s, &nmass_b,
+      &nmass_r, &dmass_dN, &root_depth_shape_eta, &root_c, &root_b,
+      &root_psi_crit, &rooting_depth_max, &recruitment_decay
+    };
+  }
+  static constexpr size_t field_count = 59;
 };
+
+// Every member of TF24_Pars is an S, so one added without extending
+// field_ptrs() changes this size and is refused rather than dropped.
+static_assert(sizeof(TF24_Pars<double>) ==
+              TF24_Pars<double>::field_count * sizeof(double),
+              "TF24_Pars has a member field_ptrs() does not list");
 
 // Templated on the scalar S the state, the traits and everything derived from
 // them carry; double is production. The embedded Leaf, the Control tolerances
@@ -568,6 +596,53 @@ public:
 
   // Set constants within TF24_Strategy
   void prepare_strategy();
+
+  // The same strategy at scalar U.
+  template <class U> using rebind = TF24_Strategy<U>;
+
+  // This strategy, already prepared, copied onto scalar U. prepare_strategy()
+  // is refused at an active scalar, so its results are carried, not rebuilt.
+  template <class U>
+  TF24_Strategy<U> rebind_from() const {
+    TF24_Strategy<U> out;
+    out.state_index = this->state_index;
+    out.aux_index = this->aux_index;
+    out.birth_rate_x = this->birth_rate_x;
+    out.birth_rate_y = this->birth_rate_y;
+    out.is_variable_birth_rate = this->is_variable_birth_rate;
+    out.collect_all_auxiliary = this->collect_all_auxiliary;
+    out.size_0 = this->size_0;
+    out.control = this->control;
+    out.name = this->name;
+    out.extrinsic_drivers = this->extrinsic_drivers;
+
+    TF24_Pars<S> src = pars;
+    std::vector<S*> from = src.field_ptrs();
+    std::vector<U*> to = out.pars.field_ptrs();
+    for (size_t i = 0; i < from.size(); ++i) {
+      *to[i] = U(*from[i]);
+    }
+
+    out.shading_model_ = shading_model_;
+    out.eta_c = U(eta_c);
+    out.canopy_shape.initialise(out.pars.eta, out.shading_model_);
+    out.height_0 = height_0;
+    out.area_leaf_0 = U(area_leaf_0);
+    out.leaf = leaf;
+    out.storage_gate_width = storage_gate_width;
+    out.storage_prod_eps = storage_prod_eps;
+    out.newton_tol_abs = newton_tol_abs;
+    out.GSS_tol_abs = GSS_tol_abs;
+    out.vulnerability_curve_ncontrol = vulnerability_curve_ncontrol;
+    out.ci_abs_tol = ci_abs_tol;
+    out.ci_niter = ci_niter;
+    out.beta_R_H = beta_R_H;
+    out.beta_R_V = beta_R_V;
+    out.function_integrator = function_integrator;
+    out.mass_root_prop_.assign(mass_root_prop_.size(), U(0.0));
+    out.refresh_indices();
+    return out;
+  }
 
   // Birth height of a (germinated) seed. Strategy-agnostic accessor used by
   // the templated Individual; here height_0 is derived in prepare_strategy().
