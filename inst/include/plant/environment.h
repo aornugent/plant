@@ -84,10 +84,12 @@ public:
     return it;
   }
 
+  // Passive: aux carries a linearisation point and a branch condition, and both
+  // want a value. A metric reading aux is a block output and overturns this.
   template <typename It> It set_ode_aux(It it) {
     util::check_length(resource_uptake.size(), aux_size());
     for (size_t i = 0; i < aux_size(); i++) {
-      resource_uptake[i] = *it++;
+      resource_uptake[i] = odelia::util::to_passive(*it++);
     }
     return it;
   }
