@@ -39,7 +39,8 @@ int main() {
   std::vector<std::vector<double>> states = {
       {0.10, 0.30, 0.60, 0.90, 1.20},
       {0.02, 0.05, 0.08, 0.12, 0.17},
-      {0.50, 0.80, 1.10, 1.40, 1.70, 2.00, 2.30, 2.60}};
+      {0.50, 0.80, 1.10, 1.40, 1.70, 2.00, 2.30, 2.60},
+      {1.60, 2.20, 2.80, 3.40, 4.00}};
   for (size_t st = 0; st < states.size(); ++st) {
     Leaf l = make_leaf();
     seat(l, states[st], 900.0, 0.05);
@@ -372,6 +373,238 @@ int main() {
                "%.6g vs %.6g rel %.2e\n",
                nm2[d], adjP[d + (d ? 0 : 0)], dprof, rel(adjP[d], dprof),
                adj0[d], dup, rel(adj0[d], dup));
+      }
+    }
+
+    // FINITE: no row of the supplied Jacobian may be NA, at either operating
+    // point case. This is the gate the parameter and bound rows exist to turn
+    // green, so it reads red on a tree where they are unfilled.
+    {
+      l.find_root_collar_psi();
+      std::vector<double> lam(n, 1.0), adj3;
+      l.input_adjoints(1.0, lam, adj3);
+      std::vector<std::string> names = l.inputs();
+      int bad = 0;
+      for (size_t i = 0; i < adj3.size(); ++i) {
+        if (!std::isfinite(adj3[i])) {
+          if (bad < 6) printf("      non-finite: %s\n", names[i].c_str());
+          ++bad;
+        }
+      }
+      printf("    FINITE pinned=%d  non-finite rows %d of %zu\n",
+             (int)l.collar_pinned_, bad, adj3.size());
+    }
+
+    // The interpolant rebuilders must put the splines back bit-for-bit, or
+    // input_adjoints leaves the forward model on a different leaf than it found.
+    {
+      std::vector<double> xs, ys, xr, yr;
+      l.build_cumulative_vulnerability_integral(l.b, l.c,
+                                                l.vulnerability_curve_ncontrol,
+                                                xs, ys);
+      l.build_cumulative_vulnerability_integral(l.root_b, l.root_c,
+                                                l.vulnerability_curve_ncontrol,
+                                                xr, yr);
+      const double probe = 0.5 * l.psi_crit;
+      const double s0 = l.transpiration_from_psi.eval(probe);
+      const double p0 = l.psi_from_transpiration.eval(s0);
+      const double r0 = l.root_vuln_integral_from_psi.eval(probe);
+      l.set_transpiration_at(l.b * 1.1, l.c, xs);
+      l.set_root_vulnerability_at(l.root_b * 1.1, l.root_c, xr);
+      l.set_transpiration_at(l.b, l.c, xs);
+      l.set_root_vulnerability_at(l.root_b, l.root_c, xr);
+      printf("    RESTORE bit-identical: S %d  P %d  G %d\n",
+             (int)(l.transpiration_from_psi.eval(probe) == s0),
+             (int)(l.psi_from_transpiration.eval(s0) == p0),
+             (int)(l.root_vuln_integral_from_psi.eval(probe) == r0));
+    }
+
+    // The parameter rows against a central difference of the whole solve. Valid
+    // for profit by the envelope theorem; for uptake it is an order-of-magnitude
+    // check only, and for the four parameters that rebuild an interpolant it is
+    // no reference at all: the builder's knot COUNT steps with b and root_b, so
+    // the model's own output jumps there. Both the moving-grid difference and
+    // the held-grid one are reported so the size of that is visible.
+    {
+      static double Leaf::*const slot[] = {
+          &Leaf::vcmax_25, &Leaf::jmax_25, &Leaf::a, &Leaf::curv_fact_elec_trans,
+          &Leaf::curv_fact_colim, &Leaf::b, &Leaf::c, &Leaf::psi_crit,
+          &Leaf::beta2, &Leaf::g1_TF24, &Leaf::rho_, &Leaf::a_bio_,
+          &Leaf::root_b, &Leaf::root_c, &Leaf::root_psi_crit};
+      static const char* const pname[] = {
+          "vcmax_25", "jmax_25", "a", "curv_fact_elec_trans", "curv_fact_colim",
+          "b", "c", "psi_crit", "beta2", "g1_TF24", "rho", "a_bio",
+          "root_b", "root_c", "root_psi_crit"};
+      const int i_par0 = 3 + 2 * n;
+      std::vector<double> mass(n, 1.0 / n), depth(n);
+      for (int i = 0; i < n; ++i) depth[i] = (i + 1.0) / n;
+      const double theta = 0.000157, hh = 5.0;
+      std::vector<double> xs, ys, xr, yr;
+      l.build_cumulative_vulnerability_integral(l.b, l.c,
+                                                l.vulnerability_curve_ncontrol,
+                                                xs, ys);
+      l.build_cumulative_vulnerability_integral(l.root_b, l.root_c,
+                                                l.vulnerability_curve_ncontrol,
+                                                xr, yr);
+      auto resolve = [&](int k, double v, bool hold_grid) {
+        l.*slot[k] = v;
+        if (k == 5 || k == 6) {
+          if (hold_grid) l.set_transpiration_at(l.b, l.c, xs);
+          else l.setup_transpiration(l.vulnerability_curve_ncontrol);
+        }
+        if (k == 12 || k == 13) {
+          if (hold_grid) l.set_root_vulnerability_at(l.root_b, l.root_c, xr);
+          else l.setup_root_vulnerability(l.vulnerability_curve_ncontrol);
+        }
+        l.transpiration_cached_ = false;
+        // set_physiology keys the vcmax_/jmax_ block on (leaf_temp_,
+        // atm_o2_kpa_) alone, so without this a perturbed vcmax_25 or jmax_25
+        // never reaches the model and this reference reads exactly zero.
+        l.photo_temp_cached_ = false;
+        l.set_physiology(0.05, mass, 608, 0.0245, l.PPFD_, l.psi_soil_, depth,
+                         1.0 * theta / hh, 2.0, 40.0, theta * hh, 25.0, 21.0,
+                         101.3);
+        l.find_root_collar_psi();
+      };
+      resolve(0, l.vcmax_25, false);
+      std::vector<double> lamP(n, 0.0), adjP, lam0(n, 0.0), adj0;
+      l.input_adjoints(1.0, lamP, adjP);
+      lam0[0] = 1.0;
+      l.input_adjoints(0.0, lam0, adj0);
+      printf("    PARAMETER ROWS (adjoint | whole-solve difference)\n");
+      for (int k = 0; k < 15; ++k) {
+        const double keep = l.*slot[k];
+        const double h = std::abs(keep) * 1e-6;
+        if (!(h > 0.0)) { printf("      %-21s parameter is zero\n", pname[k]); continue; }
+        double got_prof[2] = {0, 0}, got_up[2] = {0, 0};
+        for (int grid = 0; grid < 2; ++grid) {
+          double pr[2], up[2];
+          for (int s = 0; s < 2; ++s) {
+            resolve(k, keep + (s ? -h : h), grid == 1);
+            pr[s] = l.profit_;
+            up[s] = l.soil_consumption_[0];
+          }
+          got_prof[grid] = (pr[0] - pr[1]) / (2 * h);
+          got_up[grid] = (up[0] - up[1]) / (2 * h);
+          resolve(k, keep, grid == 1);
+        }
+        printf("      %-21s profit %13.6g | %13.6g moving %13.6g  rel %.2e\n",
+               pname[k], adjP[i_par0 + k], got_prof[1], got_prof[0],
+               rel(adjP[i_par0 + k], got_prof[1]));
+        printf("      %-21s uptake %13.6g | %13.6g moving %13.6g  rel %.2e\n",
+               "", adj0[i_par0 + k], got_up[1], got_up[0],
+               rel(adj0[i_par0 + k], got_up[1]));
+      }
+      // vcmax_25 is the discriminator: uptake has no direct dependence on it, so
+      // the whole row arrives through the operating point's movement and a
+      // severed argmax channel returns exactly zero rather than a wrong number.
+      printf("    DISCRIMINATOR d(uptake_0)/d(vcmax_25) = %.9g (nonzero=%d)\n",
+             adj0[i_par0 + 0], (int)(adj0[i_par0 + 0] != 0.0));
+    }
+
+    // The bound rows, where the operating point is pinned. bound_a is where
+    // uptake is zero; a tight bisection on E_up gives it to machine precision,
+    // which prepare_collar_solve's own 1e-4 root-find does not, so differencing
+    // that is a reference and differencing prepare_collar_solve is not.
+    {
+      l.find_root_collar_psi();
+      if (l.collar_pinned_) {
+        std::vector<double> lam(n, 0.0), adj4;
+        lam[0] = 1.0;
+        l.input_adjoints(0.0, lam, adj4);
+        double ba, bb;
+        l.prepare_collar_solve(ba, bb);
+        l.find_root_collar_psi();
+        const double p = -l.root_collar_psi_;
+        printf("    BOUND p*=%.9g bound_a=%.9g bound_b=%.9g at_a=%d "
+               "p*-bound=%.3e\n", p, ba, bb, (int)((p - ba) < (bb - p)),
+               (p - ba) < (bb - p) ? p - ba : bb - p);
+        auto zero_uptake_collar = [&]() -> double {
+          double lo = 1e-6, hi = l.psi_crit;   // positive magnitudes
+          for (int it = 0; it < 200; ++it) {
+            const double m = 0.5 * (lo + hi);
+            l.refresh_soil_potentials();
+            l.E_from_Soil_to_Root_Collar(-m, l.psi_soil_inverted_);
+            if (l.E_up_ > 0.0) hi = m; else lo = m;
+          }
+          return 0.5 * (lo + hi);
+        };
+        printf("      tight bound_a = %.12g vs prepare's %.12g\n",
+               zero_uptake_collar(), ba);
+        l.find_root_collar_psi();
+        std::vector<double> dbound;
+        l.bound_partials(dbound);
+        l.find_root_collar_psi();
+        for (int j = 0; j < n && j < 3; ++j) {
+          const double keep = l.psi_soil_[j], h = 1e-6;
+          double v[2];
+          for (int s = 0; s < 2; ++s) {
+            l.psi_soil_[j] = keep + (s ? -h : h);
+            v[s] = zero_uptake_collar();
+          }
+          l.psi_soil_[j] = keep;
+          l.refresh_soil_potentials();
+          const double meas = (v[0] - v[1]) / (2 * h);
+          printf("      d(bound_a)/d(psi_soil[%d]) rows %.9g tight difference "
+                 "%.9g rel %.2e\n", j, dbound[1 + j], meas,
+                 rel(dbound[1 + j], meas));
+        }
+        // Root mass and leaf area, against the same tight bisection.
+        {
+          std::vector<double> mass(n, 1.0 / n), depth(n);
+          for (int i = 0; i < n; ++i) depth[i] = (i + 1.0) / n;
+          const double theta = 0.000157, hh2 = 5.0;
+          const double hm = (1.0 / n) * 1e-6;
+          double v[2];
+          for (int s = 0; s < 2; ++s) {
+            std::vector<double> m2(n, 1.0 / n);
+            m2[0] += (s ? -hm : hm);
+            l.set_physiology(l.area_leaf_, m2, 608, 0.0245, l.PPFD_, l.psi_soil_,
+                             depth, 1.0 * theta / hh2, 2.0, 40.0, theta * hh2,
+                             25.0, 21.0, 101.3);
+            v[s] = zero_uptake_collar();
+          }
+          l.set_physiology(l.area_leaf_, mass, 608, 0.0245, l.PPFD_, l.psi_soil_,
+                           depth, 1.0 * theta / hh2, 2.0, 40.0, theta * hh2,
+                           25.0, 21.0, 101.3);
+          const double meas = (v[0] - v[1]) / (2 * hm);
+          printf("      d(bound_a)/d(mass_root[0]) rows %.9g tight difference "
+                 "%.9g rel %.2e\n", dbound[2 + n], meas,
+                 rel(dbound[2 + n], meas));
+          printf("      d(bound_a)/d(area_leaf)   rows %.9g (uptake is zero at "
+                 "this endpoint, so leaf area cannot move it)\n", dbound[1 + n]);
+        }
+        // root_b and root_c reach the endpoint through the vulnerability curve.
+        {
+          const int idx[2] = {3 + 2 * n + 12, 3 + 2 * n + 13};
+          double* mem[2] = {&l.root_b, &l.root_c};
+          const char* nm3[2] = {"root_b", "root_c"};
+          std::vector<double> xr, yr;
+          l.build_cumulative_vulnerability_integral(
+              l.root_b, l.root_c, l.vulnerability_curve_ncontrol, xr, yr);
+          for (int t = 0; t < 2; ++t) {
+            const double keep = *mem[t], hb = keep * 1e-6;
+            double v[2][2];
+            for (int grid = 0; grid < 2; ++grid) {
+              for (int s = 0; s < 2; ++s) {
+                *mem[t] = keep + (s ? -hb : hb);
+                if (grid) l.set_root_vulnerability_at(l.root_b, l.root_c, xr);
+                else l.setup_root_vulnerability(l.vulnerability_curve_ncontrol);
+                v[grid][s] = zero_uptake_collar();
+              }
+              *mem[t] = keep;
+              if (grid) l.set_root_vulnerability_at(l.root_b, l.root_c, xr);
+              else l.setup_root_vulnerability(l.vulnerability_curve_ncontrol);
+            }
+            const double held = (v[1][0] - v[1][1]) / (2 * hb);
+            printf("      d(bound_a)/d(%s) rows %.9g held-grid %.9g rel %.2e | "
+                   "moving-grid %.9g\n", nm3[t], dbound[idx[t]], held,
+                   rel(dbound[idx[t]], held), (v[0][0] - v[0][1]) / (2 * hb));
+          }
+        }
+        l.find_root_collar_psi();
+      } else {
+        printf("    BOUND not pinned at this state\n");
       }
     }
   }
