@@ -182,10 +182,16 @@ public:
     const std::vector<S>& m = light_availability.knot_slopes();
     util::check_length(y.size(), light_availability.knot_count());
     util::check_length(m.size(), light_availability.knot_count());
-    for (size_t k = 0; k < y.size(); ++k) { *it++ = y[k]; }
-    for (size_t k = 0; k < m.size(); ++k) { *it++ = m[k]; }
+    for (size_t k = 0; k < y.size(); ++k) {
+      *it++ = util::as_iterator_scalar<It>(y[k]);
+    }
+    for (size_t k = 0; k < m.size(); ++k) {
+      *it++ = util::as_iterator_scalar<It>(m[k]);
+    }
     const std::vector<S>& psi = get_soil_water_potential_state();
-    for (int i = 0; i < soil_number_of_depths; ++i) { *it++ = psi[i]; }
+    for (int i = 0; i < soil_number_of_depths; ++i) {
+      *it++ = util::as_iterator_scalar<It>(psi[i]);
+    }
     return it;
   }
 
@@ -596,6 +602,20 @@ public:
     };
 
     light_availability.compute_environment(f_light_availability, height_max, rescale);
+  }
+
+  // d(psi_from_soil_moist)/d(theta), which carries a cohort's potential adjoint
+  // onto the soil state. Zero at either clamp, where the forward curve is flat.
+  double dpsi_from_soil_moist_dtheta(double soil_moist_, size_t layer) const {
+    if (soil_moist_ <= soil_moist_residual) {
+      return 0.0;
+    }
+    const double psi = psi_from_soil_moist(soil_moist_, layer);
+    if (psi >= soil_psi_max_) {
+      return 0.0;
+    }
+    const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
+    return -n_psi_layer * psi / soil_moist_;
   }
 
   // d(soil_K_from_soil_theta)/d(theta). Zero outside the clamped range, where
