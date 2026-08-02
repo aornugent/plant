@@ -4381,6 +4381,10 @@ census_trait_names_tf24 <- function(obj_) {
     .Call('_plant_census_trait_names_tf24', PACKAGE = 'plant', obj_)
 }
 
+census_trait_gradient_tf24 <- function(obj_) {
+    .Call('_plant_census_trait_gradient_tf24', PACKAGE = 'plant', obj_)
+}
+
 gradient_control_tf24 <- function(obj_) {
     .Call('_plant_gradient_control_tf24', PACKAGE = 'plant', obj_)
 }

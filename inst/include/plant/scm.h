@@ -639,6 +639,27 @@ std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
 template <typename T, typename E>
 template <class Metrics>
 std::vector<std::vector<double>> SCM<T, E>::census_trait_gradient() {
+  // The sweep needs the state at every accepted step, and store_trajectory()
+  // re-runs to record them, so the seeds below are taken after it.
+  const std::vector<ode_step_record> trajectory = store_trajectory();
+  std::vector<std::vector<double>> states;
+  states.reserve(trajectory.size());
+  for (const ode_step_record& record : trajectory) {
+    states.push_back(record.state);
+  }
+
+  // The sweep carries one lambda of one width, and a node introduction widens
+  // the state, so an earlier record is narrower than the system the sweep
+  // holds. Nothing narrows the system or drops the newcomer's rows, and a sweep
+  // at a width its records do not have would return a number, so the run is
+  // refused here by name.
+  for (const std::vector<double>& state : states) {
+    if (state.size() != states.back().size()) {
+      util::stop("a node introduction widens the ODE state during this run, "
+                 "and the reverse sweep is one fixed width");
+    }
+  }
+
   const std::vector<std::vector<double>> seeds =
       census_state_adjoint<Metrics>();
   std::vector<std::vector<double>> ret;
@@ -646,7 +667,8 @@ std::vector<std::vector<double>> SCM<T, E>::census_trait_gradient() {
   patch_type& live = solver.get_system_ref();
   for (const std::vector<double>& lambda_T : seeds) {
     live.clear_trait_adjoint();
-    solver.solve_adjoint(lambda_T);
+    std::vector<double> lambda = lambda_T;
+    solver.solve_adjoint(states, lambda);
     ret.push_back(live.trait_adjoint);
   }
   return ret;
