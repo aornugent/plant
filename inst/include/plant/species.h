@@ -79,6 +79,18 @@ public:
   std::pair<value_type, value_type>
   compute_competition_and_slope_excl_boundary(double height) const;
 
+  // Transpose of compute_competition_and_slope at `height`, closing boundary
+  // trapezium and all. `out` points at this species' first node.
+  void compute_competition_and_slope_adjoint(double height,
+                                             double lambda_value,
+                                             double lambda_slope,
+                                             node_size_adjoints* out) const;
+
+  // Transpose of consumption_rate for one resource. The trapezium's grid is the
+  // node heights, so the weights reach the heights as well as the rates.
+  void consumption_rate_adjoint(int resource, double lambda_uptake,
+                                node_uptake_adjoints* out) const;
+
   // Evaluate the inflow boundary condition in the environment passed. Split out
   // of compute_rates() so the field build owns it and the field stops reading a
   // density carried from the previous evaluation.
@@ -142,6 +154,7 @@ public:
   std::vector<double> r_heights() const;
   std::vector<double> r_heights_rev() const;
   void r_set_heights(std::vector<double> heights);
+  const node_type& node_at(size_t i) const {return nodes[i];}
   const node_type& r_new_node() const {return new_node;}
   std::vector<node_type> r_nodes() const {return nodes;}
   const node_type& r_node_at(util::index idx) const {
@@ -719,6 +732,116 @@ Species<T,E>::consumption_rate_by_node_rev(int i) const {
     ret.push_back(it->consumption_rate(i));
   }
   return ret;
+}
+
+// Mirrors compute_competition_and_slope_impl(height, true) term by term: the
+// same early exit, the same closing trapezium, the same node order.
+template <typename T, typename E>
+void Species<T,E>::compute_competition_and_slope_adjoint(
+    double height, double lambda_value, double lambda_slope,
+    node_size_adjoints* out) const {
+  using odelia::util::to_passive;
+  if (size() == 0) {
+    return;
+  }
+  const HeightScan scan = scan_heights();
+  if (to_passive(scan.h_max) < height) {
+    return;
+  }
+  if (!scan.decreasing) {
+    util::stop("The competition adjoint needs the node heights in decreasing"
+               " order; the sorted-view reduction has no transpose here");
+  }
+  // The forward halves both sums once at the end.
+  const double lv = lambda_value * 0.5, ls = lambda_slope * 0.5;
+  std::vector<double> lambda_f(size(), 0.0), lambda_s(size(), 0.0);
+
+  std::pair<value_type, value_type> fs1 =
+    nodes[0].compute_competition_and_slope(height);
+  size_t upper = 0, last = 0;
+  double h1 = to_passive(nodes[0].height());
+  double f_h1 = to_passive(fs1.first), s_h1 = to_passive(fs1.second);
+
+  for (size_t k = 1; k < size(); ++k) {
+    const std::pair<value_type, value_type> fs0 =
+      nodes[k].compute_competition_and_slope(height);
+    const double h0 = to_passive(nodes[k].height());
+    const double f_h0 = to_passive(fs0.first), s_h0 = to_passive(fs0.second);
+    const double width = h1 - h0;
+    // The interval's width is built from two node heights, so the quadrature
+    // moves with them and not only the integrand does.
+    const double edge = lv * (f_h1 + f_h0) + ls * (s_h1 + s_h0);
+    out[upper].height += edge;
+    out[k].height     -= edge;
+    lambda_f[upper] += lv * width;
+    lambda_s[upper] += ls * width;
+    lambda_f[k]     += lv * width;
+    lambda_s[k]     += ls * width;
+    upper = k; last = k;
+    h1 = h0; f_h1 = f_h0; s_h1 = s_h0;
+    if (h0 < height) {
+      break;
+    }
+  }
+
+  if (size() == 1 || f_h1 > 0) {
+    // The boundary node's own height and density are not ODE state.
+    const std::pair<value_type, value_type> fs0 =
+      new_node.compute_competition_and_slope(height);
+    const double h0 = to_passive(new_node.height());
+    out[upper].height += lv * (f_h1 + to_passive(fs0.first)) +
+                         ls * (s_h1 + to_passive(fs0.second));
+    lambda_f[upper] += lv * (h1 - h0);
+    lambda_s[upper] += ls * (h1 - h0);
+  }
+
+  for (size_t k = 0; k <= last; ++k) {
+    if (lambda_f[k] == 0.0 && lambda_s[k] == 0.0) {
+      continue;
+    }
+    const typename node_type::competition_partials p =
+      nodes[k].compute_competition_and_slope_partials(height);
+    out[k].area_leaf += lambda_f[k] * to_passive(p.value_darea_leaf) +
+                        lambda_s[k] * to_passive(p.slope_darea_leaf);
+    out[k].height    += lambda_f[k] * to_passive(p.value_dheight) +
+                        lambda_s[k] * to_passive(p.slope_dheight);
+    out[k].log_density += lambda_f[k] * to_passive(p.value_dlog_density) +
+                          lambda_s[k] * to_passive(p.slope_dlog_density);
+  }
+}
+
+// Mirrors consumption_rate: the grid runs from new_node upwards, so array slot
+// j holds node size() - j and slot 0 the boundary node, which is not state.
+template <typename T, typename E>
+void Species<T,E>::consumption_rate_adjoint(int resource, double lambda_uptake,
+                                            node_uptake_adjoints* out) const {
+  using odelia::util::to_passive;
+  if (size() == 0) {
+    return;
+  }
+  const size_t n = size() + 1;
+  std::vector<double> x(n), y(n);
+  x[0] = to_passive(new_node.height());
+  y[0] = to_passive(new_node.consumption_rate(resource));
+  for (size_t j = 1; j < n; ++j) {
+    x[j] = to_passive(nodes[size() - j].height());
+    y[j] = to_passive(nodes[size() - j].consumption_rate(resource));
+  }
+  std::vector<double> lambda_x(n, 0.0), lambda_y(n, 0.0);
+  for (size_t j = 0; j + 1 < n; ++j) {
+    const double half = 0.5 * lambda_uptake;
+    lambda_x[j]     -= half * (y[j + 1] + y[j]);
+    lambda_x[j + 1] += half * (y[j + 1] + y[j]);
+    lambda_y[j]     += half * (x[j + 1] - x[j]);
+    lambda_y[j + 1] += half * (x[j + 1] - x[j]);
+  }
+  for (size_t j = 1; j < n; ++j) {
+    const size_t k = size() - j;
+    const double density = to_passive(nodes[k].get_density());
+    out[k].uptake      += lambda_y[j] * density;
+    out[k].log_density += lambda_y[j] * y[j];
+    out[k].height      += lambda_x[j];
+  }
 }
 
 // bit clunky...
