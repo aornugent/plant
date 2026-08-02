@@ -2,6 +2,9 @@
 #ifndef PLANT_PLANT_STOCHASTIC_PATCH_H_
 #define PLANT_PLANT_STOCHASTIC_PATCH_H_
 
+#include <plant/parameters.h>
+#include <plant/stochastic_species.h>
+#include <plant/util.h>
 #include <numeric> // std::accumulate, in compute_rates
 
 namespace plant {
