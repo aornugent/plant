@@ -914,7 +914,9 @@ double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
                                    double bound_b) {
   const double h = 1e-6;          // step of the dR/d(collar) difference
   const double R_tol = 1e-11;
-  const int max_iter = 5;
+  // Exhausting max_iter returns the last iterate, whose R is of the bracket's
+  // size rather than R_tol, so the envelope relation does not hold there.
+  const int max_iter = 20;
 
   double psi = opt_root_psi;
   double dR_dcollar = 0.0;

@@ -361,6 +361,23 @@ were not previously recorded here:
 
 ### Minor changes & bug fixes
 
+* **The TF24 leaf's collar-potential polish now converges, so TF24 output
+  changes and `TF24_Strategy::scientific_version` is 5 (`TF24@v5`, `TF24f@v5.1`).**
+  `Leaf::polish_root_collar_psi` capped its Newton iteration at 5 steps, and at
+  the default `Control()` most solves exhausted that cap rather than reaching
+  `|R| <= 1e-11`: measured over a production TF24 run, 5 950 425 of 7 353 330
+  solves exited on the cap, at `|R|` up to 1.0e-06. A solve that exhausts the cap
+  returns a point that still depends on where the bracket search stopped, so the
+  operating point was not the stationary point of profit the polish is there to
+  find, and one step's end state was not Lipschitz at the finite-difference
+  scale. The cap is 20, which leaves 115 062 of 7 255 998 solves on the cap, and
+  the one-step non-smooth residual falls from 7.8e-05 to 8.6e-08. TF24 offspring
+  production at `max_patch_lifetime = 105.32`, `lma = 0.1978791` moves from
+  42.179817344974609 in 4 798 accepted steps to 42.411799695604159 in 4 644, so
+  stored TF24 output does not reproduce bit-for-bit. FF16 and K93 are unaffected
+  — only TF24 has a `Leaf`. Forward cost is 1.08x, measured as one run each in
+  one session. Every scenario-gateway outcome classification is unchanged.
+
 * **The TF24 rainfall driver is floored at zero.** Because drivers are
   interpolated with a cubic spline, an intermittent series undershoots below
   every supplied value, and negative rainfall gave negative infiltration and an

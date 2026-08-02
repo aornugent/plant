@@ -175,7 +175,12 @@ public:
   // offspring production moves by up to 5e-3 relative on 5 of 8 scenarios,
   // while every success/failure classification is unchanged. TF24f's compound
   // version auto-tracks this to 4.1.
-  static constexpr int scientific_version = 4;
+  // v5: the collar-potential polish's iteration cap is 20 rather than 5, so the
+  // solve that was exhausting the cap on most calls now converges to R_tol and
+  // the operating point no longer depends on where the bracket search stopped.
+  // Offspring production moves by 0.55% at the production configuration.
+  // TF24f's compound version auto-tracks this to 5.1.
+  static constexpr int scientific_version = 5;
 
   S compute_average_light_environment(S z, S height,
                                       const TF24_Environment<S> &environment);
