@@ -586,10 +586,44 @@ public:
     return {scale * Qq.first, -(scale * Qq.second)};
   }
 
+
   // The fraction of root mass below soil depth `z`, for a plant rooted to
   // `rooting_depth` with shape exponent `eta_x` (pars.root_depth_shape_eta). The
   // canopy's own cumulative form is CanopyShape::Q, at pars.eta.
   S Q(S z, S rooting_depth, S eta_x) const;
+
+  // Partials of the pair compute_competition_and_slope returns, in the
+  // individual's leaf area and in its height at fixed z.
+  struct competition_partials {
+    S value_darea_leaf;
+    S value_dheight;
+    S slope_darea_leaf;
+    S slope_dheight;
+  };
+
+  competition_partials
+  compute_competition_and_slope_partials(S z, const Internals<S>& vars) const {
+    const S area_leaf_ = vars.aux(aux_idx_competition_effect);
+    const S height_inverse = vars.aux(aux_idx_height_inverse);
+    const S u = z * height_inverse;
+    const std::pair<S, S> Qq = canopy_shape.Q_and_q(u, z, height_inverse);
+    const std::pair<S, S> dQq =
+      canopy_shape.Q_and_q_dheight(u, z, height_inverse);
+    return {pars.k_I * Qq.first,
+            pars.k_I * area_leaf_ * dQq.first,
+            -(pars.k_I * Qq.second),
+            -(pars.k_I * area_leaf_ * dQq.second)};
+  }
+
+  // The inverse of dheight_darea_leaf, so the allometry has one source.
+  S darea_leaf_dheight(S area_leaf) const {
+    return 1.0 / dheight_darea_leaf(area_leaf);
+  }
+
+  // [eqn 10] Cumulative fraction of a quantity distributed over an extent with
+  // shape exponent eta_x, above coordinate `z` of a total `height`. Used for the
+  // root mass distribution over soil depth.
+  S Q(S z, S height, S eta_x) const;
 
   // The aim is to find a plant height that gives the correct seed mass.
   double height_seed(void) const;

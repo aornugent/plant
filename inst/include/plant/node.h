@@ -10,6 +10,21 @@
 
 namespace plant {
 
+// One node's adjoints on the size variables the field reductions read.
+struct node_size_adjoints {
+  double area_leaf;
+  double height;
+  double log_density;
+};
+
+// One node's adjoints from the water aggregation: the individual's uptake, which
+// is a block output, and the two state slots the quadrature reads.
+struct node_uptake_adjoints {
+  double uptake;
+  double height;
+  double log_density;
+};
+
 template <typename T, typename E>
 class Node {
 public:
@@ -34,6 +49,44 @@ public:
   std::pair<value_type, value_type>
   compute_competition_and_slope(const value_type& z) const;
   value_type fecundity() const {return offspring_produced_survival_weighted;}
+
+  // Partials of compute_competition_and_slope's pair in the individual's leaf
+  // area, its height and this node's log density.
+  struct competition_partials {
+    value_type value_darea_leaf;
+    value_type value_dheight;
+    value_type value_dlog_density;
+    value_type slope_darea_leaf;
+    value_type slope_dheight;
+    value_type slope_dlog_density;
+  };
+
+  competition_partials
+  compute_competition_and_slope_partials(const value_type& z) const {
+    const typename strategy_type::competition_partials p =
+      individual.compute_competition_and_slope_partials(z);
+    const std::pair<value_type, value_type> fs =
+      individual.compute_competition_and_slope(z);
+    return {density * p.value_darea_leaf,
+            density * p.value_dheight,
+            density * fs.first,
+            density * p.slope_darea_leaf,
+            density * p.slope_dheight,
+            density * fs.second};
+  }
+
+  // The survival factor offspring_produced_survival_weighted_dt multiplies,
+  // zero where compute_rates squashed a non-finite one.
+  value_type survival_individual() const {
+    const value_type s = exp(-individual.state(MORTALITY_INDEX));
+    return util::is_finite(s) ? s : value_type(0.0);
+  }
+
+  // d(offspring_produced_survival_weighted_dt)/d(fecundity rate).
+  value_type offspring_dt_dfecundity_rate(double pr_patch_survival) const {
+    return survival_individual() * pr_patch_survival /
+      pr_patch_survival_at_birth;
+  }
 
   // The two rates the transport term is built from, and the write for its
   // result. Species::growth_rate_gradient differences growth across neighbouring
