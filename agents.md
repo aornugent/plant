@@ -749,10 +749,13 @@ reduction, the reverse pass or `odelia`. Four steps:
    [inst/include/plant/scm.h](inst/include/plant/scm.h) all fold over the tuple,
    and `census_metric_names_tf24()` reports it, so the new row appears in the
    value, in the seed and in the gradient with no further edit.
-3. **`make attributes`, then rebuild.** The exports in
-   [src/census_gradient.cpp](src/census_gradient.cpp) name no metric, so they do
-   not change; the header is inline, so `rm -f src/*.o` before rebuilding or the
-   new metric compiles into only some translation units.
+3. **Rebuild.** No export signature changes and no new symbol reaches R, so
+   `make RcppR6` and `make attributes` have nothing to do. `tf24_census` is named
+   in exactly one translation unit,
+   [src/census_gradient.cpp](src/census_gradient.cpp), so `touch` it and
+   `pkgbuild::compile_dll()` — one file compiles and the library relinks. Any
+   other edit to `species.h` needs `rm -f src/*.o` first, because the header is
+   inline and R's make does not track header dependencies.
 4. **Assert its value and one non-zero gradient row.** The value against an
    independent R-side computation from the tidied output, and the gradient row
    against a trait that genuinely moves it — a row of exact zeros reads as an
