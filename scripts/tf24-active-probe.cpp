@@ -8,9 +8,9 @@
 //     -I$(odelia include) -isystem inst/include -DNDEBUG \
 //     scripts/tf24-active-probe.cpp
 //
-// 19 errors, all of them the sites the design refuses: 17 in the DeepCrown
-// branch, which TF24 does not default to, and 2 named static assertions inside
-// prepare_strategy(), which never runs inside a recorded block.
+// 2 errors, both of them named static assertions inside prepare_strategy(),
+// which never runs inside a recorded block; the DeepCrown branch is now
+// refused at the active scalar with if constexpr rather than instantiated.
 //
 // Patch is instantiated below, and with it Species, Node and Individual, so
 // those 19 are also the whole count: a new line in any other file is a passive
@@ -58,3 +58,10 @@ static_assert(std::is_same_v<
 
 template class plant::Patch<plant::TF24_Strategy<active_scalar>,
                             plant::TF24_Environment<active_scalar> >;
+
+// rebind_from is a member template, so the class instantiation above does not
+// reach it; name the double->active crossing the adjoint stepper takes.
+template plant::Patch<plant::TF24_Strategy<active_scalar>,
+                      plant::TF24_Environment<active_scalar> >
+plant::Patch<plant::TF24_Strategy<double>,
+             plant::TF24_Environment<double> >::rebind_from<active_scalar>() const;
