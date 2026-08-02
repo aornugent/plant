@@ -132,6 +132,14 @@ private:
     return control().node_density_in_birth_date ? n.introduction_time()
                                                 : -n.height();
   }
+  std::vector<double> quadrature_abscissae() const {
+    std::vector<double> ret;
+    ret.reserve(size());
+    for (auto& c : nodes) {
+      ret.push_back(quadrature_abscissa(c));
+    }
+    return ret;
+  }
 
   typedef typename std::vector<node_type>::iterator nodes_iterator;
   typedef typename std::vector<node_type>::const_iterator nodes_const_iterator;
@@ -410,7 +418,12 @@ std::vector<double> Species<T,E>::r_compute_competition_effect_by_nodes() const 
 
 template <typename T, typename E>
 std::vector<double> Species<T,E>::r_compute_competition_effect_by_nodes_error(double scal) const {
-  return util::local_error_integration(r_heights(), r_compute_competition_effect_by_nodes(), scal);
+  // Over the same abscissa the competition integral uses, so schedule
+  // refinement measures the error of the quadrature actually being taken.
+  // local_error_integration takes absolute differences, so the height branch's
+  // sign flip leaves it unchanged.
+  return util::local_error_integration(quadrature_abscissae(),
+                                       r_compute_competition_effect_by_nodes(), scal);
 }
 
 template <typename T, typename E>
