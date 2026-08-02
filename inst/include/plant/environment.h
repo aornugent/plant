@@ -38,6 +38,14 @@ public:
   // long each individual's consumption vector must be.
   virtual size_t n_resources() const { return 0; }
 
+  // What a cohort reads out of the shared environment, so a tape can supply
+  // those values as active inputs instead of reading them as constants.
+  virtual size_t n_cohort_reads() const { return 0; }
+
+  template <typename It> It cohort_reads(It it) const { return it; }
+
+  template <typename It> It set_cohort_reads(It it) { return it; }
+
   virtual void compute_rates(std::vector<double> const& resource_depletion){};
 
   // One aux slot per resource, holding the uptake the individuals supplied to

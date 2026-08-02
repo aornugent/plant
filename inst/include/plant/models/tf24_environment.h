@@ -187,6 +187,43 @@ public:
     return static_cast<size_t>(soil_number_of_depths);
   }
 
+  // A cohort reads the light field and its own layers' water potentials. The
+  // order is knot values, then knot slopes, then one potential per soil layer.
+  size_t n_cohort_reads() const override {
+    return 2 * light_availability.knot_count() +
+           static_cast<size_t>(soil_number_of_depths);
+  }
+
+  template <typename It> It cohort_reads(It it) const {
+    const std::vector<S>& y = light_availability.knot_values();
+    const std::vector<S>& m = light_availability.knot_slopes();
+    util::check_length(y.size(), light_availability.knot_count());
+    util::check_length(m.size(), light_availability.knot_count());
+    for (size_t k = 0; k < y.size(); ++k) { *it++ = y[k]; }
+    for (size_t k = 0; k < m.size(); ++k) { *it++ = m[k]; }
+    const std::vector<S>& psi = get_soil_water_potential_state();
+    for (int i = 0; i < soil_number_of_depths; ++i) { *it++ = psi[i]; }
+    return it;
+  }
+
+  template <typename It> It set_cohort_reads(It it) {
+    const size_t n_knot = light_availability.knot_count();
+    std::vector<S> y(n_knot), m(n_knot);
+    for (size_t k = 0; k < n_knot; ++k) { y[k] = *it++; }
+    for (size_t k = 0; k < n_knot; ++k) { m[k] = *it++; }
+    light_availability.set_knot_data(y, m);
+    // Key the cache on the state now held, so the injected potentials survive
+    // the next read rather than being recomputed passively over the top.
+    psi_soil_cache_.resize(soil_number_of_depths);
+    psi_soil_cache_state_.resize(soil_number_of_depths);
+    for (int i = 0; i < soil_number_of_depths; ++i) {
+      psi_soil_cache_[i] = *it++;
+      psi_soil_cache_state_[i] = vars.state(i);
+    }
+    psi_soil_cache_valid_ = true;
+    return it;
+  }
+
   std::vector<double> get_soil_mid_depths() const { return z_mid; }
 
   // TODO: should we use auxilliary in internals
@@ -194,7 +231,9 @@ public:
   std::vector<double> z;
   std::vector<double> z_mid;
   std::vector<double> dz;
-  mutable std::vector<double> psi_soil_cache_;
+  // The potentials carry S so a cohort read can be an active input; the state
+  // the cache is keyed on stays double, because it is the key and not a value.
+  mutable std::vector<S> psi_soil_cache_;
   mutable std::vector<double> psi_soil_cache_state_;
   mutable bool psi_soil_cache_valid_ = false;
 
@@ -476,7 +515,7 @@ public:
 
 
   std::vector<double> get_soil_water_state() const { return {vars.states.begin(), vars.states.end() - aux_num}; }
-  const std::vector<double>& get_soil_water_potential_state() const {
+  const std::vector<S>& get_soil_water_potential_state() const {
     bool cache_stale = !psi_soil_cache_valid_ ||
       psi_soil_cache_state_.size() != static_cast<size_t>(soil_number_of_depths);
 
@@ -495,7 +534,7 @@ public:
       for (int i = 0; i < soil_number_of_depths; ++i) {
         const double soil_moist = vars.state(i);
         psi_soil_cache_state_[i] = soil_moist;
-        psi_soil_cache_[i] = psi_from_soil_moist(soil_moist, i);
+        psi_soil_cache_[i] = S(psi_from_soil_moist(soil_moist, i));
       }
       psi_soil_cache_valid_ = true;
     }
