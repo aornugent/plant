@@ -57,6 +57,8 @@ public:
     std::vector<S> m = {S(0.0), S(0.0), S(0.0)};
     spline.clear();
     spline.init(x, y, m);
+    knot_values_ = y;
+    knot_slopes_ = m;
   }
 
   // Restores the open field rather than leaving no field at all: every query
@@ -102,6 +104,24 @@ public:
     std::vector<S> state_y(it + state_n, it + 2 * state_n);
     std::vector<S> state_m(it + 2 * state_n, state.end());
     spline.init(state_x, state_y, state_m);
+    knot_values_ = state_y;
+    knot_slopes_ = state_m;
+  }
+
+  // Knots the run places, fixed by the fractions and not by any build.
+  size_t knot_count() const { return knot_fractions_.size(); }
+
+  // The data the field was last built from, held rather than read back out of
+  // the interpolant: a knot slope recovered from a span is not bit-identical.
+  const std::vector<S>& knot_values() const { return knot_values_; }
+  const std::vector<S>& knot_slopes() const { return knot_slopes_; }
+
+  // Rebuild the spans from supplied data, leaving the knot positions alone.
+  // set_data length-checks, so injecting into an unbuilt field throws.
+  void set_knot_data(const std::vector<S>& y, const std::vector<S>& m) {
+    spline.set_data(y, m);
+    knot_values_ = y;
+    knot_slopes_ = m;
   }
 
   // Resource availability as a function of size, carrying a value and a slope at
@@ -113,6 +133,10 @@ public:
   // fixed for the run. Nothing may reassign them: a rebuild places knots at
   // u_k * height_max, and that is what makes the positions run-constant.
   std::vector<double> knot_fractions_;
+
+  // Mirrors of the interpolant's data, kept as the pack's source of truth.
+  std::vector<S> knot_values_;
+  std::vector<S> knot_slopes_;
 
   // Knot heights, values and slopes, read back out of the spline that holds them.
   Rcpp::NumericMatrix r_get_state() const
@@ -161,6 +185,8 @@ private:
       m[k] = vs.second;
     }
     spline.set_data(y, m);
+    knot_values_ = y;
+    knot_slopes_ = m;
   }
 
   // Chosen from the re-blessing tolerance: the crown-mean light shift against an

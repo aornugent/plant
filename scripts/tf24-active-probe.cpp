@@ -77,3 +77,17 @@ using state_iterator = std::vector<double>::iterator;
 template state_iterator active_individual::ode_state(state_iterator) const;
 template state_iterator active_individual::ode_rates(state_iterator) const;
 template state_iterator active_individual::ode_aux(state_iterator) const;
+
+// Instantiating the class does not instantiate its member templates, so the
+// five the solver drives are called here. A census reaches only what it calls.
+using active_patch = plant::Patch<plant::TF24_Strategy<active_scalar>,
+                                  plant::TF24_Environment<active_scalar> >;
+
+void solver_driven_members(active_patch& patch,
+                           std::vector<active_scalar>& y) {
+  patch.set_ode_state(y.begin(), 0.0);
+  patch.ode_state(y.begin());
+  patch.ode_rates(y.begin());
+  patch.ode_aux(y.begin());
+  patch.set_ode_aux(y.begin());
+}

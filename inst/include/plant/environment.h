@@ -38,6 +38,14 @@ public:
   // long each individual's consumption vector must be.
   virtual size_t n_resources() const { return 0; }
 
+  // What a cohort reads out of the shared environment, so a tape can supply
+  // those values as active inputs instead of reading them as constants.
+  virtual size_t n_cohort_reads() const { return 0; }
+
+  template <typename It> It cohort_reads(It it) const { return it; }
+
+  template <typename It> It set_cohort_reads(It it) { return it; }
+
   virtual void compute_rates(std::vector<double> const& resource_depletion){};
 
   // One aux slot per resource, holding the uptake the individuals supplied to
@@ -45,9 +53,11 @@ public:
   // without this slot the consumption is unrecoverable from the state.
   size_t aux_size() const { return n_resources(); }
 
+  // The soil state is passive by declaration: its parameter sensitivity travels
+  // by the adjoint ODE, and set_cohort_reads is where an active value arrives.
   template <typename It> It set_ode_state(It it) {
     for (size_t i = 0; i < vars.state_size; i++) {
-      vars.states[i] = *it++;
+      vars.states[i] = odelia::util::to_passive(*it++);
     }
     return it;
   }
@@ -74,10 +84,12 @@ public:
     return it;
   }
 
+  // Passive: aux carries a linearisation point and a branch condition, and both
+  // want a value. A metric reading aux is a block output and overturns this.
   template <typename It> It set_ode_aux(It it) {
     util::check_length(resource_uptake.size(), aux_size());
     for (size_t i = 0; i < aux_size(); i++) {
-      resource_uptake[i] = *it++;
+      resource_uptake[i] = odelia::util::to_passive(*it++);
     }
     return it;
   }
