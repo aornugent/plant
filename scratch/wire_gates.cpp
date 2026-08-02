@@ -201,3 +201,60 @@ Rcpp::NumericMatrix knot_contributions(SEXP obj, Rcpp::NumericVector lambda_dydt
   }
   return out;
 }
+
+// Where the collar solve of one block lands: the residual at the point it left,
+// the recorded curvature, and the pinned flag. Taken at the three points a
+// central difference of one input visits.
+// [[Rcpp::export]]
+Rcpp::DataFrame collar_residuals(SEXP obj, int species_index, int node_index,
+                                 int input, double h) {
+  patch_type& p = *as_patch(obj);
+  block_at b(p, species_index, node_index);
+  Rcpp::NumericVector at(3), collar(3), resid(3), curv(3);
+  Rcpp::LogicalVector pinned(3);
+  const double base = b.in[input];
+  for (int k = 0; k < 3; ++k) {
+    std::vector<double> x = b.in, y(b.n_out, 0.0);
+    x[input] = base + (k == 0 ? 0.0 : (k == 1 ? h : -h));
+    typename strategy_type::ptr s = std::make_shared<strategy_type>(b.tmpl);
+    plant::Individual<strategy_type, environment_type> ind(s);
+    environment_type e = b.env_tmpl;
+    ind.set_block_inputs(x.begin(), e);
+    ind.compute_rates(e);
+    plant::Leaf& l = s->leaf;
+    at[k] = x[input];
+    collar[k] = l.root_collar_psi_;
+    curv[k] = l.dR_dcollar_;
+    pinned[k] = l.collar_pinned_;
+    resid[k] = l.dprofit_droot_collar_psi(-l.root_collar_psi_);
+  }
+  return Rcpp::DataFrame::create(Rcpp::_["x"] = at, Rcpp::_["collar"] = collar,
+                                 Rcpp::_["residual"] = resid,
+                                 Rcpp::_["dR_dcollar"] = curv,
+                                 Rcpp::_["pinned"] = pinned);
+}
+
+// The collar curvature the reverse pass divides by, taken over a range of
+// difference steps, beside the value the solve recorded.
+// [[Rcpp::export]]
+Rcpp::DataFrame collar_curvature_sweep(SEXP obj, int species_index, int node_index,
+                                       Rcpp::NumericVector hs) {
+  patch_type& p = *as_patch(obj);
+  block_at b(p, species_index, node_index);
+  std::vector<double> x = b.in, y(b.n_out, 0.0);
+  typename strategy_type::ptr s = std::make_shared<strategy_type>(b.tmpl);
+  plant::Individual<strategy_type, environment_type> ind(s);
+  environment_type e = b.env_tmpl;
+  ind.set_block_inputs(x.begin(), e);
+  ind.compute_rates(e);
+  plant::Leaf& l = s->leaf;
+  const double pmag = -l.root_collar_psi_;
+  const double recorded = l.dR_dcollar_;
+  Rcpp::NumericVector out(hs.size()), rec(hs.size());
+  for (int i = 0; i < hs.size(); ++i) {
+    out[i] = l.dR_dcollar_at(pmag, hs[i]);
+    rec[i] = recorded;
+  }
+  return Rcpp::DataFrame::create(Rcpp::_["h"] = hs, Rcpp::_["dR_dcollar"] = out,
+                                 Rcpp::_["recorded"] = rec);
+}
