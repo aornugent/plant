@@ -34,6 +34,8 @@ public:
   typedef Node<T,E> node_type;
   typedef typename strategy_type::ptr strategy_type_ptr;
   Species(strategy_type s);
+  // Build on a strategy that is already prepared; see SpeciesBase.
+  explicit Species(strategy_type_ptr s);
 
   // ODE plumbing and the per-element serialisers are inherited from SpeciesBase
   // and iterate all nodes (the deterministic model has no notion of "dead").
@@ -179,6 +181,9 @@ public:
 
   ExtrinsicDrivers extrinsic_drivers() const {return strategy->extrinsic_drivers;}
 
+  // The prepared strategy this species and its nodes share.
+  strategy_type_ptr strategy_ptr() const {return this->strategy;}
+
 private:
   // compute_competition() for the case where the node heights are no longer
   // ordered, so the node list cannot be used directly as the quadrature grid.
@@ -225,6 +230,12 @@ private:
 
 template <typename T, typename E>
 Species<T,E>::Species(strategy_type s)
+  : base_type(s),
+    new_node(this->strategy) {
+}
+
+template <typename T, typename E>
+Species<T,E>::Species(strategy_type_ptr s)
   : base_type(s),
     new_node(this->strategy) {
 }
