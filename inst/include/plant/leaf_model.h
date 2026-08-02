@@ -294,6 +294,16 @@ public:
                                                std::vector<double>& x,
                                                std::vector<double>& y_integral);
   void setup_clean_leaf();
+  // The two vulnerability interpolant pairs at parameters other than the
+  // members', on a knot grid the caller supplies rather than the one those
+  // parameters would build. The builder's grid ends at b*log(100)^(1/c), so its
+  // knot COUNT steps as b or c moves and a difference taken across that step
+  // reads 47 times the derivative, silently; a parameter derivative must hold
+  // the grid still and let only the knot values carry the parameter.
+  void set_transpiration_at(double b_at, double c_at,
+                            const std::vector<double>& x);
+  void set_root_vulnerability_at(double b_at, double c_at,
+                                 const std::vector<double>& x);
 
   // Medlyn stomatal-conductance model (from develop #450); R-callable, standalone.
   double medlyn_model_gs(double assim_colimited_);
@@ -378,6 +388,13 @@ public:
   void input_adjoints(double lambda_profit,
                       const std::vector<double>& lambda_uptake,
                       std::vector<double>& input_adjoints);
+  // The feasible interval's endpoint differentiated in every input, in
+  // inputs()' order, for the case where the operating point is that endpoint so
+  // dp*/du is the endpoint's own derivative. Picks the endpoint the collar
+  // potential sits at. Both endpoints are root-finds at tolerance 1e-4, so they
+  // are differentiated by the implicit function theorem and never by
+  // differencing the root-find.
+  void bound_partials(std::vector<double>& out);
   // Uptake's and the stem's response to a uniform drying of soil and collar
   // together, in the direction that increases every psi magnitude.
   void translation_partials(std::vector<double>& dE_dd, double& dpsistem_dd);

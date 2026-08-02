@@ -17,17 +17,25 @@ namespace {
 // Templated replicas of the analytic profit algebra, so forward-mode AD gives
 // their exact derivatives (used by Leaf::dprofit_droot_collar_psi). They mirror
 // Leaf::assim_colimited and Leaf::hydraulic_cost_TF exactly.
+// Every argument carries the scalar so a parameter is differentiable as well as
+// ci or psi_stem; call sites name T explicitly and the passive arguments
+// convert.
 template <typename T>
-T assim_colimited_ad(T ci, double vcmax, double et, double gstar_Pa, double km,
-                     double R_d, double curv) {
+T assim_colimited_ad(T ci, T vcmax, T et, T gstar_Pa, T km, T R_d, T curv) {
   T ar = vcmax * (ci - gstar_Pa) / (ci + km);
   T ae = et / 4.0 * (ci - gstar_Pa) / (ci + 2.0 * gstar_Pa);
   T s = ar + ae;
   return (s - sqrt(s * s - 4.0 * curv * ar * ae)) / (2.0 * curv) - R_d;
 }
 template <typename T>
-T hydraulic_cost_ad(T psi_stem, double b, double c, double g1, double beta2) {
+T hydraulic_cost_ad(T psi_stem, T b, T c, T g1, T beta2) {
   return g1 * pow(1.0 - exp(-pow(psi_stem / b, c)), beta2);
+}
+// Leaf::electron_transport's algebra, templated for the same reason.
+template <typename T>
+T electron_transport_ad(T a, T PPFD, T jmax, T curv) {
+  T s = a * PPFD + jmax;
+  return (s - sqrt(s * s - 4.0 * curv * a * PPFD * jmax)) / (2.0 * curv);
 }
 }  // namespace
 Leaf::Leaf()
@@ -1079,12 +1087,13 @@ double Leaf::dprofit_droot_collar_psi(double opt_root_psi) {
   // A'(ci) and C'(psi_stem) via forward-mode AD of the analytic algebra.
   const double A_prime =
       odelia::ode::forward_derivative(ci, [&](auto x) -> decltype(x) {
-        return assim_colimited_ad(x, vcmax_, electron_transport_, gstar_Pa, km_,
-                                  R_d_, curv_fact_colim);
+        return assim_colimited_ad<decltype(x)>(x, vcmax_, electron_transport_,
+                                               gstar_Pa, km_, R_d_,
+                                               curv_fact_colim);
       });
   const double C_prime =
       odelia::ode::forward_derivative(psi_stem, [&](auto x) -> decltype(x) {
-        return hydraulic_cost_ad(x, b, c, g1_TF24, beta2);
+        return hydraulic_cost_ad<decltype(x)>(x, b, c, g1_TF24, beta2);
       });
 
   // Stomatal-conductance supply coefficient gc and its partials. gc =
@@ -1351,14 +1360,146 @@ double Leaf::dR_dflux_from_layer(int layer, double delta,
   return (dR - dR_dflux_slope * dslope) / dE_up;
 }
 
-// The leaf's parameter inputs, after the state-dependent block. Their rows are
-// not computed yet, so input_adjoints leaves them NA rather than zero.
+// The leaf's parameter inputs, after the state-dependent block, each beside the
+// member input_adjoints writes while it differentiates that row. beta_R_H and
+// beta_R_V are the only multiplicative scale on the root resistance network and
+// have no row here, so a strategy varying either reads exactly zero.
 static const char* const leaf_parameter_inputs[] = {
     "vcmax_25", "jmax_25", "a",      "curv_fact_elec_trans",
     "curv_fact_colim", "b", "c",     "psi_crit",
     "beta2",    "g1_TF24", "rho",    "a_bio",
     "root_b",   "root_c",  "root_psi_crit"};
+static double Leaf::*const leaf_parameter_slots[] = {
+    &Leaf::vcmax_25, &Leaf::jmax_25, &Leaf::a,       &Leaf::curv_fact_elec_trans,
+    &Leaf::curv_fact_colim, &Leaf::b, &Leaf::c,      &Leaf::psi_crit,
+    &Leaf::beta2,    &Leaf::g1_TF24, &Leaf::rho_,    &Leaf::a_bio_,
+    &Leaf::root_b,   &Leaf::root_c,  &Leaf::root_psi_crit};
 static const int n_leaf_parameter_inputs = 15;
+// Index into both tables above.
+enum LeafParameter {
+  PAR_VCMAX_25 = 0, PAR_JMAX_25, PAR_A, PAR_CURV_ELEC, PAR_CURV_COLIM,
+  PAR_B, PAR_C, PAR_PSI_CRIT, PAR_BETA2, PAR_G1, PAR_RHO, PAR_A_BIO,
+  PAR_ROOT_B, PAR_ROOT_C, PAR_ROOT_PSI_CRIT};
+
+// Where the operating point is a bound of the feasible interval, dp*/du is that
+// bound's derivative. Each bound is the root of a residual in the collar
+// potential, so each row is the implicit function theorem on it, at the bound.
+void Leaf::bound_partials(std::vector<double>& out) {
+  const int n = max_soil_layer;
+  out.assign(inputs().size(), 0.0);
+  const int i_psi0 = 1, i_area = 1 + n, i_mass0 = 2 + n, i_kappa = 2 + 2 * n,
+            i_par0 = 3 + 2 * n;
+
+  double bound_a = 0.0, bound_b = 0.0;
+  if (!prepare_collar_solve(bound_a, bound_b)) {
+    util::stop("bound_partials: the collar potential is pinned to an interval "
+               "that prepare_collar_solve no longer produces");
+  }
+  const double p = -root_collar_psi_;
+  const bool at_bound_a = (p - bound_a) < (bound_b - p);
+  const double p_bound = at_bound_a ? bound_a : bound_b;
+
+  // bound_b takes the drier of the stem's and the root's ceilings. Where the
+  // root's wins it is an input in its own right and nothing else moves it.
+  if (!at_bound_a && p_bound == -root_psi_crit) {
+    out[i_par0 + PAR_ROOT_PSI_CRIT] = -1.0;
+    return;
+  }
+
+  const double x = -p_bound;  // the same potential, signed
+  const double kappa = leaf_specific_conductance_max_;
+  refresh_soil_potentials();
+  LayerFlux fx;
+  layer_flux_partials(x, psi_soil_inverted_, fx);
+
+  double dEup_dx = 0.0, E_up_here = 0.0;
+  std::vector<double> dEup_dm(n, 0.0);
+  for (int i = 0; i < n; ++i) {
+    dEup_dx += fx.dE_dr[i];
+    E_up_here += fx.E[i];
+  }
+  dEup_dx *= kg_per_mol_h2o;
+  E_up_here *= kg_per_mol_h2o;
+  for (int j = 0; j < n; ++j) {
+    const double m_j = 3.0 * c_r_V_[j];
+    for (int i = j; i < n; ++i) {
+      const double m_i = 3.0 * c_r_V_[i];
+      const double r_R = fx.r_R[i];
+      const double q = -r_R_V[j] / m_j +
+                       (i == j ? -(r_R - r_R_V_sum[i]) / m_i : 0.0);
+      dEup_dm[j] += -fx.num[i] * q / (r_R * r_R);
+    }
+    dEup_dm[j] *= kg_per_mol_h2o;
+  }
+
+  // bound_a is where uptake is zero; bound_b is where the stem reaches psi_crit,
+  // which adds the supply-side term. Both residuals are in kg.
+  const double S_bound = transpiration_from_psi.eval(p_bound);
+  const double S_crit = transpiration_from_psi.eval(psi_crit);
+  double dF_dx = dEup_dx;
+  if (!at_bound_a) {
+    dF_dx -= kappa * transpiration_from_psi.deriv(p_bound);
+    out[i_kappa] = -(S_crit - S_bound);
+    out[i_par0 + PAR_PSI_CRIT] = -kappa * transpiration_from_psi.deriv(psi_crit);
+  }
+  for (int j = 0; j < n; ++j) {
+    out[i_psi0 + j] = -kg_per_mol_h2o * fx.dE_dpsi[j];
+    out[i_mass0 + j] = dEup_dm[j];
+  }
+  out[i_area] = -E_up_here / area_leaf_;
+
+  // The interpolant parameters, on knot grids held still while the parameter
+  // moves (set_transpiration_at, set_root_vulnerability_at).
+  std::vector<double> knots_stem, knots_root, knot_values;
+  build_cumulative_vulnerability_integral(b, c, vulnerability_curve_ncontrol,
+                                          knots_stem, knot_values);
+  build_cumulative_vulnerability_integral(root_b, root_c,
+                                          vulnerability_curve_ncontrol,
+                                          knots_root, knot_values);
+  const int transport_pars[4] = {PAR_B, PAR_C, PAR_ROOT_B, PAR_ROOT_C};
+  for (int t = 0; t < 4; ++t) {
+    const int k = transport_pars[t];
+    const bool root = (k == PAR_ROOT_B || k == PAR_ROOT_C);
+    if (at_bound_a && !root) {
+      continue;  // the supply-side term the stem parameters reach is bound_b's
+    }
+    const double keep = this->*leaf_parameter_slots[k];
+    const double h = std::abs(keep) * 1e-6;
+    if (!(h > 0.0)) {
+      continue;
+    }
+    double F[2];
+    for (int side = 0; side < 2; ++side) {
+      this->*leaf_parameter_slots[k] = keep + (side == 0 ? h : -h);
+      if (root) {
+        set_root_vulnerability_at(root_b, root_c, knots_root);
+      } else {
+        set_transpiration_at(b, c, knots_stem);
+      }
+      refresh_soil_potentials();
+      E_from_Soil_to_Root_Collar(x, psi_soil_inverted_);
+      F[side] = E_up_;
+      if (!at_bound_a) {
+        F[side] -= kappa * (transpiration_from_psi.eval(psi_crit) -
+                            transpiration_from_psi.eval(p_bound));
+      }
+    }
+    this->*leaf_parameter_slots[k] = keep;
+    if (root) {
+      set_root_vulnerability_at(root_b, root_c, knots_root);
+    } else {
+      set_transpiration_at(b, c, knots_stem);
+    }
+    out[i_par0 + k] = (F[0] - F[1]) / (2.0 * h);
+  }
+  refresh_soil_potentials();
+
+  // The theorem gives dx/du = -(dF/du)/(dF/dx) and the bound is -x, so the two
+  // sign flips cancel.
+  for (size_t k = 0; k < out.size(); ++k) {
+    out[k] /= dF_dx;
+  }
+}
 
 std::vector<std::string> Leaf::inputs() const {
   std::vector<std::string> out;
@@ -1389,7 +1530,6 @@ void Leaf::input_adjoints(double lambda_profit,
   }
   const std::vector<std::string> names = inputs();
   input_adjoints.assign(names.size(), 0.0);
-  const double nan = std::numeric_limits<double>::quiet_NaN();
 
   // Every evaluator below writes the operating-point outputs, so hold them and
   // put them back: a caller's forward values must survive this call.
@@ -1399,6 +1539,20 @@ void Leaf::input_adjoints(double lambda_profit,
                keep_E_up = E_up_, keep_stem = opt_psi_stem_,
                keep_collar = root_collar_psi_;
   const std::vector<double> keep_consumption = soil_consumption_;
+  auto restore_operating_point = [&]() {
+    transpiration_cached_ = false;
+    refresh_soil_potentials();
+    ci_ = keep_ci;
+    stom_cond_CO2_ = keep_stom;
+    assim_colimited_ = keep_assim;
+    transpiration_ = keep_transpiration;
+    profit_ = keep_profit;
+    hydraulic_cost_ = keep_cost;
+    E_up_ = keep_E_up;
+    opt_psi_stem_ = keep_stem;
+    root_collar_psi_ = keep_collar;
+    soil_consumption_ = keep_consumption;
+  };
 
   const int i_ppfd = 0, i_psi0 = 1, i_area = 1 + n, i_mass0 = 2 + n,
             i_kappa = 2 + 2 * n, i_par0 = 3 + 2 * n;
@@ -1414,12 +1568,13 @@ void Leaf::input_adjoints(double lambda_profit,
 
   const double A_prime =
       odelia::ode::forward_derivative(ci, [&](auto x) -> decltype(x) {
-        return assim_colimited_ad(x, vcmax_, electron_transport_, gstar_Pa, km_,
-                                  R_d_, curv_fact_colim);
+        return assim_colimited_ad<decltype(x)>(x, vcmax_, electron_transport_,
+                                               gstar_Pa, km_, R_d_,
+                                               curv_fact_colim);
       });
   const double C_prime =
       odelia::ode::forward_derivative(psi_stem, [&](auto x) -> decltype(x) {
-        return hydraulic_cost_ad(x, b, c, g1_TF24, beta2);
+        return hydraulic_cost_ad<decltype(x)>(x, b, c, g1_TF24, beta2);
       });
 
   const double gc_const =
@@ -1508,15 +1663,196 @@ void Leaf::input_adjoints(double lambda_profit,
   }
 
   // Uptake consumes the collar potential, so the flux adjoints collapse onto one
-  // scalar and one divide by the collar curvature gives that potential's adjoint.
+  // scalar; profit adds nothing to it at an interior maximum, where dprofit/dp
+  // is zero, and does at a bound, where it is not.
   double s_adjoint = 0.0;
   for (int j = 0; j < n; ++j) {
     s_adjoint += lambda_uptake[j] * (-fx.dE_dr[j]);
   }
+
+  // The parameter rows. Photosynthesis and cost reach profit only through the
+  // two templated functions, so those partials are exact; the four that rebuild
+  // an interpolant, and every parameter's partial of R, are central differences
+  // of the leaf's own evaluators at the collar potential the solve left.
+  //
+  // R is itself a derivative, so its parameter partial is a second derivative
+  // the templated pair does not carry -- the same substitution radiation's and
+  // the conductance's rows above already make.
+  //
+  // The knot grids are captured here and held still across every perturbation.
+  // The builder's grid ends at b*log(100)^(1/c) and its knot COUNT steps as b or
+  // c moves; a difference across that step reads 47x the derivative of
+  // d(R)/d(root_b) at a 1e-6 step and nothing announces it.
+  std::vector<double> knots_stem, knots_root, knot_values;
+  build_cumulative_vulnerability_integral(b, c, vulnerability_curve_ncontrol,
+                                          knots_stem, knot_values);
+  build_cumulative_vulnerability_integral(root_b, root_c,
+                                          vulnerability_curve_ncontrol,
+                                          knots_root, knot_values);
+  // Writes parameter k and everything the leaf derives from it, so every
+  // evaluator below reads a consistent leaf.
+  auto set_parameter = [&](int k, double v) {
+    this->*leaf_parameter_slots[k] = v;
+    switch (k) {
+    case PAR_VCMAX_25:
+      vcmax_ = peak_arrh_curve(vcmax_ha, vcmax_25, leaf_temp_, vcmax_H_d,
+                               vcmax_d_S);
+      R_d_ = vcmax_ * 0.015;
+      break;
+    case PAR_JMAX_25:
+      jmax_ = peak_arrh_curve(jmax_ha, jmax_25, leaf_temp_, jmax_H_d, jmax_d_S);
+      electron_transport_ = electron_transport();
+      break;
+    case PAR_A:
+    case PAR_CURV_ELEC:
+      electron_transport_ = electron_transport();
+      break;
+    case PAR_B:
+    case PAR_C:
+      set_transpiration_at(b, c, knots_stem);
+      break;
+    case PAR_ROOT_B:
+    case PAR_ROOT_C:
+      set_root_vulnerability_at(root_b, root_c, knots_root);
+      break;
+    default:
+      break;
+    }
+    transpiration_cached_ = false;
+  };
+  // psi_crit and root_psi_crit set the feasible interval and appear in no
+  // evaluator inside it; rho and a_bio are stored by set_physiology and read
+  // nowhere, as sapwood_volume_per_leaf_area is.
+  auto reaches_operating_point = [](int k) -> bool {
+    return k != PAR_PSI_CRIT && k != PAR_ROOT_PSI_CRIT && k != PAR_RHO &&
+           k != PAR_A_BIO;
+  };
+  auto rebuilds_transport = [](int k) -> bool {
+    return k == PAR_B || k == PAR_C || k == PAR_ROOT_B || k == PAR_ROOT_C;
+  };
+
+  const double supply_share = gc * inv_atm / g_ci;
+  std::vector<double> dprofit_dpar(n_leaf_parameter_inputs, 0.0);
+  std::vector<double> dR_dpar(n_leaf_parameter_inputs, 0.0);
+  std::vector<std::vector<double>> dE_dpar(n_leaf_parameter_inputs);
+
+  // A parameter of the assimilation algebra also moves ci, and the two combine
+  // to the direct partial times the supply share of the ci residual's slope.
+  dprofit_dpar[PAR_VCMAX_25] =
+      supply_share *
+      odelia::ode::forward_derivative(vcmax_25, [&](auto x) -> decltype(x) {
+        const decltype(x) vc = x * (vcmax_ / vcmax_25);
+        return assim_colimited_ad<decltype(x)>(ci, vc, electron_transport_,
+                                               gstar_Pa, km_, vc * 0.015,
+                                               curv_fact_colim);
+      });
+  dprofit_dpar[PAR_JMAX_25] =
+      supply_share *
+      odelia::ode::forward_derivative(jmax_25, [&](auto x) -> decltype(x) {
+        const decltype(x) jm = x * (jmax_ / jmax_25);
+        const decltype(x) et = electron_transport_ad<decltype(x)>(
+            a, PPFD_, jm, curv_fact_elec_trans);
+        return assim_colimited_ad<decltype(x)>(ci, vcmax_, et, gstar_Pa, km_,
+                                               R_d_, curv_fact_colim);
+      });
+  dprofit_dpar[PAR_A] =
+      supply_share *
+      odelia::ode::forward_derivative(a, [&](auto x) -> decltype(x) {
+        const decltype(x) et = electron_transport_ad<decltype(x)>(
+            x, PPFD_, jmax_, curv_fact_elec_trans);
+        return assim_colimited_ad<decltype(x)>(ci, vcmax_, et, gstar_Pa, km_,
+                                               R_d_, curv_fact_colim);
+      });
+  dprofit_dpar[PAR_CURV_ELEC] =
+      supply_share *
+      odelia::ode::forward_derivative(
+          curv_fact_elec_trans, [&](auto x) -> decltype(x) {
+            const decltype(x) et =
+                electron_transport_ad<decltype(x)>(a, PPFD_, jmax_, x);
+            return assim_colimited_ad<decltype(x)>(ci, vcmax_, et, gstar_Pa,
+                                                   km_, R_d_, curv_fact_colim);
+          });
+  dprofit_dpar[PAR_CURV_COLIM] =
+      supply_share *
+      odelia::ode::forward_derivative(
+          curv_fact_colim, [&](auto x) -> decltype(x) {
+            return assim_colimited_ad<decltype(x)>(
+                ci, vcmax_, electron_transport_, gstar_Pa, km_, R_d_, x);
+          });
+  // The cost is outside the ci residual, so it reaches profit and nothing else.
+  dprofit_dpar[PAR_G1] =
+      -odelia::ode::forward_derivative(g1_TF24, [&](auto x) -> decltype(x) {
+        return hydraulic_cost_ad<decltype(x)>(psi_stem, b, c, x, beta2);
+      });
+  dprofit_dpar[PAR_BETA2] =
+      -odelia::ode::forward_derivative(beta2, [&](auto x) -> decltype(x) {
+        return hydraulic_cost_ad<decltype(x)>(psi_stem, b, c, g1_TF24, x);
+      });
+
+  for (int k = 0; k < n_leaf_parameter_inputs; ++k) {
+    if (!reaches_operating_point(k)) {
+      continue;
+    }
+    const double keep = this->*leaf_parameter_slots[k];
+    const double h = std::abs(keep) * 1e-6;
+    if (!(h > 0.0)) {
+      continue;  // a parameter at zero has no scale to step on
+    }
+    double R_pm[2], profit_pm[2] = {0.0, 0.0};
+    std::vector<double> uptake_pm[2];
+    for (int side = 0; side < 2; ++side) {
+      set_parameter(k, keep + (side == 0 ? h : -h));
+      R_pm[side] = dprofit_droot_collar_psi(p);
+      if (rebuilds_transport(k)) {
+        refresh_soil_potentials();
+        profit_pm[side] = profit_psi_stem_TF(
+            find_psi_stem_from_psi_root(r, psi_soil_inverted_), p);
+        E_from_Soil_to_Root_Collar(r, psi_soil_inverted_);
+        uptake_pm[side] = soil_consumption_;
+      }
+    }
+    set_parameter(k, keep);
+    dR_dpar[k] = (R_pm[0] - R_pm[1]) / (2.0 * h);
+    if (rebuilds_transport(k)) {
+      dprofit_dpar[k] = (profit_pm[0] - profit_pm[1]) / (2.0 * h);
+      dE_dpar[k].assign(n, 0.0);
+      for (int j = 0; j < n; ++j) {
+        dE_dpar[k][j] = (uptake_pm[0][j] - uptake_pm[1][j]) / (2.0 * h);
+      }
+    }
+  }
+  refresh_soil_potentials();
+
+  for (int k = 0; k < n_leaf_parameter_inputs; ++k) {
+    input_adjoints[i_par0 + k] = lambda_profit * dprofit_dpar[k];
+    for (int j = 0; j < n && !dE_dpar[k].empty(); ++j) {
+      input_adjoints[i_par0 + k] += lambda_uptake[j] * dE_dpar[k][j];
+    }
+  }
+
+  if (collar_pinned_) {
+    // p* is the bound, so dp*/du is the bound's derivative and none of the
+    // interior argmax machinery applies. profit is not stationary at a bound,
+    // so it carries the operating point's motion here where the interior
+    // branch's envelope argument leaves it out.
+    const double w = lambda_profit * dprofit_droot_collar_psi(p) + s_adjoint;
+    std::vector<double> dbound;
+    bound_partials(dbound);
+    collar_pinned_ = true;  // prepare_collar_solve inside bound_partials clears it
+    for (size_t k = 0; k < dbound.size(); ++k) {
+      input_adjoints[k] += w * dbound[k];
+    }
+    restore_operating_point();
+    return;
+  }
+
   // Taken here rather than kept from the solve: the Newton loop's divisor is
   // allowed to lag an iterate, which is a factor of about 1.02 on every row.
   const double Pi_pp = dR_dcollar_at(p, 1e-6);
   const double mu = -s_adjoint / Pi_pp;
+  for (int k = 0; k < n_leaf_parameter_inputs; ++k) {
+    input_adjoints[i_par0 + k] += mu * dR_dpar[k];
+  }
 
   // R reads the potentials, root masses and leaf area only through the flux and
   // its collar slope, so those 2n+1 directions cost these two scalars.
@@ -1566,29 +1902,7 @@ void Leaf::input_adjoints(double lambda_profit,
     input_adjoints[i_kappa] += mu * (R_pm[0] - R_pm[1]) / (2.0 * h);
   }
 
-  // The parameter rows are not computed here; NA says so where a zero would
-  // read as a channel that is present and flat.
-  for (int k = 0; k < n_leaf_parameter_inputs; ++k) {
-    input_adjoints[i_par0 + k] = nan;
-  }
-  // At a bound the maximiser is the bound and its derivative is the bound's, a
-  // channel this holds no row for.
-  if (collar_pinned_) {
-    std::fill(input_adjoints.begin(), input_adjoints.end(), nan);
-  }
-
-  transpiration_cached_ = false;
-  refresh_soil_potentials();
-  ci_ = keep_ci;
-  stom_cond_CO2_ = keep_stom;
-  assim_colimited_ = keep_assim;
-  transpiration_ = keep_transpiration;
-  profit_ = keep_profit;
-  hydraulic_cost_ = keep_cost;
-  E_up_ = keep_E_up;
-  opt_psi_stem_ = keep_stem;
-  root_collar_psi_ = keep_collar;
-  soil_consumption_ = keep_consumption;
+  restore_operating_point();
 }
 
 double Leaf::arrh_curve(double Ea, double ref_value, double leaf_temp) const {
@@ -1659,6 +1973,41 @@ void Leaf::setup_root_vulnerability(double resolution) {
   root_vuln_integral_from_psi.init(x_psi_root, y_integral);
   // linear extrapolation beyond range: slope ~= f_r at the tail (~1%), so the
   // integral keeps growing consistently with the clamped-conductivity tail.
+  root_vuln_integral_from_psi.set_extrapolate(true);
+}
+
+// Same knot values setup_transpiration builds, at (b_at, c_at) rather than at
+// the members, on the grid `x` the caller holds still (see the header).
+void Leaf::set_transpiration_at(double b_at, double c_at,
+                                const std::vector<double>& x) {
+  std::vector<double> y(x.size(), 0.0);
+  for (size_t i = 1; i < x.size(); ++i) {
+    y[i] = (b_at / c_at) *
+           boost::math::tgamma_lower(1.0 / c_at, pow(x[i] / b_at, c_at));
+  }
+  transpiration_from_psi.init(x, y);
+  transpiration_from_psi.set_extrapolate(false);
+  psi_from_transpiration.init(y, x);
+  psi_from_transpiration.set_extrapolate(false);
+  transpiration_cached_ = false;
+}
+
+// Same knot values setup_root_vulnerability builds, at (b_at, c_at) rather than
+// at the members, on the grid `x` the caller holds still (see the header).
+void Leaf::set_root_vulnerability_at(double b_at, double c_at,
+                                     const std::vector<double>& x) {
+  std::vector<double> y_integral(x.size(), 0.0), y_f_r(x.size());
+  for (size_t i = 0; i < x.size(); ++i) {
+    if (i > 0) {
+      y_integral[i] =
+          (b_at / c_at) *
+          boost::math::tgamma_lower(1.0 / c_at, pow(x[i] / b_at, c_at));
+    }
+    y_f_r[i] = exp(-pow(x[i] / b_at, c_at));
+  }
+  root_vuln_from_psi.init(x, y_f_r);
+  root_vuln_from_psi.set_extrapolate(true);
+  root_vuln_integral_from_psi.init(x, y_integral);
   root_vuln_integral_from_psi.set_extrapolate(true);
 }
 
