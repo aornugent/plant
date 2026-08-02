@@ -972,10 +972,8 @@ double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
     }
   }
 
-  // The reverse pass divides one adjoint by dR_dcollar_ and selects the argmax
-  // row on collar_pinned_, so both are recorded here whether or not a gradient
-  // is taken. Every exit that ran out of bracket is a bound rather than a
-  // stationary point of profit.
+  // Recorded whether or not a gradient is taken. The four exits that ran out of
+  // bracket leave the collar potential at a bound of the feasible interval.
   collar_pinned_ = (cls == internals::COLLAR_BOUND_A ||
                     cls == internals::COLLAR_BOUND_B ||
                     cls == internals::COLLAR_BOUND_STEP ||
@@ -1210,10 +1208,8 @@ double Leaf::dE_from_soil_dpsi_collar(double P_x_r, const std::vector<double>& p
   return dEup_dr_mol * kg_per_mol_h2o;  // match E_up_'s kg units
 }
 
-// Per-layer flux, its collar slope, and both differentiated in the layer's own
-// signed soil potential. The general branch of E_from_Soil_to_Root_Collar
-// carried one derivative further than dE_from_soil_dpsi_collar takes it, so the
-// same span / integral / resistance intermediates serve all four quantities.
+// The general branch of E_from_Soil_to_Root_Collar carried one derivative
+// further than dE_from_soil_dpsi_collar takes it, on shared intermediates.
 void Leaf::layer_flux_partials(double P_x_r, const std::vector<double>& psi_soil,
                                LayerFlux& out) {
   const double nan = std::numeric_limits<double>::quiet_NaN();
@@ -1296,11 +1292,8 @@ double Leaf::dR_dcollar_at(double opt_root_psi, double h) {
   return (R_plus - R_minus) / (2.0 * h);
 }
 
-// Uptake and the stem potential under a uniform drying of soil and collar
-// together. Every potential difference and the gravitational head are unchanged
-// by the shift, so the only term left is the vulnerability integral over an
-// interval whose endpoints both slide -- which is why this is computed rather
-// than differenced out of two much larger responses.
+// Under a uniform drying every potential difference and the gravitational head
+// are unchanged, leaving the vulnerability integral over a sliding interval.
 void Leaf::translation_partials(std::vector<double>& dE_dd, double& dpsistem_dd) {
   const double p = -root_collar_psi_;
   const double r = root_collar_psi_;
@@ -1451,8 +1444,7 @@ void Leaf::input_adjoints(double lambda_profit,
   layer_flux_partials(r, psi_soil_inverted_, fx);
 
   // Root mass enters layer i's resistance through its own horizontal term and
-  // through every shallower layer's vertical term, so the columns are summed
-  // over i >= j. m = 3 * c_r_V_ recovers the mass set_physiology consumed.
+  // every shallower vertical term, so the columns sum over i >= j.
   std::vector<double> dEup_dm(n, 0.0), dslope_dm(n, 0.0), uptake_dm(n, 0.0);
   for (int j = 0; j < n; ++j) {
     const double m_j = 3.0 * c_r_V_[j];
@@ -1518,9 +1510,8 @@ void Leaf::input_adjoints(double lambda_profit,
     input_adjoints[i_area] += lambda_uptake[j] * (-fx.E[j] / area_leaf_);
   }
 
-  // Uptake consumes the collar potential rather than being stationary in it, so
-  // the five flux adjoints collapse onto one scalar and one divide by the
-  // collar curvature gives that potential's own adjoint.
+  // Uptake consumes the collar potential, so the flux adjoints collapse onto one
+  // scalar and one divide by the collar curvature gives that potential's adjoint.
   double s_adjoint = 0.0;
   for (int j = 0; j < n; ++j) {
     s_adjoint += lambda_uptake[j] * (-fx.dE_dr[j]);
@@ -1529,9 +1520,8 @@ void Leaf::input_adjoints(double lambda_profit,
       std::isfinite(dR_dcollar_) ? dR_dcollar_ : dR_dcollar_at(p, 1e-6);
   const double mu = -s_adjoint / Pi_pp;
 
-  // R reads the potentials, the root masses and the leaf area only through the
-  // soil->collar flux and its collar slope, so those 2n+1 directions cost two
-  // scalars: this one in closed form, dR_dflux from one residual pair.
+  // R reads the potentials, root masses and leaf area only through the flux and
+  // its collar slope, so those 2n+1 directions cost these two scalars.
   const double dR_dflux_slope = -dprofit_dpsistem * P_prime / kappa;
   const double dR_dflux = dR_dflux_from_layer(0, 1e-6, dR_dflux_slope);
   double dEup_dr = 0.0;
@@ -1552,8 +1542,7 @@ void Leaf::input_adjoints(double lambda_profit,
             dR_dflux_slope * (-dEup_dr / area_leaf_));
 
   // Radiation and the conductance reach R outside the flux pair, so each takes
-  // its own residual pair. The conductance also multiplies the stomatal
-  // conductance, which is the extra explicit term in its envelope row above.
+  // its own residual pair.
   {
     const double h = PPFD_ * 1e-6;
     double R_pm[2];
@@ -1584,9 +1573,8 @@ void Leaf::input_adjoints(double lambda_profit,
   for (int k = 0; k < n_leaf_parameter_inputs; ++k) {
     input_adjoints[i_par0 + k] = nan;
   }
-  // At a bound the maximiser is the bound, profit is not stationary there and
-  // the collar potential's derivative is the bound's. Neither channel above
-  // holds, so no row does.
+  // At a bound the maximiser is the bound and its derivative is the bound's, a
+  // channel this holds no row for.
   if (collar_pinned_) {
     std::fill(input_adjoints.begin(), input_adjoints.end(), nan);
   }
