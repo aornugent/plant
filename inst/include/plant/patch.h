@@ -121,6 +121,50 @@ public:
   // Hand them back, in the order ode_aux wrote them
   template <typename It> It set_ode_aux(It it);
 
+  // Block output adjoints the closed-form steps form and the per-cohort sweep
+  // consumes: `rate` holds one entry per strategy rate per node, `uptake` one
+  // per resource per node, both in the order ode_state visits the nodes.
+  struct block_seeds {
+    std::vector<double> rate;
+    std::vector<double> uptake;
+  };
+
+  // Adjoints of the light field's two data vectors, one entry per knot.
+  struct light_knot_adjoints {
+    std::vector<double> value;
+    std::vector<double> slope;
+  };
+
+  // The mirror of ode_rates: the adjoints of dydt in, the adjoints of the state
+  // out through the iterator ode_state would write to.
+  template <class ItIn, class ItOut>
+  ItOut ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y);
+
+  size_t node_count() const;
+
+  // The soil drainage cascade and the water aggregation above it. Writes the
+  // soil state adjoints into lambda_state and the per-cohort uptake adjoints
+  // into seeds.
+  void soil_adjoint(const std::vector<double>& lambda_dydt,
+                    std::vector<double>& lambda_state,
+                    block_seeds& seeds) const;
+
+  // offspring_produced_survival_weighted_dt, which reaches the fecundity rate
+  // and, through exp(-mortality), the mortality state directly.
+  void offspring_adjoint(const std::vector<double>& lambda_dydt,
+                         std::vector<double>& lambda_state,
+                         block_seeds& seeds) const;
+
+  // The light knots pulled back to each cohort's leaf area, height and log
+  // density. `out` holds one entry per node in ode_state's order.
+  void light_knot_adjoint(const light_knot_adjoints& lambda_knot,
+                          std::vector<node_size_adjoints>& out) const;
+
+  // The leaf-area adjoints folded onto height, and the whole of `sizes`
+  // scattered into the state adjoints.
+  void allometry_adjoint(const std::vector<node_size_adjoints>& sizes,
+                         std::vector<double>& lambda_state) const;
+
   // Returns state in structure format as opposed to single 
   // vector as given by ode_state
   Rcpp::List r_get_state() const;
@@ -1088,6 +1132,192 @@ It Patch<T,E>::set_ode_aux(It it) {
   it = odelia::ode::set_ode_aux(species.begin(), species.end(), it);
   it = environment.set_ode_aux(it);
   return it;
+}
+
+template <typename T, typename E>
+size_t Patch<T,E>::node_count() const {
+  size_t n = 0;
+  for (size_t i = 0; i < species.size(); ++i) {
+    n += species[i].size();
+  }
+  return n;
+}
+
+// The drainage cascade is lower bidiagonal and the environment transposes it;
+// the aggregation above it is one trapezium per species per resource.
+template <typename T, typename E>
+void Patch<T,E>::soil_adjoint(const std::vector<double>& lambda_dydt,
+                              std::vector<double>& lambda_state,
+                              block_seeds& seeds) const {
+  const size_t n_env = environment.ode_size();
+  const size_t env_offset = ode_size() - n_env;
+  const size_t n_resource = environment.n_resources();
+  util::check_length(lambda_dydt.size(), ode_size());
+  util::check_length(lambda_state.size(), ode_size());
+  util::check_length(seeds.uptake.size(), node_count() * n_resource);
+
+  const std::vector<double> lambda_env_rate(
+    lambda_dydt.begin() + env_offset, lambda_dydt.end());
+  std::vector<double> lambda_env_state(n_env, 0.0);
+  std::vector<double> lambda_uptake(n_resource, 0.0);
+  environment.compute_rates_adjoint(lambda_env_rate, lambda_env_state,
+                                    lambda_uptake);
+  for (size_t i = 0; i < n_env; ++i) {
+    lambda_state[env_offset + i] += lambda_env_state[i];
+  }
+
+  const size_t node_stride = node_type::ode_size();
+  std::vector<node_uptake_adjoints> per_node(node_count(),
+                                             node_uptake_adjoints{0, 0, 0});
+  for (size_t r = 0; r < n_resource; ++r) {
+    if (lambda_uptake[r] == 0.0) {
+      continue;
+    }
+    for (size_t k = 0; k < node_count(); ++k) {
+      per_node[k] = node_uptake_adjoints{0, 0, 0};
+    }
+    size_t at = 0;
+    for (size_t i = 0; i < species.size(); ++i) {
+      species[i].consumption_rate_adjoint(static_cast<int>(r),
+                                          lambda_uptake[r] / area,
+                                          per_node.data() + at);
+      at += species[i].size();
+    }
+    for (size_t k = 0; k < node_count(); ++k) {
+      seeds.uptake[k * n_resource + r] += per_node[k].uptake;
+      lambda_state[k * node_stride + HEIGHT_INDEX] += per_node[k].height;
+      lambda_state[k * node_stride + T::state_size() + 1] +=
+        per_node[k].log_density;
+    }
+  }
+}
+
+template <typename T, typename E>
+void Patch<T,E>::offspring_adjoint(const std::vector<double>& lambda_dydt,
+                                   std::vector<double>& lambda_state,
+                                   block_seeds& seeds) const {
+  const size_t node_stride = node_type::ode_size();
+  const double pr_patch_survival = survival_weighting->pr_survival(time());
+  size_t k = 0;
+  for (size_t i = 0; i < species.size(); ++i) {
+    for (size_t j = 0; j < species[i].size(); ++j, ++k) {
+      const node_type& node = species[i].node_at(j);
+      const double lambda_offspring =
+        lambda_dydt[k * node_stride + T::state_size()];
+      if (lambda_offspring == 0.0) {
+        continue;
+      }
+      const double weight = odelia::util::to_passive(
+        node.offspring_dt_dfecundity_rate(pr_patch_survival));
+      seeds.rate[k * T::state_size() + FECUNDITY_INDEX] +=
+        lambda_offspring * weight;
+      // exp(-mortality) puts the offspring rate on a state as well as a rate,
+      // and the squashed non-finite case carries a zero survival with it.
+      const double fecundity_rate = odelia::util::to_passive(
+        node.individual.rate(FECUNDITY_INDEX));
+      lambda_state[k * node_stride + MORTALITY_INDEX] -=
+        lambda_offspring * fecundity_rate * weight;
+    }
+  }
+}
+
+// The knots hold L = exp(-A), so the value adjoint chains through dL/dA = -L
+// and the slope adjoint reaches both data vectors before either is distributed.
+template <typename T, typename E>
+void Patch<T,E>::light_knot_adjoint(const light_knot_adjoints& lambda_knot,
+                                    std::vector<node_size_adjoints>& out) const {
+  const std::vector<double>& knots = environment.light_availability.spline.knots();
+  util::check_length(lambda_knot.value.size(), knots.size());
+  util::check_length(lambda_knot.slope.size(), knots.size());
+  util::check_length(out.size(), node_count());
+  if (is_mutant_run) {
+    return;
+  }
+  for (size_t k = 0; k < knots.size(); ++k) {
+    if (lambda_knot.value[k] == 0.0 && lambda_knot.slope[k] == 0.0) {
+      continue;
+    }
+    const double z = knots[k];
+    const std::pair<value_type, value_type> as =
+      compute_competition_and_slope(z);
+    const double competition = odelia::util::to_passive(as.first);
+    const double competition_slope = odelia::util::to_passive(as.second);
+    const double transmittance = std::exp(-competition);
+    // m = -L A', so the slope data carries the value with it.
+    const double lambda_competition_slope =
+      -(lambda_knot.slope[k] * transmittance);
+    const double lambda_transmittance =
+      lambda_knot.value[k] - lambda_knot.slope[k] * competition_slope;
+    const double lambda_competition = -(lambda_transmittance * transmittance);
+    size_t at = 0;
+    for (size_t i = 0; i < species.size(); ++i) {
+      species[i].compute_competition_and_slope_adjoint(
+        z, lambda_competition / area, lambda_competition_slope / area,
+        out.data() + at);
+      at += species[i].size();
+    }
+  }
+}
+
+template <typename T, typename E>
+void Patch<T,E>::allometry_adjoint(const std::vector<node_size_adjoints>& sizes,
+                                   std::vector<double>& lambda_state) const {
+  util::check_length(sizes.size(), node_count());
+  util::check_length(lambda_state.size(), ode_size());
+  const size_t node_stride = node_type::ode_size();
+  size_t k = 0;
+  for (size_t i = 0; i < species.size(); ++i) {
+    for (size_t j = 0; j < species[i].size(); ++j, ++k) {
+      const double darea_leaf_dheight = odelia::util::to_passive(
+        species[i].node_at(j).individual.darea_leaf_dheight());
+      lambda_state[k * node_stride + HEIGHT_INDEX] +=
+        sizes[k].height + sizes[k].area_leaf * darea_leaf_dheight;
+      lambda_state[k * node_stride + T::state_size() + 1] +=
+        sizes[k].log_density;
+    }
+  }
+}
+
+template <typename T, typename E>
+template <class ItIn, class ItOut>
+ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y) {
+  const size_t n = ode_size();
+  const size_t n_resource = environment.n_resources();
+  std::vector<double> lambda_in(n);
+  for (size_t i = 0; i < n; ++i) {
+    lambda_in[i] = *lambda_dydt++;
+  }
+  std::vector<double> lambda_state(n, 0.0);
+  block_seeds seeds{std::vector<double>(node_count() * T::state_size(), 0.0),
+                    std::vector<double>(node_count() * n_resource, 0.0)};
+  // The strategy rate adjoints the stage recursion supplies, before the
+  // closed-form steps add to them.
+  for (size_t k = 0; k < node_count(); ++k) {
+    for (size_t s = 0; s < T::state_size(); ++s) {
+      seeds.rate[k * T::state_size() + s] =
+        lambda_in[k * node_type::ode_size() + s];
+    }
+  }
+
+  soil_adjoint(lambda_in, lambda_state, seeds);
+  offspring_adjoint(lambda_in, lambda_state, seeds);
+
+  // Per cohort: record the block, seed it from `seeds`, sweep, and read the
+  // state, knot and trait adjoints back. Empty until the block lands, so the
+  // knot adjoints below stay zero and the cohorts take no adjoint from it.
+  light_knot_adjoints lambda_knot{
+    std::vector<double>(environment.light_availability.spline.knots().size(), 0.0),
+    std::vector<double>(environment.light_availability.spline.knots().size(), 0.0)};
+
+  std::vector<node_size_adjoints> sizes(node_count(),
+                                        node_size_adjoints{0, 0, 0});
+  light_knot_adjoint(lambda_knot, sizes);
+  allometry_adjoint(sizes, lambda_state);
+
+  for (size_t i = 0; i < n; ++i) {
+    *lambda_y++ = lambda_state[i];
+  }
+  return lambda_y;
 }
 
 }
