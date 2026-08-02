@@ -1360,8 +1360,9 @@ double Leaf::dR_dflux_from_layer(int layer, double delta,
 static const char* const leaf_parameter_inputs[] = {
     "vcmax_25", "jmax_25", "a",      "curv_fact_elec_trans",
     "curv_fact_colim", "b", "c",     "psi_crit",
-    "beta2",    "g1_TF24", "rho",    "a_bio"};
-static const int n_leaf_parameter_inputs = 12;
+    "beta2",    "g1_TF24", "rho",    "a_bio",
+    "root_b",   "root_c",  "root_psi_crit"};
+static const int n_leaf_parameter_inputs = 15;
 
 std::vector<std::string> Leaf::inputs() const {
   std::vector<std::string> out;

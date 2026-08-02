@@ -211,6 +211,51 @@ int main() {
       }
       printf("    WAIST worst relative residual over %d directions = %.3e\n",
              2 * n + 1, worst);
+
+      // The five inputs report 02 6.8 omits. root_b/root_c rebuild the root
+      // vulnerability spline; beta_R_H/beta_R_V rescale the resistance network.
+      // Each reaches R only through the soil->collar transport, so the waist
+      // pair should predict its dR if it factors. Measured at the fixed
+      // operating point (r, p), E_up and dE_up/dr by central difference.
+      std::vector<double> depth2(n);
+      for (int i = 0; i < n; ++i) depth2[i] = (i + 1.0) / n;
+      std::vector<double> mass2(n, 1.0 / n);
+      const double theta2 = 0.000157, hh2 = 5.0;
+      auto factor_test = [&](const char* nm, double& member, double h,
+                             bool rebuild_root) {
+        const double keep = member;
+        double E[2], slope[2], R[2];
+        for (int k = 0; k < 2; ++k) {
+          member = keep + (k ? -h : h);
+          if (rebuild_root) l.setup_root_vulnerability(100);
+          l.set_physiology(l.area_leaf_, mass2, 608, 0.0245, l.PPFD_, l.psi_soil_,
+                           depth2, 1.0 * theta2 / hh2, 2.0, 40.0, theta2 * hh2,
+                           25.0, 21.0, 101.3);
+          l.transpiration_cached_ = false;
+          R[k] = l.dprofit_droot_collar_psi(p);
+          l.refresh_soil_potentials();
+          l.E_from_Soil_to_Root_Collar(l.root_collar_psi_, l.psi_soil_inverted_);
+          E[k] = l.E_up_;
+          slope[k] = l.dE_from_soil_dpsi_collar(l.root_collar_psi_,
+                                                l.psi_soil_inverted_);
+        }
+        member = keep;
+        if (rebuild_root) l.setup_root_vulnerability(100);
+        l.set_physiology(l.area_leaf_, mass2, 608, 0.0245, l.PPFD_, l.psi_soil_,
+                         depth2, 1.0 * theta2 / hh2, 2.0, 40.0, theta2 * hh2,
+                         25.0, 21.0, 101.3);
+        const double dE = (E[0] - E[1]) / (2 * h);
+        const double dslope = (slope[0] - slope[1]) / (2 * h);
+        const double dR = (R[0] - R[1]) / (2 * h);
+        const double pred = a_flux * dE + bcoef * dslope;
+        printf("      %-10s dR pred %.6g meas %.6g  rel %.2e\n", nm, pred, dR,
+               rel(pred, dR));
+      };
+      printf("    WAIST-EXT (the five omitted inputs):\n");
+      factor_test("root_b", l.root_b, l.root_b * 1e-6, true);
+      factor_test("root_c", l.root_c, l.root_c * 1e-6, true);
+      factor_test("beta_R_H", l.beta_R_H, l.beta_R_H * 1e-6, false);
+      factor_test("beta_R_V", l.beta_R_V, l.beta_R_V * 1e-6, false);
     }
 
     // TRANSLATION rows, against a difference along the translation
