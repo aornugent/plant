@@ -10,7 +10,8 @@ run_scm(
   ctrl = control(),
   refine_schedule = FALSE,
   collect = FALSE,
-  use_ode_times = FALSE
+  use_ode_times = FALSE,
+  ode_step_sizes = NULL
 )
 }
 \arguments{
@@ -28,6 +29,12 @@ refined before/while running (using \code{schedule_eps} and
 returned (instead of the \code{SCM} object)?}
 
 \item{use_ode_times}{Should ODE times be used?}
+
+\item{ode_step_sizes}{The size of the step that reached each of the pinned
+ODE times (NaN first), as returned by \code{scm$ode_step_sizes} on the run
+being replayed. With them the replay takes the steps the recorded run
+took; without them the sizes are differenced out of the times, which is
+not exact. Only used when \code{use_ode_times} is \code{TRUE}.}
 }
 \value{
 When \code{collect = FALSE}, an \code{SCM} object. When

@@ -43,13 +43,16 @@ build_stand <- function() {
   add_strategies(p, trait_matrix(LMA, "lma"))
 }
 
-# The same resolved schedule and the same ODE grid on every re-run, so the
-# difference is of the trait and not of the discretisation.
-run_on_schedule <- function(p, schedule_times, ode_times) {
+# The same resolved schedule and the same ODE steps on every re-run, so the
+# difference is of the trait and not of the discretisation. The recorded step
+# sizes are pinned as well as the times: a size differenced back out of the
+# times is not the size that was taken.
+run_on_schedule <- function(p, schedule_times, ode_times, ode_step_sizes) {
   scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
   scm$set_node_schedule_times(schedule_times)
   sched <- scm$node_schedule
   sched$ode_times <- ode_times
+  sched$ode_step_sizes <- ode_step_sizes
   sched$use_ode_times <- TRUE
   scm$node_schedule <- sched
   scm$run()
@@ -66,6 +69,7 @@ base <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
 base$run()
 schedule <- base$node_schedule$all_times
 ode_times <- base$ode_times
+ode_step_sizes <- base$ode_step_sizes
 base_out <- read_out(base)
 say(sprintf("base: %.1f s, %d accepted ODE steps, R0 = %.15g",
             as.numeric(difftime(Sys.time(), t0, units = "secs")),
@@ -111,7 +115,7 @@ for (tr in traits) {
       pp <- p
       pp$strategies[[1]]$pars[[tr]] <- base_value + sgn * h
       tt <- Sys.time()
-      scm <- run_on_schedule(pp, schedule, ode_times)
+      scm <- run_on_schedule(pp, schedule, ode_times, ode_step_sizes)
       got <- read_out(scm)
       ok_steps <- length(scm$ode_times) == length(ode_times)
       ok_sched <- isTRUE(all.equal(scm$node_schedule$all_times, schedule))

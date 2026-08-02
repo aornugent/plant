@@ -256,6 +256,7 @@ NodeSchedule:
     remaining: {type: size_t, access: member}
     max_time: {type: double, access: member, name_cpp: get_max_time, name_cpp_set: r_set_max_time}
     ode_times: {type: "std::vector<double>", access: member, name_cpp: r_ode_times, name_cpp_set: r_set_ode_times}
+    ode_step_sizes: {type: "std::vector<double>", access: member, name_cpp: r_ode_step_sizes, name_cpp_set: r_set_ode_step_sizes}
     use_ode_times: {type: bool, access: member, name_cpp: using_ode_times, name_cpp_set: r_set_use_ode_times}
     all_times: {type: SEXP, access: member, name_cpp: r_all_times, name_cpp_set: r_set_all_times}
   methods:
@@ -778,6 +779,11 @@ SCM:
       type: "std::vector<double>"
       access: member
       name_cpp: r_ode_times
+    # The size of the step that reached each of ode_times, NaN first.
+    ode_step_sizes:
+      type: "std::vector<double>"
+      access: member
+      name_cpp: r_ode_step_sizes
     # Collection toggles (bound directly to the public members)
     collect: {type: bool, access: field}
     collect_refinement_errors: {type: bool, access: field}
