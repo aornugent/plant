@@ -30,3 +30,6 @@ overstorey-staging/figures/
 
 # Claude Code personal settings
 .claude/settings.local.json
+
+# Build logs from the pinned compile recipe
+build.log
