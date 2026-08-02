@@ -214,6 +214,13 @@ public:
   double count;
   double E_up_;
 
+  // d(dprofit_droot_collar_psi)/d(collar potential) at the point the polish
+  // reached, and whether that point is a bound of the feasible interval rather
+  // than a stationary point of profit. Both are set by
+  // polish_root_collar_psi; NaN and false until a solve has run.
+  double dR_dcollar_;
+  bool collar_pinned_;
+
   // --- Medlyn stomatal-conductance model (from develop #450) ------------------
   // Standalone, R-callable alternative to the root-collar profit optimisation
   // (solve_medlyn_ci_*); NOT used by the TF24 compute path, which optimises
@@ -358,6 +365,10 @@ public:
   // held at psi_crit (no transpiration), paying only respiration + hydraulic
   // cost. Only root_collar_psi_ differs between the cases, so it is the argument.
   void set_shutdown_state(double root_collar);
+  // The differentiable inputs, in the order input_adjoints writes them:
+  // radiation, one soil potential per rooted layer, leaf area, one root mass
+  // per rooted layer, leaf-specific conductance, then the leaf's parameters.
+  std::vector<std::string> inputs() const;
   double find_root_psi(double wettest_soil_layer, const std::vector<double>& psi_soil, int find_root_crit);
   double find_psi_stem_from_psi_root(double psi_root, const std::vector<double>& psi_soil);
   double E_column(double x, const std::vector<double>& psi_soil, double psi_leaf);

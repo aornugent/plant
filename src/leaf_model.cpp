@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <string>
 #include <exception>
 #include <boost/math/special_functions/gamma.hpp>
 #include <plant/models/tf24_environment.h>
@@ -128,6 +129,8 @@ void Leaf::setup_clean_leaf() {
   opt_psi_stem_= NA_REAL; //-MPa 
   opt_ci_= NA_REAL; //Pa
   E_up_ = NA_REAL;
+  dR_dcollar_ = NA_REAL;
+  collar_pinned_ = false;
   medlyn_model_gs_ = NA_REAL; // mol CO2 m^-2 s^-1 (Medlyn model, develop #450)
   theta_w_ = NA_REAL;
   theta_fc_ = NA_REAL;
@@ -725,6 +728,11 @@ double Leaf::refresh_soil_potentials() {
 // collar-potential interval (positive magnitudes) otherwise.
 bool Leaf::prepare_collar_solve(double& bound_a, double& bound_b){
 
+  // Only polish_root_collar_psi sets these, so an exit below would otherwise
+  // leave the previous step's curvature and pinned flag in place.
+  dR_dcollar_ = NA_REAL;
+  collar_pinned_ = false;
+
   const double wettest_soil_layer = refresh_soil_potentials();
 
   // Avoid loop if the wettest psi layer is drier than psi_crit in stem, transpiration not possible and so all variables set to
@@ -907,6 +915,8 @@ double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
   bool have_dR = false;   // dR_dcollar holds a value, taken at psi or before it
   int n_eval = 0;
   int cls = internals::COLLAR_EXHAUSTED;
+  collar_pinned_ = false;
+  dR_dcollar_ = NA_REAL;
   for (int iter = 0; iter < max_iter; ++iter) {
     const double R = dprofit_droot_collar_psi(psi);
     ++n_eval;
@@ -961,6 +971,16 @@ double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
       break;
     }
   }
+
+  // The reverse pass divides one adjoint by dR_dcollar_ and selects the argmax
+  // row on collar_pinned_, so both are recorded here whether or not a gradient
+  // is taken. Every exit that ran out of bracket is a bound rather than a
+  // stationary point of profit.
+  collar_pinned_ = (cls == internals::COLLAR_BOUND_A ||
+                    cls == internals::COLLAR_BOUND_B ||
+                    cls == internals::COLLAR_BOUND_STEP ||
+                    cls == internals::COLLAR_BOUND_CURVATURE);
+  dR_dcollar_ = have_dR ? dR_dcollar : NA_REAL;
 
   if (std::getenv("PLANT_POLISH_TRACE") != nullptr) {
     std::fprintf(stderr, "polish_root_collar_psi: n_eval=%d displacement=%.3e\n",
@@ -1188,6 +1208,32 @@ double Leaf::dE_from_soil_dpsi_collar(double P_x_r, const std::vector<double>& p
   }
 
   return dEup_dr_mol * kg_per_mol_h2o;  // match E_up_'s kg units
+}
+
+// The leaf's parameter inputs, after the state-dependent block. Their rows are
+// not computed yet, so input_adjoints leaves them NA rather than zero.
+static const char* const leaf_parameter_inputs[] = {
+    "vcmax_25", "jmax_25", "a",      "curv_fact_elec_trans",
+    "curv_fact_colim", "b", "c",     "psi_crit",
+    "beta2",    "g1_TF24", "rho",    "a_bio"};
+static const int n_leaf_parameter_inputs = 12;
+
+std::vector<std::string> Leaf::inputs() const {
+  std::vector<std::string> out;
+  out.reserve(2 * max_soil_layer + 3 + n_leaf_parameter_inputs);
+  out.push_back("PPFD");
+  for (int i = 0; i < max_soil_layer; ++i) {
+    out.push_back("psi_soil[" + std::to_string(i) + "]");
+  }
+  out.push_back("area_leaf");
+  for (int i = 0; i < max_soil_layer; ++i) {
+    out.push_back("mass_root[" + std::to_string(i) + "]");
+  }
+  out.push_back("leaf_specific_conductance_max");
+  for (int i = 0; i < n_leaf_parameter_inputs; ++i) {
+    out.push_back(leaf_parameter_inputs[i]);
+  }
+  return out;
 }
 
 double Leaf::arrh_curve(double Ea, double ref_value, double leaf_temp) const {
