@@ -11938,6 +11938,60 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// census_metric_names_tf24
+std::vector<std::string> census_metric_names_tf24();
+RcppExport SEXP _plant_census_metric_names_tf24() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(census_metric_names_tf24());
+    return rcpp_result_gen;
+END_RCPP
+}
+// census_tf24
+std::vector<double> census_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_census_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(census_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// census_state_adjoint_tf24
+std::vector<std::vector<double>> census_state_adjoint_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_census_state_adjoint_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(census_state_adjoint_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// census_trait_names_tf24
+std::vector<std::string> census_trait_names_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_census_trait_names_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(census_trait_names_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// gradient_control_tf24
+std::vector<double> gradient_control_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_gradient_control_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(gradient_control_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
 // node_schedule_default__Parameters___FF16__FF16_Env
 plant::NodeSchedule node_schedule_default__Parameters___FF16__FF16_Env(const plant::Parameters<plant::FF16_Strategy,plant::FF16_Environment>& p);
 RcppExport SEXP _plant_node_schedule_default__Parameters___FF16__FF16_Env(SEXP pSEXP) {
@@ -13286,6 +13340,11 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_TF24_Environment__soil__get", (DL_FUNC) &_plant_TF24_Environment__soil__get, 1},
     {"_plant_TF24f_Strategy__ctor", (DL_FUNC) &_plant_TF24f_Strategy__ctor, 0},
     {"_plant_test_adaptive_interpolator", (DL_FUNC) &_plant_test_adaptive_interpolator, 7},
+    {"_plant_census_metric_names_tf24", (DL_FUNC) &_plant_census_metric_names_tf24, 0},
+    {"_plant_census_tf24", (DL_FUNC) &_plant_census_tf24, 1},
+    {"_plant_census_state_adjoint_tf24", (DL_FUNC) &_plant_census_state_adjoint_tf24, 1},
+    {"_plant_census_trait_names_tf24", (DL_FUNC) &_plant_census_trait_names_tf24, 1},
+    {"_plant_gradient_control_tf24", (DL_FUNC) &_plant_gradient_control_tf24, 1},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
     {"_plant_make_node_schedule__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___FF16__FF16_Env, 1},
     {"_plant_test_gradient_fd1", (DL_FUNC) &_plant_test_gradient_fd1, 5},

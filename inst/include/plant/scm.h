@@ -7,9 +7,12 @@
 #include <plant/patch.h>
 #include <plant/scm_utils.h>
 
+#include <odelia/gradient.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <tuple>
 
 using namespace Rcpp;
 
@@ -80,6 +83,41 @@ public:
   // the fitness/offspring computations.
   std::vector<double> net_reproduction_ratios() const { return patch.net_reproduction_ratios(); }
   std::vector<double> offspring_production() const { return patch.offspring_production(); }
+
+  // ---- Census --------------------------------------------------------------
+
+  // Each metric of `Metrics`, summed over the species, in tuple order. The
+  // codomain is the tuple's size.
+  template <class Metrics> std::vector<double> census() const;
+
+  // One metric summed over every species of `p`. Templated on the patch so the
+  // value and its derivative are the same reduction at two scalars.
+  template <class P, class Psi>
+  static typename P::value_type census_over(const P& p, Psi psi) {
+    typename P::value_type tot = 0.0;
+    for (size_t i = 0; i < p.size(); ++i) {
+      tot += p.at_species(i).census(psi);
+    }
+    return tot;
+  }
+
+  // d(census)/d(ODE state) at the current time, one row per metric and one
+  // column per ODE state entry. This is what the reverse pass is seeded with.
+  template <class Metrics>
+  std::vector<std::vector<double>> census_state_adjoint() const;
+
+  // d(census)/d(trait), one row per metric and one column per trait in each
+  // strategy's ad_parameters() order, species-major. Requires an adaptive run to
+  // have resolved the schedule this replays.
+  template <class Metrics>
+  std::vector<std::vector<double>> census_trait_gradient();
+
+  // The four Control entries that move the trajectory and so move the gradient,
+  // in the order stand_gradient() compares them.
+  std::vector<double> gradient_control() const {
+    return {control.GSS_tol_abs, control.ci_abs_tol, control.node_gradient_eps,
+            control.schedule_eps};
+  }
 
   // ---- R interface -------------------------------------------------------
 
@@ -516,6 +554,83 @@ Rcpp::List SCM<T, E>::r_store_trajectory() {
     ret[i] = Rcpp::List::create(Rcpp::_["time"] = steps[i].time,
                                 Rcpp::_["step_size"] = steps[i].step_size,
                                 Rcpp::_["state"] = steps[i].state);
+  }
+  return ret;
+}
+
+template <typename T, typename E>
+template <class Metrics>
+std::vector<double> SCM<T, E>::census() const {
+  std::vector<double> ret;
+  ret.reserve(std::tuple_size<Metrics>::value);
+  std::apply(
+      [&](auto... psi) -> void {
+        (ret.push_back(odelia::util::to_passive(census_over(patch, psi))), ...);
+      },
+      Metrics{});
+  return ret;
+}
+
+// One recording of the census over the whole patch at the active scalar, swept
+// once per metric. The inputs are the ODE state, so the rows come back in the
+// order ode_state writes and can be handed straight to the reverse pass.
+//
+// set_ode_state rebuilds the environment and the boundary node from the state it
+// is given. Both are on the census's path -- the boundary node is the
+// reduction's lower grid point and is not ODE state -- so the recording must
+// carry that rebuild. Loading the state without it leaves the boundary node at
+// the values it was copied with, and its whole contribution to the seed is then
+// exactly zero with nothing thrown.
+template <typename T, typename E>
+template <class Metrics>
+std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
+  using scalar = odelia::ode::active_scalar<double>;
+  const size_t n_metric = std::tuple_size<Metrics>::value;
+  const size_t n_state = patch.ode_size();
+
+  std::vector<double> in(n_state);
+  patch.ode_state(in.begin());
+  auto active = patch.template rebind_from<scalar>();
+
+  auto reduce = [&](const std::vector<scalar>& x,
+                    std::vector<scalar>& y) -> void {
+    active.set_ode_state(x.begin(), time());
+    size_t m = 0;
+    std::apply(
+        [&](auto... psi) -> void {
+          ((y[m++] = census_over(active, psi)), ...);
+        },
+        Metrics{});
+  };
+
+  typename scalar::tape_type tape(false);
+  std::vector<std::vector<double>> ret(n_metric,
+                                       std::vector<double>(n_state, 0.0));
+  for (size_t m = 0; m < n_metric; ++m) {
+    std::vector<double> seed(n_metric, 0.0);
+    seed[m] = 1.0;
+    odelia::ode::vector_jacobian_product(tape, in, seed, reduce, ret[m]);
+  }
+  return ret;
+}
+
+// Seed lambda on the states the census reads at T, then run the reverse pass
+// back over the recorded steps. The trait adjoints accumulate across every
+// cohort and every step, so the accumulator is cleared once per metric and read
+// once the sweep is done. It is the solver's system that accumulates: `patch` is
+// a snapshot the run copies out, and reading its accumulator gives zeros.
+template <typename T, typename E>
+template <class Metrics>
+std::vector<std::vector<double>> SCM<T, E>::census_trait_gradient() {
+  const std::vector<std::vector<double>> seeds =
+      census_state_adjoint<Metrics>();
+  std::vector<std::vector<double>> ret;
+  ret.reserve(seeds.size());
+  patch_type& live = solver.get_system_ref();
+  for (const std::vector<double>& lambda_T : seeds) {
+    live.clear_trait_adjoint();
+    solver.solve_adjoint(lambda_T);
+    ret.push_back(live.trait_adjoint);
   }
   return ret;
 }

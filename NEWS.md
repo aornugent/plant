@@ -178,6 +178,28 @@ were not previously recorded here:
 
 ### New features
 
+* **Census metrics of a solved stand, and the sensitivity of each to the ODE
+  state.** `stand_census(scm)` returns the trapezium integral of
+  `n_k * psi(state_k)` over the cohort heights for each metric — leaf area
+  (LAI), above-ground mass and stem basal area — with the quadrature grid
+  starting at the inflow boundary node, so the interval between it and the
+  smallest cohort is in the sum. `stand_census_state_adjoint(scm)` returns the
+  metrics-by-ODE-state matrix of `d(census)/d(state)`, whose cohort-height
+  columns carry the trapezium weights as well as the integrand.
+  `gradient_control(scm)` returns the four `Control` entries a census gradient
+  depends on (`GSS_tol_abs`, `ci_abs_tol`, `node_gradient_eps`,
+  `schedule_eps`). TF24 only; no existing output changes.
+
+* **`stand_gradient(scm, metrics, traits)`** — doubles in and doubles out, the
+  active scalar created and destroyed inside one call. It records the four
+  `Control` entries it differentiated at, and `stand_gradient_compare(a, b)`
+  refuses a pair taken at different ones, since each entry moves the trajectory
+  and so changes the function being differentiated. **Not yet callable**: the
+  reverse pass's stepper (`Solver::solve_adjoint` over the recorded steps) is not
+  in the installed `odelia`, so `stand_gradient` reaches a
+  `census_trait_gradient_tf24` that does not exist. The seeding, the metric and
+  trait naming, and the `Control` comparison are in place and tested.
+
 * **A dry TF24f patch no longer aborts the whole run on the ci root-find.**
   `Leaf::dprofit_droot_collar_psi` — TF24f's exact AD/IFT gradient — called
   `psi_stem_to_ci()` before testing for hydraulic shut-down. In shut-down,
