@@ -53,9 +53,11 @@ public:
   // without this slot the consumption is unrecoverable from the state.
   size_t aux_size() const { return n_resources(); }
 
+  // The soil state is passive by declaration: its parameter sensitivity travels
+  // by the adjoint ODE, and set_cohort_reads is where an active value arrives.
   template <typename It> It set_ode_state(It it) {
     for (size_t i = 0; i < vars.state_size; i++) {
-      vars.states[i] = *it++;
+      vars.states[i] = odelia::util::to_passive(*it++);
     }
     return it;
   }
