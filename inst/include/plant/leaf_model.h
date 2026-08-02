@@ -214,6 +214,11 @@ public:
   double count;
   double E_up_;
 
+  // Collar curvature at the point polish_root_collar_psi reached, and whether
+  // that point is a bound of the feasible interval. NA and false before a solve.
+  double dR_dcollar_;
+  bool collar_pinned_;
+
   // --- Medlyn stomatal-conductance model (from develop #450) ------------------
   // Standalone, R-callable alternative to the root-collar profit optimisation
   // (solve_medlyn_ci_*); NOT used by the TF24 compute path, which optimises
@@ -358,6 +363,30 @@ public:
   // held at psi_crit (no transpiration), paying only respiration + hydraulic
   // cost. Only root_collar_psi_ differs between the cases, so it is the argument.
   void set_shutdown_state(double root_collar);
+  // Per-layer flux at the signed collar potential P_x_r and its slope there,
+  // each differentiated in the layer's own potential, on shared intermediates.
+  struct LayerFlux {
+    std::vector<double> E, dE_dr, dE_dpsi, d2E_dr_dpsi;
+    std::vector<double> r_R, dr_R_dr, num, integral;
+  };
+  void layer_flux_partials(double P_x_r, const std::vector<double>& psi_soil,
+                           LayerFlux& out);
+  // The differentiable inputs in the order input_adjoints writes them: radiation,
+  // per-layer potential, leaf area, per-layer root mass, conductance, parameters.
+  std::vector<std::string> inputs() const;
+  // The leaf contracts its output adjoints onto its inputs at the point the solve
+  // left. Doubles; the operating-point outputs it reads are put back on exit.
+  void input_adjoints(double lambda_profit,
+                      const std::vector<double>& lambda_uptake,
+                      std::vector<double>& input_adjoints);
+  // Uptake's and the stem's response to a uniform drying of soil and collar
+  // together, in the direction that increases every psi magnitude.
+  void translation_partials(std::vector<double>& dE_dd, double& dpsistem_dd);
+  // Central difference of dprofit_droot_collar_psi in the collar potential.
+  double dR_dcollar_at(double opt_root_psi, double h);
+  // d(dprofit_droot_collar_psi)/d(flux), from one residual pair in one layer's
+  // potential. That family is rank one, so the other layers are a check.
+  double dR_dflux_from_layer(int layer, double delta, double dR_dflux_slope);
   double find_root_psi(double wettest_soil_layer, const std::vector<double>& psi_soil, int find_root_crit);
   double find_psi_stem_from_psi_root(double psi_root, const std::vector<double>& psi_soil);
   double E_column(double x, const std::vector<double>& psi_soil, double psi_leaf);
