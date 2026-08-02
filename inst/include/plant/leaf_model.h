@@ -365,10 +365,33 @@ public:
   // held at psi_crit (no transpiration), paying only respiration + hydraulic
   // cost. Only root_collar_psi_ differs between the cases, so it is the argument.
   void set_shutdown_state(double root_collar);
+  // Per-layer soil->collar transport at one signed collar potential P_x_r: the
+  // layer flux (mol H2O m^-2 leaf s^-1), its slope in P_x_r, and each one's
+  // derivative in that layer's own signed soil potential. r_R, dr_R_dr and num
+  // are the layer resistance, its collar slope and the flux numerator, which
+  // the root-mass rows differentiate. All entries NaN if any layer sits on one
+  // of the branch kinks dE_from_soil_dpsi_collar rejects.
+  struct LayerFlux {
+    std::vector<double> E, dE_dr, dE_dpsi, d2E_dr_dpsi;
+    std::vector<double> r_R, dr_R_dr, num, integral;
+  };
+  void layer_flux_partials(double P_x_r, const std::vector<double>& psi_soil,
+                           LayerFlux& out);
   // The differentiable inputs, in the order input_adjoints writes them:
   // radiation, one soil potential per rooted layer, leaf area, one root mass
   // per rooted layer, leaf-specific conductance, then the leaf's parameters.
   std::vector<std::string> inputs() const;
+  // Uptake's and the stem's response to a uniform drying of soil and collar
+  // together, computed from the vulnerability integral over an interval whose
+  // endpoints both slide. Positive dryness direction: psi magnitudes increase.
+  void translation_partials(std::vector<double>& dE_dd, double& dpsistem_dd);
+  // Central difference of dprofit_droot_collar_psi in the collar potential.
+  double dR_dcollar_at(double opt_root_psi, double h);
+  // d(dprofit_droot_collar_psi)/d(soil->collar flux), recovered from one pair of
+  // residual evaluations in one soil-potential direction with the closed-form
+  // flux-slope coefficient dR_dflux_slope subtracted off. The potential family
+  // is rank one, so any single layer identifies it and the rest are a check.
+  double dR_dflux_from_layer(int layer, double delta, double dR_dflux_slope);
   double find_root_psi(double wettest_soil_layer, const std::vector<double>& psi_soil, int find_root_crit);
   double find_psi_stem_from_psi_root(double psi_root, const std::vector<double>& psi_soil);
   double E_column(double x, const std::vector<double>& psi_soil, double psi_leaf);

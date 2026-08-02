@@ -1210,6 +1210,158 @@ double Leaf::dE_from_soil_dpsi_collar(double P_x_r, const std::vector<double>& p
   return dEup_dr_mol * kg_per_mol_h2o;  // match E_up_'s kg units
 }
 
+// Per-layer flux, its collar slope, and both differentiated in the layer's own
+// signed soil potential. The general branch of E_from_Soil_to_Root_Collar
+// carried one derivative further than dE_from_soil_dpsi_collar takes it, so the
+// same span / integral / resistance intermediates serve all four quantities.
+void Leaf::layer_flux_partials(double P_x_r, const std::vector<double>& psi_soil,
+                               LayerFlux& out) {
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  out.E.assign(max_soil_layer, nan);
+  out.dE_dr.assign(max_soil_layer, nan);
+  out.dE_dpsi.assign(max_soil_layer, nan);
+  out.d2E_dr_dpsi.assign(max_soil_layer, nan);
+  out.r_R.assign(max_soil_layer, nan);
+  out.dr_R_dr.assign(max_soil_layer, nan);
+  out.num.assign(max_soil_layer, nan);
+  out.integral.assign(max_soil_layer, nan);
+
+  const double inv_area_leaf = 1.0 / area_leaf_;
+  const double kink_tol = 1e-8;
+
+  for (int i = 0; i < max_soil_layer; i++) {
+    const double x = psi_soil[i];
+    if (std::abs(P_x_r - x) < kink_tol ||
+        std::abs((x - P_x_r) - grav_head_z_[i]) < kink_tol ||
+        std::abs(P_x_r) < kink_tol) {
+      return;  // a branch kink: every entry stays NaN
+    }
+
+    const double P_src_min = std::min(x, P_x_r);
+    const double P_src_max = std::max(x, P_x_r);
+    const double span = P_src_max - P_src_min;
+    const double sv = (P_x_r > x) ? 1.0 : -1.0;  // = dspan/dP_x_r
+
+    const double hi_neg = std::min(P_src_max, 0.0);
+    const double lo_pos = std::max(P_src_min, 0.0);
+    double integral = 0.0;
+    if (hi_neg > P_src_min) {
+      integral += root_vuln_integral_from_psi.eval(-P_src_min) -
+                  root_vuln_integral_from_psi.eval(-hi_neg);
+    }
+    if (P_src_max > lo_pos) {
+      integral += (P_src_max - lo_pos);
+    }
+
+    // Slopes of the same cumulative spline at the two endpoints; the collar's
+    // endpoint moves with P_x_r and the layer's with x.
+    const double fr_r = (P_x_r < 0.0)
+                            ? root_vuln_integral_from_psi.deriv(-P_x_r) : 1.0;
+    const double fr_x = (x < 0.0)
+                            ? root_vuln_integral_from_psi.deriv(-x) : 1.0;
+    const double dI_dr = sv * fr_r;
+    const double dI_dx = -sv * fr_x;
+
+    const double h = r_R_H_min[i];
+    const double integral_sq = integral * integral;
+    const double r_R = h * span / integral + r_R_V_sum[i];
+    const double U = sv * integral - span * dI_dr;
+    const double dr_R_dr = h * U / integral_sq;
+    const double dr_R_dx = h * (-sv * integral - span * dI_dx) / integral_sq;
+    const double dU_dx = sv * dI_dx + fr_r;
+    const double d_dr_R_dr_dx =
+        h * (dU_dx * integral - 2.0 * U * dI_dx) / (integral_sq * integral);
+
+    const double num = (x - P_x_r - grav_head_z_[i]) * inv_area_leaf;
+    const double dnum_dr = -inv_area_leaf;
+    const double dnum_dx = inv_area_leaf;
+    const double N = dnum_dr * r_R - num * dr_R_dr;  // numerator of dE/dr
+    const double dN_dx =
+        dnum_dr * dr_R_dx - dnum_dx * dr_R_dr - num * d_dr_R_dr_dx;
+
+    out.E[i] = num / r_R;
+    out.dE_dr[i] = N / (r_R * r_R);
+    out.dE_dpsi[i] = (dnum_dx * r_R - num * dr_R_dx) / (r_R * r_R);
+    out.d2E_dr_dpsi[i] = (dN_dx * r_R - 2.0 * N * dr_R_dx) / (r_R * r_R * r_R);
+    out.r_R[i] = r_R;
+    out.dr_R_dr[i] = dr_R_dr;
+    out.num[i] = num;
+    out.integral[i] = integral;
+  }
+}
+
+double Leaf::dR_dcollar_at(double opt_root_psi, double h) {
+  const double R_plus = dprofit_droot_collar_psi(opt_root_psi + h);
+  const double R_minus = dprofit_droot_collar_psi(opt_root_psi - h);
+  return (R_plus - R_minus) / (2.0 * h);
+}
+
+// Uptake and the stem potential under a uniform drying of soil and collar
+// together. Every potential difference and the gravitational head are unchanged
+// by the shift, so the only term left is the vulnerability integral over an
+// interval whose endpoints both slide -- which is why this is computed rather
+// than differenced out of two much larger responses.
+void Leaf::translation_partials(std::vector<double>& dE_dd, double& dpsistem_dd) {
+  const double p = -root_collar_psi_;
+  const double r = root_collar_psi_;
+  refresh_soil_potentials();
+
+  LayerFlux fx;
+  layer_flux_partials(r, psi_soil_inverted_, fx);
+
+  dE_dd.assign(max_soil_layer, std::numeric_limits<double>::quiet_NaN());
+  double dEup_dd_mol = 0.0;
+  for (int i = 0; i < max_soil_layer; ++i) {
+    const double x = psi_soil_inverted_[i];
+    const double P_src_min = std::min(x, r);
+    const double P_src_max = std::max(x, r);
+    const double fr_min = (P_src_min < 0.0)
+        ? root_vuln_integral_from_psi.deriv(-P_src_min) : 1.0;
+    const double fr_max = (P_src_max < 0.0)
+        ? root_vuln_integral_from_psi.deriv(-P_src_max) : 1.0;
+    const double r_R_H = fx.r_R[i] - r_R_V_sum[i];
+    dE_dd[i] = fx.E[i] * (r_R_H / fx.r_R[i]) * (fr_min - fr_max) / fx.integral[i];
+    dEup_dd_mol += dE_dd[i];
+  }
+  const double dEup_dd = dEup_dd_mol * kg_per_mol_h2o;
+
+  E_from_Soil_to_Root_Collar(r, psi_soil_inverted_);
+  const double S_p = transpiration_from_psi.eval(p);
+  const double E_psi_stem = E_up_ / leaf_specific_conductance_max_ + S_p;
+  const double P_prime = psi_from_transpiration.deriv(E_psi_stem);
+  const double S_prime = transpiration_from_psi.deriv(p);
+  // psi_from_transpiration inverts transpiration_from_psi, so the leading 1 is
+  // exact and the bracket is a difference of two slopes of the same pair.
+  dpsistem_dd = 1.0 + P_prime * dEup_dd / leaf_specific_conductance_max_ +
+                S_prime * (P_prime - psi_from_transpiration.deriv(S_p));
+}
+
+double Leaf::dR_dflux_from_layer(int layer, double delta,
+                                 double dR_dflux_slope) {
+  const double p = -root_collar_psi_;
+  const double r = root_collar_psi_;
+  const double psi_soil_layer = psi_soil_[layer];
+
+  double R[2], E_up[2], slope[2];
+  for (int k = 0; k < 2; ++k) {
+    psi_soil_[layer] = psi_soil_layer + (k == 0 ? delta : -delta);
+    transpiration_cached_ = false;
+    R[k] = dprofit_droot_collar_psi(p);
+    refresh_soil_potentials();
+    E_from_Soil_to_Root_Collar(r, psi_soil_inverted_);
+    E_up[k] = E_up_;
+    slope[k] = dE_from_soil_dpsi_collar(r, psi_soil_inverted_);
+  }
+  psi_soil_[layer] = psi_soil_layer;
+  transpiration_cached_ = false;
+  refresh_soil_potentials();
+
+  const double dR = (R[0] - R[1]) / (2.0 * delta);
+  const double dE_up = (E_up[0] - E_up[1]) / (2.0 * delta);
+  const double dslope = (slope[0] - slope[1]) / (2.0 * delta);
+  return (dR - dR_dflux_slope * dslope) / dE_up;
+}
+
 // The leaf's parameter inputs, after the state-dependent block. Their rows are
 // not computed yet, so input_adjoints leaves them NA rather than zero.
 static const char* const leaf_parameter_inputs[] = {
