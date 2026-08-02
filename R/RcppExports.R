@@ -845,6 +845,14 @@ NodeSchedule__ode_times__set <- function(obj_, value) {
     invisible(.Call('_plant_NodeSchedule__ode_times__set', PACKAGE = 'plant', obj_, value))
 }
 
+NodeSchedule__ode_step_sizes__get <- function(obj_) {
+    .Call('_plant_NodeSchedule__ode_step_sizes__get', PACKAGE = 'plant', obj_)
+}
+
+NodeSchedule__ode_step_sizes__set <- function(obj_, value) {
+    invisible(.Call('_plant_NodeSchedule__ode_step_sizes__set', PACKAGE = 'plant', obj_, value))
+}
+
 NodeSchedule__use_ode_times__get <- function(obj_) {
     .Call('_plant_NodeSchedule__use_ode_times__get', PACKAGE = 'plant', obj_)
 }
@@ -2721,6 +2729,10 @@ SCM___FF16__FF16_Env__ode_times__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__ode_times__get', PACKAGE = 'plant', obj_)
 }
 
+SCM___FF16__FF16_Env__ode_step_sizes__get <- function(obj_) {
+    .Call('_plant_SCM___FF16__FF16_Env__ode_step_sizes__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___FF16__FF16_Env__collect__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__collect__get', PACKAGE = 'plant', obj_)
 }
@@ -2815,6 +2827,10 @@ SCM___TF24__TF24_Env__node_schedule__set <- function(obj_, value) {
 
 SCM___TF24__TF24_Env__ode_times__get <- function(obj_) {
     .Call('_plant_SCM___TF24__TF24_Env__ode_times__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___TF24__TF24_Env__ode_step_sizes__get <- function(obj_) {
+    .Call('_plant_SCM___TF24__TF24_Env__ode_step_sizes__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___TF24__TF24_Env__collect__get <- function(obj_) {
@@ -2913,6 +2929,10 @@ SCM___TF24f__TF24_Env__ode_times__get <- function(obj_) {
     .Call('_plant_SCM___TF24f__TF24_Env__ode_times__get', PACKAGE = 'plant', obj_)
 }
 
+SCM___TF24f__TF24_Env__ode_step_sizes__get <- function(obj_) {
+    .Call('_plant_SCM___TF24f__TF24_Env__ode_step_sizes__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___TF24f__TF24_Env__collect__get <- function(obj_) {
     .Call('_plant_SCM___TF24f__TF24_Env__collect__get', PACKAGE = 'plant', obj_)
 }
@@ -3007,6 +3027,10 @@ SCM___K93__K93_Env__node_schedule__set <- function(obj_, value) {
 
 SCM___K93__K93_Env__ode_times__get <- function(obj_) {
     .Call('_plant_SCM___K93__K93_Env__ode_times__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___K93__K93_Env__ode_step_sizes__get <- function(obj_) {
+    .Call('_plant_SCM___K93__K93_Env__ode_step_sizes__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___K93__K93_Env__collect__get <- function(obj_) {

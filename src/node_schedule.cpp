@@ -117,22 +117,33 @@ void NodeSchedule::reset() {
 // underlying list and converting to vector when passing back to the
 // ode solver.
 void NodeSchedule::distribute_ode_times() {
+  // Each ode step size travels with the time it reached, so an event's
+  // step_sizes stay aligned with its times.
+  const bool have_sizes = !ode_step_sizes.empty();
   events_iterator e = queue.begin();
-  std::vector<double>::const_iterator t = ode_times.begin();
+  size_t i = 0;
   while (e != queue.end()) {
-    std::vector<double> extra;
-    while (t != ode_times.end() && *t < e->time_end()) {
+    std::vector<double> extra, extra_sizes;
+    while (i < ode_times.size() && ode_times[i] < e->time_end()) {
       // The condition here excludes times that exactly match one of
       // the time boundaries (we'll be stopping there anyway).
-      if (!util::identical(*t, e->time_introduction()) &&
-          !util::identical(*t, e->time_end())) {
-        extra.push_back(*t);
+      if (!util::identical(ode_times[i], e->time_introduction()) &&
+          !util::identical(ode_times[i], e->time_end())) {
+        extra.push_back(ode_times[i]);
+        if (have_sizes) {
+          extra_sizes.push_back(ode_step_sizes[i]);
+        }
       }
-      ++t;
+      ++i;
     }
     if (extra.size() > 0) {
       std::vector<double>::iterator at = ++e->times.begin();
       e->times.insert(at, extra.begin(), extra.end());
+    }
+    if (have_sizes) {
+      e->step_sizes.assign(1, std::numeric_limits<double>::quiet_NaN());
+      e->step_sizes.insert(e->step_sizes.end(), extra_sizes.begin(),
+                           extra_sizes.end());
     }
 
     ++e;
@@ -215,6 +226,9 @@ void NodeSchedule::r_set_ode_times(std::vector<double> x) {
       Rcpp::stop("ode_times must be sorted");
     }
     ode_times = x;
+    // The sizes belong to the times they were recorded with, so they never
+    // survive a change of times.
+    ode_step_sizes.clear();
     if (!util::is_finite(max_time)) {
       max_time = ode_times.back();
     }
@@ -222,8 +236,35 @@ void NodeSchedule::r_set_ode_times(std::vector<double> x) {
   }
 }
 
+std::vector<double> NodeSchedule::r_ode_step_sizes() const {
+  return ode_step_sizes;
+}
+
+// The size of the step that reached each of ode_times. Supplying these makes a
+// pinned run step by the sizes the recorded run took; without them the sizes
+// are differenced out of the times, and fl(fl(t + h) - t) != h, so the replay
+// steps by something up to half an ulp away from what was recorded.
+void NodeSchedule::r_set_ode_step_sizes(std::vector<double> x) {
+  if (x.empty()) {
+    ode_step_sizes.clear();
+  } else {
+    if (ode_times.empty()) {
+      Rcpp::stop("Set ode_times before ode_step_sizes");
+    }
+    if (x.size() != ode_times.size()) {
+      Rcpp::stop("ode_step_sizes must be the same length as ode_times");
+    }
+    if (!std::isnan(x.front())) {
+      Rcpp::stop("First step size must be NaN, the recorded start");
+    }
+    ode_step_sizes = x;
+  }
+  reset();
+}
+
 void NodeSchedule::r_clear_ode_times() {
   ode_times.clear();
+  ode_step_sizes.clear();
   use_ode_times = false;
   // This will pull the ode times out of the events if they were set.
   reset();

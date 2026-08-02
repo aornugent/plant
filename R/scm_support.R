@@ -56,6 +56,11 @@ scm_base_parameters <- function(type = NA, env = environment_type(type)) {
 ##' @param collect Should tidied results be collected at every step and
 ##'   returned (instead of the \code{SCM} object)?
 ##' @param use_ode_times Should ODE times be used?
+##' @param ode_step_sizes The size of the step that reached each of the pinned
+##'   ODE times (NaN first), as returned by \code{scm$ode_step_sizes} on the run
+##'   being replayed. With them the replay takes the steps the recorded run
+##'   took; without them the sizes are differenced out of the times, which is
+##'   not exact. Only used when \code{use_ode_times} is \code{TRUE}.
 ##' @return When \code{collect = FALSE}, an \code{SCM} object. When
 ##'   \code{collect = TRUE}, a list of tidied patch output with
 ##'   \code{offspring_production}, \code{net_reproduction_ratios} and the
@@ -66,7 +71,7 @@ scm_base_parameters <- function(type = NA, env = environment_type(type)) {
 run_scm <- function(p, env = NULL,
                     ctrl = control(),
                     refine_schedule = FALSE, collect = FALSE,
-                    use_ode_times = FALSE) {
+                    use_ode_times = FALSE, ode_step_sizes = NULL) {
 
   types <- extract_RcppR6_template_types(p, "Parameters")
 
@@ -77,6 +82,9 @@ run_scm <- function(p, env = NULL,
   if (use_ode_times) {
     # Pin integration to the schedule's ode_times (loaded from p$ode_times).
     sched <- scm$node_schedule
+    if (!is.null(ode_step_sizes)) {
+      sched$ode_step_sizes <- ode_step_sizes
+    }
     sched$use_ode_times <- TRUE
     scm$node_schedule <- sched
   }

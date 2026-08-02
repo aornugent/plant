@@ -34,6 +34,10 @@ public:
 
   size_t species_index;
   std::vector<double> times;
+  // The recorded size of the step that reached each of times, excluding the
+  // last; NaN leads, for the introduction, which no step reached. Empty unless
+  // the schedule carries ode step sizes.
+  std::vector<double> step_sizes;
 };
 
 class NodeSchedule {
@@ -63,6 +67,8 @@ public:
   void r_set_max_time(double x);
   std::vector<double> r_ode_times() const;
   void r_set_ode_times(std::vector<double> x);
+  std::vector<double> r_ode_step_sizes() const;
+  void r_set_ode_step_sizes(std::vector<double> x);
   void r_clear_ode_times();
   void r_set_use_ode_times(bool x);
   SEXP r_all_times() const;
@@ -82,6 +88,10 @@ private:
   std::list<Event> queue;
   double max_time;
   std::vector<double> ode_times;
+  // The size of the step that reached each of ode_times, NaN first. Empty when
+  // the pinned times are a grid rather than a recorded run; setting ode_times
+  // clears it, so the two can never be paired across different runs.
+  std::vector<double> ode_step_sizes;
   bool use_ode_times;
 };
 

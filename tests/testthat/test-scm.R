@@ -160,6 +160,67 @@ test_that("Run SCM", {
   }
 })
 
+test_that("A pinned replay of a run's own steps reproduces it", {
+  ## Pinning only the times leaves the replay to recover each step size by
+  ## differencing them, and fl(fl(t + h) - t) != h, so it steps by something
+  ## other than what was recorded. Pinning the sizes too replays the run.
+  traits <- list(FF16 = trait_matrix(0.0825, "lma"),
+                 FF16r = trait_matrix(0.0825, "lma"),
+                 K93 = trait_matrix(0.059, "b_0"))
+  for (x in intersect(names(strategy_types), names(traits))) {
+    p <- add_strategies(scm_base_parameters(x), traits[[x]])
+    env <- Environment(x)
+
+    free <- SCM(x, environment_types[[x]])(p, env, Control())
+    free$run()
+
+    replay <- function(with_sizes) {
+      scm <- SCM(x, environment_types[[x]])(p, env, Control())
+      sched <- scm$node_schedule
+      sched$all_times <- free$node_schedule$all_times
+      sched$ode_times <- free$ode_times
+      if (with_sizes) {
+        sched$ode_step_sizes <- free$ode_step_sizes
+      }
+      sched$use_ode_times <- TRUE
+      scm$node_schedule <- sched
+      scm$run()
+      scm
+    }
+
+    pinned <- replay(TRUE)
+    expect_identical(pinned$ode_times, free$ode_times)
+    expect_identical(pinned$ode_step_sizes, free$ode_step_sizes)
+    expect_identical(pinned$net_reproduction_ratios,
+                     free$net_reproduction_ratios)
+    expect_identical(pinned$patch$ode_state, free$patch$ode_state)
+
+    ## The sizes are what makes it exact: they are not recoverable from the
+    ## times they are recorded with.
+    expect_false(identical(diff(free$ode_times), free$ode_step_sizes[-1]))
+  }
+})
+
+test_that("ode_step_sizes must match the times they were recorded with", {
+  p <- scm_base_parameters("FF16")
+  p <- add_strategies(p, trait_matrix(0.0825, "lma"))
+  scm <- SCM("FF16", "FF16_Env")(p, Environment("FF16"), Control())
+  scm$run()
+  sched <- scm$node_schedule
+  expect_error(sched$ode_step_sizes <- scm$ode_step_sizes,
+               "Set ode_times before ode_step_sizes")
+  sched$ode_times <- scm$ode_times
+  expect_error(sched$ode_step_sizes <- scm$ode_step_sizes[-1],
+               "same length as ode_times")
+  expect_error(sched$ode_step_sizes <- c(0, scm$ode_step_sizes[-1]),
+               "First step size must be NaN")
+  sched$ode_step_sizes <- scm$ode_step_sizes
+  expect_identical(sched$ode_step_sizes, scm$ode_step_sizes)
+  ## The sizes belong to those times, so replacing the times drops them.
+  sched$ode_times <- scm$ode_times
+  expect_identical(sched$ode_step_sizes, numeric(0))
+})
+
 test_that("schedule setting", {
   for (x in names(strategy_types)) {
     e <- environment_types[[x]]
