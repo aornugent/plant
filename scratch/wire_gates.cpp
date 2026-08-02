@@ -224,7 +224,7 @@ Rcpp::DataFrame collar_residuals(SEXP obj, int species_index, int node_index,
     plant::Leaf& l = s->leaf;
     at[k] = x[input];
     collar[k] = l.root_collar_psi_;
-    curv[k] = l.dR_dcollar_;
+    curv[k] = l.dR_dcollar_at(-l.root_collar_psi_, 1e-6);
     pinned[k] = l.collar_pinned_;
     resid[k] = l.dprofit_droot_collar_psi(-l.root_collar_psi_);
   }
@@ -234,8 +234,8 @@ Rcpp::DataFrame collar_residuals(SEXP obj, int species_index, int node_index,
                                  Rcpp::_["pinned"] = pinned);
 }
 
-// The collar curvature the reverse pass divides by, taken over a range of
-// difference steps, beside the value the solve recorded.
+// The collar curvature the reverse pass divides by, over a range of difference
+// steps, beside the one it takes.
 // [[Rcpp::export]]
 Rcpp::DataFrame collar_curvature_sweep(SEXP obj, int species_index, int node_index,
                                        Rcpp::NumericVector hs) {
@@ -249,7 +249,7 @@ Rcpp::DataFrame collar_curvature_sweep(SEXP obj, int species_index, int node_ind
   ind.compute_rates(e);
   plant::Leaf& l = s->leaf;
   const double pmag = -l.root_collar_psi_;
-  const double recorded = l.dR_dcollar_;
+  const double recorded = l.dR_dcollar_at(pmag, 1e-6);
   Rcpp::NumericVector out(hs.size()), rec(hs.size());
   for (int i = 0; i < hs.size(); ++i) {
     out[i] = l.dR_dcollar_at(pmag, hs[i]);
