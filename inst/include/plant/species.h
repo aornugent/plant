@@ -80,9 +80,8 @@ public:
   compute_competition_and_slope_excl_boundary(double height) const;
 
   // Transpose of compute_competition_and_slope at `height`, with the closing
-  // boundary trapezium included as the field build includes it. `out` points at
-  // this species' first node and is accumulated into. The boundary node's own
-  // height and density are not ODE state, so they take no adjoint here.
+  // boundary trapezium the field build includes. `out` points at this species'
+  // first node. The boundary node's own height and density are not ODE state.
   void compute_competition_and_slope_adjoint(double height,
                                              double lambda_value,
                                              double lambda_slope,
@@ -956,8 +955,7 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
 }
 
 // Mirrors consumption_rate: the grid runs from new_node upwards, so array slot
-// j holds node size() - j and slot 0 holds the boundary node, which is not ODE
-// state and takes no adjoint.
+// j holds node size() - j and slot 0 the boundary node, which is not state.
 template <typename T, typename E>
 void Species<T,E>::consumption_rate_adjoint(int resource, double lambda_uptake,
                                             node_uptake_adjoints* out) const {

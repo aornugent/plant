@@ -83,8 +83,7 @@ public:
   }
 
   // The partials of that pair in this individual's leaf area and height. The
-  // strategy is a template parameter so the return type is formed on use, not
-  // for every strategy this class is instantiated with.
+  // strategy is a template parameter so the return type is formed on use.
   template <typename Strategy = strategy_type>
   typename Strategy::competition_partials
   compute_competition_and_slope_partials(const value_type& z) const {

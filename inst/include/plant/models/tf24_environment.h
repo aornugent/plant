@@ -636,9 +636,7 @@ public:
   }
 
   // Transpose of compute_rates in the soil state. Drainage runs downward only,
-  // so the Jacobian is lower bidiagonal and nothing is solved. lambda_state and
-  // lambda_uptake are accumulated into; the uptake entries are the adjoints of
-  // the resource_depletion compute_rates was last given.
+  // so the Jacobian is lower bidiagonal and nothing is solved.
   // A layer the positivity guard clamped has an identically zero forward row,
   // so its transposed row is zero too.
   void compute_rates_adjoint(const std::vector<double>& lambda_rate,

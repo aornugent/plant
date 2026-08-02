@@ -143,8 +143,7 @@ public:
   template <typename It> It set_ode_aux(It it);
 
   // Block output adjoints the closed-form steps form and the per-cohort sweep
-  // consumes: `rate` holds one entry per strategy rate per node, `uptake` one
-  // per resource per node, both in the order ode_state visits the nodes.
+  // consumes, in the order ode_state visits the nodes.
   struct block_seeds {
     std::vector<double> rate;
     std::vector<double> uptake;
@@ -163,9 +162,8 @@ public:
 
   size_t node_count() const;
 
-  // The soil drainage cascade and the water aggregation above it. Writes the
-  // soil state adjoints into lambda_state and the per-cohort uptake adjoints
-  // into seeds.
+  // The soil drainage cascade and the water aggregation above it, which
+  // between them write the soil state adjoints and the per-cohort uptake.
   void soil_adjoint(const std::vector<double>& lambda_dydt,
                     std::vector<double>& lambda_state,
                     block_seeds& seeds) const;
@@ -1458,8 +1456,7 @@ ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y) {
   offspring_adjoint(lambda_in, lambda_state, seeds);
 
   // Per cohort: record the block, seed it from `seeds`, sweep, and read the
-  // state, knot and trait adjoints back. Empty until the block lands, so the
-  // knot adjoints below stay zero and the cohorts take no adjoint from it.
+  // state, knot and trait adjoints back. Empty until the block lands.
   light_knot_adjoints lambda_knot{
     std::vector<double>(environment.light_availability.spline.knots().size(), 0.0),
     std::vector<double>(environment.light_availability.spline.knots().size(), 0.0)};
