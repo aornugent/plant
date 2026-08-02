@@ -84,8 +84,6 @@ public:
   std::vector<double> net_reproduction_ratios() const { return patch.net_reproduction_ratios(); }
   std::vector<double> offspring_production() const { return patch.offspring_production(); }
 
-  // ---- Census --------------------------------------------------------------
-
   // Each metric of `Metrics`, summed over the species, in tuple order. The
   // codomain is the tuple's size.
   template <class Metrics> std::vector<double> census() const;
