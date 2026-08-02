@@ -169,6 +169,62 @@ public:
     return it;
   }
 
+  // * The recorded block
+
+  // compute_rates as a pure function of its own states, the environment's
+  // cohort reads and the strategy's differentiable parameters, in that order.
+
+  // Each segment is sized by the class that owns it, so the pack and the
+  // adjoint scatter read one layout and cannot drift apart.
+  size_t block_input_size(const environment_type& environment) const {
+    return strategy_type::state_size() + environment.n_cohort_reads() +
+           strategy->ad_parameters().size();
+  }
+
+  // The strategy rates, then one consumption rate per resource.
+  size_t block_output_size(const environment_type& environment) const {
+    return strategy_type::state_size() + environment.n_resources();
+  }
+
+  template <typename It>
+  It block_inputs(It it, const environment_type& environment) const {
+    it = ode_state(it);
+    it = environment.cohort_reads(it);
+    for (const value_type* p : strategy->ad_parameters()) {
+      *it++ = util::as_iterator_scalar<It>(*p);
+    }
+    return it;
+  }
+
+  // The states go in through set_state, never into vars.states: only
+  // update_dependent_aux writes competition_effect and height_inverse.
+
+  // They are applied last, after the parameters, because area_leaf(height)
+  // reads lma and would otherwise be derived at the previous block's.
+  template <typename It>
+  It set_block_inputs(It it, environment_type& environment) {
+    std::vector<value_type> state(vars.state_size);
+    for (size_t i = 0; i < vars.state_size; ++i) {
+      state[i] = *it++;
+    }
+    it = environment.set_cohort_reads(it);
+    for (value_type* p : strategy->ad_parameters()) {
+      *p = *it++;
+    }
+    for (size_t i = 0; i < vars.state_size; ++i) {
+      set_state(static_cast<int>(i), state[i]);
+    }
+    return it;
+  }
+
+  template <typename It> It block_outputs(It it) const {
+    it = ode_rates(it);
+    for (size_t i = 0; i < vars.resource_size; ++i) {
+      *it++ = util::as_iterator_scalar<It>(vars.consumption_rates[i]);
+    }
+    return it;
+  }
+
   // Single individual methods
 
   // Used in the stochastic model:
