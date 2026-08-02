@@ -148,6 +148,21 @@ were not previously recorded here:
 
 ### New features
 
+* **`Control$node_density_in_birth_date`** (default `FALSE`) carries the SCM's
+  size distribution as a density in birth date instead of in height. The
+  transport equation's compression term is the total derivative of the growth
+  rate along a cohort's own trajectory, which equals `∂g/∂h` only when growth is
+  a function of size; TF24's reserve gate breaks that, and the sub-grid
+  finite-difference probe then computes an accurate derivative of the wrong
+  quantity. In birth-date coordinates the density rate is mortality alone, the
+  birth density is `birth_rate·pr_estab` with no division by the growth rate,
+  and both resource integrals run over introduction times. With the flag off the
+  solver is bit-identical to before; with it on, K93 and FF16 agree with the
+  height coordinate to `1.5e-4` and `1.2e-3`, while TF24's offspring production
+  goes from an unconverged 42.1 to a converged 400.9. `Node::growth_rate_gradient`
+  is not called, which also removes one leaf solve per cohort per Runge-Kutta
+  stage.
+
 * **NSC storage pool for TF24 (`TF24@v3`, `TF24f@v3.1`).** TF24 now carries a
   non-structural-carbohydrate storage state so growth and mortality respond to
   *buffered* carbon rather than instantaneous net production (#517, #554).
@@ -221,6 +236,17 @@ were not previously recorded here:
 
 ### Minor changes & bug fixes
 
+* `SpeciesBase::control()` called `strategy->get_control()`, which does not
+  exist on any strategy. The member had never been instantiated, so the error
+  had never been compiled; it now reads `strategy->control`.
+* Known, not yet fixed: `stochastic_schedule()` passes `patch_area` into
+  `stochastic_arrival_times()`'s third positional argument, which is `delta_t`.
+  Arrival rates therefore never scale with patch area, and the binning interval
+  is set to the area instead. Passing it by name is the fix, but
+  `test-stochastic-patch-runner.R` runs at `patch_area = 50` with seed-pinned
+  expectations, so correcting it makes that file ~50x heavier and needs its
+  parameters and baselines revisited. Probes that need a correct schedule build
+  their own (see `plant-dev` `probes/12-oracle.R`).
 * `run_scm()` now fails with an actionable message when the SCM size-density
   (characteristic) equations run away under extreme forcing (e.g. severe
   seasonal drought in TF24): a cohort density overflowing to `+Inf`, or the

@@ -68,6 +68,7 @@ public:
   void resize_consumption_rates(int i);
   double consumption_rate(int i) const;
   std::vector<double> consumption_rate_by_node_rev(int i) const;
+  std::vector<double> consumption_rate_by_node(int i) const;
 
   odelia::ode::iterator       ode_aux(odelia::ode::iterator it) const;
 
@@ -124,6 +125,13 @@ private:
   using base_type::strategy;
   using base_type::control;
   node_type new_node;
+
+  // The abscissa both resource integrals are taken over, increasing as the
+  // node list is walked from the tallest down.
+  double quadrature_abscissa(const node_type& n) const {
+    return control().node_density_in_birth_date ? n.introduction_time()
+                                                : -n.height();
+  }
 
   typedef typename std::vector<node_type>::iterator nodes_iterator;
   typedef typename std::vector<node_type>::const_iterator nodes_const_iterator;
@@ -200,18 +208,19 @@ double Species<T,E>::compute_competition(double height) const {
   }
   double tot = 0.0;
   nodes_const_iterator it = nodes.begin();
-  double h1 = it->height(), f_h1 = it->compute_competition(height);
+  double x1 = quadrature_abscissa(*it), f_h1 = it->compute_competition(height);
 
   // Loop over nodes
   for (++it; it != nodes.end(); ++it) {
-    const double h0 = it->height(), f_h0 = it->compute_competition(height);
+    const double x0 = quadrature_abscissa(*it), h0 = it->height(),
+                 f_h0 = it->compute_competition(height);
     if (!util::is_finite(f_h0)) {
       util::stop("Detected non-finite contribution");
     }
     // Integration
-    tot += (h1 - h0) * (f_h1 + f_h0);
+    tot += (x0 - x1) * (f_h1 + f_h0);
     // Upper point moves for next time:
-    h1   = h0;
+    x1   = x0;
     f_h1 = f_h0;
     if (h0 < height) {
       break;
@@ -219,8 +228,9 @@ double Species<T,E>::compute_competition(double height) const {
   }
 
   if (size() == 1 || f_h1 > 0) {
-    const double h0 = new_node.height(), f_h0 = new_node.compute_competition(height);
-    tot += (h1 - h0) * (f_h1 + f_h0);
+    const double x0 = quadrature_abscissa(new_node),
+                 f_h0 = new_node.compute_competition(height);
+    tot += (x0 - x1) * (f_h1 + f_h0);
   }
 
   return tot / 2;
@@ -284,6 +294,9 @@ double Species<T,E>::consumption_rate(int i) const {
   // can't determine density for one node
   if(size() < 2) {
     return 0.0;
+  } else if (control().node_density_in_birth_date) {
+    // introduction times are already in ascending order
+    return util::trapezium(node_times(), consumption_rate_by_node(i));
   } else {
     // node heights are in descending order - we need ascending for integration
     return util::trapezium(r_heights_rev(), consumption_rate_by_node_rev(i));
@@ -296,6 +309,16 @@ std::vector<double> Species<T,E>::consumption_rate_by_node_rev(int i) const {
   ret.reserve(size());
   for(auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
     ret.push_back(it->consumption_rate(i));
+  }
+  return ret;
+}
+
+template <typename T, typename E>
+std::vector<double> Species<T,E>::consumption_rate_by_node(int i) const {
+  std::vector<double> ret;
+  ret.reserve(size());
+  for(auto& c : nodes) {
+    ret.push_back(c.consumption_rate(i));
   }
   return ret;
 }

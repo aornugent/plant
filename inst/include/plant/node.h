@@ -135,9 +135,14 @@ void Node<T,E>::compute_rates(const environment_type& environment,
 
   // NOTE: This must be called *after* compute_rates, but given we
   // need mortality_dt() that's always going to be the case.
-  log_density_dt =
-    - growth_rate_gradient(environment)
-    - individual.rate(MORTALITY_INDEX);
+  //
+  // A density in birth date changes only by mortality: nothing moves an
+  // individual along the birth-date axis. A density in height additionally
+  // compresses as the spacing between neighbouring sizes changes.
+  log_density_dt = -individual.rate(MORTALITY_INDEX);
+  if (!individual.control().node_density_in_birth_date) {
+    log_density_dt -= growth_rate_gradient(environment);
+  }
   // survival_individual: converts from the mean of the poisson process (on
   // [0,Inf)) to a probability (on [0,1]).
   double survival_individual = exp(-individual.state(MORTALITY_INDEX));
@@ -172,9 +177,16 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
 
   const double pr_estab = individual.establishment_probability(environment);
   individual.set_state("mortality", -log(pr_estab));
-  const double g = individual.rate(HEIGHT_INDEX);
-  // NOTE: log(0.0) -> -Inf, which should behave fine.
-  set_log_density(g > 0 ? log(birth_rate * pr_estab / g) : log(0.0));
+  // The birth-date axis of the node about to be introduced; Patch re-stamps
+  // this with the exact introduction time as the node is pushed.
+  node_introduction_time = environment.time;
+  if (individual.control().node_density_in_birth_date) {
+    set_log_density(log(birth_rate * pr_estab));
+  } else {
+    const double g = individual.rate(HEIGHT_INDEX);
+    // NOTE: log(0.0) -> -Inf, which should behave fine.
+    set_log_density(g > 0 ? log(birth_rate * pr_estab / g) : log(0.0));
+  }
 
   // Need to check that the rates are valid after setting the
   // mortality value here (can go to -Inf and that requires squashing
