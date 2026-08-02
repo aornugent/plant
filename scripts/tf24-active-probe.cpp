@@ -12,24 +12,17 @@
 // branch, which TF24 does not default to, and 2 named static assertions inside
 // prepare_strategy(), which never runs inside a recorded block.
 //
-// Patch and StochasticPatch are instantiated below, and with them Species,
-// Node, StochasticSpecies, StochasticNode and Individual, so those 19 are also
-// the whole count: a new line in any other file is a passive seam. Instantiate
-// the outermost consumer -- a census taken through Individual alone reports
-// neither the containers that hold it nor the numerics they reach.
-//
-// What this leaves out: TF24 only, so FF16 and K93 are unmeasured; SCM and
-// StochasticPatchRunner, which no line below names; and every member template
-// a call from these instantiations does not reach.
+// Patch is instantiated below, and with it Species, Node and Individual, so
+// those 19 are also the whole count: a new line in any other file is a passive
+// seam. Instantiate the outermost consumer -- a census taken through Individual
+// alone reports neither the containers that hold it nor the numerics they reach.
 
 #include <plant/models/tf24_strategy.h>
 #include <plant/individual_runner.h>
 #include <plant/node.h>
 #include <plant/patch.h>
-#include <plant/stochastic_patch.h>
 #include <odelia/ode_solver.hpp>
 #include <type_traits>
-#include <vector>
 
 // The active scalar comes from odelia's own alias, on a Solver plant already
 // instantiates, so plant keeps naming the AD library to odelia.
@@ -66,14 +59,16 @@ static_assert(std::is_same_v<
 template class plant::Patch<plant::TF24_Strategy<active_scalar>,
                             plant::TF24_Environment<active_scalar> >;
 
-template class plant::StochasticPatch<plant::TF24_Strategy<active_scalar>,
-                                      plant::TF24_Environment<active_scalar> >;
+// Instantiating the class does not instantiate its member templates, so the
+// five the solver drives are called here. A census reaches only what it calls.
+using active_patch = plant::Patch<plant::TF24_Strategy<active_scalar>,
+                                  plant::TF24_Environment<active_scalar> >;
 
-// An explicit class instantiation leaves member templates uninstantiated, so
-// the serialisers need naming one by one at the double iterator R hands them.
-using active_individual = plant::Individual<plant::TF24_Strategy<active_scalar>,
-                                            active_environment>;
-using state_iterator = std::vector<double>::iterator;
-template state_iterator active_individual::ode_state(state_iterator) const;
-template state_iterator active_individual::ode_rates(state_iterator) const;
-template state_iterator active_individual::ode_aux(state_iterator) const;
+void solver_driven_members(active_patch& patch,
+                           std::vector<active_scalar>& y) {
+  patch.set_ode_state(y.begin(), 0.0);
+  patch.ode_state(y.begin());
+  patch.ode_rates(y.begin());
+  patch.ode_aux(y.begin());
+  patch.set_ode_aux(y.begin());
+}
