@@ -46,8 +46,8 @@ int main() {
     l.find_root_collar_psi();
     const int n = l.max_soil_layer;
     const double p = -l.root_collar_psi_;
-    printf("\n=== state %zu: n=%d p*=%.9g pinned=%d dR_dcollar_=%.6g\n",
-           st, n, p, (int)l.collar_pinned_, l.dR_dcollar_);
+    printf("\n=== state %zu: n=%d p*=%.9g pinned=%d Pi_pp=%.6g\n",
+           st, n, p, (int)l.collar_pinned_, l.dR_dcollar_at(p, 1e-6));
     printf("    |R| at p* = %.4e   profit_=%.9g\n",
            std::abs(l.dprofit_droot_collar_psi(p)), l.profit_);
 
