@@ -2,13 +2,17 @@
 # recording, added one contribution at a time. Builds the patch at an explicit
 # state, seeds the adjoint, and prints the five-row incremental readout.
 #
-# Rscript scripts/v1-driver.R [max_patch_lifetime]
-library(odelia)
-pkgload::load_all("/home/user/wt-gt", quiet = TRUE, export_all = TRUE)
+# Rscript scripts/v1-driver.R <plant worktree> [max_patch_lifetime]
+args <- commandArgs(TRUE)
+tree <- args[1]
+if (is.na(tree)) stop("give the plant worktree as the first argument")
 
-Sys.setenv(PKG_CPPFLAGS = "-I/home/user/wt-gt/inst/include -DNDEBUG",
-           PKG_LIBS = "/home/user/wt-gt/src/plant.so")
-Rcpp::sourceCpp("/home/user/wt-gt/scratch/wire_gates.cpp")
+library(odelia)
+pkgload::load_all(tree, quiet = TRUE, export_all = TRUE)
+
+Sys.setenv(PKG_CPPFLAGS = paste0("-I", tree, "/inst/include -DNDEBUG"),
+           PKG_LIBS = file.path(tree, "src/plant.so"))
+Rcpp::sourceCpp(file.path(tree, "scratch/wire_gates.cpp"))
 
 # State layout of the patch ode vector: node_count blocks of 8, then 9 trailing
 # environment slots. Within a node: slots 0-5 the strategy states, 6 offspring,
@@ -69,8 +73,7 @@ v1_readout <- function(patch) {
   }
 }
 
-args <- commandArgs(trailingOnly = TRUE)
-lifetime <- if (length(args)) as.numeric(args[[1]]) else 2
+lifetime <- if (length(args) > 1) as.numeric(args[[2]]) else 2
 v1_readout(v1_patch(lifetime))
 
 # Measured at lifetime 2, lma 0.1978791, seed seq_len(n)/n:
