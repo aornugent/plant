@@ -214,9 +214,8 @@ public:
   double count;
   double E_up_;
 
-  // Collar curvature at the point polish_root_collar_psi reached, and whether
-  // that point is a bound of the feasible interval. NA and false before a solve.
-  double dR_dcollar_;
+  // Whether the point polish_root_collar_psi reached is a bound of the feasible
+  // interval. False before a solve.
   bool collar_pinned_;
 
   // --- Medlyn stomatal-conductance model (from develop #450) ------------------

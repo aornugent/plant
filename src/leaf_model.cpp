@@ -129,7 +129,6 @@ void Leaf::setup_clean_leaf() {
   opt_psi_stem_= NA_REAL; //-MPa 
   opt_ci_= NA_REAL; //Pa
   E_up_ = NA_REAL;
-  dR_dcollar_ = NA_REAL;
   collar_pinned_ = false;
   medlyn_model_gs_ = NA_REAL; // mol CO2 m^-2 s^-1 (Medlyn model, develop #450)
   theta_w_ = NA_REAL;
@@ -728,9 +727,8 @@ double Leaf::refresh_soil_potentials() {
 // collar-potential interval (positive magnitudes) otherwise.
 bool Leaf::prepare_collar_solve(double& bound_a, double& bound_b){
 
-  // Only polish_root_collar_psi sets these, so an exit below would otherwise
-  // leave the previous step's curvature and pinned flag in place.
-  dR_dcollar_ = NA_REAL;
+  // Only polish_root_collar_psi sets this, so an exit below would otherwise
+  // leave the previous step's pinned flag in place.
   collar_pinned_ = false;
 
   const double wettest_soil_layer = refresh_soil_potentials();
@@ -916,7 +914,6 @@ double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
   int n_eval = 0;
   int cls = internals::COLLAR_EXHAUSTED;
   collar_pinned_ = false;
-  dR_dcollar_ = NA_REAL;
   for (int iter = 0; iter < max_iter; ++iter) {
     const double R = dprofit_droot_collar_psi(psi);
     ++n_eval;
@@ -978,7 +975,6 @@ double Leaf::polish_root_collar_psi(double opt_root_psi, double bound_a,
                     cls == internals::COLLAR_BOUND_B ||
                     cls == internals::COLLAR_BOUND_STEP ||
                     cls == internals::COLLAR_BOUND_CURVATURE);
-  dR_dcollar_ = have_dR ? dR_dcollar : NA_REAL;
 
   if (std::getenv("PLANT_POLISH_TRACE") != nullptr) {
     std::fprintf(stderr, "polish_root_collar_psi: n_eval=%d displacement=%.3e\n",
@@ -1517,8 +1513,9 @@ void Leaf::input_adjoints(double lambda_profit,
   for (int j = 0; j < n; ++j) {
     s_adjoint += lambda_uptake[j] * (-fx.dE_dr[j]);
   }
-  const double Pi_pp =
-      std::isfinite(dR_dcollar_) ? dR_dcollar_ : dR_dcollar_at(p, 1e-6);
+  // Taken here rather than kept from the solve: the Newton loop's divisor is
+  // allowed to lag an iterate, which is a factor of about 1.02 on every row.
+  const double Pi_pp = dR_dcollar_at(p, 1e-6);
   const double mu = -s_adjoint / Pi_pp;
 
   // R reads the potentials, root masses and leaf area only through the flux and
