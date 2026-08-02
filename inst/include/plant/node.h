@@ -217,13 +217,10 @@ void Node<T,E>::compute_rates(const environment_type& environment,
   // NOTE: This must be called *after* compute_rates, but given we
   // need mortality_dt() that's always going to be the case.
   //
-  // A density in birth date changes only by mortality: nothing moves an
-  // individual along the birth-date axis. A density in height additionally
-  // compresses as the spacing between neighbouring sizes changes.
-  log_density_dt = -individual.rate(MORTALITY_INDEX);
-  if (!individual.control().node_density_in_birth_date) {
-    log_density_dt -= growth_rate_gradient(environment);
-  }
+  // The coordinate branch lives in Individual::log_density_rate, which is one of
+  // the cohort block's outputs, so the recorded block and this path cannot
+  // disagree about which coordinate they are on.
+  log_density_dt = individual.log_density_rate(environment);
   // survival_individual: converts from the mean of the poisson process (on
   // [0,Inf)) to a probability (on [0,1]).
   value_type survival_individual = exp(-individual.state(MORTALITY_INDEX));
@@ -296,26 +293,7 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
 template <typename T, typename E>
 typename Node<T,E>::value_type
 Node<T,E>::growth_rate_gradient(const environment_type& environment) const {
-  // Finite-differencing the growth rate needs a mutable Individual to perturb
-  // height on, but it must not disturb this node's already-computed state and
-  // rates, so perturb a copy.
-  individual_type p = individual;
-  // The lambda carries value_type in and out. Written as double it would still
-  // compile, taking the value of an active growth rate, and log_density_dt below
-  // would be built from a derivative of exactly zero with nothing raised.
-  auto fun = [&] (const value_type& h) -> value_type {
-    return p.growth_rate_given_height(h, environment);
-  };
-
-  const Control& control = individual.control();
-  const double eps = control.node_gradient_eps;
-  if (control.node_gradient_richardson) {
-    return util::gradient_richardson(fun,  individual.state(HEIGHT_INDEX), eps,
-                                     control.node_gradient_richardson_depth);
-  } else {
-    return util::gradient_fd(fun, individual.state(HEIGHT_INDEX), eps, individual.rate(HEIGHT_INDEX),
-                             control.node_gradient_direction);
-  }
+  return individual.growth_rate_gradient(environment);
 }
 
 // Wrapper to growth_rate_gradient for testing
