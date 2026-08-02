@@ -7,6 +7,7 @@
 #include <plant/util.h>
 #include <plant/adaptive_interpolator.h> // interpolator::refinement_failure
 #include <odelia/ode_interface.hpp>
+#include <odelia/gradient.hpp>
 
 #include <plant/disturbance_regime.h>
 
@@ -162,6 +163,23 @@ public:
 
   size_t node_count() const;
 
+  // The trait adjoints, species-major in each strategy's ad_parameters() order.
+  // One trait is one input every cohort at every step reads, so this accumulates.
+  std::vector<double> trait_adjoint;
+  size_t trait_adjoint_size() const;
+  void clear_trait_adjoint();
+
+  // How large the recording grew on the last block, and how many blocks the one
+  // tape has carried. Either climbing with the cohort count is the tape leaking.
+  size_t block_recording_size = 0;
+  size_t block_sweeps = 0;
+
+  // One recording and one sweep per cohort, on a tape held across the loop,
+  // seeded from the block output adjoints the closed-form steps left in `seeds`.
+  void cohort_block_adjoint(const block_seeds& seeds,
+                            std::vector<double>& lambda_state,
+                            light_knot_adjoints& lambda_knot);
+
   // The soil drainage cascade and the water aggregation above it, which
   // between them write the soil state adjoints and the per-cohort uptake.
   void soil_adjoint(const std::vector<double>& lambda_dydt,
@@ -265,6 +283,10 @@ private:
   // preparing the ones in the parameters. rebind_from's only route in.
   Patch(parameters_type p, environment_type e, plant::Control c,
         const std::vector<strategy_type_ptr>& prepared);
+
+  // Step (b)'s tape and templates, held so one tape spans the cohort loop.
+  // Type-erased: a model declaring no rebind has no active type to form here.
+  mutable std::shared_ptr<void> block_workspace;
 
   int idx = 0; // used to access environment cache for mutant runs
   void compute_environment(bool rescale);
@@ -1374,6 +1396,130 @@ void Patch<T,E>::offspring_adjoint(const std::vector<double>& lambda_dydt,
   }
 }
 
+template <typename T, typename E>
+size_t Patch<T,E>::trait_adjoint_size() const {
+  size_t n = 0;
+  for (size_t i = 0; i < species.size(); ++i) {
+    n += species[i].strategy_ptr()->ad_parameters().size();
+  }
+  return n;
+}
+
+template <typename T, typename E>
+void Patch<T,E>::clear_trait_adjoint() {
+  trait_adjoint.assign(trait_adjoint_size(), 0.0);
+}
+
+// The block: Individual::compute_rates at the active scalar, recorded once per
+// cohort and swept once, with the leaf held constant at its declared boundary.
+template <typename T, typename E>
+void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
+                                      std::vector<double>& lambda_state,
+                                      light_knot_adjoints& lambda_knot) {
+  using scalar = odelia::ode::active_scalar<double>;
+  using active_strategy = typename at_scalar<scalar>::template apply<T>;
+  using active_environment = typename at_scalar<scalar>::template apply<E>;
+  using active_individual = Individual<active_strategy, active_environment>;
+
+  // The tape and the buffers persist. No active value does: clearAll() returns
+  // the tape's slot counter to zero, so a value outliving a recording aliases.
+
+  // The templates are the exception, and never carry a slot: they are built
+  // from doubles with no tape active, and are only ever copied from.
+  struct block_state {
+    typename scalar::tape_type tape{false};
+    std::vector<double> in, out_adjoint, in_adjoint;
+    std::vector<active_strategy> strategy_template;
+    active_environment environment_template;
+  };
+
+  const size_t n_state = T::state_size();
+  const size_t n_resource = environment.n_resources();
+  const size_t n_knot = environment.light_availability.knot_count();
+  const size_t n_layer = static_cast<size_t>(environment.get_soil_number_of_depths());
+  const size_t node_stride = node_type::ode_size();
+  const size_t env_offset = ode_size() - environment.ode_size();
+  util::check_length(lambda_state.size(), ode_size());
+  util::check_length(seeds.rate.size(), node_count() * n_state);
+  util::check_length(seeds.uptake.size(), node_count() * n_resource);
+  util::check_length(lambda_knot.value.size(), n_knot);
+  util::check_length(lambda_knot.slope.size(), n_knot);
+  if (trait_adjoint.size() != trait_adjoint_size()) {
+    clear_trait_adjoint();
+  }
+
+  if (!block_workspace) {
+    std::shared_ptr<block_state> fresh = std::make_shared<block_state>();
+    for (size_t i = 0; i < species.size(); ++i) {
+      fresh->strategy_template.push_back(
+        species[i].strategy_ptr()->template rebind_from<scalar>());
+    }
+    block_workspace = fresh;
+  }
+  block_state& ws = *std::static_pointer_cast<block_state>(block_workspace);
+
+  // This stage's soil state, time and drivers. The knot positions come across
+  // because set_cohort_reads writes the field's data and not its grid.
+  ws.environment_template = environment.template rebind_from<scalar>();
+  ws.environment_template.light_availability.spline.set_nodes(
+    environment.light_availability.spline.knots());
+
+  size_t k = 0;
+  size_t trait_at = 0;
+  for (size_t i = 0; i < species.size(); ++i) {
+    const size_t n_trait = species[i].strategy_ptr()->ad_parameters().size();
+    for (size_t j = 0; j < species[i].size(); ++j, ++k) {
+      typename active_strategy::ptr strategy =
+        std::make_shared<active_strategy>(ws.strategy_template[i]);
+      active_individual individual(strategy);
+      active_environment block_environment = ws.environment_template;
+
+      ws.in.resize(individual.block_input_size(block_environment));
+      species[i].node_at(j).individual.block_inputs(ws.in.begin(), environment);
+
+      ws.out_adjoint.assign(n_state + n_resource, 0.0);
+      for (size_t s = 0; s < n_state; ++s) {
+        ws.out_adjoint[s] = seeds.rate[k * n_state + s];
+      }
+      for (size_t r = 0; r < n_resource; ++r) {
+        ws.out_adjoint[n_state + r] = seeds.uptake[k * n_resource + r];
+      }
+
+      auto block = [&](const std::vector<scalar>& x,
+                       std::vector<scalar>& y) -> void {
+        individual.set_block_inputs(x.begin(), block_environment);
+        individual.compute_rates(block_environment);
+        individual.block_outputs(y.begin());
+      };
+      block_recording_size = odelia::ode::vector_jacobian_product(
+        ws.tape, ws.in, ws.out_adjoint, block, ws.in_adjoint);
+      ++block_sweeps;
+
+      size_t at = 0;
+      for (size_t s = 0; s < n_state; ++s) {
+        lambda_state[k * node_stride + s] += ws.in_adjoint[at++];
+      }
+      for (size_t c = 0; c < n_knot; ++c) {
+        lambda_knot.value[c] += ws.in_adjoint[at++];
+      }
+      for (size_t c = 0; c < n_knot; ++c) {
+        lambda_knot.slope[c] += ws.in_adjoint[at++];
+      }
+      for (size_t layer = 0; layer < n_layer; ++layer) {
+        lambda_state[env_offset + layer] +=
+          ws.in_adjoint[at++] *
+          environment.dpsi_from_soil_moist_dtheta(environment.vars.state(layer),
+                                                  layer);
+      }
+      for (size_t p = 0; p < n_trait; ++p) {
+        trait_adjoint[trait_at + p] += ws.in_adjoint[at++];
+      }
+      util::check_length(at, ws.in.size());
+    }
+    trait_at += n_trait;
+  }
+}
+
 // The knots hold L = exp(-A), so the value adjoint chains through dL/dA = -L
 // and the slope adjoint reaches both data vectors before either is distributed.
 template <typename T, typename E>
@@ -1456,10 +1602,11 @@ ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y) {
   offspring_adjoint(lambda_in, lambda_state, seeds);
 
   // Per cohort: record the block, seed it from `seeds`, sweep, and read the
-  // state, knot and trait adjoints back. Empty until the block lands.
+  // state, knot and trait adjoints back.
   light_knot_adjoints lambda_knot{
     std::vector<double>(environment.light_availability.spline.knots().size(), 0.0),
     std::vector<double>(environment.light_availability.spline.knots().size(), 0.0)};
+  cohort_block_adjoint(seeds, lambda_state, lambda_knot);
 
   std::vector<node_size_adjoints> sizes(node_count(),
                                         node_size_adjoints{0, 0, 0});
