@@ -727,6 +727,47 @@ same type wherever it is instantiated. Prefer a named struct or distinct types;
 where you cannot, the call sites are a review checklist rather than a compiler's
 problem.
 
+### Adding a census metric
+
+A census metric is a weighted reduction over the size distribution: the
+trapezium integral of `n_k * psi(state_k)` over the cohort heights, with
+`n_k = exp(l_k)`. `Species::census(psi)` owns the reduction and `psi` owns the
+quantity. Because the metrics travel as a tuple, the codomain of a census — and
+of its gradient — is the tuple's size, so a metric is added without touching the
+reduction, the reverse pass or `odelia`. Four steps:
+
+1. **Write the metric** as a struct in `namespace census_metric`
+   ([inst/include/plant/species.h](inst/include/plant/species.h)), with a
+   templated `operator()(const Strategy&, const Individual&)` returning
+   `typename Individual::value_type`, and a `name()`. It reads the strategy and
+   one cohort and nothing else; a metric with a height cut of its own applies
+   the cut inside `operator()`. Declare the return type — the AD operators
+   return expression templates, and a deduced one dangles (above).
+2. **Add its name to `tf24_census`**, the tuple below the metrics in the same
+   file. That is the one-word change: `census()`,
+   `census_state_adjoint()` and `census_trait_gradient()` in
+   [inst/include/plant/scm.h](inst/include/plant/scm.h) all fold over the tuple,
+   and `census_metric_names_tf24()` reports it, so the new row appears in the
+   value, in the seed and in the gradient with no further edit.
+3. **Rebuild.** No export signature changes and no new symbol reaches R, so
+   `make RcppR6` and `make attributes` have nothing to do. `tf24_census` is named
+   in exactly one translation unit,
+   [src/census_gradient.cpp](src/census_gradient.cpp), so `touch` it and
+   `pkgbuild::compile_dll()` — one file compiles and the library relinks. Any
+   other edit to `species.h` needs `rm -f src/*.o` first, because the header is
+   inline and R's make does not track header dependencies.
+4. **Assert its value and one non-zero gradient row.** The value against an
+   independent R-side computation from the tidied output, and the gradient row
+   against a trait that genuinely moves it — a row of exact zeros reads as an
+   answer and is this design's worst failure mode, so name the trait and say why
+   it moves the metric.
+
+What a metric may *not* do: read another cohort, read the light field, or carry
+a state of its own. Each of those makes it a term in the rates rather than a
+functional of the state at one time, and the seeding in
+`SCM::census_state_adjoint` — one recording of the reduction with the ODE state
+as its inputs — would no longer be the whole derivative.
+
 ---
 
 ## Issue & project-board conventions

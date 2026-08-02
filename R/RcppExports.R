@@ -4241,6 +4241,26 @@ test_adaptive_interpolator <- function(f, a, b, atol = 1e-6, rtol = 1e-6, nbase 
     .Call('_plant_test_adaptive_interpolator', PACKAGE = 'plant', f, a, b, atol, rtol, nbase, max_depth)
 }
 
+census_metric_names_tf24 <- function() {
+    .Call('_plant_census_metric_names_tf24', PACKAGE = 'plant')
+}
+
+census_tf24 <- function(obj_) {
+    .Call('_plant_census_tf24', PACKAGE = 'plant', obj_)
+}
+
+census_state_adjoint_tf24 <- function(obj_) {
+    .Call('_plant_census_state_adjoint_tf24', PACKAGE = 'plant', obj_)
+}
+
+census_trait_names_tf24 <- function(obj_) {
+    .Call('_plant_census_trait_names_tf24', PACKAGE = 'plant', obj_)
+}
+
+gradient_control_tf24 <- function(obj_) {
+    .Call('_plant_gradient_control_tf24', PACKAGE = 'plant', obj_)
+}
+
 node_schedule_default__Parameters___FF16__FF16_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___FF16__FF16_Env', PACKAGE = 'plant', p)
 }
