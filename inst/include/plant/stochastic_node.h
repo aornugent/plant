@@ -69,10 +69,7 @@ public:
     return individual.ode_rates(it);
   }
   template <typename It> It ode_aux(It it) const {
-    for (size_t i = 0; i < individual.aux_size(); ++i) {
-      *it++ = individual.aux(i);
-    }
-    return it;
+    return individual.ode_aux(it);
   }
 
   // Predicate for filtering the living subset (see StochasticSpecies). A free

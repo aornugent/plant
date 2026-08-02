@@ -2,6 +2,10 @@
 #ifndef PLANT_PLANT_STOCHASTIC_PATCH_H_
 #define PLANT_PLANT_STOCHASTIC_PATCH_H_
 
+#include <plant/parameters.h>
+#include <plant/stochastic_species.h>
+#include <plant/util.h>
+
 namespace plant {
 
 // NOTE: compute_environment() here might fail (especially for

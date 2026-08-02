@@ -12,15 +12,17 @@
 // branch, which TF24 does not default to, and 2 named static assertions inside
 // prepare_strategy(), which never runs inside a recorded block.
 //
-// Patch is instantiated below, and with it Species, Node and Individual, so
-// those 19 are also the whole count: a new line in any other file is a passive
-// seam. Instantiate the outermost consumer -- a census taken through Individual
-// alone reports neither the containers that hold it nor the numerics they reach.
+// Patch and StochasticPatch are instantiated below, and with them Species,
+// Node, StochasticSpecies, StochasticNode and Individual, so those 19 are also
+// the whole count: a new line in any other file is a passive seam. Instantiate
+// the outermost consumer -- a census taken through Individual alone reports
+// neither the containers that hold it nor the numerics they reach.
 
 #include <plant/models/tf24_strategy.h>
 #include <plant/individual_runner.h>
 #include <plant/node.h>
 #include <plant/patch.h>
+#include <plant/stochastic_patch.h>
 #include <odelia/ode_solver.hpp>
 #include <type_traits>
 
@@ -58,3 +60,6 @@ static_assert(std::is_same_v<
 
 template class plant::Patch<plant::TF24_Strategy<active_scalar>,
                             plant::TF24_Environment<active_scalar> >;
+
+template class plant::StochasticPatch<plant::TF24_Strategy<active_scalar>,
+                                      plant::TF24_Environment<active_scalar> >;

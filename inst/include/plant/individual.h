@@ -7,6 +7,7 @@
 #include <vector>
 #include <odelia/ode_util.hpp>
 #include <plant/internals.h>
+#include <plant/util.h>
 #include <plant/uniroot.h>
 #include <utility> // std::pair
 
@@ -127,20 +128,20 @@ public:
   }
   template <typename It> It ode_state(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
-      *it++ = vars.states[i];
+      *it++ = util::as_iterator_scalar<It>(vars.states[i]);
     }
     return it;
   }
   template <typename It> It ode_rates(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
-      *it++ = vars.rates[i];
+      *it++ = util::as_iterator_scalar<It>(vars.rates[i]);
     }
     return it;
   }
 
   template <typename It> It ode_aux(It it) const {
     for (size_t i = 0; i < vars.aux_size; i++) {
-      *it++ = vars.auxs[i];
+      *it++ = util::as_iterator_scalar<It>(vars.auxs[i]);
     }
     return it;
   }
