@@ -381,6 +381,14 @@ public:
   // radiation, one soil potential per rooted layer, leaf area, one root mass
   // per rooted layer, leaf-specific conductance, then the leaf's parameters.
   std::vector<std::string> inputs() const;
+  // The leaf contracts its own two output adjoints onto its inputs, at the
+  // point the solve left. Doubles throughout: nothing inside the leaf is
+  // recorded. lambda_uptake carries one adjoint per rooted layer of
+  // soil_consumption_. Every operating-point output this reads is restored
+  // before it returns, so a caller's forward values survive the call.
+  void input_adjoints(double lambda_profit,
+                      const std::vector<double>& lambda_uptake,
+                      std::vector<double>& input_adjoints);
   // Uptake's and the stem's response to a uniform drying of soil and collar
   // together, computed from the vulnerability integral over an interval whose
   // endpoints both slide. Positive dryness direction: psi magnitudes increase.
