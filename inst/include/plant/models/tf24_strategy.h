@@ -1133,41 +1133,48 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
     };
     optimise_at(radiation_at(function_integrator.integrate(f, S(0.0), height)));
   } else { // DeepCrown
-    const std::vector<double> nodes =
-      function_integrator.integrate_vector_x(0.0, height);
-    const size_t nn = nodes.size();
-    std::vector<double> profit_y(nn), trans_y(nn), eup_y(nn), psi_y(nn),
-      root_psi_y(nn), gco2_y(nn), assim_y(nn);
-    std::vector<std::vector<double>> soil_y(
-      soil_number_of_depths_, std::vector<double>(nn));
-    for (size_t i = 0; i < nn; ++i) {
-      const S qi = canopy_shape.q_from_height(nodes[i], height);
-      optimise_at(radiation_at(environment.get_environment_at_height(nodes[i])));
-      profit_y[i]   = leaf.profit_ * qi;
-      trans_y[i]    = leaf.transpiration_ * qi;
-      eup_y[i]      = leaf.E_up_ * qi;
-      psi_y[i]      = leaf.opt_psi_stem_ * qi;
-      root_psi_y[i] = leaf.root_collar_psi_ * qi;
-      gco2_y[i]     = leaf.stom_cond_CO2_ * qi;
-      assim_y[i]    = leaf.assim_colimited_ * qi;
-      for (int a = 0; a < soil_number_of_depths_; ++a) {
-        soil_y[a][i] = leaf.soil_consumption_[a] * qi;
+    if constexpr (std::is_same_v<S, double>) {
+      const std::vector<double> nodes =
+        function_integrator.integrate_vector_x(0.0, height);
+      const size_t nn = nodes.size();
+      std::vector<double> profit_y(nn), trans_y(nn), eup_y(nn), psi_y(nn),
+        root_psi_y(nn), gco2_y(nn), assim_y(nn);
+      std::vector<std::vector<double>> soil_y(
+        soil_number_of_depths_, std::vector<double>(nn));
+      for (size_t i = 0; i < nn; ++i) {
+        const S qi = canopy_shape.q_from_height(nodes[i], height);
+        optimise_at(radiation_at(environment.get_environment_at_height(nodes[i])));
+        profit_y[i]   = leaf.profit_ * qi;
+        trans_y[i]    = leaf.transpiration_ * qi;
+        eup_y[i]      = leaf.E_up_ * qi;
+        psi_y[i]      = leaf.opt_psi_stem_ * qi;
+        root_psi_y[i] = leaf.root_collar_psi_ * qi;
+        gco2_y[i]     = leaf.stom_cond_CO2_ * qi;
+        assim_y[i]    = leaf.assim_colimited_ * qi;
+        for (int a = 0; a < soil_number_of_depths_; ++a) {
+          soil_y[a][i] = leaf.soil_consumption_[a] * qi;
+        }
       }
-    }
-    // Integrate each leaf output to its leaf-area-weighted crown mean (q
-    // integrates to one over the crown). soil_consumption_ feeds the patch
-    // water balance, so it must be the depth-integrated total; the rest are
-    // diagnostics reported through compute_rates.
-    leaf.profit_          = function_integrator.integrate_vector(profit_y, 0.0, height);
-    leaf.transpiration_   = function_integrator.integrate_vector(trans_y, 0.0, height);
-    leaf.E_up_            = function_integrator.integrate_vector(eup_y, 0.0, height);
-    leaf.opt_psi_stem_    = function_integrator.integrate_vector(psi_y, 0.0, height);
-    leaf.root_collar_psi_ = function_integrator.integrate_vector(root_psi_y, 0.0, height);
-    leaf.stom_cond_CO2_   = function_integrator.integrate_vector(gco2_y, 0.0, height);
-    leaf.assim_colimited_ = function_integrator.integrate_vector(assim_y, 0.0, height);
-    for (int a = 0; a < soil_number_of_depths_; ++a) {
-      leaf.soil_consumption_[a] =
-        function_integrator.integrate_vector(soil_y[a], 0.0, height);
+      // Integrate each leaf output to its leaf-area-weighted crown mean (q
+      // integrates to one over the crown). soil_consumption_ feeds the patch
+      // water balance, so it must be the depth-integrated total; the rest are
+      // diagnostics reported through compute_rates.
+      leaf.profit_          = function_integrator.integrate_vector(profit_y, 0.0, height);
+      leaf.transpiration_   = function_integrator.integrate_vector(trans_y, 0.0, height);
+      leaf.E_up_            = function_integrator.integrate_vector(eup_y, 0.0, height);
+      leaf.opt_psi_stem_    = function_integrator.integrate_vector(psi_y, 0.0, height);
+      leaf.root_collar_psi_ = function_integrator.integrate_vector(root_psi_y, 0.0, height);
+      leaf.stom_cond_CO2_   = function_integrator.integrate_vector(gco2_y, 0.0, height);
+      leaf.assim_colimited_ = function_integrator.integrate_vector(assim_y, 0.0, height);
+      for (int a = 0; a < soil_number_of_depths_; ++a) {
+        leaf.soil_consumption_[a] =
+          function_integrator.integrate_vector(soil_y[a], 0.0, height);
+      }
+    } else {
+      util::stop("shading_model '" + this->control.shading_model +
+                 "' is not differentiable: its crown means pass through Leaf, "
+                 "which carries double. Use crown-centre or mean-light "
+                 "shading for a gradient.");
     }
   }
 
