@@ -522,6 +522,80 @@ public:
     light_availability.compute_environment(f_light_availability, height_max, rescale);
   }
 
+  // d(soil_K_from_soil_theta)/d(theta). Zero outside the clamped range, where
+  // the forward conductivity is constant.
+  double dsoil_K_dtheta(double theta, size_t layer) const {
+    const double k_sat_layer = soil_parameter_value(K_sat_layers, K_sat, layer);
+    const double soil_moist_sat_layer =
+      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
+    const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
+    if (!(theta > 0.0) || theta > soil_moist_sat_layer) {
+      return 0.0;
+    }
+    const double p = 2 * n_psi_layer + 3;
+    return k_sat_layer * p *
+      std::pow(theta / soil_moist_sat_layer, p - 1) / soil_moist_sat_layer;
+  }
+
+  // Transpose of compute_rates in the soil state. Drainage runs downward only,
+  // so the Jacobian is lower bidiagonal and nothing is solved. lambda_state and
+  // lambda_uptake are accumulated into; the uptake entries are the adjoints of
+  // the resource_depletion compute_rates was last given.
+  // A layer the positivity guard clamped has an identically zero forward row,
+  // so its transposed row is zero too.
+  void compute_rates_adjoint(const std::vector<double>& lambda_rate,
+                             std::vector<double>& lambda_state,
+                             std::vector<double>& lambda_uptake) const {
+    const size_t n = static_cast<size_t>(soil_number_of_depths);
+    util::check_length(lambda_rate.size(), vars.state_size);
+    util::check_length(lambda_state.size(), vars.state_size);
+    util::check_length(lambda_uptake.size(), n);
+    util::check_length(resource_uptake.size(), n);
+
+    const double rainfall =
+      std::max(0.0, extrinsic_drivers.evaluate("rainfall", time));
+    const double soil_moist_sat_0 =
+      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
+    const double excess =
+      1 - a_infil * std::pow(vars.state(0) / soil_moist_sat_0, b_infil);
+    const double infiltration = rainfall * std::max(0.0, excess);
+    // Saturation-excess runoff makes layer 0's inflow a function of its own
+    // moisture; once the excess term has clipped at zero the channel is gone.
+    const double dinfiltration_dtheta =
+      excess > 0.0 ? -rainfall * a_infil * b_infil *
+                       std::pow(vars.state(0) / soil_moist_sat_0, b_infil - 1) /
+                       soil_moist_sat_0
+                   : 0.0;
+
+    for (size_t i = 0; i < n; i++) {
+      const double theta = vars.state(i);
+      const double water_input =
+        i == 0 ? infiltration : soil_K_from_soil_theta(vars.state(i - 1), i - 1);
+      const double flux = soil_K_from_soil_theta(theta, i);
+      const double rate = (water_input - flux - resource_uptake[i]) / dz[i];
+      if (theta <= soil_moist_residual && !(rate > 0.0)) {
+        continue;
+      }
+      const double l = lambda_rate[i] / dz[i];
+      lambda_state[i] -= l * dsoil_K_dtheta(theta, i);
+      lambda_uptake[i] -= l;
+      if (i == 0) {
+        lambda_state[0] += l * dinfiltration_dtheta;
+      } else {
+        lambda_state[i - 1] += l * dsoil_K_dtheta(vars.state(i - 1), i - 1);
+      }
+    }
+
+    // The four cumulative-flux slots are ODE states too, and two of their rates
+    // read the soil moisture.
+    lambda_state[0] += lambda_rate[n + 1] * dinfiltration_dtheta;
+    lambda_state[n - 1] +=
+      lambda_rate[n + 2] * dsoil_K_dtheta(vars.state(n - 1), n - 1);
+    for (size_t i = 0; i < n; i++) {
+      lambda_uptake[i] += lambda_rate[n + 3];
+    }
+  }
+
   // Clear the light profile and return the soil moisture and the cumulative
   // flux accumulators to the state the run started from, so a second run on
   // this patch starts where the first did. Restoring the state is what keeps a
