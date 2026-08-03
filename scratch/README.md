@@ -46,3 +46,27 @@ block, and `colSums(knot_contributions(patch, lam))` against the accumulated
 as the block's output count (12 for TF24); a shorter one overruns and corrupts the heap.
 A driver at `max_patch_lifetime = 10`, compile included, is about 45 s, dominated by the
 per-output block sweeps.
+
+`scripts/tf24-tangent-census.cpp` is the whole-run tangent reference and is also
+`Rcpp::sourceCpp`'d, but it takes the `SCM` R6 object rather than a patch and it names
+`odelia::ode::Solver` at a forward-mode scalar, so it needs the package installed rather
+than loaded from source: `system.file` has to resolve plant's headers and its `.so`, and
+`pkgload::load_all` gives neither. Install into a library of its own and drive it from
+there:
+
+```sh
+cd <plant worktree>
+make RcppR6 && make attributes
+rm -f src/*.o src/*.so
+R_LIBS_USER=<odelia library parent> R_MAKEVARS_USER=<a Makevars with -O2 -DNDEBUG> \
+  R CMD INSTALL --library=<fresh library> .
+R_LIBS_USER=<fresh library>:<odelia library parent> \
+  Rscript scripts/tangent-reference-driver.R <plant worktree>
+```
+
+The odelia on the include path must be the one carrying `odelia/hermite_interpolator.hpp`;
+without it `plant/resource_spline.h` does not compile and the failure names the spline, not
+the library. Build at `-O2`: a `-O0` plant makes the tangent run, which is already over
+twenty times the double run, unaffordable. Compile included the driver is about two minutes
+for three traits at `max_patch_lifetime = 2`. Do not raise the lifetime — at 105.32 the
+tangent run exceeded 2400 s of CPU twice without finishing.

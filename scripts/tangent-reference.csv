@@ -1,0 +1,36 @@
+# Whole-run tangent reference for the TF24 census, with the adjoint and a
+# central difference measured on the same run in the same session.
+#
+# The tangent and the adjoint share the leaf's supplied partials and both
+# drop d(height_0)/d(trait), so agreement between them is not evidence over
+# either. The central difference carries height_0 and neither derivative
+# does, so on the columns that otherwise agree it stands off by however much
+# that channel is worth for the trait: 2.6% for lma, 0.09% for k_I.
+#
+# date                  2026-08-03
+# plant commit          1a06e4c5bf2789bff51e140f59527590092ccfe3
+# plant worktree        /home/user/wt-tangent
+# odelia library        /home/user/lib-wave5/odelia
+# odelia identity       version 0.1.0; built R 4.6.1; x86_64-pc-linux-gnu; 2026-08-03 02:01:10 UTC; unix; 63 headers, digest a69da8fcf68296cd
+# R library             /home/user/lib-tangent
+# max_patch_lifetime    2
+# node_schedule_times   0 0.142857142857143 0.285714285714286 0.428571428571429 0.571428571428571 0.714285714285714 0.857142857142857 1
+# introductions         8
+# nodes                 8
+# ode_size              73
+# accepted ODE steps    110
+# refine_schedule       FALSE (scm$run() only)
+# Control               defaults, non-default fields: none
+# birth_rate_y          1, is_variable_birth_rate FALSE
+# traits                lma hmat k_I
+# central difference    relative step 1e-05, re-run both sides
+"trait","metric","trait_value","census_value","tangent","adjoint","central_fd","tangent_accepted_steps","tangent_ode_size","status"
+"lma","leaf_area",0.1978791,0.429937975987501,-6.70320364069075,-6.7018609913628,-6.89018062193188,110,73,"ok"
+"lma","mass_above_ground",0.1978791,0.29568351471154,-5.00502106067521,1.1236103034985,-5.18146726765033,110,73,"ok"
+"lma","area_stem",0.1978791,0.000114467963417965,-0.00178853862026004,-0.117481756163433,-0.00183969234031498,110,73,"ok"
+"hmat","leaf_area",16.5958691,0.429937975987501,7.26579426949464e-19,7.26515777142675e-19,0,110,73,"no response: central difference identically zero, derivatives at round-off"
+"hmat","mass_above_ground",16.5958691,0.29568351471154,7.1835512046458e-19,-1.61667203958147e-20,0,110,73,"no response: central difference identically zero, derivatives at round-off"
+"hmat","area_stem",16.5958691,0.000114467963417965,1.74790309310947e-22,-3.66778926320685e-18,0,110,73,"no response: central difference identically zero, derivatives at round-off"
+"k_I","leaf_area",0.5,0.429937975987501,1.03000327614671,1.06132747437707,1.0290354528486,110,73,"ok"
+"k_I","mass_above_ground",0.5,0.29568351471154,0.845347181058289,-0.305221370758252,0.84472744107944,110,73,"ok"
+"k_I","area_stem",0.5,0.000114467963417965,0.00027444344257836,-0.0316397305892307,0.00027419018988064,110,73,"ok"
