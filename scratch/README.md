@@ -43,6 +43,6 @@ lam, upto)` against `patch_recording_vjp(patch, lam)`. The other two exports are
 same way — `block_vjp` against a central difference of `block_value` for one cohort's
 block, and `colSums(knot_contributions(patch, lam))` against the accumulated
 `knot_value` for the knots. `block_vjp`'s output-adjoint argument must be at least as long
-as the block's output count (11 for TF24); a shorter one overruns and corrupts the heap.
+as the block's output count (12 for TF24); a shorter one overruns and corrupts the heap.
 A driver at `max_patch_lifetime = 10`, compile included, is about 45 s, dominated by the
 per-output block sweeps.
