@@ -147,6 +147,10 @@ public:
   // NodeSchedule via its own use_ode_times flag.)
   std::vector<double> r_ode_times() const;
 
+  // The size of the step that reached each of r_ode_times(), NaN first. Pin
+  // these on the NodeSchedule alongside the times to replay a run faithfully.
+  std::vector<double> r_ode_step_sizes() const;
+
   // The trajectory as a list of records, each a time, the step size that reached it,
   // and the state there.
   Rcpp::List r_store_trajectory();
@@ -311,7 +315,8 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
 
   // Three integration modes:
   //  - pinned ode times (resident replay for a mutant): step exactly to the
-  //    cached times via the full RKCK stepper (advance_fixed);
+  //    cached times via the full RKCK stepper, by their recorded step sizes
+  //    when the schedule carries them;
   //  - fixed-step forward Euler (control.fixed_time_step > 0): walk a uniform
   //    sub-grid between this event and the next introduction;
   //  - otherwise: adaptive, error-controlled RKCK to the next event time.
@@ -322,7 +327,16 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
       util::stop("fixed_time_step (forward Euler) is not supported for "
                  "ode-time replay / mutant runs");
     }
-    solver.advance_fixed(e.times);
+    if (e.step_sizes.empty()) {
+      solver.advance_fixed(e.times);
+    } else {
+      // fl(fl(t + h) - t) != h, so a size differenced back out of the recorded
+      // times is not the size that was taken; step by the recorded sizes and
+      // difference only the last step, which is where the free run itself
+      // landed on the interval end rather than accumulating.
+      solver.advance_fixed_steps(e.step_sizes);
+      solver.advance_fixed({solver.time(), e.times.back()});
+    }
   } else if (control.fixed_time_step > 0.0) {
     solver.advance_euler(
         uniform_euler_times(t0, e.time_end(), control.fixed_time_step));
@@ -542,6 +556,11 @@ void SCM<T, E>::r_set_node_schedule_times(
 template <typename T, typename E>
 std::vector<double> SCM<T, E>::r_ode_times() const {
   return solver.times();
+}
+
+template <typename T, typename E>
+std::vector<double> SCM<T, E>::r_ode_step_sizes() const {
+  return solver.step_sizes();
 }
 
 template <typename T, typename E>

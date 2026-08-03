@@ -378,6 +378,18 @@ were not previously recorded here:
   — only TF24 has a `Leaf`. Forward cost is 1.08x, measured as one run each in
   one session. Every scenario-gateway outcome classification is unchanged.
 
+* **A schedule-pinned SCM replay reproduces the run it replays.** Pinning only
+  `NodeSchedule$ode_times` left the replay to recover each step size by
+  differencing the recorded times, and `fl(fl(t + h) - t) != h`, so all but the
+  last step of each schedule interval was taken at a size up to half an ulp from
+  what was recorded. On a TF24 stand at `max_patch_lifetime = 105.32` that moved
+  `R0` by 5.7e-3 relative with no perturbation at all. `SCM$ode_step_sizes` now
+  reports the size of the step that reached each of `SCM$ode_times`, and
+  `NodeSchedule$ode_step_sizes` pins them; a replay given both reproduces its
+  free run bitwise. `run_scm()` takes them as `ode_step_sizes`. Pinning times
+  alone still works and is unchanged, for the case where the times are a chosen
+  grid rather than a recorded run.
+
 * **The TF24 rainfall driver is floored at zero.** Because drivers are
   interpolated with a cubic spline, an intermittent series undershoots below
   every supplied value, and negative rainfall gave negative infiltration and an

@@ -912,6 +912,15 @@ void NodeSchedule__ode_times__set(plant::RcppR6::RcppR6<plant::NodeSchedule> obj
 }
 
 // [[Rcpp::export]]
+std::vector<double> NodeSchedule__ode_step_sizes__get(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_) {
+  return obj_->r_ode_step_sizes();
+}
+// [[Rcpp::export]]
+void NodeSchedule__ode_step_sizes__set(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_, std::vector<double> value) {
+  obj_->r_set_ode_step_sizes(value);
+}
+
+// [[Rcpp::export]]
 bool NodeSchedule__use_ode_times__get(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_) {
   return obj_->using_ode_times();
 }
@@ -2978,6 +2987,11 @@ std::vector<double> SCM___FF16__FF16_Env__ode_times__get(plant::RcppR6::RcppR6<p
 }
 
 // [[Rcpp::export]]
+std::vector<double> SCM___FF16__FF16_Env__ode_step_sizes__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->r_ode_step_sizes();
+}
+
+// [[Rcpp::export]]
 bool SCM___FF16__FF16_Env__collect__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   return obj_->collect;
 }
@@ -3084,6 +3098,11 @@ void SCM___TF24__TF24_Env__node_schedule__set(plant::RcppR6::RcppR6<plant::SCM<p
 // [[Rcpp::export]]
 std::vector<double> SCM___TF24__TF24_Env__ode_times__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   return obj_->r_ode_times();
+}
+
+// [[Rcpp::export]]
+std::vector<double> SCM___TF24__TF24_Env__ode_step_sizes__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->r_ode_step_sizes();
 }
 
 // [[Rcpp::export]]
@@ -3196,6 +3215,11 @@ std::vector<double> SCM___TF24f__TF24_Env__ode_times__get(plant::RcppR6::RcppR6<
 }
 
 // [[Rcpp::export]]
+std::vector<double> SCM___TF24f__TF24_Env__ode_step_sizes__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->r_ode_step_sizes();
+}
+
+// [[Rcpp::export]]
 bool SCM___TF24f__TF24_Env__collect__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   return obj_->collect;
 }
@@ -3302,6 +3326,11 @@ void SCM___K93__K93_Env__node_schedule__set(plant::RcppR6::RcppR6<plant::SCM<pla
 // [[Rcpp::export]]
 std::vector<double> SCM___K93__K93_Env__ode_times__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
   return obj_->r_ode_times();
+}
+
+// [[Rcpp::export]]
+std::vector<double> SCM___K93__K93_Env__ode_step_sizes__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->r_ode_step_sizes();
 }
 
 // [[Rcpp::export]]
