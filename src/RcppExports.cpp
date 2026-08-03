@@ -5818,16 +5818,6 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
-// Patch___FF16__FF16_Env__compute_rates
-void Patch___FF16__FF16_Env__compute_rates(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_);
-RcppExport SEXP _plant_Patch___FF16__FF16_Env__compute_rates(SEXP obj_SEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
-    Patch___FF16__FF16_Env__compute_rates(obj_);
-    return R_NilValue;
-END_RCPP
-}
 // Patch___FF16__FF16_Env__reset
 void Patch___FF16__FF16_Env__reset(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_);
 RcppExport SEXP _plant_Patch___FF16__FF16_Env__reset(SEXP obj_SEXP) {
@@ -6144,16 +6134,6 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
     Patch___TF24__TF24_Env__compute_environment(obj_);
-    return R_NilValue;
-END_RCPP
-}
-// Patch___TF24__TF24_Env__compute_rates
-void Patch___TF24__TF24_Env__compute_rates(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_);
-RcppExport SEXP _plant_Patch___TF24__TF24_Env__compute_rates(SEXP obj_SEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
-    Patch___TF24__TF24_Env__compute_rates(obj_);
     return R_NilValue;
 END_RCPP
 }
@@ -6476,16 +6456,6 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
-// Patch___TF24f__TF24_Env__compute_rates
-void Patch___TF24f__TF24_Env__compute_rates(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_);
-RcppExport SEXP _plant_Patch___TF24f__TF24_Env__compute_rates(SEXP obj_SEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
-    Patch___TF24f__TF24_Env__compute_rates(obj_);
-    return R_NilValue;
-END_RCPP
-}
 // Patch___TF24f__TF24_Env__reset
 void Patch___TF24f__TF24_Env__reset(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_);
 RcppExport SEXP _plant_Patch___TF24f__TF24_Env__reset(SEXP obj_SEXP) {
@@ -6802,16 +6772,6 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
     Patch___K93__K93_Env__compute_environment(obj_);
-    return R_NilValue;
-END_RCPP
-}
-// Patch___K93__K93_Env__compute_rates
-void Patch___K93__K93_Env__compute_rates(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_);
-RcppExport SEXP _plant_Patch___K93__K93_Env__compute_rates(SEXP obj_SEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
-    Patch___K93__K93_Env__compute_rates(obj_);
     return R_NilValue;
 END_RCPP
 }
@@ -12552,7 +12512,6 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___FF16__FF16_Env__ctor", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__ctor, 3},
     {"_plant_Patch___FF16__FF16_Env__introduce_new_node", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__introduce_new_node, 2},
     {"_plant_Patch___FF16__FF16_Env__compute_environment", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__compute_environment, 1},
-    {"_plant_Patch___FF16__FF16_Env__compute_rates", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__compute_rates, 1},
     {"_plant_Patch___FF16__FF16_Env__reset", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__reset, 1},
     {"_plant_Patch___FF16__FF16_Env__set_ode_state", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__set_ode_state, 3},
     {"_plant_Patch___FF16__FF16_Env__derivs", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__derivs, 3},
@@ -12581,7 +12540,6 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___TF24__TF24_Env__ctor", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__ctor, 3},
     {"_plant_Patch___TF24__TF24_Env__introduce_new_node", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__introduce_new_node, 2},
     {"_plant_Patch___TF24__TF24_Env__compute_environment", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__compute_environment, 1},
-    {"_plant_Patch___TF24__TF24_Env__compute_rates", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__compute_rates, 1},
     {"_plant_Patch___TF24__TF24_Env__reset", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__reset, 1},
     {"_plant_Patch___TF24__TF24_Env__set_ode_state", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__set_ode_state, 3},
     {"_plant_Patch___TF24__TF24_Env__derivs", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__derivs, 3},
@@ -12610,7 +12568,6 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___TF24f__TF24_Env__ctor", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__ctor, 3},
     {"_plant_Patch___TF24f__TF24_Env__introduce_new_node", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__introduce_new_node, 2},
     {"_plant_Patch___TF24f__TF24_Env__compute_environment", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__compute_environment, 1},
-    {"_plant_Patch___TF24f__TF24_Env__compute_rates", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__compute_rates, 1},
     {"_plant_Patch___TF24f__TF24_Env__reset", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__reset, 1},
     {"_plant_Patch___TF24f__TF24_Env__set_ode_state", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__set_ode_state, 3},
     {"_plant_Patch___TF24f__TF24_Env__derivs", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__derivs, 3},
@@ -12639,7 +12596,6 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___K93__K93_Env__ctor", (DL_FUNC) &_plant_Patch___K93__K93_Env__ctor, 3},
     {"_plant_Patch___K93__K93_Env__introduce_new_node", (DL_FUNC) &_plant_Patch___K93__K93_Env__introduce_new_node, 2},
     {"_plant_Patch___K93__K93_Env__compute_environment", (DL_FUNC) &_plant_Patch___K93__K93_Env__compute_environment, 1},
-    {"_plant_Patch___K93__K93_Env__compute_rates", (DL_FUNC) &_plant_Patch___K93__K93_Env__compute_rates, 1},
     {"_plant_Patch___K93__K93_Env__reset", (DL_FUNC) &_plant_Patch___K93__K93_Env__reset, 1},
     {"_plant_Patch___K93__K93_Env__set_ode_state", (DL_FUNC) &_plant_Patch___K93__K93_Env__set_ode_state, 3},
     {"_plant_Patch___K93__K93_Env__derivs", (DL_FUNC) &_plant_Patch___K93__K93_Env__derivs, 3},
