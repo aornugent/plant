@@ -1452,12 +1452,17 @@ void Leaf::bound_partials(std::vector<double>& out) {
 
   // The interpolant parameters, on knot grids held still while the parameter
   // moves (set_transpiration_at, set_root_vulnerability_at).
+  // Built only when a transport row is actually going to be differenced: the
+  // builder's two incomplete-gamma tabulations otherwise dominate the call.
   std::vector<double> knots_stem, knots_root, knot_values;
-  build_cumulative_vulnerability_integral(b, c, vulnerability_curve_ncontrol,
-                                          knots_stem, knot_values);
-  build_cumulative_vulnerability_integral(root_b, root_c,
-                                          vulnerability_curve_ncontrol,
-                                          knots_root, knot_values);
+  if (par_wanted(PAR_B) || par_wanted(PAR_C) || par_wanted(PAR_ROOT_B) ||
+      par_wanted(PAR_ROOT_C)) {
+    build_cumulative_vulnerability_integral(b, c, vulnerability_curve_ncontrol,
+                                            knots_stem, knot_values);
+    build_cumulative_vulnerability_integral(root_b, root_c,
+                                            vulnerability_curve_ncontrol,
+                                            knots_root, knot_values);
+  }
   const int transport_pars[4] = {PAR_B, PAR_C, PAR_ROOT_B, PAR_ROOT_C};
   for (int t = 0; t < 4; ++t) {
     const int k = transport_pars[t];
@@ -1700,12 +1705,17 @@ void Leaf::input_adjoints(double lambda_profit,
   // The builder's grid ends at b*log(100)^(1/c) and its knot COUNT steps as b or
   // c moves; a difference across that step reads 47x the derivative of
   // d(R)/d(root_b) at a 1e-6 step and nothing announces it.
+  // Built only when a transport row is actually going to be differenced: the
+  // builder's two incomplete-gamma tabulations otherwise dominate the call.
   std::vector<double> knots_stem, knots_root, knot_values;
-  build_cumulative_vulnerability_integral(b, c, vulnerability_curve_ncontrol,
-                                          knots_stem, knot_values);
-  build_cumulative_vulnerability_integral(root_b, root_c,
-                                          vulnerability_curve_ncontrol,
-                                          knots_root, knot_values);
+  if (par_wanted(PAR_B) || par_wanted(PAR_C) || par_wanted(PAR_ROOT_B) ||
+      par_wanted(PAR_ROOT_C)) {
+    build_cumulative_vulnerability_integral(b, c, vulnerability_curve_ncontrol,
+                                            knots_stem, knot_values);
+    build_cumulative_vulnerability_integral(root_b, root_c,
+                                            vulnerability_curve_ncontrol,
+                                            knots_root, knot_values);
+  }
   // Writes parameter k and everything the leaf derives from it, so every
   // evaluator below reads a consistent leaf.
   auto set_parameter = [&](int k, double v) {
