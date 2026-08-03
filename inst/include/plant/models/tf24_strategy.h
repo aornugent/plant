@@ -7,7 +7,7 @@
 #include <plant/models/tf24_environment.h>
 #include <plant/qag.h>
 #include <plant/leaf_model.h>
-#include <plant/canopy_shape.h> // ShadingModel
+#include <plant/canopy_shape.h>
 
 namespace plant {
 
@@ -346,8 +346,20 @@ public:
   double storage_capacity(double area_leaf, double height) const;
   // Seed the storage state for a newly germinated individual (#517).
   void set_initial_states(const TF24_Environment& environment, Internals& vars);
-  // [eqn 20] Survival of seedlings during establishment
+  // [eqn 20] Survival of seedlings during establishment, from the carbon a
+  // seedling produces at birth size. This form works that carbon out.
   double establishment_probability(const TF24_Environment& environment);
+  // The same, for a newborn whose rates have just been computed. A newborn is
+  // already at birth size, so compute_rates has left that carbon in aux and the
+  // leaf need not be solved there twice.
+  double establishment_probability(const TF24_Environment& environment,
+                                   const Internals& vars) {
+    return establishment_probability(environment,
+                                     vars.aux(aux_idx_net_mass_production_dt));
+  }
+  // The equation the two above share.
+  double establishment_probability(const TF24_Environment& environment,
+                                   double net_mass_production_dt_);
 
   // * Competitive environment
   // [eqn 11] total projected leaf area above height above height `z` for given plant
@@ -364,12 +376,10 @@ public:
                                vars.aux(aux_idx_height_inverse));
   }
 
-  // [eqn  9] Probability density of leaf area at height `z`
-  double q(double z, double height) const;
-  // [eqn 10] Fraction of leaf area above height `z`
-  double Q(double z, double height, double eta_x) const;
-  // [      ] Inverse of Q: height above which fraction 'x' of leaf found
-  double Qp(double x, double height) const;
+  // The fraction of root mass below soil depth `z`, for a plant rooted to
+  // `rooting_depth` with shape exponent `eta_x` (pars.root_depth_shape_eta). The
+  // canopy's own cumulative form is CanopyShape::Q, at pars.eta.
+  double Q(double z, double rooting_depth, double eta_x) const;
 
   // The aim is to find a plant height that gives the correct seed mass.
   double height_seed(void) const;
@@ -391,6 +401,7 @@ public:
 
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
   double eta_c     = NA_REAL; // crown shape factor, precomputed from pars.eta
+  CanopyShape canopy_shape;
   // Height and leaf area of a (germinated) seed
   double height_0  = NA_REAL;
   double area_leaf_0;

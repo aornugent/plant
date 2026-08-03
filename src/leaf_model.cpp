@@ -1,4 +1,5 @@
 #include <plant/leaf_model.h>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <exception>
@@ -301,7 +302,9 @@ void Leaf::set_physiology(double area_leaf, const std::vector<double>& mass_root
   }
 
   // Set up vector of root water uptake from layer
-  soil_consumption_.resize(soil_number_of_depths_, 0.0);
+  // .assign, not .resize: the solve writes only up to max_soil_layer and resize's
+  // fill reaches only new elements, so deeper layers would hold the previous solve's.
+  soil_consumption_.assign(soil_number_of_depths_, 0.0);
 
   // Soil-moisture state for the Medlyn beta_ stress factor (develop #450). The
   // root-water compute path does not use these; they make the standalone,
@@ -693,22 +696,11 @@ void Leaf::set_shutdown_state(double root_collar) {
   std::fill(soil_consumption_.begin(), soil_consumption_.end(), 0.0);
 }
 
-// Shared setup + feasibility handling for the root-collar solve. Extracted
-// verbatim from find_root_collar_psi (no reordering of floating-point ops, so
-// the TF24 optimisation path stays bit-identical) and reused by
-// evaluate_root_collar_psi. Returns false when the final operating point is
-// already determined here (shutdown / assim<0 / collapsed interval) and the
-// caller should stop; returns true with [bound_a, bound_b] set to the feasible
-// collar-potential interval (positive magnitudes) otherwise.
-bool Leaf::prepare_collar_solve(double& bound_a, double& bound_b){
-
-  // psi_soil_ arrives as positive magnitudes; flip once to the signed (negative)
-  // potential convention used throughout the soil->collar transport (see the
-  // sign-conventions block above E_from_Soil_to_Root_Collar).
+// psi_soil_ arrives as positive magnitudes; flip once to the signed convention the
+// soil->collar transport uses, and precompute each layer's cumulative-integral
+// lookup at that same argument. Returns the wettest layer's potential.
+double Leaf::refresh_soil_potentials() {
   psi_soil_inverted_.resize(max_soil_layer);
-  // Precompute the soil-side cumulative-integral lookups once per solve; the
-  // argument fed to the spline in E_from_Soil_to_Root_Collar when the soil layer
-  // is the selected endpoint is exactly -psi_soil_inverted_[i].
   root_vuln_integral_soil_.resize(max_soil_layer);
   double wettest_soil_layer = -std::numeric_limits<double>::infinity();
   for (size_t i = 0; i < max_soil_layer; ++i) {
@@ -718,6 +710,19 @@ bool Leaf::prepare_collar_solve(double& bound_a, double& bound_b){
         root_vuln_integral_from_psi.eval(-psi_inverted);
     wettest_soil_layer = std::max(wettest_soil_layer, psi_inverted);
   }
+  return wettest_soil_layer;
+}
+
+// Shared setup + feasibility handling for the root-collar solve. Extracted
+// verbatim from find_root_collar_psi (no reordering of floating-point ops, so
+// the TF24 optimisation path stays bit-identical) and reused by
+// evaluate_root_collar_psi. Returns false when the final operating point is
+// already determined here (shutdown / assim<0 / collapsed interval) and the
+// caller should stop; returns true with [bound_a, bound_b] set to the feasible
+// collar-potential interval (positive magnitudes) otherwise.
+bool Leaf::prepare_collar_solve(double& bound_a, double& bound_b){
+
+  const double wettest_soil_layer = refresh_soil_potentials();
 
   // Avoid loop if the wettest psi layer is drier than psi_crit in stem, transpiration not possible and so all variables set to
   // shut down
@@ -921,6 +926,10 @@ double Leaf::dprofit_droot_collar_psi(double opt_root_psi) {
   using AD = xad::fwd<double>::active_type;
   const double psi = opt_root_psi;
   const double gstar_Pa = gamma_ * umol_per_mol_to_Pa;
+
+  // Every transport evaluation below reads psi_soil_inverted_, so seat it on the
+  // current psi_soil_ here rather than depending on the caller's last solve.
+  refresh_soil_potentials();
 
   // Operating point in double.
   const double psi_stem = find_psi_stem_from_psi_root(-psi, psi_soil_inverted_);

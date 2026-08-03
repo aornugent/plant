@@ -99,6 +99,7 @@ public:
     soil_number_of_depths = n;
     
     vars = Internals(soil_number_of_depths + aux_num);
+    initial_states = vars.states;
 
     z.resize(soil_number_of_depths);
     z_mid.resize(soil_number_of_depths);
@@ -155,6 +156,13 @@ public:
   }
 
   int get_soil_number_of_depths() const {return soil_number_of_depths;}
+
+  // Water is taken up per soil layer; the trailing aux_num state slots only
+  // accumulate diagnostics and are never consumed.
+  size_t n_resources() const override {
+    return static_cast<size_t>(soil_number_of_depths);
+  }
+
   std::vector<double> get_soil_mid_depths() const { return z_mid; }
 
   // TODO: should we use auxilliary in internals
@@ -182,6 +190,10 @@ public:
   mutable double ppfd_cache_time_ = NAN_TIME_, atm_vpd_cache_time_ = NAN_TIME_,
                  ca_cache_time_ = NAN_TIME_, leaf_temp_cache_time_ = NAN_TIME_,
                  atm_o2_kpa_cache_time_ = NAN_TIME_, atm_kpa_cache_time_ = NAN_TIME_;
+
+  // The soil state a run begins from: whatever set_soil_water_state last set,
+  // which the R interface lets a caller choose. Restored by clear_environment.
+  std::vector<double> initial_states;
 
   // A ResourceSpline used for storing light availbility (0-1)
   ResourceSpline light_availability;
@@ -409,7 +421,8 @@ public:
     const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
     const double soil_moist_sat_layer =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
-    return pow((psi_soil_ / a_psi_layer), (-1 / n_psi_layer)) * soil_moist_sat_layer;
+    // psi_soil_ is in MPa; a_psi is in Pa.
+    return pow((psi_soil_ * 1e6 / a_psi_layer), (-1 / n_psi_layer)) * soil_moist_sat_layer;
   }
 
   double soil_moist_from_psi(double psi_soil_) const {
@@ -480,6 +493,7 @@ public:
         vars.set_state(i, 0);
       }
   }
+    initial_states = vars.states;
     psi_soil_cache_valid_ = false;
 }
 
@@ -498,8 +512,14 @@ public:
     light_availability.compute_environment(f_light_availability, height_max, rescale);
   }
 
+  // Clear the light profile and return the soil moisture and the cumulative
+  // flux accumulators to the state the run started from, so a second run on
+  // this patch starts where the first did. Restoring the state is what keeps a
+  // second run from silently continuing out of the first run's depleted soil.
   virtual void clear_environment() {
     light_availability.clear();
+    vars.states = initial_states;
+    psi_soil_cache_valid_ = false;
   }
 
   virtual Rcpp::List r_get_state() const

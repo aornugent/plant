@@ -436,19 +436,43 @@ void Species<T,E>::resize_consumption_rates(int r) {
 
 template <typename T, typename E>
 double Species<T,E>::consumption_rate(int i) const {
-  // can't determine density for one node
-  if(size() < 2) {
+  if (size() == 0) {
     return 0.0;
-  } else {
-    // node heights are in descending order - we need ascending for integration
-    return util::trapezium(r_heights_rev(), consumption_rate_by_node_rev(i));
   }
+  // node heights are in descending order - we need ascending for integration,
+  // starting at new_node, which is where the size distribution starts.
+  std::vector<double> heights = r_heights_rev();
+  heights.insert(heights.begin(), new_node.height());
+  std::vector<double> rates = consumption_rate_by_node_rev(i);
+
+  // The node list is the quadrature grid here as it is in compute_competition,
+  // so an inverted grid (#571) makes neighbouring trapezia cancel rather than
+  // accumulate. Sort the pairs when the ordering has broken, as
+  // compute_competition_unordered does; an already-ascending grid is untouched.
+  if (!std::is_sorted(heights.begin(), heights.end())) {
+    std::vector<std::pair<double, double>> hr;
+    hr.reserve(heights.size());
+    for (size_t j = 0; j < heights.size(); ++j) {
+      hr.push_back({heights[j], rates[j]});
+    }
+    std::sort(hr.begin(), hr.end(),
+              [](std::pair<double, double> const& a,
+                 std::pair<double, double> const& b) {
+                return a.first < b.first;
+              });
+    for (size_t j = 0; j < hr.size(); ++j) {
+      heights[j] = hr[j].first;
+      rates[j] = hr[j].second;
+    }
+  }
+  return util::trapezium(heights, rates);
 }
 
 template <typename T, typename E>
 std::vector<double> Species<T,E>::consumption_rate_by_node_rev(int i) const {
   std::vector<double> ret;
-  ret.reserve(size());
+  ret.reserve(size() + 1);
+  ret.push_back(new_node.consumption_rate(i));
   for(auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
     ret.push_back(it->consumption_rate(i));
   }
