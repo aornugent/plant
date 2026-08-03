@@ -389,6 +389,28 @@ public:
   void graft_leaf_outputs(const S& radiation, const S& area_leaf_,
                           const std::vector<S>& psi_soil,
                           const S& leaf_specific_conductance_max);
+  // The pars member holding the leaf parameter Leaf::inputs() names. Leaf owns
+  // the names and this owns the addresses; an unmapped name is refused.
+  S* leaf_parameter_address(const std::string& name) {
+    if (name == "vcmax_25") return &pars.vcmax_25;
+    if (name == "jmax_25") return &pars.jmax_25;
+    if (name == "a") return &pars.a;
+    if (name == "curv_fact_elec_trans") return &pars.curv_fact_elec_trans;
+    if (name == "curv_fact_colim") return &pars.curv_fact_colim;
+    if (name == "b") return &pars.b;
+    if (name == "c") return &pars.c;
+    if (name == "psi_crit") return &pars.psi_crit;
+    if (name == "beta2") return &pars.beta2;
+    if (name == "g1_TF24") return &pars.g1_TF24;
+    if (name == "rho") return &pars.rho;
+    if (name == "a_bio") return &pars.a_bio;
+    if (name == "root_b") return &pars.root_b;
+    if (name == "root_c") return &pars.root_c;
+    if (name == "root_psi_crit") return &pars.root_psi_crit;
+    util::stop("graft_leaf_outputs: Leaf names the parameter input '" + name +
+               "' and TF24_Pars has no member of that name");
+    return nullptr;
+  }
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
@@ -730,10 +752,13 @@ void TF24_Strategy<S>::graft_leaf_outputs(
   const size_t n = static_cast<size_t>(leaf.max_soil_layer);
   const size_t n_layer = leaf.soil_consumption_.size();
 
-  // The leaf's state-dependent inputs, in the order inputs() names them. Its
-  // parameter rows are not built yet and are left off rather than read as NaN.
+  // One x per name in Leaf::inputs(): the state-dependent block, then this
+  // strategy's own parameter member for each leaf parameter the leaf names.
+  // These rows are supplied partials, so the block's value is deliberately
+  // independent of them and a block-level difference cannot referee them.
+  const std::vector<std::string> leaf_input_names = leaf.inputs();
   std::vector<S> x;
-  x.reserve(2 * n + 3);
+  x.reserve(leaf_input_names.size());
   x.push_back(radiation);
   for (size_t j = 0; j < n; ++j) {
     x.push_back(psi_soil[j]);
@@ -743,10 +768,14 @@ void TF24_Strategy<S>::graft_leaf_outputs(
     x.push_back(mass_root_prop_[j]);
   }
   x.push_back(leaf_specific_conductance_max);
+  for (size_t j = 2 * n + 3; j < leaf_input_names.size(); ++j) {
+    x.push_back(*leaf_parameter_address(leaf_input_names[j]));
+  }
 
+  // graft checks the row against x, so a length that stops matching is a hard
+  // failure rather than a silently dropped tail.
   std::vector<double> row, lambda(n, 0.0);
   leaf.input_adjoints(1.0, lambda, row);
-  row.resize(x.size());
   leaf_profit_ = graft(leaf.profit_, row, x);
 
   // soil_consumption_ is sized to the layer count and written only where there
@@ -760,7 +789,6 @@ void TF24_Strategy<S>::graft_leaf_outputs(
     std::fill(lambda.begin(), lambda.end(), 0.0);
     lambda[j] = 1.0;
     leaf.input_adjoints(0.0, lambda, row);
-    row.resize(x.size());
     leaf_soil_consumption_[j] = graft(leaf.soil_consumption_[j], row, x);
   }
 }
