@@ -7,7 +7,7 @@
 #include <plant/models/tf24_environment.h>
 #include <plant/qag.h>
 #include <plant/leaf_model.h>
-#include <plant/canopy_shape.h> // ShadingModel
+#include <plant/canopy_shape.h>
 
 namespace plant {
 
@@ -92,6 +92,24 @@ struct TF24_Pars {
   double dmass_dN = 0; // change in mass per change in kg kg^-1 N
   // shape exponent for the Q() root-fraction-with-depth profile
   double root_depth_shape_eta = 0.2;
+  // * Root hydraulics
+  // Root vulnerability curve, proportion of conductivity =
+  // exp(-(psi/root_b)^root_c). Declared before root_psi_crit, which derives
+  // from them. Previously fixed members of TF24_Strategy and unreachable from
+  // R, which pinned root shutoff at ~5.87 MPa -- too conservative for taxa that
+  // operate below that (e.g. Acacia aneura), and unavailable for calibration.
+  double root_c = 2.680147;
+  double root_b = 3.898245;
+  // Potential at 5% remaining root conductivity [MPa]. Derived, exactly as
+  // psi_crit is from b and c: if you set root_b or root_c directly, set this
+  // too, or the vulnerability curve and the shutoff threshold disagree.
+  double root_psi_crit = root_b*std::pow(log(1/0.05),1/root_c);
+  // Maximum rooting depth [m]. Rooting depth is min(height, rooting_depth_max),
+  // so this also bounds the depth over which roots can draw water. Should not
+  // exceed the soil column depth (TF24_Environment `depth`, default 1.5 m):
+  // layers below the column do not exist, so deepening roots alone gains
+  // nothing without deepening the soil as well.
+  double rooting_depth_max = 1.5;
   // Germination
   double recruitment_decay = 0.0;
 };
@@ -109,7 +127,15 @@ public:
   // v3 (#517/#554): NSC storage pool + reserve-gated growth and reserves-based
   // mortality change the simulation output for identical inputs; TF24f's
   // compound version auto-tracks this to 3.1.
-  static constexpr int scientific_version = 3;
+  // v4: the hydraulic shut-down exits no longer leave the previous step's
+  // transport state in place, so a shut-down plant stops drawing water from the
+  // soil (it used to keep extracting its last wet-step uptake, because `Leaf`
+  // is reused across steps and soil_consumption_ feeds the patch water
+  // balance). Water-limited runs therefore change: on the scenario gateway,
+  // offspring production moves by up to 5e-3 relative on 5 of 8 scenarios,
+  // while every success/failure classification is unchanged. TF24f's compound
+  // version auto-tracks this to 4.1.
+  static constexpr int scientific_version = 4;
 
   double compute_average_light_environment(double z, double height,
                                            const TF24_Environment &environment);
@@ -149,6 +175,10 @@ public:
       "E_up_",
       "profit",
       "stom_cond_CO2",
+      // Net CO2 assimilation at the optimal operating point, per unit leaf
+      // area (umol CO2 m^-2 s^-1). Net, not gross: Leaf::assim_colimited()
+      // subtracts dark respiration R_d_, so gross = assimilation + R_d_ with
+      // R_d_ = 0.015 * vcmax_ at the acclimated vcmax_.
       "assimilation"
     });
     // add the associated computation to compute_rates and compute there
@@ -316,8 +346,20 @@ public:
   double storage_capacity(double area_leaf, double height) const;
   // Seed the storage state for a newly germinated individual (#517).
   void set_initial_states(const TF24_Environment& environment, Internals& vars);
-  // [eqn 20] Survival of seedlings during establishment
+  // [eqn 20] Survival of seedlings during establishment, from the carbon a
+  // seedling produces at birth size. This form works that carbon out.
   double establishment_probability(const TF24_Environment& environment);
+  // The same, for a newborn whose rates have just been computed. A newborn is
+  // already at birth size, so compute_rates has left that carbon in aux and the
+  // leaf need not be solved there twice.
+  double establishment_probability(const TF24_Environment& environment,
+                                   const Internals& vars) {
+    return establishment_probability(environment,
+                                     vars.aux(aux_idx_net_mass_production_dt));
+  }
+  // The equation the two above share.
+  double establishment_probability(const TF24_Environment& environment,
+                                   double net_mass_production_dt_);
 
   // * Competitive environment
   // [eqn 11] total projected leaf area above height above height `z` for given plant
@@ -334,12 +376,10 @@ public:
                                vars.aux(aux_idx_height_inverse));
   }
 
-  // [eqn  9] Probability density of leaf area at height `z`
-  double q(double z, double height) const;
-  // [eqn 10] Fraction of leaf area above height `z`
-  double Q(double z, double height, double eta_x) const;
-  // [      ] Inverse of Q: height above which fraction 'x' of leaf found
-  double Qp(double x, double height) const;
+  // The fraction of root mass below soil depth `z`, for a plant rooted to
+  // `rooting_depth` with shape exponent `eta_x` (pars.root_depth_shape_eta). The
+  // canopy's own cumulative form is CanopyShape::Q, at pars.eta.
+  double Q(double z, double rooting_depth, double eta_x) const;
 
   // The aim is to find a plant height that gives the correct seed mass.
   double height_seed(void) const;
@@ -361,17 +401,13 @@ public:
 
   // Derived / precomputed in prepare_strategy() (NOT user-set) -------------
   double eta_c     = NA_REAL; // crown shape factor, precomputed from pars.eta
+  CanopyShape canopy_shape;
   // Height and leaf area of a (germinated) seed
   double height_0  = NA_REAL;
   double area_leaf_0;
 
   // Embedded leaf hydraulic/photosynthesis sub-model, built in prepare_strategy()
   Leaf leaf;
-
-  // Hydraulic root parameters (not currently exposed to R; see review #9)
-  double root_c = 2.680147;
-  double root_b = 3.898245;
-  double root_psi_crit = root_b*std::pow(log(1/0.05),1/root_c); // derived from root_b and root_c
 
   // Width of the smooth reserve gate G(r) on growth (#517); small relative to
   // [0,1] so the switch about the growth threshold a_st2 is fairly sharp but
@@ -402,6 +438,7 @@ public:
   int aux_idx_E_up = -1;
   int aux_idx_profit = -1;
   int aux_idx_stom_cond_CO2 = -1;
+  int aux_idx_assimilation = -1;
   int aux_idx_area_sapwood = -1;       // only present when collect_all_auxiliary
   int state_idx_area_heartwood = -1;
   int state_idx_mass_heartwood = -1;

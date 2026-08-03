@@ -1,4 +1,5 @@
 #include <plant/leaf_model.h>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <exception>
@@ -301,7 +302,9 @@ void Leaf::set_physiology(double area_leaf, const std::vector<double>& mass_root
   }
 
   // Set up vector of root water uptake from layer
-  soil_consumption_.resize(soil_number_of_depths_, 0.0);
+  // .assign, not .resize: the solve writes only up to max_soil_layer and resize's
+  // fill reaches only new elements, so deeper layers would hold the previous solve's.
+  soil_consumption_.assign(soil_number_of_depths_, 0.0);
 
   // Soil-moisture state for the Medlyn beta_ stress factor (develop #450). The
   // root-water compute path does not use these; they make the standalone,
@@ -671,6 +674,43 @@ void Leaf::set_shutdown_state(double root_collar) {
   root_collar_psi_ = root_collar;
   opt_psi_stem_ = psi_crit;
   profit_ = -R_d_ - hydraulic_cost_TF(psi_crit);
+  // Stomata are shut, so gross assimilation is zero and the reported net rate
+  // is -R_d_. Set explicitly: this branch does not go through
+  // profit_psi_stem_TF, so assim_colimited_ would otherwise be left at
+  // whatever the last probe wrote, and it is now reported as an aux variable.
+  // Keeps profit_ == assim_colimited_ - hydraulic_cost_TF() in every branch.
+  assim_colimited_ = -R_d_;
+  // Shut down means no water movement, so zero the whole transport chain.
+  // This matters beyond diagnostics: the first caller below returns before any
+  // E_from_Soil_to_Root_Collar call in this solve, and `Leaf` is a value member
+  // reused across every compute_rates call for an individual. Left alone,
+  // soil_consumption_ therefore keeps the *previous* step's values, and
+  // TF24_Strategy::evapotranspiration_dt feeds those straight into the patch
+  // water balance -- a plant that has closed its stomata carries on drawing its
+  // last wet-step uptake out of the soil. Note the water budget still *closes*
+  // in that state (what is recorded as depleted is what is removed), so the
+  // conservation tests cannot catch it; only the physics is wrong.
+  transpiration_ = 0.0;
+  stom_cond_CO2_ = 0.0;
+  E_up_ = 0.0;
+  std::fill(soil_consumption_.begin(), soil_consumption_.end(), 0.0);
+}
+
+// psi_soil_ arrives as positive magnitudes; flip once to the signed convention the
+// soil->collar transport uses, and precompute each layer's cumulative-integral
+// lookup at that same argument. Returns the wettest layer's potential.
+double Leaf::refresh_soil_potentials() {
+  psi_soil_inverted_.resize(max_soil_layer);
+  root_vuln_integral_soil_.resize(max_soil_layer);
+  double wettest_soil_layer = -std::numeric_limits<double>::infinity();
+  for (size_t i = 0; i < max_soil_layer; ++i) {
+    const double psi_inverted = -psi_soil_[i];
+    psi_soil_inverted_[i] = psi_inverted;
+    root_vuln_integral_soil_[i] =
+        root_vuln_integral_from_psi.eval(-psi_inverted);
+    wettest_soil_layer = std::max(wettest_soil_layer, psi_inverted);
+  }
+  return wettest_soil_layer;
 }
 
 // Shared setup + feasibility handling for the root-collar solve. Extracted
@@ -682,22 +722,7 @@ void Leaf::set_shutdown_state(double root_collar) {
 // collar-potential interval (positive magnitudes) otherwise.
 bool Leaf::prepare_collar_solve(double& bound_a, double& bound_b){
 
-  // psi_soil_ arrives as positive magnitudes; flip once to the signed (negative)
-  // potential convention used throughout the soil->collar transport (see the
-  // sign-conventions block above E_from_Soil_to_Root_Collar).
-  psi_soil_inverted_.resize(max_soil_layer);
-  // Precompute the soil-side cumulative-integral lookups once per solve; the
-  // argument fed to the spline in E_from_Soil_to_Root_Collar when the soil layer
-  // is the selected endpoint is exactly -psi_soil_inverted_[i].
-  root_vuln_integral_soil_.resize(max_soil_layer);
-  double wettest_soil_layer = -std::numeric_limits<double>::infinity();
-  for (size_t i = 0; i < max_soil_layer; ++i) {
-    const double psi_inverted = -psi_soil_[i];
-    psi_soil_inverted_[i] = psi_inverted;
-    root_vuln_integral_soil_[i] =
-        root_vuln_integral_from_psi.eval(-psi_inverted);
-    wettest_soil_layer = std::max(wettest_soil_layer, psi_inverted);
-  }
+  const double wettest_soil_layer = refresh_soil_potentials();
 
   // Avoid loop if the wettest psi layer is drier than psi_crit in stem, transpiration not possible and so all variables set to
   // shut down
@@ -740,6 +765,16 @@ if(assim_max_ < 0){
     E_from_Soil_to_Root_Collar(root_collar_psi_, psi_soil_inverted_);
 
     profit_ = - R_d_ - hydraulic_cost_TF(-root_collar_psi_);
+    // As in set_shutdown_state: transpiration is zero here, so gross
+    // assimilation is zero and the reported net rate is -R_d_.
+    assim_colimited_ = -R_d_;
+    // E_up_ and soil_consumption_ are already correct: the
+    // E_from_Soil_to_Root_Collar call above evaluates them at root_zero_E, the
+    // collar potential at which uptake is zero. The leaf-side pair is not set
+    // anywhere on this path, though, so zero it here rather than leave the
+    // previous step's values (see set_shutdown_state for why that matters).
+    transpiration_ = 0.0;
+    stom_cond_CO2_ = 0.0;
 
         if(std::isnan(profit_)){
           util::stop("Error: profit nan");
@@ -892,11 +927,29 @@ double Leaf::dprofit_droot_collar_psi(double opt_root_psi) {
   const double psi = opt_root_psi;
   const double gstar_Pa = gamma_ * umol_per_mol_to_Pa;
 
+  // Every transport evaluation below reads psi_soil_inverted_, so seat it on the
+  // current psi_soil_ here rather than depending on the caller's last solve.
+  refresh_soil_potentials();
+
   // Operating point in double.
   const double psi_stem = find_psi_stem_from_psi_root(-psi, psi_soil_inverted_);
-  const double ci = psi_stem_to_ci(psi_stem, psi);
-  if (!std::isfinite(psi_stem) || !std::isfinite(ci)) {
+  // Shut down before the ci solve, not after. psi and psi_stem are positive
+  // magnitudes here, so psi >= psi_stem is the no-flow / reversed-gradient case
+  // -- the same condition set_leaf_states_rates_from_psi_stem() treats as zero
+  // transpiration. It has to be caught *here* because psi_stem_to_ci() does not
+  // return non-finite in that state, it throws: gc = const * transpiration goes
+  // negative, which flips the sign of the supply term so the residual no longer
+  // crosses zero over (gamma*, ca] and TOMS748 reports "a and b do not bracket
+  // the root". The isfinite check below was written to cover shut-down but
+  // cannot see a thrown exception, so a dry patch killed the whole run:
+  // reproduced on TF24f at 5 layers, theta = 0.005-0.03 with 1 m/yr rainfall,
+  // at psi_stem = 1.23 against psi_upstream = 5.92 MPa.
+  if (!std::isfinite(psi_stem) || psi >= psi_stem) {
     return 0.0;  // shut-down / infeasible: no informative gradient
+  }
+  const double ci = psi_stem_to_ci(psi_stem, psi);
+  if (!std::isfinite(ci)) {
+    return 0.0;
   }
 
   // A'(ci) and C'(psi_stem) via forward-mode AD of the analytic algebra.
@@ -1196,13 +1249,13 @@ double Leaf::assim_electron_limited(double ci_) {
   ((ci_ - gamma_ * umol_per_mol_to_Pa) / (ci_ + 2 * gamma_ * umol_per_mol_to_Pa));
 }
 
-// returns co-limited assimilation umol m^-2 s^-1
+// returns co-limited assimilation umol m^-2 s^-1, NET of dark respiration
+// (the trailing `- R_d_`), so gross assimilation is this value + R_d_.
 double Leaf::assim_colimited(double ci_) {
-  
+
   double assim_rubisco_limited_ = assim_rubisco_limited(ci_) ;
   double assim_electron_limited_ = assim_electron_limited(ci_);
 
-  // no dark respiration included at the moment
   return (assim_rubisco_limited_ + assim_electron_limited_ - sqrt(pow(assim_rubisco_limited_ + assim_electron_limited_, 2) - 4 * curv_fact_colim * assim_rubisco_limited_ * assim_electron_limited_)) /
              (2 * curv_fact_colim)- R_d_;
 

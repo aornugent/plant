@@ -545,6 +545,9 @@ Node:
     individual: {type: "plant::Individual<T,E>", access: field, readonly: true}
     height: {type: double, access: member}
     log_density: {type: double, access: member, name_cpp: get_log_density}
+    ## The node's birth date. For the not-yet-introduced boundary node this is
+    ## the current patch time, refreshed on every environment build.
+    introduction_time: {type: double, access: member, readonly: true}
     fecundity: {type: double, access: member}
     ode_size: {type: size_t, access: member}
     ode_state: {type: "std::vector<double>", access: function, name_cpp: "odelia::ode::r_ode_state", name_cpp_set: "odelia::ode::r_set_ode_state"}
@@ -583,6 +586,9 @@ Species:
     heights: {type: "std::vector<double>", access: member, name_cpp: r_heights, name_cpp_set: r_set_heights}
     log_densities: {type: "std::vector<double>", access: member, name_cpp: r_log_densities}
     node_times: {type: "std::vector<double>", access: member}
+    ## Which coordinate this species' size distribution is carried in. Set from
+    ## the patch's control, not the strategy's (Patch::add_strategies).
+    density_in_birth_date: {type: bool, access: member, readonly: true}
     patch_densities: {type: "std::vector<double>", access: member, name_cpp: r_patch_densities}
     pr_patch_survival_at_birth: {type: "std::vector<double>", access: member, name_cpp: r_pr_patch_survival_at_birth}
     nodes: {type: "std::vector<plant::Node<T,E> >", access: member, name_cpp: r_nodes}
@@ -651,9 +657,6 @@ Patch:
     compute_environment:
       return_type: void
       name_cpp: r_compute_environment
-    compute_rates:
-      return_type: void
-      name_cpp: r_compute_rates
     reset:
       return_type: void
     # Because we now care about time, we need to make sure that the
@@ -1258,6 +1261,10 @@ TF24_Pars:
     - nmass_r: double
     - dmass_dN: double
     - root_depth_shape_eta: double
+    - root_c: double
+    - root_b: double
+    - root_psi_crit: double
+    - rooting_depth_max: double
     - recruitment_decay: double
 
 TF24_Strategy:

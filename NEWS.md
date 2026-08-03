@@ -145,23 +145,170 @@ were not previously recorded here:
   in its result list — it is not defined for the finite-population model and was
   never populated (#498, #506). Migration:
   * `run_stochastic_collect(...)$offspring_production` -> removed (no equivalent)
+* `Patch` computes its rates when they are read rather than when its state is
+  set, so reading `$ode_rates` now evaluates and the separate compute entry point
+  is gone (#585). Migration:
+  * `patch$compute_rates()` (removed) -> `patch$ode_rates`, which computes at the
+    state currently loaded and returns the result
+  * Semantic change: `patch$ode_rates` was a cheap read of stored values and is
+    now a full right-hand-side evaluation. `StochasticPatch$compute_rates()` is
+    unchanged.
 
 ### New features
 
 * **`Control$node_density_in_birth_date`** (default `FALSE`) carries the SCM's
-  size distribution as a density in birth date instead of in height. The
-  transport equation's compression term is the total derivative of the growth
+  size distribution as a density in birth date instead of in height.
+
+  The transport equation's compression term is the total derivative of the growth
   rate along a cohort's own trajectory, which equals `∂g/∂h` only when growth is
-  a function of size; TF24's reserve gate breaks that, and the sub-grid
-  finite-difference probe then computes an accurate derivative of the wrong
-  quantity. In birth-date coordinates the density rate is mortality alone, the
-  birth density is `birth_rate·pr_estab` with no division by the growth rate,
-  and both resource integrals run over introduction times. With the flag off the
-  solver is bit-identical to before; with it on, K93 and FF16 agree with the
-  height coordinate to `1.5e-4` and `1.2e-3`, while TF24's offspring production
-  goes from an unconverged 42.1 to a converged 400.9. `Node::growth_rate_gradient`
-  is not called, which also removes one leaf solve per cohort per Runge-Kutta
-  stage.
+  a function of size. TF24's reserve gate breaks that: the finite-difference
+  probe in `Node::growth_rate_gradient` moves height while holding *absolute*
+  carbon fixed, so it shifts the reserve fraction `r = S/S_max`, whereas a cohort
+  actually grows with `r` roughly constant. The probe is accurate about a
+  quantity the plant never experiences, so this is a different derivative rather
+  than a worse approximation of the right one.
+
+  In birth-date coordinates the density rate is mortality alone (nothing moves an
+  individual along the birth-date axis), the birth density is
+  `birth_rate·pr_estab` with no division by the growth rate, and both resource
+  integrals run over introduction times.
+
+  With the flag off the solver is bit-identical to before. With it on:
+
+  - FF16 and K93 have size-only growth, so both coordinates must converge to the
+    same answer, and do. Relative difference in offspring production over
+    successive halvings of the node spacing: FF16 `1.0e-2`, `4.2e-3`, `1.2e-3`,
+    `2.9e-4`; K93 `2.6e-3`, `5.9e-4`, `1.4e-4`, `3.5e-5`. That is the ~2nd order
+    of the trapezium rule, and confirms the coordinate change is a change of
+    coordinates.
+  - The gap is almost entirely the *height* coordinate's error. Across those same
+    four schedules FF16's birth-date answer moves 18.6956 → 18.6996 while its
+    height answer climbs 18.5071 → 18.6941 toward it. At the default schedule the
+    birth-date answer is already within `2e-4` of converged and the height answer
+    is `1.0e-2` away — roughly 50x more accurate for the same number of nodes.
+  - TF24, whose growth is not a function of size alone, is the case the two
+    coordinates genuinely disagree on, and the diagnostic is that refining the
+    schedule does *not* close the gap the way it does for FF16 and K93. At
+    `lma = 0.0825`, `hmat = 5`, `birth_rate = 20`,
+    `max_patch_lifetime = 30`, over the same three schedules: height
+    474 → 587 → 696, birth date 3495 → 3729 → 3840, a ratio of 7.4 → 6.3 → 5.5.
+    Both are still moving, so neither figure is a converged value; the point is
+    that they are not converging *to each other*, which is what a wrong
+    compression term looks like as against a coarse quadrature.
+
+  `Node::growth_rate_gradient` is not called, which also removes one leaf solve
+  per cohort per Runge-Kutta stage.
+
+  Two invariants the birth-date axis needs, which the height axis did not:
+
+  - The boundary node's birth date is the current time, so
+    `Patch::compute_environment()` refreshes it before building the profile.
+    `compute_rates()` (which stamps it) runs *after* the `set_ode_state()` that
+    rebuilds the environment, so reading the stamp there would use the previous
+    derivs call's time. The measured effect on FF16 offspring production is below
+    `1e-6` — the boundary node carries almost no leaf area — but it made the
+    spatial quadrature a function of the ODE step size.
+  - Introduction times are the quadrature grid, so repeated ones span zero width
+    and drop out of the integrals. A scheduled run cannot produce them; a patch
+    seeded or resumed *without* per-node times gives every node the boundary
+    node's birth date, which would silently zero the competition profile.
+    `Patch::check_birth_dates_distinct()` now rejects that with an actionable
+    message. A faithful `export_patch_state()` / `set_initial_state()`
+    round-trip carries the times and is unaffected.
+
+  `Species::compute_competition()` keeps the sorted-grid fallback of #574 for the
+  height coordinate only: that path integrates in height, so sending the
+  birth-date coordinate down it would swap coordinates mid-run. The birth-date
+  abscissa cannot invert (introduction times are fixed at birth), but the
+  *height* early exit is skipped when the height ordering has broken, since a
+  node below the query height can then be followed by a taller one.
+* **A dry TF24f patch no longer aborts the whole run on the ci root-find.**
+  `Leaf::dprofit_droot_collar_psi` — TF24f's exact AD/IFT gradient — called
+  `psi_stem_to_ci()` before testing for hydraulic shut-down. In shut-down,
+  `psi_upstream >= psi_stem` (both positive magnitudes), so
+  `gc = const · transpiration` goes negative, the residual stops crossing zero
+  over (Γ*, ca], and TOMS748 throws *"a and b do not bracket the root"* rather
+  than returning non-finite — which is what the existing `isfinite` guard on the
+  next line was written to catch, and cannot see. One dry patch therefore killed
+  the run. The condition is now tested *before* the solve, matching what
+  `set_leaf_states_rates_from_psi_stem()` has always done, and returns a zero
+  gradient. Reproduced at 5 soil layers, θ = 0.005–0.03 with 1 m yr⁻¹ rainfall
+  (ψ_stem = 1.23 against ψ_upstream = 5.92 MPa). Behaviour changes only in states
+  that previously threw, so no scientific version bump.
+* **Adaptive interpolation now names a non-finite target instead of blaming
+  resolution.** `AdaptiveInterpolator::check_err()` compares against NaN, and
+  every NaN comparison is false, so a single NaN or Inf from the target made its
+  interval permanently unacceptable: refinement halved the spacing to
+  `max_depth` and then reported *"Interpolated function as refined as currently
+  possible"*. That message cost real debugging time on a TF24 patch. A
+  non-finite value now fails immediately, naming the point and the value; the
+  resolution-limit message additionally reports the spacing reached, the limit,
+  and the tolerances missed. A new `test_adaptive_interpolator()` test hook
+  drives the refiner from R (the production caller passes a C++ lambda).
+* **The scenario scorecard now reports `persists`.** Whether a strategy replaces
+  itself, R0 >= 1, which is a different question from whether the run completed.
+  It matters because `status`/`outcome` test `total > 0`: at the current baseline
+  five of the eight hydraulic scenarios return R0 between 2e-15 and 6e-14 —
+  numerically extinct — and were all recorded as `"persisted"`. Only **1 of 8**
+  scenarios persists. That is the main reason the gateway discriminates so little
+  (3/8, with no expected failure failing). Reported alongside, not folded into,
+  the existing classification: the scenario CSV's "Model failure" means the model
+  *breaks numerically* (#549/#550), not that the strategy dies out, and the
+  blessed baseline diff is defined on the existing columns.
+  `scenario_summary()` gains `n_persists` and tolerates scorecards recorded
+  before the column existed.
+* **A hydraulically shut-down plant no longer draws water from the soil
+  (`TF24@v4`, `TF24f@v4.1`).** Both shut-down exits in
+  `Leaf::find_root_collar_psi` set `profit_` directly and bypass
+  `profit_psi_stem_TF`, and the first returns before any
+  `E_from_Soil_to_Root_Collar` call in that solve. Because `Leaf` is a value
+  member reused across every `compute_rates` call for an individual, every leaf
+  output they did not assign kept the **previous step's** value. That was not
+  just a reporting problem: `soil_consumption_` feeds
+  `TF24_Strategy::evapotranspiration_dt` and hence the patch water balance, so a
+  plant whose stomata had closed carried on extracting its last wet-step uptake.
+  Measured: an individual moved from θ = 0.30 to θ = 0.02 (past ψ_crit) reported
+  `E_up_` and `transpiration` *identical* to its wet step. Both exits now zero
+  the transport chain (`transpiration_`, `stom_cond_CO2_`, `E_up_`,
+  `soil_consumption_`), and recovery on rewetting is tested. Note the water
+  budget still *closed* in the buggy state — what was recorded as depleted was
+  what was removed — so the conservation tests could not catch this; only the
+  physics was wrong. Because water-limited runs change (scenario gateway:
+  offspring production moves by up to 5e-3 relative on 5 of 8 scenarios, with
+  every success/failure classification unchanged), the TF24 scientific version
+  is bumped **3 → 4** and `TF24f` tracks to **4.1**. This invalidates `logpile`
+  caches for water-limited TF24 runs, which is the intended, safe direction.
+* **Root hydraulic parameters are now settable from R.** `root_b`, `root_c`,
+  `root_psi_crit` and `rooting_depth_max` move into `TF24_Pars` (they were fixed
+  members of `TF24_Strategy` and a file-static constant in
+  `src/tf24_strategy.cpp`, so unreachable from R). Root shutoff was pinned at
+  ψ ≈ 5.87 MPa, too conservative for taxa that operate below it (e.g. *Acacia
+  aneura*), and rooting depth at 1.5 m. **Defaults are unchanged**, so this is
+  an interface change only and the TF24 scientific version does *not* move.
+  Two cautions: `root_psi_crit` is derived from `root_b` and `root_c` exactly as
+  `psi_crit` is from `b` and `c`, so set it whenever you set those; and
+  `rooting_depth_max` beyond the soil column depth (`TF24_Environment$depth`,
+  default 1.5 m) gains nothing, because the layers do not exist.
+* **`check_driver_interpolation()`** reports how a driver's control points
+  survive interpolation — evaluated range, fraction of the series that goes
+  negative, undershoot area, and the interpolated vs supplied integral — and
+  warns when a non-negative series interpolates negative. Extrinsic drivers use
+  a cubic spline, which is a poor fit for intermittent forcing: a realistic
+  daily rainfall series with a ~10% wet-day fraction evaluates negative at ~45%
+  of points, reaching −5.7 m yr⁻¹. Worth running on any site-forcing series
+  before committing to a long run.
+* **`assimilation` is now reported for TF24/TF24f.** The auxiliary variable was
+  listed in `aux_names()` but never written — no index was resolved and no
+  `set_aux` call referenced it — so the slot reported whatever `Internals`
+  happened to hold, and carbon uptake was unavailable as a model output. It now
+  carries net CO₂ assimilation at the optimal operating point, per unit leaf
+  area (µmol CO₂ m⁻² s⁻¹). **Net, not gross:** `Leaf::assim_colimited()`
+  subtracts dark respiration, so gross = `assimilation` + R_d with
+  R_d = 0.015·vcmax at the acclimated vcmax. It is integrated over the crown
+  under `deep-crown` shading alongside the other leaf outputs, and the two
+  hydraulic shut-down exits now set it explicitly (to −R_d) instead of leaving a
+  stale probe value, keeping `profit == assimilation − hydraulic cost` true in
+  every branch.
 
 * **NSC storage pool for TF24 (`TF24@v3`, `TF24f@v3.1`).** TF24 now carries a
   non-structural-carbohydrate storage state so growth and mortality respond to
@@ -234,12 +381,9 @@ were not previously recorded here:
   variables (#323) and environment state variables (#305) exposed/added.
 * Added an HTML report (plots + analyses) for the FF16 strategy (#350).
 
-### Minor changes & bug fixes
+### Known issues
 
-* `SpeciesBase::control()` called `strategy->get_control()`, which does not
-  exist on any strategy. The member had never been instantiated, so the error
-  had never been compiled; it now reads `strategy->control`.
-* Known, not yet fixed: `stochastic_schedule()` passes `patch_area` into
+* `stochastic_schedule()` passes `patch_area` into
   `stochastic_arrival_times()`'s third positional argument, which is `delta_t`.
   Arrival rates therefore never scale with patch area, and the binning interval
   is set to the area instead. Passing it by name is the fix, but
@@ -247,6 +391,42 @@ were not previously recorded here:
   expectations, so correcting it makes that file ~50x heavier and needs its
   parameters and baselines revisited. Probes that need a correct schedule build
   their own (see `plant-dev` `probes/12-oracle.R`).
+
+### Minor changes & bug fixes
+
+* `SpeciesBase::control()` called `strategy->get_control()`, which does not
+  exist on any strategy. The member had never been instantiated, so the error
+  had never been compiled; it now reads `strategy->control`.
+* **The TF24 rainfall driver is floored at zero.** Because drivers are
+  interpolated with a cubic spline, an intermittent series undershoots below
+  every supplied value, and negative rainfall gave negative infiltration and an
+  unphysical drying rate. That failed two different ways depending on soil
+  wetness: above residual moisture the water really was removed, while at or
+  below residual the guard in `compute_rates` clamped the rate, so the removal
+  was recorded in `sum_rainfall` but never applied and the water budget stopped
+  closing. Drylands sit at residual for much of the year, so the second case is
+  the common one. Note the floor bounds the *sign* only and is not a correction
+  to the interpolation: the spline conserves the integral exactly (undershoot is
+  compensated by overshoot), so discarding the negative lobes raises total
+  rainfall by the undershoot area — ~7% for a realistic daily series. The remedy
+  is not to spline an intermittent series; see `check_driver_interpolation()`.
+  Runs with constant or smooth seasonal rainfall are unaffected (the scenario
+  gateway's sinusoidal driver never goes negative), so the TF24 scientific
+  version does not move.
+* Corrected the comment on `Leaf::assim_colimited()`, which claimed "no dark
+  respiration included at the moment" while the code subtracts `R_d_`. The
+  function returns a *net* rate; the comment now says so, along with how to
+  recover the gross rate.
+* Water-budget test coverage extended from a single layer to 1, 5 and 15 layers,
+  now including root uptake in the balance (the previous check ran for 0.01 yr,
+  where uptake was negligible), across the saturated-to-dry range and at and
+  below the residual-moisture floor. Closure holds to round-off (relative
+  residual < 1e-12) in every case. A companion test documents *why* the residual
+  clamp never leaks in practice: with `n_psi = 6.57` the conductivity exponent
+  is 2·n_psi+3 ≈ 16, so K(θ) collapses and ψ(θ) diverges far above θ_r —
+  transport has already stopped, making the clamp a safety net rather than an
+  active mass sink.
+
 * `run_scm()` now fails with an actionable message when the SCM size-density
   (characteristic) equations run away under extreme forcing (e.g. severe
   seasonal drought in TF24): a cohort density overflowing to `+Inf`, or the
@@ -284,6 +464,16 @@ were not previously recorded here:
 
 ### Internals & performance
 
+* The scenario gateway's seasonal rainfall driver places its spline knots **per
+  year** (48 yr⁻¹) rather than per run, so the realised seasonality no longer
+  depends on `max_patch_lifetime`. The previous `max(200, mpl × 6)` gave 6 knots
+  per annual cycle at the default `mpl = 100`. Measured, that was more accurate
+  than it looked — cubic interpolation of a sine at 6 points/cycle is accurate to
+  5.4e-3 on a peak of 3.0 (0.18%) and conserves the annual total to 1e-5 % — so
+  this is robustness, not a bug fix; the error is 4th-order in the spacing and
+  would degrade at larger `mpl`. Gateway effect: offspring production moves by up
+  to 6.2% relative (demography amplifies the 0.18% driver change), with every
+  success/failure classification unchanged, so the baseline needs no re-blessing.
 * Each strategy now keeps its biological parameters in a value-member struct
   (`FF16_Pars`/`K93_Pars`/`TF24_Pars`) exposed to R as a nested `pars` list;
   derived/computed members (eta_c, height_0, the TF24 Leaf model, solver

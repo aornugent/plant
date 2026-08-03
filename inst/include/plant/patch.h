@@ -5,12 +5,15 @@
 #include <plant/parameters.h>
 #include <plant/species.h>
 #include <plant/util.h>
+#include <plant/adaptive_interpolator.h> // interpolator::refinement_failure
 #include <odelia/ode_interface.hpp>
 
 #include <plant/disturbance_regime.h>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
+#include <string>
 
 using namespace Rcpp;
 
@@ -38,6 +41,11 @@ public:
   double height_max() const;
 
   double compute_competition(double height) const;
+
+  // Describe the size distribution around `height`, for error messages. The
+  // light spline is built from the cohort heights, so when its refinement fails
+  // the useful thing to report is what the cohorts are doing there.
+  std::string describe_nodes_near(double height) const;
 
   // * Lifetime fitness / offspring production
   // These are patch-level quantities: each integrates the per-node weighted
@@ -91,8 +99,10 @@ public:
 
   // Retrieve ode state from patch and save into the ode solver
   odelia::ode::iterator ode_state(odelia::ode::iterator it) const;
-  // Retrieve ode rates from patch and save into the ode solver
-  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const;
+  // Compute rates of change at the state currently loaded and save them into the
+  // ode solver. Computing here rather than in set_ode_state is what makes the
+  // rates always those of that state, however the caller arrived at it.
+  odelia::ode::iterator ode_rates(odelia::ode::iterator it);
   // Retrieve auxillary variables and save into the ode solver
   odelia::ode::iterator ode_aux(odelia::ode::iterator it) const;
 
@@ -132,12 +142,8 @@ public:
   species_type r_at(util::index species_index) const {
     at(species_index.check_bounds(size()));
   }
-  // These are only here because they wrap private functions.
+  // This is only here because it wraps a private function.
   void r_compute_environment() {compute_environment(false);}
-  void r_compute_rates() {
-    environment_ptr = &environment;
-    compute_rates();
-  }
 
   // env. cache for assembly
   std::vector<double> step_history{0.0};  // always start at zero
@@ -165,6 +171,16 @@ private:
   void compute_environment(bool rescale);
   void compute_rates();
 
+  // The environment the rates are computed against: the patch's own on a
+  // resident run, and on a mutant step the one recorded for that step, which the
+  // mutant experiences rather than shapes. Derived from what the patch owns, so
+  // it still refers into the patch after the patch is copied.
+  environment_type& rate_environment() {
+    return use_cached_environment
+      ? environment_history.at(idx).at(cached_environment_index)
+      : environment;
+  }
+
   // Seed the patch from parameters.initial_state (nodes + birth bookkeeping)
   // when present; called from reset(). Sets environment.time = initial_time.
   void set_initial_state();
@@ -177,6 +193,11 @@ private:
   // value can propagate into competition, resource uptake, or physiology and
   // surface as an opaque downstream error.
   void check_finite_ode_state() const;
+  // Guard the birth-date coordinate's quadrature grid: it is the per-node
+  // introduction times, so nodes sharing one give zero-width intervals that drop
+  // silently out of the integral. Only reachable for a patch whose nodes were
+  // created outside the schedule (seeded or imported without per-node times).
+  void check_birth_dates_distinct() const;
 
   parameters_type parameters;
 
@@ -187,7 +208,9 @@ private:
   //TODO(#476): Move into environment?
   std::vector<double> resource_depletion;
 
-  environment_type* environment_ptr;
+  // Which recorded environment a mutant step is evaluated against; see
+  // rate_environment(). Unused on a resident run.
+  int cached_environment_index = 0;
 
   Control control;
 
@@ -255,11 +278,11 @@ void Patch<T,E>::reset() {
    for (auto& s : species) {
     s.clear();
     // allocate variables for tracking resource consumption
-    s.resize_consumption_rates(environment.ode_size());
+    s.resize_consumption_rates(environment.n_resources());
   }
 
   // resize to species count
-  resource_depletion.reserve(environment.ode_size());
+  resource_depletion.reserve(environment.n_resources());
 
   // compute ephemeral effects like light_availability
   environment.clear();
@@ -274,7 +297,6 @@ void Patch<T,E>::reset() {
     compute_environment(false);
 
     // compute effects of resource consumption
-    environment_ptr = &environment;
     compute_rates();
   }
 
@@ -331,10 +353,11 @@ void Patch<T,E>::set_initial_state() {
     }
   }
 
+  check_birth_dates_distinct();
+
   // Build the environment from the real node heights (full recompute, no
   // rescale) and compute rates for the seeded population.
   compute_environment(false);
-  environment_ptr = &environment;
   compute_rates();
 }
 
@@ -347,6 +370,27 @@ void Patch<T,E>::check_initial_density_rates() const {
       util::stop("Rates of initial node densities exceed ~1e43 and will likely "
                  "produce non-finite densities; provide more plausible initial "
                  "conditions (smaller sizes and/or lower densities).");
+    }
+  }
+}
+
+template <typename T, typename E>
+void Patch<T,E>::check_birth_dates_distinct() const {
+  for (size_t i = 0; i < species.size(); ++i) {
+    // Only the birth-date coordinate integrates over these times. On the height
+    // path they feed the lifetime-fitness integral after the run, where a
+    // repeated time has always been tolerated.
+    if (!species[i].density_in_birth_date()) {
+      continue;
+    }
+    if (!species[i].birth_dates_are_distinct()) {
+      util::stop("Species " + util::to_string(i + 1) + " has nodes sharing an "
+                 "introduction time, which the birth-date size-density "
+                 "coordinate integrates over: the repeated nodes span zero width "
+                 "and drop out of the competition and resource integrals. Supply "
+                 "per-node introduction times (parameters$initial_node_times) "
+                 "with the initial state, or run with "
+                 "control$node_density_in_birth_date = FALSE.");
     }
   }
 }
@@ -561,36 +605,152 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 // Creates splines of resource availability
 template <typename T, typename E>
 void Patch<T,E>::compute_environment(bool rescale) {
-  
+
+  // The boundary node is one end of the birth-date quadrature and its birth date
+  // is the current time, so refresh it before the profile is built. Its own
+  // stamp is set in compute_rates(), which the stepper calls *after* the
+  // set_ode_state() that brings us here, so reading that stamp would use the
+  // previous derivs call's time and shorten the boundary interval by a
+  // Runge-Kutta stage. Measured effect on FF16 offspring production is below
+  // 1e-6 -- the boundary node carries almost no leaf area, so the segment it
+  // ends contributes little -- but the interval is then a function of the step
+  // size, which the spatial quadrature has no business depending on, and the
+  // whole integral *is* that one segment while a species has a single node.
+  // No-op for the height coordinate, where this abscissa is the constant
+  // initial height.
+  for (auto& s : species) {
+    s.set_new_node_birth_date(environment.time);
+  }
+
   // Define an anonymous function to use in creation of environment
   auto f = [&](double x) -> double { return compute_competition(x); };
 
   if (size() > 0 & !is_mutant_run) {
-    environment.compute_environment(f, height_max(), rescale);
+    try {
+      environment.compute_environment(f, height_max(), rescale);
+    } catch (const interpolator::refinement_failure& e) {
+      // The refiner can only say that the profile has a feature it cannot
+      // resolve, at some height. We know what is at that height, and it is
+      // usually the actual problem: cohorts stacked at one size put a step in
+      // the competition profile (#571). Say so rather than making the reader
+      // reconstruct the patch state by hand.
+      util::stop(std::string(e.what()) + " " +
+                 describe_nodes_near(e.report.x_lo));
+    }
   }
+}
+
+// Report what the size distribution is doing around `height`: how many cohorts
+// sit within a narrow window of it, and -- the usual culprit -- whether the node
+// list is still ordered by decreasing height. Species::compute_competition() and
+// Species::height_max() both take that ordering as given (see the invariant noted
+// on both), so once it is violated the competition profile they build has
+// fictitious steps in it, and the refiner fails on one of them (#571).
+//
+// A window rather than a single point because the unresolved interval is ~1e-5 m
+// wide, while what matters is whether cohorts share effectively the same size.
+template <typename T, typename E>
+std::string Patch<T,E>::describe_nodes_near(double height) const {
+  const double window = 1e-3; // m
+
+  std::string ret = "Patch state at that height (time " +
+                    util::format_double(environment.time) + "):";
+
+  for (size_t i = 0; i < species.size(); ++i) {
+    size_t n_near = 0, n_inversions = 0, n_inversions_live = 0, n_zero_density = 0;
+    double h_near_min = std::numeric_limits<double>::infinity(),
+           h_near_max = -std::numeric_limits<double>::infinity(),
+           h_max = -std::numeric_limits<double>::infinity(),
+           h_front = NA_REAL, h_prev = NA_REAL;
+    bool prev_live = false;
+
+    for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it) {
+      const double h = it->height();
+      const bool live = it->get_density() > 0.0;
+      if (!live) {
+        n_zero_density++;
+      }
+      if (!util::is_finite(h_front)) {
+        h_front = h;
+      } else if (h > h_prev) {
+        n_inversions++;
+        // Whether the *live* cohorts are still ordered is the question that
+        // matters: the method of characteristics guarantees it for them (growth
+        // trajectories sharing an environment cannot cross), so inversions among
+        // zero-density nodes are bookkeeping debris in the quadrature grid,
+        // whereas an inversion between two live cohorts would mean the
+        // characteristics themselves had crossed.
+        if (live && prev_live) {
+          n_inversions_live++;
+        }
+      }
+      h_prev = h;
+      prev_live = live;
+      h_max = std::max(h_max, h);
+      if (fabs(h - height) <= window) {
+        n_near++;
+        h_near_min = std::min(h_near_min, h);
+        h_near_max = std::max(h_near_max, h);
+      }
+    }
+
+    ret += " species " + util::to_string(i + 1) + ": " +
+           util::to_string(n_near) + " of " +
+           util::to_string(species[i].size()) + " cohorts within " +
+           util::format_double(window) + " m";
+    if (n_near > 0) {
+      ret += ", spanning [" + util::format_double(h_near_min) + ", " +
+             util::format_double(h_near_max) + "]";
+      // Several cohorts at one size means growth has stalled and the schedule is
+      // introducing new cohorts into a patch with nothing to separate them.
+      if (n_near > 1 && (h_near_max - h_near_min) < window / 100) {
+        ret += " -- effectively a single size, so the size distribution has"
+               " collapsed here";
+      }
+    }
+    if (n_inversions > 0) {
+      ret += "; node heights are NOT decreasing (" +
+             util::to_string(n_inversions) + " inversions, " +
+             util::to_string(n_inversions_live) +
+             " of them between two cohorts of non-zero density; " +
+             util::to_string(n_zero_density) + " of " +
+             util::to_string(species[i].size()) +
+             " nodes have zero density), which breaks the ordering that"
+             " Species::compute_competition() and height_max() assume: the"
+             " tallest cohort is " + util::format_double(h_max) +
+             " but height_max() reports " + util::format_double(h_front) +
+             " (the front node), so the competition profile is wrong and its"
+             " steps are an artefact rather than a feature of the model";
+      if (n_inversions_live == 0) {
+        ret += " (the live cohorts are still correctly ordered, so this is the"
+               " quadrature grid being scrambled by zero-density nodes rather"
+               " than growth trajectories crossing)";
+      }
+    }
+    ret += ";";
+  }
+
+  return ret;
 }
 
 
 template <typename T, typename E>
 void Patch<T,E>::compute_rates() {
 
-  // Computes rates of change for the patch, including all the component species
-  // While the patch has an `environment`, the rates here are calculated from
-  // the env_ptr, which is a pointer to an environment object
-  //  -- for the resident the pointer points to the internal environment object
-  //  -- for a mutant, the pointer points to a cached environment object
-  double time_ = environment_ptr->time;
+  // Computes rates of change for the patch, including all the component species,
+  // against the environment the patch experiences (see rate_environment()).
+  environment_type& env = rate_environment();
+  double time_ = env.time;
 
   double pr_patch_survival = survival_weighting->pr_survival(time_);
   for (size_t i = 0; i < size(); ++i) {
     double birth_rate = species[i].extrinsic_drivers().evaluate("birth_rate", time_);
 
-    // Pass the environment that pointer is tracking into compute rates.
-    species[i].compute_rates(*environment_ptr, pr_patch_survival, birth_rate);
+    species[i].compute_rates(env, pr_patch_survival, birth_rate);
   }
 
-  resource_depletion.reserve(environment_ptr->ode_size());
-  for(size_t i = 0; i < environment_ptr->ode_size(); i++) {
+  resource_depletion.reserve(env.n_resources());
+  for(size_t i = 0; i < env.n_resources(); i++) {
     double resource_consumed = std::accumulate(species.begin(), species.end(), 0.0, [i](double r, const species_type& s) {
       return r + s.consumption_rate(i); // accumulates r from zero
     });
@@ -599,7 +759,7 @@ void Patch<T,E>::compute_rates() {
   }
   
 
-  environment_ptr->compute_rates(resource_depletion);
+  env.compute_rates(resource_depletion);
 
   //todo do we need to clear this every step?
   resource_depletion.clear();
@@ -653,6 +813,11 @@ void Patch<T,E>::r_set_state(double time,
     }
   }
   util::check_length(state.size(), ode_size());
+  // Every node here is a copy of the boundary node, so they all carry the same
+  // birth date and the ODE state does not restore it (it is bookkeeping, not a
+  // state variable). Fine for the height coordinate; fatal for the birth-date
+  // one, which uses these times as its quadrature grid.
+  check_birth_dates_distinct();
   set_ode_state(state.begin(), time);
   environment.r_init_interpolators(light_availability);
 }
@@ -694,10 +859,7 @@ odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterato
 
   // Pre-compute environment, as shaped by residents
   compute_environment(true);
-  environment_ptr = &environment;
 
-  // Compute rates of change
-  compute_rates();
   return it;
 }
 
@@ -710,15 +872,15 @@ odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterato
 
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
 
-  // using a pointer here to avoid copying environment object
-  // just point the pointer, used inside compute rates to get env, to relevant env object
-  environment_ptr = &(environment_history[idx][index]);
-  environment.time = environment_ptr->time;
+  // Record which of this step's cached environments the rates are evaluated
+  // against; rate_environment() reads it back without copying the object.
+  cached_environment_index = index;
+  const environment_type& cached = rate_environment();
+  environment.time = cached.time;
 
   // increment the iterator by an appropriate amount, but don't actually do anything in the env
-  for (size_t i = 0; i < environment_ptr->ode_size(); i++) {*it++;}
- 
-  compute_rates();
+  for (size_t i = 0; i < cached.ode_size(); i++) {*it++;}
+
   return it;
 }
 
@@ -799,7 +961,8 @@ Rcpp::List Patch<T, E>::r_get_state() const
 }
 
 template <typename T, typename E>
-odelia::ode::iterator Patch<T,E>::ode_rates(odelia::ode::iterator it) const {
+odelia::ode::iterator Patch<T,E>::ode_rates(odelia::ode::iterator it) {
+  compute_rates();
   it = odelia::ode::ode_rates(species.begin(), species.end(), it);
   it = environment.ode_rates(it);
   return it;

@@ -37,6 +37,11 @@ public:
     node_introduction_time = time;
     patch_density_at_birth = patch_density;
   }
+  // Refresh only the birth date, leaving the rest of the bookkeeping alone.
+  // Used for the not-yet-introduced boundary node, whose birth date is the
+  // current time and so moves with every step; see
+  // Species::set_new_node_birth_date().
+  void set_introduction_time(double time) {node_introduction_time = time;}
   double introduction_time() const {return node_introduction_time;}
   double patch_density() const {return patch_density_at_birth;}
   double get_pr_patch_survival_at_birth() const {return pr_patch_survival_at_birth;}
@@ -175,7 +180,8 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   individual.set_initial_states(environment);
   compute_rates(environment, pr_patch_survival);
 
-  const double pr_estab = individual.establishment_probability(environment);
+  const double pr_estab =
+    individual.establishment_probability_of_newborn(environment);
   individual.set_state("mortality", -log(pr_estab));
   // The birth-date axis of the node about to be introduced; Patch re-stamps
   // this with the exact introduction time as the node is pushed.
