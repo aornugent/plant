@@ -107,8 +107,14 @@ public:
   // d(census)/d(trait), one row per metric and one column per trait in each
   // strategy's ad_parameters() order, species-major. Requires an adaptive run to
   // have resolved the schedule this replays.
+  // SPIKE (p3/trait-mask): `traits` are the trait columns this call is allowed
+  // to compute; `want` are the columns handed back, in the order given. A column
+  // not in `traits` was never computed and is therefore never returned -- asking
+  // for one is a hard failure naming the trait, not a zero.
   template <class Metrics>
-  std::vector<std::vector<double>> census_trait_gradient();
+  std::vector<std::vector<double>> census_trait_gradient(
+      const std::vector<std::string>& traits,
+      const std::vector<std::string>& want);
 
   // Re-introduce every node the sweep's narrowing removed, recovering the state
   // each block's first step ran from. See the definition.
@@ -647,7 +653,40 @@ std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
 // a snapshot the run copies out, and reading its accumulator gives zeros.
 template <typename T, typename E>
 template <class Metrics>
-std::vector<std::vector<double>> SCM<T, E>::census_trait_gradient() {
+std::vector<std::vector<double>> SCM<T, E>::census_trait_gradient(
+    const std::vector<std::string>& traits,
+    const std::vector<std::string>& want) {
+  // SPIKE: the full column names, species-major, and the mask on them.
+  std::vector<std::string> col_names;
+  std::vector<char> col_wanted;
+  for (size_t i = 0; i < patch.size(); ++i) {
+    for (const std::string& nm :
+         patch.at_species(i).strategy_ptr()->ad_parameter_names()) {
+      col_names.push_back(nm);
+      col_wanted.push_back(std::find(traits.begin(), traits.end(), nm) !=
+                           traits.end() ? 1 : 0);
+    }
+  }
+  std::vector<size_t> take;
+  for (const std::string& nm : want) {
+    const size_t at = static_cast<size_t>(
+        std::find(col_names.begin(), col_names.end(), nm) - col_names.begin());
+    if (at == col_names.size()) {
+      util::stop("census_trait_gradient: unknown trait '" + nm + "'");
+    }
+    if (!col_wanted[at]) {
+      util::stop("census_trait_gradient: no gradient was computed for trait '" +
+                 nm + "': it was not in the requested trait set, so its column "
+                 "is absent rather than zero");
+    }
+    take.push_back(at);
+  }
+  {
+    patch_type& masked = solver.get_system_ref();
+    for (size_t i = 0; i < masked.size(); ++i) {
+      masked.at_species(i).strategy_ptr()->set_ad_trait_mask(traits);
+    }
+  }
   // The sweep needs the state at every accepted step, and store_trajectory()
   // re-runs to record them, so the seeds below are taken after it.
   const std::vector<ode_step_record> trajectory = store_trajectory();
@@ -710,7 +749,12 @@ std::vector<std::vector<double>> SCM<T, E>::census_trait_gradient() {
                                 lambda, narrowed);
       lambda = narrowed;
     }
-    ret.push_back(live.trait_adjoint);
+    std::vector<double> row;
+    row.reserve(take.size());
+    for (size_t at : take) {
+      row.push_back(live.trait_adjoint[at]);
+    }
+    ret.push_back(row);
   }
 
   // Leave the system at the width the run left it, so this call is repeatable.

@@ -3,6 +3,7 @@
 #ifndef PLANT_PLANT_TF24_STRATEGY_H_
 #define PLANT_PLANT_TF24_STRATEGY_H_
 
+#include <algorithm>
 #include <plant/strategy.h>
 #include <plant/models/tf24_environment.h>
 #include <plant/qag.h>
@@ -411,6 +412,22 @@ public:
                "' and TF24_Pars has no member of that name");
     return nullptr;
   }
+  // SPIKE (p3/trait-mask): restrict the leaf parameter rows the leaf produces to
+  // the ones this gradient was asked for. `traits` is in ad_parameter_names()
+  // spelling; a leaf parameter that is not in it gets no row, and no term in the
+  // grafted sum, so the parameter is not on the tape from this output at all.
+  void set_ad_trait_mask(const std::vector<std::string>& traits) {
+    const std::vector<std::string> nm = leaf.inputs();
+    const size_t off = 2 * static_cast<size_t>(leaf.max_soil_layer) + 3;
+    std::vector<char> mask(nm.size() - off, 0);
+    for (size_t k = 0; k < mask.size(); ++k) {
+      mask[k] = (std::find(traits.begin(), traits.end(), nm[off + k]) !=
+                 traits.end()) ? 1 : 0;
+    }
+    leaf.set_par_wanted(mask);
+  }
+  void clear_ad_trait_mask() { leaf.set_par_wanted(std::vector<char>()); }
+
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
@@ -768,14 +785,33 @@ void TF24_Strategy<S>::graft_leaf_outputs(
     x.push_back(mass_root_prop_[j]);
   }
   x.push_back(leaf_specific_conductance_max);
+  // SPIKE (p3/trait-mask): a masked leaf parameter contributes no x and no row
+  // entry, so its NaN row is structurally unreachable rather than multiplied by
+  // anything. graft's length check still referees the shortened pair.
+  std::vector<size_t> keep_par;
   for (size_t j = 2 * n + 3; j < leaf_input_names.size(); ++j) {
-    x.push_back(*leaf_parameter_address(leaf_input_names[j]));
+    if (leaf.par_wanted(static_cast<int>(j - (2 * n + 3)))) {
+      keep_par.push_back(j);
+      x.push_back(*leaf_parameter_address(leaf_input_names[j]));
+    }
   }
+  const bool masked = keep_par.size() != leaf_input_names.size() - (2 * n + 3);
+  auto compact = [&](std::vector<double>& r) -> void {
+    if (!masked) {
+      return;
+    }
+    std::vector<double> c(r.begin(), r.begin() + (2 * n + 3));
+    for (size_t j : keep_par) {
+      c.push_back(r[j]);
+    }
+    r.swap(c);
+  };
 
   // graft checks the row against x, so a length that stops matching is a hard
   // failure rather than a silently dropped tail.
   std::vector<double> row, lambda(n, 0.0);
   leaf.input_adjoints(1.0, lambda, row);
+  compact(row);
   leaf_profit_ = graft(leaf.profit_, row, x);
 
   // soil_consumption_ is sized to the layer count and written only where there
@@ -789,6 +825,7 @@ void TF24_Strategy<S>::graft_leaf_outputs(
     std::fill(lambda.begin(), lambda.end(), 0.0);
     lambda[j] = 1.0;
     leaf.input_adjoints(0.0, lambda, row);
+    compact(row);
     leaf_soil_consumption_[j] = graft(leaf.soil_consumption_[j], row, x);
   }
 }

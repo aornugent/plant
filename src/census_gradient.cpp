@@ -45,8 +45,10 @@ census_trait_names_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<do
 // order. The active scalar lives inside this call and only doubles leave it.
 // [[Rcpp::export]]
 std::vector<std::vector<double>>
-census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  return obj_->census_trait_gradient<plant::tf24_census>();
+census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                           std::vector<std::string> traits,
+                           std::vector<std::string> want) {
+  return obj_->census_trait_gradient<plant::tf24_census>(traits, want);
 }
 
 // [[Rcpp::export]]

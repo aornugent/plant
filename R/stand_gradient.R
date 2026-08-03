@@ -79,11 +79,17 @@ stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
   }
 
   value <- stand_census(scm)[metrics]
-  gradient <- do.call(rbind, census_trait_gradient_tf24(scm))
-  dimnames(gradient) <- list(all_metrics, all_traits)
+  ## SPIKE (p3/trait-mask): `traits` now reaches C++. Only the requested trait
+  ## columns are computed, and only they come back -- an unrequested column is
+  ## absent, not zero.
+  gradient <- do.call(rbind, census_trait_gradient_tf24(scm, traits, traits))
+  dimnames(gradient) <- list(all_metrics, traits)
+  if (any(!is.finite(gradient))) {
+    stop("stand_gradient: a requested trait column is not finite")
+  }
 
   list(value = value,
-       gradient = gradient[metrics, traits, drop = FALSE],
+       gradient = gradient[metrics, , drop = FALSE],
        control = gradient_control(scm))
 }
 

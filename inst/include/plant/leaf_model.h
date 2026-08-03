@@ -383,6 +383,18 @@ public:
   // The differentiable inputs in the order input_adjoints writes them: radiation,
   // per-layer potential, leaf area, per-layer root mass, conductance, parameters.
   std::vector<std::string> inputs() const;
+  // SPIKE (p3/trait-mask): which of the leaf parameter rows input_adjoints is
+  // asked to produce. Empty means every one of them, which is the unmodified
+  // behaviour. A masked-out row is NOT zero: input_adjoints writes a quiet NaN
+  // into it, and graft_leaf_outputs drops the term from the grafted sum
+  // entirely, so the NaN can never reach arithmetic. Anything that does reach
+  // it has read a row that was never computed, and says so by being NaN rather
+  // than by being a plausible zero.
+  std::vector<char> par_wanted_;
+  bool par_wanted(int k) const {
+    return par_wanted_.empty() || par_wanted_[static_cast<size_t>(k)] != 0;
+  }
+  void set_par_wanted(const std::vector<char>& mask) { par_wanted_ = mask; }
   // The leaf contracts its output adjoints onto its inputs at the point the solve
   // left. Doubles; the operating-point outputs it reads are put back on exit.
   void input_adjoints(double lambda_profit,

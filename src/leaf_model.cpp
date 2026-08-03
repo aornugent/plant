@@ -1462,6 +1462,9 @@ void Leaf::bound_partials(std::vector<double>& out) {
   for (int t = 0; t < 4; ++t) {
     const int k = transport_pars[t];
     const bool root = (k == PAR_ROOT_B || k == PAR_ROOT_C);
+    if (!par_wanted(k)) {
+      continue;  // SPIKE: row not requested; input_adjoints poisons it to NaN
+    }
     if (at_bound_a && !root) {
       continue;  // the supply-side term the stem parameters reach is bound_b's
     }
@@ -1558,6 +1561,18 @@ void Leaf::input_adjoints(double lambda_profit,
 
   const int i_ppfd = 0, i_psi0 = 1, i_area = 1 + n, i_mass0 = 2 + n,
             i_kappa = 2 + 2 * n, i_par0 = 3 + 2 * n;
+
+  // SPIKE (p3/trait-mask): a leaf parameter row the caller did not ask for is
+  // left ABSENT, not zero. Whatever the branches below happened to write into
+  // it is replaced by a quiet NaN on every exit path, so a masked row can never
+  // be mistaken for a computed derivative that came out at zero.
+  auto poison_unwanted = [&]() -> void {
+    for (int k = 0; k < n_leaf_parameter_inputs; ++k) {
+      if (!par_wanted(k)) {
+        input_adjoints[i_par0 + k] = std::numeric_limits<double>::quiet_NaN();
+      }
+    }
+  };
 
   const double p = -keep_collar;   // collar potential, positive magnitude
   const double r = keep_collar;    // the same potential, signed
@@ -1795,6 +1810,9 @@ void Leaf::input_adjoints(double lambda_profit,
     if (!reaches_operating_point(k)) {
       continue;
     }
+    if (!par_wanted(k)) {
+      continue;  // SPIKE: row not requested; poisoned to NaN below
+    }
     const double keep = this->*leaf_parameter_slots[k];
     const double h = std::abs(keep) * 1e-6;
     if (!(h > 0.0)) {
@@ -1844,6 +1862,7 @@ void Leaf::input_adjoints(double lambda_profit,
     for (size_t k = 0; k < dbound.size(); ++k) {
       input_adjoints[k] += w * dbound[k];
     }
+    poison_unwanted();
     restore_operating_point();
     return;
   }
@@ -1853,6 +1872,9 @@ void Leaf::input_adjoints(double lambda_profit,
   const double Pi_pp = dR_dcollar_at(p, 1e-6);
   const double mu = -s_adjoint / Pi_pp;
   for (int k = 0; k < n_leaf_parameter_inputs; ++k) {
+    if (!par_wanted(k)) {
+      continue;
+    }
     input_adjoints[i_par0 + k] += mu * dR_dpar[k];
   }
 
@@ -1904,6 +1926,7 @@ void Leaf::input_adjoints(double lambda_profit,
     input_adjoints[i_kappa] += mu * (R_pm[0] - R_pm[1]) / (2.0 * h);
   }
 
+  poison_unwanted();
   restore_operating_point();
 }
 
