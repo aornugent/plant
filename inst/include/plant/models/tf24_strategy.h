@@ -376,10 +376,10 @@ public:
                                vars.aux(aux_idx_height_inverse));
   }
 
-  // [eqn 10] Cumulative fraction of a quantity distributed over an extent with
-  // shape exponent eta_x, above coordinate `z` of a total `height`. Used for the
-  // root mass distribution over soil depth.
-  double Q(double z, double height, double eta_x) const;
+  // The fraction of root mass below soil depth `z`, for a plant rooted to
+  // `rooting_depth` with shape exponent `eta_x` (pars.root_depth_shape_eta). The
+  // canopy's own cumulative form is CanopyShape::Q, at pars.eta.
+  double Q(double z, double rooting_depth, double eta_x) const;
 
   // The aim is to find a plant height that gives the correct seed mass.
   double height_seed(void) const;
