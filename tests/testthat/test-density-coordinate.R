@@ -132,6 +132,79 @@ test_that("nodes sharing a birth date are rejected in birth-date coordinates", {
   expect_no_error(Patch(x, e)(p_bad, Environment(x), Control()))
 })
 
+## Multiple species share one competition profile: Patch::compute_competition()
+## sums their per-species integrals into a single optical depth, each taken over
+## that species' own node list. So the coordinate change has to hold for each
+## species *through* a profile the others also shape. These use the established
+## multi-species setups from test-strategy-ff16.R and test-strategy-k93.R.
+test_that("multi-species runs converge across density coordinates", {
+  cases <- list(
+    FF16 = function() {
+      p0 <- scm_base_parameters("FF16")
+      add_strategies(p0, trait_matrix(c(0.0825, 0.2625), "lma"),
+                     hyperpar = FF16_hyperpar,
+                     birth_rate = list(11.99177, 16.51006))
+    },
+    K93 = function() {
+      p0 <- scm_base_parameters("K93")
+      p0$max_patch_lifetime <- 35.10667
+      sp <- trait_matrix(c(0.042, 0.063, 0.052,
+                           8.5e-3, 0.014, 0.015,
+                           2.2e-4, 4.6e-4, 3e-4,
+                           0.008, 0.008, 0.008,
+                           1.8e-4, 4.4e-4, 5.1e-4,
+                           1.4e-4, 2.5e-3, 8.8e-3,
+                           0.044, 0.044, 0.044),
+                         c("b_0", "b_1", "b_2", "c_0", "c_1", "d_0", "d_1"))
+      add_strategies(p0, sp, birth_rate = c(20, 20, 20))
+    }
+  )
+
+  for (x in names(cases)) {
+    gaps <- lapply(0:2, function(r) {
+      p <- interleave_schedule(cases[[x]](), r)
+      h <- offspring_in_coordinate(p, x, FALSE)
+      b <- offspring_in_coordinate(p, x, TRUE)
+      abs(b - h) / abs(h)
+    })
+
+    ## Every species converges, not just the aggregate.
+    expect_true(all(gaps[[2]] < gaps[[1]]))
+    expect_true(all(gaps[[3]] < gaps[[2]]))
+    expect_true(all(gaps[[1]] / gaps[[3]] > 4))
+    expect_true(all(gaps[[3]] < 2e-3))
+  }
+})
+
+## K93's three-species case largely excludes its first species -- its offspring
+## production is ~90x below the dominant one. A marginal species is where a
+## change to the shared profile could bite hardest, so check its *relative*
+## error is no worse than the dominant species', rather than only that the
+## totals agree.
+test_that("a competitively excluded species is no worse off", {
+  x <- "K93"
+  p0 <- scm_base_parameters(x)
+  p0$max_patch_lifetime <- 35.10667
+  sp <- trait_matrix(c(0.042, 0.063, 0.052,
+                       8.5e-3, 0.014, 0.015,
+                       2.2e-4, 4.6e-4, 3e-4,
+                       0.008, 0.008, 0.008,
+                       1.8e-4, 4.4e-4, 5.1e-4,
+                       1.4e-4, 2.5e-3, 8.8e-3,
+                       0.044, 0.044, 0.044),
+                     c("b_0", "b_1", "b_2", "c_0", "c_1", "d_0", "d_1"))
+  p <- interleave_schedule(add_strategies(p0, sp, birth_rate = c(20, 20, 20)), 1)
+
+  h <- offspring_in_coordinate(p, x, FALSE)
+  b <- offspring_in_coordinate(p, x, TRUE)
+  rel <- abs(b - h) / abs(h)
+
+  ## Species 1 really is marginal, so the premise of the test holds.
+  expect_lt(h[[1]] / max(h), 0.05)
+  ## And its relative error is of the same order as the rest.
+  expect_lt(rel[[1]], 3 * max(rel[-1]))
+})
+
 ## The coordinate is stored per strategy but cannot differ between the species
 ## of one patch: Patch::add_strategies() overwrites every strategy's control
 ## with the patch's. Pin that, because compute_competition() sums the species'

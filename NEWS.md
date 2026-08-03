@@ -196,6 +196,24 @@ were not previously recorded here:
     that they are not converging *to each other*, which is what a wrong
     compression term looks like as against a coarse quadrature.
 
+  Multi-species runs behave the same way. The established two-species FF16 and
+  three-species K93 cases converge per species at the same ~2nd order (FF16
+  `4.4e-3`/`7.1e-3` → `2.8e-4`/`6.0e-4`; K93 all three species `3.1e-3`–`6.2e-3`
+  → `1.9e-4`–`3.7e-4`), and K93's competitively marginal first species — ~90x
+  below the dominant one — converges no worse in relative terms than the
+  dominant ones. So the shared competition profile does not disadvantage a
+  marginal species under the coordinate change.
+
+  **TF24 two-species changes the ecological outcome, not just the numbers.** On
+  the two-species case of `test-strategy-tf24.R` (`lma` 0.0825 / 0.10,
+  `max_patch_lifetime = 30`), the height coordinate excludes the slower species
+  (offspring production `1.4e-4` against `503` for the faster) while the
+  birth-date coordinate has them coexisting at comparable abundance (`1004`
+  against `2707`), and refining the schedule does not move either toward the
+  other. The conclusion recorded in that test — that reserve-gated growth
+  (#517) largely excludes the slower species — is therefore coordinate
+  dependent, and needs re-deriving before it is relied on.
+
   `Node::growth_rate_gradient` is not called, which also removes one leaf solve
   per cohort per Runge-Kutta stage.
 
@@ -382,6 +400,25 @@ were not previously recorded here:
 * Added an HTML report (plots + analyses) for the FF16 strategy (#350).
 
 ### Known issues
+
+* **`node_density_in_birth_date = TRUE` changes what `log_density` means in the
+  R-facing output, under the same name.** `Node$ode_names` still reports
+  `log_density`, and `Species$log_densities` / `r_get_state()` /
+  `run_scm(collect = TRUE)` histories still carry it, but it is now a density per
+  unit *birth date* rather than per unit height. Nothing reconstructs the height
+  density. Confirmed on an FF16 run: at an interior node `log_density` reads
+  −2.42 in height and −0.46 in birth date. The conversion is
+  `N = ν / |dh/dτ|`, and differencing adjacent node heights recovers the height
+  run to `6e-4`–`4e-3` over the interior (degrading to ~`2e-1` at the boundary
+  node, where the one-sided difference is worst), so a helper is
+  straightforward — it just does not exist yet.
+
+  Affected R-side code, all of which assumes the height interpretation:
+  `tidy_outputs.R`'s `density = exp(log_density)`, `interpolate_to_heights()`
+  (which interpolates `log_density` *against height*), `tidy_plots.R`'s
+  relative-density shading, and the `densities`/`log_densities` arguments of the
+  initial-state helper in `scm_support.R`, which would load user-supplied height
+  densities as birth-date ones. Needs resolving before the flag goes default-on.
 
 * `stochastic_schedule()` passes `patch_area` into
   `stochastic_arrival_times()`'s third positional argument, which is `delta_t`.
