@@ -33,7 +33,7 @@ enum collar_class {
   COLLAR_BOUND_B,          // psi + h >= bound_b: no room for the probe
   COLLAR_BOUND_CURVATURE,  // dR/d(collar) at psi is not negative
   COLLAR_BOUND_STEP,       // the Newton step from psi lands outside the bracket
-  COLLAR_EXHAUSTED,        // five steps taken, none of them closing
+  COLLAR_EXHAUSTED,        // max_iter steps taken, none of them closing
   COLLAR_N_CLASS
 };
 

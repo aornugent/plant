@@ -480,10 +480,16 @@ Rules:
 - **Do NOT bump** for refactors, performance work, interface renames, or
   serialisation-format changes — the science is unchanged.
 - FF16/K93 are scientifically frozen and should rarely move; TF24/TF24f change
-  often and will bump frequently. Current: `FF16@v1`, `K93@v1`, `TF24@v2`.
+  often and will bump frequently. Current: `FF16@v1`, `K93@v1`, `TF24@v5`.
+  **This list is maintained by hand, not generated from the headers, so read
+  `scientific_version` in the model header rather than trusting it here.** It
+  said `TF24@v2` while the header said 4, and a change was planned against the
+  stale number. The headers are `FF16_Strategy`, `K93_Strategy` and
+  `TF24_Strategy`'s `scientific_version`, and `strategy_version.cpp` dispatches
+  on them.
 - **TF24f is a compound version.** It is a fast *approximation* of TF24 that
   inherits TF24's equations/parameters, so its version is
-  `"<TF24 version>.<approximation revision>"` (`TF24f@v2.1`). The major
+  `"<TF24 version>.<approximation revision>"` (`TF24f@v5.1`). The major
   component auto-tracks `TF24_Strategy::scientific_version` (a TF24 change
   invalidates TF24f too — the safe direction); bump `approximation_revision`
   (in `tf24f_strategy.h`) only for changes specific to the fast approximation.
@@ -493,7 +499,9 @@ Rules:
   reruns. The drift-guard test [tests/testthat/test-model-version.R](tests/testthat/test-model-version.R)
   fails when a default changes without a bump (snapshot of each model's default
   `pars`/`control`); pure equation changes are not auto-detected and rely on
-  review. Adding a new model → add its constant and a dispatch arm in
+  review. **The drift guard skips on CRAN**, and so does the scenario gateway,
+  so in an invocation that sets that flag a bump has no live gate at all: check
+  both ran before believing one. Adding a new model → add its constant and a dispatch arm in
   `src/strategy_version.cpp` (the scaffolder should do this).
 
 ---
@@ -787,6 +795,20 @@ auto anchor = [](double v, const S& x) -> S { return S(v) + (x - to_passive(x));
 
 The two differ only in `-> S` and taking `x` by reference. That is the whole
 lesson: the fix is the declared return type.
+
+**A grafted derivative cannot be checked against the value it is grafted onto.**
+Where a submodel hands back constants and its partials are attached by hand, the
+graft is `value + Σ partial_i * (x_i - to_passive(x_i))`: exact in the
+derivative and **identically zero in the value**, by construction. So a finite
+difference of the grafting function is zero on every grafted input whether the
+partials are there, wrong, or silently dropped — and dropping them gives a
+gradient column of exactly zero, which reads as an answer. Two rules follow.
+Build the graft's input vector from the submodel's own `inputs()`, name-driven,
+with a hard stop on a name you cannot map, so a widened boundary is a compile or
+run failure rather than a shorter vector. And never `resize` a partials row to
+fit the inputs you happened to build: check the length and fail. This cost two
+waves, with fifteen correct rows computed and thrown away behind every passing
+gate in the tree.
 
 **Two arguments of one type with unrelated meanings is a silent-swap hazard**,
 the more so under templating, because a template argument makes both of them the
