@@ -175,6 +175,14 @@ were not previously recorded here:
   in its result list — it is not defined for the finite-population model and was
   never populated (#498, #506). Migration:
   * `run_stochastic_collect(...)$offspring_production` -> removed (no equivalent)
+* `Patch` computes its rates when they are read rather than when its state is
+  set, so reading `$ode_rates` now evaluates and the separate compute entry point
+  is gone (#585). Migration:
+  * `patch$compute_rates()` (removed) -> `patch$ode_rates`, which computes at the
+    state currently loaded and returns the result
+  * Semantic change: `patch$ode_rates` was a cheap read of stored values and is
+    now a full right-hand-side evaluation. `StochasticPatch$compute_rates()` is
+    unchanged.
 
 ### New features
 

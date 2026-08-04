@@ -83,9 +83,12 @@ for (x in names(strategy_types)) {
     ode_state <- c(cmp$ode_state, env_state)
     ode_rates <- c(cmp$ode_rates, env_rates)
     expect_identical(patch$ode_state, ode_state)
-    # The patch's boundary node is evaluated by the field build, in a field that
-    # excludes the boundary interval; this comparison node is seeded afterwards in
-    # the completed field. So the two agree except through
+    ## Equal, not identical: reading the patch's rates now evaluates them at the
+    ## state currently loaded (#585), and that does not reproduce the last bits of
+    ## what compute_initial_conditions stored -- the same gap $derivs has below.
+    # Beyond that: the patch's boundary node is evaluated by the field build, in a
+    # field that excludes the boundary interval; this comparison node is seeded
+    # afterwards in the completed field. So the two agree except through
     # pr_patch_survival_at_birth, which divides the fecundity rate and is fixed at
     # seeding -- about 1% of a quantity of order 1e-21.
     expect_equal(patch$ode_rates, ode_rates, tolerance = 1e-2)
@@ -97,7 +100,6 @@ for (x in names(strategy_types)) {
     patch$set_ode_state(y, 0)
     expect_identical(patch$ode_state, y)
     
-    ## NOTE: These should be identical, but are merely equal...
     expect_equal(patch$derivs(y, 0), ode_rates)
 
     patch$reset()
@@ -233,11 +235,14 @@ test_that("TF24 patch aux reports the per-layer uptake", {
   patch$set_ode_state(y, 1.0)
 
   n_layers <- Environment("TF24")$get_soil_number_of_depths()
+  # Reading the rates is what evaluates them, and refreshes the aux slots along
+  # with them (#585); ode_aux only publishes what the last evaluation left.
+  rates <- patch$ode_rates
   uptake <- tail(patch$ode_aux, n_layers)
 
   # The soil's cumulative total-uptake rate is the last environment rate and is
   # accumulated on its own, so it checks the published values and not the width.
-  expect_equal(sum(uptake), tail(patch$ode_rates, 1))
+  expect_equal(sum(uptake), tail(rates, 1))
   expect_true(all(is.finite(uptake)))
   expect_gt(uptake[[1]], 0)
   # Uptake is signed: the plant can release water into the deepest layer.

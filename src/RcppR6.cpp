@@ -2353,10 +2353,6 @@ void Patch___FF16__FF16_Env__compute_environment(plant::RcppR6::RcppR6<plant::Pa
   obj_->r_compute_environment();
 }
 // [[Rcpp::export]]
-void Patch___FF16__FF16_Env__compute_rates(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
-  obj_->r_compute_rates();
-}
-// [[Rcpp::export]]
 void Patch___FF16__FF16_Env__reset(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   obj_->reset();
 }
@@ -2490,10 +2486,6 @@ void Patch___TF24__TF24_Env__introduce_new_node(plant::RcppR6::RcppR6<plant::Pat
 // [[Rcpp::export]]
 void Patch___TF24__TF24_Env__compute_environment(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   obj_->r_compute_environment();
-}
-// [[Rcpp::export]]
-void Patch___TF24__TF24_Env__compute_rates(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
-  obj_->r_compute_rates();
 }
 // [[Rcpp::export]]
 void Patch___TF24__TF24_Env__reset(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
@@ -2631,10 +2623,6 @@ void Patch___TF24f__TF24_Env__compute_environment(plant::RcppR6::RcppR6<plant::P
   obj_->r_compute_environment();
 }
 // [[Rcpp::export]]
-void Patch___TF24f__TF24_Env__compute_rates(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
-  obj_->r_compute_rates();
-}
-// [[Rcpp::export]]
 void Patch___TF24f__TF24_Env__reset(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   obj_->reset();
 }
@@ -2768,10 +2756,6 @@ void Patch___K93__K93_Env__introduce_new_node(plant::RcppR6::RcppR6<plant::Patch
 // [[Rcpp::export]]
 void Patch___K93__K93_Env__compute_environment(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
   obj_->r_compute_environment();
-}
-// [[Rcpp::export]]
-void Patch___K93__K93_Env__compute_rates(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
-  obj_->r_compute_rates();
 }
 // [[Rcpp::export]]
 void Patch___K93__K93_Env__reset(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {

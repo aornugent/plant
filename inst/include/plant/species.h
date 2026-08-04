@@ -793,7 +793,31 @@ Species<T,E>::consumption_rate(int i) const {
   for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
     heights.push_back(it->height());
   }
-  return util::trapezium(heights, consumption_rate_by_node_rev(i));
+  std::vector<value_type> rates = consumption_rate_by_node_rev(i);
+
+  // The node list is the quadrature grid here as it is in compute_competition,
+  // so an inverted grid (#571) makes neighbouring trapezia cancel rather than
+  // accumulate. Sort the pairs when the ordering has broken, as
+  // compute_competition_unordered does; an already-ascending grid is untouched.
+  // Ordering the quadrature grid is structural, so the key is compared and
+  // nothing here is differentiated.
+  if (!std::is_sorted(heights.begin(), heights.end())) {
+    std::vector<std::pair<value_type, value_type>> hr;
+    hr.reserve(heights.size());
+    for (size_t j = 0; j < heights.size(); ++j) {
+      hr.push_back({heights[j], rates[j]});
+    }
+    std::sort(hr.begin(), hr.end(),
+              [](std::pair<value_type, value_type> const& a,
+                 std::pair<value_type, value_type> const& b) {
+                return a.first < b.first;
+              });
+    for (size_t j = 0; j < hr.size(); ++j) {
+      heights[j] = hr[j].first;
+      rates[j] = hr[j].second;
+    }
+  }
+  return util::trapezium(heights, rates);
 }
 
 template <typename T, typename E>

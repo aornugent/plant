@@ -142,8 +142,10 @@ public:
 
   // Retrieve ode state from patch and save into the ode solver
   template <typename It> It ode_state(It it) const;
-  // Retrieve ode rates from patch and save into the ode solver
-  template <typename It> It ode_rates(It it) const;
+  // Compute rates of change at the state currently loaded and save them into the
+  // ode solver. Computing here rather than in set_ode_state is what makes the
+  // rates always those of that state, however the caller arrived at it.
+  template <typename It> It ode_rates(It it);
   // Retrieve auxillary variables and save into the ode solver
   template <typename It> It ode_aux(It it) const;
   // Hand them back, in the order ode_aux wrote them
@@ -267,12 +269,8 @@ public:
   species_type r_at(util::index species_index) const {
     return species[species_index.check_bounds(size())];
   }
-  // These are only here because they wrap private functions.
+  // This is only here because it wraps a private function.
   void r_compute_environment() {compute_environment(false);}
-  void r_compute_rates() {
-    environment_ptr = &environment;
-    compute_rates();
-  }
 
   // env. cache for assembly
   std::vector<double> step_history{0.0};  // always start at zero
@@ -335,6 +333,16 @@ private:
   compute_competition_and_slope_excl_boundary(double height) const;
   void compute_rates();
 
+  // The environment the rates are computed against: the patch's own on a
+  // resident run, and on a mutant step the one recorded for that step, which the
+  // mutant experiences rather than shapes. Derived from what the patch owns, so
+  // it still refers into the patch after the patch is copied.
+  environment_type& rate_environment() {
+    return use_cached_environment
+      ? environment_history.at(idx).at(cached_environment_index)
+      : environment;
+  }
+
   // Seed the patch from parameters.initial_state (nodes + birth bookkeeping)
   // when present; called from reset(). Sets environment.time = initial_time.
   void set_initial_state();
@@ -357,7 +365,9 @@ private:
   //TODO(#476): Move into environment?
   std::vector<double> resource_depletion;
 
-  environment_type* environment_ptr;
+  // Which recorded environment a mutant step is evaluated against; see
+  // rate_environment(). Unused on a resident run.
+  int cached_environment_index = 0;
 
   Control control;
 
@@ -466,7 +476,6 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
                                     control.ppa_layer_optical_depth,
                                     control.ppa_layer_smoothing);
   out.compute_environment(false);
-  out.environment_ptr = &out.environment;
   out.compute_rates();
   return out;
 }
@@ -523,7 +532,6 @@ void Patch<T,E>::reset() {
     compute_environment(false);
 
     // compute effects of resource consumption
-    environment_ptr = &environment;
     compute_rates();
   }
 
@@ -587,7 +595,6 @@ void Patch<T,E>::set_initial_state() {
   // Build the environment from the real node heights (full recompute, no
   // rescale) and compute rates for the seeded population.
   compute_environment(false);
-  environment_ptr = &environment;
   compute_rates();
 }
 
@@ -1021,23 +1028,20 @@ std::string Patch<T,E>::describe_nodes_near(double height) const {
 template <typename T, typename E>
 void Patch<T,E>::compute_rates() {
 
-  // Computes rates of change for the patch, including all the component species
-  // While the patch has an `environment`, the rates here are calculated from
-  // the env_ptr, which is a pointer to an environment object
-  //  -- for the resident the pointer points to the internal environment object
-  //  -- for a mutant, the pointer points to a cached environment object
-  double time_ = environment_ptr->time;
+  // Computes rates of change for the patch, including all the component species,
+  // against the environment the patch experiences (see rate_environment()).
+  environment_type& env = rate_environment();
+  double time_ = env.time;
 
   double pr_patch_survival = survival_weighting->pr_survival(time_);
   for (size_t i = 0; i < size(); ++i) {
     double birth_rate = species[i].extrinsic_drivers().evaluate("birth_rate", time_);
 
-    // Pass the environment that pointer is tracking into compute rates.
-    species[i].compute_rates(*environment_ptr, pr_patch_survival, birth_rate);
+    species[i].compute_rates(env, pr_patch_survival, birth_rate);
   }
 
-  resource_depletion.reserve(environment_ptr->n_resources());
-  for(size_t i = 0; i < environment_ptr->n_resources(); i++) {
+  resource_depletion.reserve(env.n_resources());
+  for(size_t i = 0; i < env.n_resources(); i++) {
     value_type resource_consumed = std::accumulate(species.begin(), species.end(), value_type(0.0), [i](const value_type& r, const species_type& s) -> value_type {
       return r + s.consumption_rate(i); // accumulates r from zero
     });
@@ -1049,7 +1053,7 @@ void Patch<T,E>::compute_rates() {
   }
   
 
-  environment_ptr->compute_rates(resource_depletion);
+  env.compute_rates(resource_depletion);
 
   //todo do we need to clear this every step?
   resource_depletion.clear();
@@ -1170,7 +1174,6 @@ It Patch<T,E>::set_ode_state_and_field(It it, double time) {
 
   // Pre-compute environment, as shaped by residents
   compute_environment(true);
-  environment_ptr = &environment;
   return it;
 }
 
@@ -1179,8 +1182,6 @@ template <typename It>
 It Patch<T,E>::set_ode_state(It it, double time) {
   it = set_ode_state_and_field(it, time);
 
-  // Compute rates of change
-  compute_rates();
   return it;
 }
 
@@ -1193,15 +1194,15 @@ It Patch<T,E>::set_ode_state(It it, int index) {
 
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
 
-  // using a pointer here to avoid copying environment object
-  // just point the pointer, used inside compute rates to get env, to relevant env object
-  environment_ptr = &(environment_history[idx][index]);
-  environment.time = environment_ptr->time;
+  // Record which of this step's cached environments the rates are evaluated
+  // against; rate_environment() reads it back without copying the object.
+  cached_environment_index = index;
+  const environment_type& cached = rate_environment();
+  environment.time = cached.time;
 
   // increment the iterator by an appropriate amount, but don't actually do anything in the env
-  for (size_t i = 0; i < environment_ptr->ode_size(); i++) {*it++;}
- 
-  compute_rates();
+  for (size_t i = 0; i < cached.ode_size(); i++) {*it++;}
+
   return it;
 }
 
@@ -1295,7 +1296,8 @@ Rcpp::List Patch<T, E>::r_get_state() const
 
 template <typename T, typename E>
 template <typename It>
-It Patch<T,E>::ode_rates(It it) const {
+It Patch<T,E>::ode_rates(It it) {
+  compute_rates();
   it = odelia::ode::ode_rates(species.begin(), species.end(), it);
   it = environment.ode_rates(it);
   return it;

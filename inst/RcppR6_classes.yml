@@ -656,9 +656,6 @@ Patch:
     compute_environment:
       return_type: void
       name_cpp: r_compute_environment
-    compute_rates:
-      return_type: void
-      name_cpp: r_compute_rates
     reset:
       return_type: void
     # Because we now care about time, we need to make sure that the
