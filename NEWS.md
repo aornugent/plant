@@ -505,6 +505,32 @@ were not previously recorded here:
 * `SCM::run()` accumulates the per-node refinement error when `collect_errors`
   is set, exposed as `combined_node_errors`; `SCM::refine_schedule()` runs the
   adaptive node-introduction loop in C++.
+* **The schedule-refinement error metric now spans the whole competition
+  quadrature.** `Species::compute_competition()` integrates a trapezium over the
+  node list and then closes it with a segment running from the youngest node to
+  the boundary node, because the birth boundary — not the youngest cohort — is
+  where the size distribution starts. Density is peaked there, so that segment
+  carries a real share of the integral: median 2–10% of the height-zero
+  competition integral across FF16, K93 and TF24 runs, and up to half of it in the
+  first few states of a run. `compute_competition_effect_by_nodes_error()`
+  measured its local trapezium error over the node abscissae alone, so the
+  boundary node's abscissa was missing, the youngest node's error came back `NA`,
+  and no error at all was reported for that segment — the adaptive refiner was
+  blind to one interval of its own quadrature. The metric is now taken over the
+  grid the integral is actually taken over, in both density coordinates, and omits
+  the closing point only where `compute_competition()` itself omits the segment.
+  The returned vector is therefore one entry longer than the node count, `NA` at
+  both ends of the grid as before; `Patch::refinement_error_by_node()` drops the
+  trailing entry, since only nodes can be refined against. Effect on refinement:
+  none at the default `schedule_eps = 2e-2`, where the segment's own error runs an
+  order of magnitude below tolerance and the per-node flags the refiner acts on are
+  unchanged for FF16, K93 and TF24 in both coordinates. At the tighter
+  `control_accurate()` setting (`schedule_eps = 1e-3`) it does bite: K93 in height
+  coordinates refines to 319 introductions rather than 318, moving offspring
+  production from 0.03058916 to 0.03058811 (3e-5 relative). Nothing outside the
+  error diagnostic changed, so a run on a fixed schedule — and hence the
+  schedule-independent limit the two density coordinates converge to — is
+  untouched.
 * The resource spline is now floored at 0, fixing spurious negative light
   values (notably the K93 light spline at high `k_I`) (#253, #497).
 * `interpolate_to_heights()` no longer silently drops individuals in the largest

@@ -259,11 +259,14 @@ test_that("refinement_error_by_node collected in C++ matches per-step assembly",
     for (h in scm_ref$history) {
       sizes_now <- sapply(seq_len(n_spp), function(i) h$species[[i]]$size)
       for (idx in which(sizes_now > sizes_prev)) {
-        lai_error[[idx]] <- c(
-          lai_error[[idx]],
-          list(h$species[[idx]]$compute_competition_effect_by_nodes_error(
-            h$compute_competition(0)))
-        )
+        ## The error spans the competition quadrature's grid, which closes on the
+        ## boundary node, so its last entry belongs to no node. C++ ignores that
+        ## entry (a grid end, hence always NA) when folding the per-step samples
+        ## into a per-node error, and so must this reference.
+        err <- h$species[[idx]]$compute_competition_effect_by_nodes_error(
+          h$compute_competition(0))
+        lai_error[[idx]] <- c(lai_error[[idx]],
+                              list(err[seq_len(sizes_now[[idx]])]))
       }
       sizes_prev <- sizes_now
     }

@@ -628,6 +628,10 @@ Species:
       return_type: "plant::Node<T,E>"
       args: [index: "plant::util::index"]
       name_cpp: r_node_at
+    ## Local trapezium error of the competition integral, over the grid that
+    ## integral is actually taken over: the nodes, plus the boundary node whose
+    ## segment closes the sum. One entry longer than the node count, therefore,
+    ## with NA at both ends of the grid as usual.
     compute_competition_effect_by_nodes_error:
       return_type: "std::vector<double>"
       args: [scal: double=1]

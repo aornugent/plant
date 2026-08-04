@@ -579,6 +579,13 @@ void Patch<T,E>::collect_competition_errors(const std::vector<size_t>& added) {
 // Combine the competition error (sampled during the run) with the reproduction
 // error (computed now) into a single per-node error vector per species. An
 // all-NA node yields -Inf, matching apply(rbind(...), 2, max, na.rm=TRUE) in R.
+//
+// The competition error runs over the competition quadrature's grid, one entry
+// longer than the node count because that grid closes on the boundary node (see
+// Species::r_compute_competition_effect_by_nodes_error). Only nodes can be
+// refined against, so the loop below stops at the node count and that trailing
+// entry falls away; it is a grid end, hence NA, and the accumulator skips it
+// anyway.
 template <typename T, typename E>
 std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
   std::vector<std::vector<double>> repro = net_reproduction_ratio_errors();

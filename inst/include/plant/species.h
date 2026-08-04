@@ -138,7 +138,10 @@ public:
   /* } */
 
 
-  // These are used to determine the degree of node refinement.
+  // These are used to determine the degree of node refinement. The effects are
+  // per node; the errors carry one extra trailing entry, because the grid the
+  // competition integral is taken over is the nodes *plus* the boundary node
+  // (see r_compute_competition_effect_by_nodes_error).
   std::vector<double> r_compute_competition_effect_by_nodes() const;
   std::vector<double> r_compute_competition_effect_by_nodes_error(double scal) const;
 
@@ -212,12 +215,19 @@ private:
   double quadrature_abscissa(const node_type& n) const {
     return abscissa_of(n, control().node_density_in_birth_date);
   }
-  std::vector<double> quadrature_abscissae() const {
+  // The grid compute_competition() takes its trapezium sum over. `close` says
+  // whether that sum is closed with the boundary segment, and is the caller's to
+  // answer (see r_compute_competition_effect_by_nodes_error) so that the
+  // abscissa and the integrand cannot disagree about the grid's length.
+  std::vector<double> quadrature_abscissae(bool close) const {
     std::vector<double> ret;
-    ret.reserve(size());
+    ret.reserve(size() + (close ? 1 : 0));
     const bool birth_date = control().node_density_in_birth_date;
     for (auto& c : nodes) {
       ret.push_back(abscissa_of(c, birth_date));
+    }
+    if (close) {
+      ret.push_back(abscissa_of(new_node, birth_date));
     }
     return ret;
   }
@@ -710,8 +720,30 @@ std::vector<double> Species<T,E>::r_compute_competition_effect_by_nodes_error(do
   // refinement measures the error of the quadrature actually being taken.
   // local_error_integration takes absolute differences, so the height branch's
   // sign flip leaves it unchanged.
-  return util::local_error_integration(quadrature_abscissae(),
-                                       r_compute_competition_effect_by_nodes(), scal);
+  std::vector<double> effect = r_compute_competition_effect_by_nodes();
+  // compute_competition() does not stop at the youngest node: it closes the
+  // trapezium sum with a segment running from there to the boundary node,
+  // because the birth boundary is where the size distribution starts. Density is
+  // peaked there, so that segment carries a real share of the integral, and its
+  // endpoint belongs to this grid. Left out, the youngest node's error came back
+  // NA and the closing segment's quadrature error was reported nowhere, leaving
+  // the refiner blind to one interval of its own quadrature.
+  //
+  // The condition mirrors the one in compute_competition() at height zero, which
+  // is the only height sampled here: no node is below zero, so the walk always
+  // reaches the last node and `f1` there is the youngest node's effect. Only a
+  // youngest node whose density has collapsed to exactly zero drops the segment
+  // from the integral, and then the node abscissae alone really are the grid.
+  const bool close = !effect.empty() &&
+    (size() == 1 || control().node_density_in_birth_date || effect.back() > 0.0);
+  if (close) {
+    // The boundary node's abscissa is the current patch time on the birth-date
+    // path, which Patch::compute_environment() restamps before the profile is
+    // built; the refinement error is sampled after the step, by which time both
+    // that and compute_rates() have set it to the step's end time.
+    effect.push_back(new_node.compute_competition(0.0));
+  }
+  return util::local_error_integration(quadrature_abscissae(close), effect, scal);
 }
 
 // Central differences in the interior, one-sided at the two ends. The boundary
