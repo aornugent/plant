@@ -151,7 +151,7 @@ util::index StochasticPatchRunner<T, E>::r_run_next() {
 
 template <typename T, typename E>
 void StochasticPatchRunner<T, E>::r_set_node_schedule(NodeSchedule x) {
-  if (patch.ode_size() > 0) {
+  if (patch.node_ode_size() > 0) {
     util::stop("Cannot set schedule without resetting first");
   }
   util::check_length(x.get_n_species(), patch.size());
@@ -166,7 +166,7 @@ void StochasticPatchRunner<T, E>::r_set_node_schedule(NodeSchedule x) {
 template <typename T, typename E>
 void StochasticPatchRunner<T, E>::r_set_node_schedule_times(
     std::vector<std::vector<double>> x) {
-  if (patch.ode_size() > 0) {
+  if (patch.node_ode_size() > 0) {
     util::stop("Cannot set schedule without resetting first");
   }
   node_schedule.set_times(x);

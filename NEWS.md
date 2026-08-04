@@ -315,7 +315,48 @@ were not previously recorded here:
   variables (#323) and environment state variables (#305) exposed/added.
 * Added an HTML report (plots + analyses) for the FF16 strategy (#350).
 
+### Known issues
+
+* **A stochastic patch holding no individuals discards the environment's ODE
+  state.** `StochasticPatch::compute_environment()` calls
+  `environment.clear_environment()` when `height_max()` is zero, and TF24's
+  override of that restores the soil states and the cumulative-flux accumulators
+  to the values the run started from. Now that the environment is part of the ODE
+  system, that undoes what the solver has integrated: on every derivatives
+  evaluation while the patch is empty, soil water snaps back to 0.214. So the
+  environment is integrated only once at least one individual is alive, and it is
+  re-frozen if the population returns to zero. The effect on the runs measured
+  below is small (arrivals start at patch age ~0.008 yr and layer 0 recharges at
+  3.3 yr⁻¹), but a schedule whose first arrival is years in integrates from a
+  soil state that never moved. `clear_environment()` is doing two jobs — "reset
+  this environment for a new run", from `Environment::clear()`, where restoring
+  the initial soil state is wanted, and "no plants, so no shading", here, where
+  it is not. Splitting them is the fix.
+
 ### Minor changes & bug fixes
+
+* **The stochastic solver now integrates the environment.** `StochasticPatch`'s
+  ODE system was the species alone: `ode_size()`, `set_ode_state()`,
+  `ode_state()` and `ode_rates()` did not chain through the environment as
+  `Patch`'s always have, and `compute_rates()` never accumulated resource
+  consumption, so `Environment::compute_rates()` was never called. An
+  environment carrying ODE state was therefore held at its initial value for a
+  whole run. TF24 carries nine such states — five soil-moisture layers and four
+  cumulative fluxes — while FF16 and K93 carry none, which is why this went
+  unnoticed. Stochastic TF24 runs change: soil water recharges from 0.214 to the
+  drainage equilibrium 0.3106 and is then drawn down as leaf area grows,
+  tracking the SCM's own trajectory on the same drivers to ~1e-4, and total leaf
+  area at patch ages 1–3 moves from 11–16% below the SCM to within 1.4% of it.
+  FF16 and K93 stochastic runs are bit-identical. The consumption vector is
+  sized by the environment's `n_resources()` rather than its ODE width, so
+  TF24's four diagnostic flux slots are not mistaken for resources.
+* **A stochastic recruit's strategy-specific initial states are seeded from its
+  birth environment.** `StochasticSpecies::introduce_new_node(environment)`
+  computed the new individual's rates without first calling
+  `Individual::set_initial_states()`, which the deterministic path calls from
+  `Node::compute_initial_conditions()`. A TF24 seedling was born with an empty
+  carbohydrate store rather than `a_st3` of its storage capacity. FF16 and K93
+  do not override `set_initial_states()`, so they are unaffected.
 
 * **The TF24 rainfall driver is floored at zero.** Because drivers are
   interpolated with a cubic spline, an intermittent series undershoots below

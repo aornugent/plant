@@ -46,6 +46,9 @@ public:
 
   // * ODE interface
   size_t ode_size() const;
+  // The individuals' share of the ODE system, i.e. zero on an empty patch
+  // whatever state the environment carries.
+  size_t node_ode_size() const { return ode_size() - environment.ode_size(); }
   double ode_time() const;
   double area;
 
@@ -146,6 +149,21 @@ void StochasticPatch<T,E>::compute_rates() {
   for (size_t i = 0; i < size(); ++i) {
     species[i].compute_rates(environment);
   }
+
+  // Resource uptake per unit area, which closes the environment's own balance
+  // (for TF24, soil water). Sized by the number of resources the environment
+  // consumes, which is not its ODE width: TF24 has five soil layers plus four
+  // cumulative-flux states that nothing draws on.
+  std::vector<double> resource_depletion;
+  resource_depletion.reserve(environment.n_resources());
+  for (size_t i = 0; i < environment.n_resources(); i++) {
+    double resource_consumed = std::accumulate(
+        species.begin(), species.end(), 0.0,
+        [i](double r, const species_type& s) {return r + s.consumption_rate(i);});
+    resource_depletion.push_back(resource_consumed / area);
+  }
+
+  environment.compute_rates(resource_depletion);
 }
 
 // In theory, this could be done more efficiently by, in the introdudce_new_node
@@ -227,7 +245,7 @@ Rcpp::List StochasticPatch<T, E>::r_get_state() const
 // ODE interface
 template <typename T, typename E>
 size_t StochasticPatch<T,E>::ode_size() const {
-  return odelia::ode::ode_size(species.begin(), species.end());
+  return odelia::ode::ode_size(species.begin(), species.end()) + environment.ode_size();
 }
 
 template <typename T, typename E>
@@ -241,6 +259,7 @@ odelia::ode::const_iterator StochasticPatch<T,E>::set_ode_state(odelia::ode::con
   
   // set ode sates
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
+  it = environment.set_ode_state(it);
   environment.time = time;
 
   // pre-compute resources avaialability and competion, as defined by residents
@@ -253,12 +272,14 @@ odelia::ode::const_iterator StochasticPatch<T,E>::set_ode_state(odelia::ode::con
 
 template <typename T, typename E>
 odelia::ode::iterator StochasticPatch<T,E>::ode_state(odelia::ode::iterator it) const {
-  return odelia::ode::ode_state(species.begin(), species.end(), it);
+  it = odelia::ode::ode_state(species.begin(), species.end(), it);
+  return environment.ode_state(it);
 }
 
 template <typename T, typename E>
 odelia::ode::iterator StochasticPatch<T,E>::ode_rates(odelia::ode::iterator it) const {
-  return odelia::ode::ode_rates(species.begin(), species.end(), it);
+  it = odelia::ode::ode_rates(species.begin(), species.end(), it);
+  return environment.ode_rates(it);
 }
 
 }
