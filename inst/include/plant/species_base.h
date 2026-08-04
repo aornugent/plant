@@ -89,7 +89,7 @@ protected:
   // an active scalar, so a species there is reachable only through this.
   explicit SpeciesBase(strategy_type_ptr s) : strategy(s) {}
 
-  const Control& control() const { return strategy->get_control(); }
+  const Control& control() const { return strategy->control; }
 
   strategy_type_ptr strategy;
   std::vector<node_type> nodes;

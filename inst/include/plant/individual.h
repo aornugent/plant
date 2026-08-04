@@ -233,7 +233,18 @@ public:
   }
 
   // The size-density equation's transport term, from the rates just computed.
+  //
+  // A density in birth date changes only by mortality: nothing moves an
+  // individual along the birth-date axis. A density in height additionally
+  // compresses as the spacing between neighbouring sizes changes, which is the
+  // growth-rate gradient. The coordinate is branched on here rather than in
+  // Node::compute_rates() (where #590 put it) because block_outputs() above
+  // reports this same quantity for the cohort block, and the block's contract is
+  // that it reproduces the node's rate.
   value_type log_density_rate(const environment_type& environment) const {
+    if (control().node_density_in_birth_date) {
+      return -rate(MORTALITY_INDEX);
+    }
     return -growth_rate_gradient(environment) - rate(MORTALITY_INDEX);
   }
 

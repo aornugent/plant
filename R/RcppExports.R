@@ -1477,6 +1477,14 @@ Node___FF16__FF16_Env__log_density__get <- function(obj_) {
     .Call('_plant_Node___FF16__FF16_Env__log_density__get', PACKAGE = 'plant', obj_)
 }
 
+Node___FF16__FF16_Env__introduction_time__get <- function(obj_) {
+    .Call('_plant_Node___FF16__FF16_Env__introduction_time__get', PACKAGE = 'plant', obj_)
+}
+
+Node___FF16__FF16_Env__growth_rate_at_birth__get <- function(obj_) {
+    .Call('_plant_Node___FF16__FF16_Env__growth_rate_at_birth__get', PACKAGE = 'plant', obj_)
+}
+
 Node___FF16__FF16_Env__fecundity__get <- function(obj_) {
     .Call('_plant_Node___FF16__FF16_Env__fecundity__get', PACKAGE = 'plant', obj_)
 }
@@ -1531,6 +1539,14 @@ Node___TF24__TF24_Env__height__get <- function(obj_) {
 
 Node___TF24__TF24_Env__log_density__get <- function(obj_) {
     .Call('_plant_Node___TF24__TF24_Env__log_density__get', PACKAGE = 'plant', obj_)
+}
+
+Node___TF24__TF24_Env__introduction_time__get <- function(obj_) {
+    .Call('_plant_Node___TF24__TF24_Env__introduction_time__get', PACKAGE = 'plant', obj_)
+}
+
+Node___TF24__TF24_Env__growth_rate_at_birth__get <- function(obj_) {
+    .Call('_plant_Node___TF24__TF24_Env__growth_rate_at_birth__get', PACKAGE = 'plant', obj_)
 }
 
 Node___TF24__TF24_Env__fecundity__get <- function(obj_) {
@@ -1589,6 +1605,14 @@ Node___TF24f__TF24_Env__log_density__get <- function(obj_) {
     .Call('_plant_Node___TF24f__TF24_Env__log_density__get', PACKAGE = 'plant', obj_)
 }
 
+Node___TF24f__TF24_Env__introduction_time__get <- function(obj_) {
+    .Call('_plant_Node___TF24f__TF24_Env__introduction_time__get', PACKAGE = 'plant', obj_)
+}
+
+Node___TF24f__TF24_Env__growth_rate_at_birth__get <- function(obj_) {
+    .Call('_plant_Node___TF24f__TF24_Env__growth_rate_at_birth__get', PACKAGE = 'plant', obj_)
+}
+
 Node___TF24f__TF24_Env__fecundity__get <- function(obj_) {
     .Call('_plant_Node___TF24f__TF24_Env__fecundity__get', PACKAGE = 'plant', obj_)
 }
@@ -1643,6 +1667,14 @@ Node___K93__K93_Env__height__get <- function(obj_) {
 
 Node___K93__K93_Env__log_density__get <- function(obj_) {
     .Call('_plant_Node___K93__K93_Env__log_density__get', PACKAGE = 'plant', obj_)
+}
+
+Node___K93__K93_Env__introduction_time__get <- function(obj_) {
+    .Call('_plant_Node___K93__K93_Env__introduction_time__get', PACKAGE = 'plant', obj_)
+}
+
+Node___K93__K93_Env__growth_rate_at_birth__get <- function(obj_) {
+    .Call('_plant_Node___K93__K93_Env__growth_rate_at_birth__get', PACKAGE = 'plant', obj_)
 }
 
 Node___K93__K93_Env__fecundity__get <- function(obj_) {
@@ -1725,8 +1757,20 @@ Species___FF16__FF16_Env__log_densities__get <- function(obj_) {
     .Call('_plant_Species___FF16__FF16_Env__log_densities__get', PACKAGE = 'plant', obj_)
 }
 
+Species___FF16__FF16_Env__log_densities_state__get <- function(obj_) {
+    .Call('_plant_Species___FF16__FF16_Env__log_densities_state__get', PACKAGE = 'plant', obj_)
+}
+
+Species___FF16__FF16_Env__height_jacobian__get <- function(obj_) {
+    .Call('_plant_Species___FF16__FF16_Env__height_jacobian__get', PACKAGE = 'plant', obj_)
+}
+
 Species___FF16__FF16_Env__node_times__get <- function(obj_) {
     .Call('_plant_Species___FF16__FF16_Env__node_times__get', PACKAGE = 'plant', obj_)
+}
+
+Species___FF16__FF16_Env__density_in_birth_date__get <- function(obj_) {
+    .Call('_plant_Species___FF16__FF16_Env__density_in_birth_date__get', PACKAGE = 'plant', obj_)
 }
 
 Species___FF16__FF16_Env__patch_densities__get <- function(obj_) {
@@ -1825,8 +1869,20 @@ Species___TF24__TF24_Env__log_densities__get <- function(obj_) {
     .Call('_plant_Species___TF24__TF24_Env__log_densities__get', PACKAGE = 'plant', obj_)
 }
 
+Species___TF24__TF24_Env__log_densities_state__get <- function(obj_) {
+    .Call('_plant_Species___TF24__TF24_Env__log_densities_state__get', PACKAGE = 'plant', obj_)
+}
+
+Species___TF24__TF24_Env__height_jacobian__get <- function(obj_) {
+    .Call('_plant_Species___TF24__TF24_Env__height_jacobian__get', PACKAGE = 'plant', obj_)
+}
+
 Species___TF24__TF24_Env__node_times__get <- function(obj_) {
     .Call('_plant_Species___TF24__TF24_Env__node_times__get', PACKAGE = 'plant', obj_)
+}
+
+Species___TF24__TF24_Env__density_in_birth_date__get <- function(obj_) {
+    .Call('_plant_Species___TF24__TF24_Env__density_in_birth_date__get', PACKAGE = 'plant', obj_)
 }
 
 Species___TF24__TF24_Env__patch_densities__get <- function(obj_) {
@@ -1925,8 +1981,20 @@ Species___TF24f__TF24_Env__log_densities__get <- function(obj_) {
     .Call('_plant_Species___TF24f__TF24_Env__log_densities__get', PACKAGE = 'plant', obj_)
 }
 
+Species___TF24f__TF24_Env__log_densities_state__get <- function(obj_) {
+    .Call('_plant_Species___TF24f__TF24_Env__log_densities_state__get', PACKAGE = 'plant', obj_)
+}
+
+Species___TF24f__TF24_Env__height_jacobian__get <- function(obj_) {
+    .Call('_plant_Species___TF24f__TF24_Env__height_jacobian__get', PACKAGE = 'plant', obj_)
+}
+
 Species___TF24f__TF24_Env__node_times__get <- function(obj_) {
     .Call('_plant_Species___TF24f__TF24_Env__node_times__get', PACKAGE = 'plant', obj_)
+}
+
+Species___TF24f__TF24_Env__density_in_birth_date__get <- function(obj_) {
+    .Call('_plant_Species___TF24f__TF24_Env__density_in_birth_date__get', PACKAGE = 'plant', obj_)
 }
 
 Species___TF24f__TF24_Env__patch_densities__get <- function(obj_) {
@@ -2025,8 +2093,20 @@ Species___K93__K93_Env__log_densities__get <- function(obj_) {
     .Call('_plant_Species___K93__K93_Env__log_densities__get', PACKAGE = 'plant', obj_)
 }
 
+Species___K93__K93_Env__log_densities_state__get <- function(obj_) {
+    .Call('_plant_Species___K93__K93_Env__log_densities_state__get', PACKAGE = 'plant', obj_)
+}
+
+Species___K93__K93_Env__height_jacobian__get <- function(obj_) {
+    .Call('_plant_Species___K93__K93_Env__height_jacobian__get', PACKAGE = 'plant', obj_)
+}
+
 Species___K93__K93_Env__node_times__get <- function(obj_) {
     .Call('_plant_Species___K93__K93_Env__node_times__get', PACKAGE = 'plant', obj_)
+}
+
+Species___K93__K93_Env__density_in_birth_date__get <- function(obj_) {
+    .Call('_plant_Species___K93__K93_Env__density_in_birth_date__get', PACKAGE = 'plant', obj_)
 }
 
 Species___K93__K93_Env__patch_densities__get <- function(obj_) {
