@@ -109,10 +109,17 @@ test_that("collect returns a well-formed, non-empty trajectory (#498)", {
     ## Regression guard for #498: the collector used to read a removed `state`
     ## accessor and silently returned empty output, which `expect_silent` could
     ## not catch. Assert the trajectory is actually populated.
-    expect_setequal(names(res), c("time", "species", "light_env", "p"))
+    expect_setequal(names(res), c("time", "species", "env", "p"))
     expect_gt(length(res$time), 1)
     expect_false(is.unsorted(res$time))          # patch age is non-decreasing
     expect_length(res$species, 1)
+
+    ## The environment leg was reported under a name nothing produced, so this
+    ## used to be a list of NULLs and the name check above passed anyway. Assert
+    ## content, not shape.
+    expect_length(res$env, length(res$time))
+    expect_false(any(vapply(res$env, is.null, logical(1))))
+    expect_true(all(vapply(res$env, function(z) "time" %in% names(z), logical(1))))
 
     sp <- res$species[[1]]
     expect_equal(length(dim(sp)), 3)             # [variable, time, plant]
@@ -213,4 +220,35 @@ test_that("TF24's environment states are integrated over a stochastic run", {
   expect_length(flux, 4)
   expect_true(all(flux > 0))
   expect_lt(flux[[4]], flux[[2]])
+})
+
+## The collected output now carries the environment, which only became
+## meaningful once the stochastic solver started integrating it. Before that the
+## soil state was frozen at its initial value, so a visible trajectory would have
+## been a flat line; now it recharges and is drawn down, and this asserts the
+## collector actually reports that rather than a list of NULLs.
+test_that("the collected trajectory reports a moving soil state", {
+  x <- "TF24"
+  e <- environment_types[[x]]
+  set.seed(1)
+  p <- Parameters(x, e)(strategies=list(strategy_types[[x]]()), patch_area=1)
+  res <- run_stochastic_collect(p, Environment(x), Control())
+
+  expect_true("env" %in% names(res))
+  expect_length(res$env, length(res$time))
+
+  moist <- lapply(res$env, "[[", "soil_moist")
+  expect_false(any(vapply(moist, is.null, logical(1))))
+  expect_true(all(vapply(moist, length, integer(1)) == p$soil_number_of_depths))
+
+  layer1 <- vapply(moist, function(z) z[[1]], 0)
+  expect_true(all(is.finite(layer1)))
+  ## Not frozen: the initial state is 0.214 and rainfall recharges it.
+  expect_gt(diff(range(layer1)), 1e-3)
+  expect_gt(max(layer1), 0.214)
+
+  ## The cumulative fluxes are accumulators, so they cannot decrease.
+  flux1 <- vapply(res$env, function(z) z[["soil_moist_cumulative_flux"]][[1]], 0)
+  expect_false(is.unsorted(flux1))
+  expect_gt(max(flux1), 0)
 })

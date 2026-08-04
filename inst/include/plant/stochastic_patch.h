@@ -238,8 +238,8 @@ Rcpp::List StochasticPatch<T, E>::r_get_state() const
   }
 
   return Rcpp::List::create(_["time"] = time(),
-                            _["species"] = community_state);
-                            // _["env"] = environment.r_get_state());
+                            _["species"] = community_state,
+                            _["env"] = environment.r_get_state());
 }
 
 // ODE interface

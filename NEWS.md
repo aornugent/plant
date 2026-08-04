@@ -317,6 +317,18 @@ were not previously recorded here:
 
 ### Minor changes & bug fixes
 
+* **`run_stochastic_collect()` now reports the environment.**
+  `StochasticPatch::r_get_state()` had its environment leg commented out, so
+  unlike `Patch::r_get_state()` it returned only `time` and `species`. The R
+  collector then read `light_env`, a name nothing had ever produced, so every
+  element of that field came back `NULL`. The field is now `env`, matching what
+  the patch reports and what `run_scm()`'s collected output calls it, and it is
+  populated. This was inert while the stochastic solver held its environment at
+  the initial state; now that the environment is integrated, the soil trajectory
+  is real and worth reporting. **Breaking:** the returned list field is renamed
+  from `light_env` to `env`. Nothing could have depended on its contents, since
+  it was always `NULL`, but code testing for the name will need updating.
+
 * **The stochastic arrival schedule now scales with patch area.**
   `stochastic_schedule()` passed `patch_area` into `stochastic_arrival_times()`'s
   third positional argument, which is `delta_t`, leaving `patch_area` at its

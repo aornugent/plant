@@ -107,7 +107,10 @@ run_stochastic_collect <- function(p, env = NULL,
   }
 
   time <- sapply(res, "[[", "time")
-  light_env <- lapply(res, "[[", "light_env")
+  ## `env` is what StochasticPatch reports it as, and what run_scm's collected
+  ## output calls it. This read used to ask for "light_env", a name nothing
+  ## produced, so every element came back NULL.
+  env <- lapply(res, "[[", "env")
   species <- lapply(res, "[[", "species")
 
   ## The aperm() here means that dimensions are
@@ -129,7 +132,7 @@ run_stochastic_collect <- function(p, env = NULL,
 
   ret <- list(time=time,
               species=species,
-              light_env=light_env,
+              env=env,
               # offspring_production is not defined for the finite-population
               # model (no patch-density integral); omitted. patch_density
               # likewise (see note above).
