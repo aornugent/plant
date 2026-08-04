@@ -217,6 +217,26 @@ were not previously recorded here:
   `Node::growth_rate_gradient` is not called, which also removes one leaf solve
   per cohort per Runge-Kutta stage.
 
+  **What R receives is unchanged in meaning.** The coordinate is an internal
+  choice, so `log_density` is converted back to a density in *height* before it
+  leaves C++ — `Species$log_densities`, `Patch$state`, and therefore
+  `run_scm(collect = TRUE)`, `tidy_outputs.R`'s `density = exp(log_density)`,
+  `interpolate_to_heights()` and the plots all keep their existing meaning. The
+  conversion is `N = ν / |dh/dτ|`, with the Jacobian formed by central
+  differences of adjacent node heights against their birth dates (the boundary
+  node supplies the extra point at the young end). Measured against an otherwise
+  identical height-coordinate run, the median node agrees to `1.7e-3` in log
+  space — 0.17% in density — improving to `4.4e-4` and `1.1e-4` over two
+  schedule refinements. See Known issues for where this is weakest.
+
+  The quantity actually integrated is reported alongside rather than lost:
+  `Species$log_densities_state` (and a `log_density_state` row in `Patch$state`,
+  present only on the birth-date path), plus `Species$height_jacobian` for the
+  conversion itself. `Node$log_density` stays unconverted, since forming
+  `|dh/dτ|` needs the neighbouring nodes and a `Node` does not have them.
+  `export_patch_state()` resumes from `patch$ode_state`, which is the raw state,
+  so resume is unaffected by any of this — pinned by a test.
+
   Two invariants the birth-date axis needs, which the height axis did not:
 
   - The boundary node's birth date is the current time, so
@@ -401,24 +421,14 @@ were not previously recorded here:
 
 ### Known issues
 
-* **`node_density_in_birth_date = TRUE` changes what `log_density` means in the
-  R-facing output, under the same name.** `Node$ode_names` still reports
-  `log_density`, and `Species$log_densities` / `r_get_state()` /
-  `run_scm(collect = TRUE)` histories still carry it, but it is now a density per
-  unit *birth date* rather than per unit height. Nothing reconstructs the height
-  density. Confirmed on an FF16 run: at an interior node `log_density` reads
-  −2.42 in height and −0.46 in birth date. The conversion is
-  `N = ν / |dh/dτ|`, and differencing adjacent node heights recovers the height
-  run to `6e-4`–`4e-3` over the interior (degrading to ~`2e-1` at the boundary
-  node, where the one-sided difference is worst), so a helper is
-  straightforward — it just does not exist yet.
-
-  Affected R-side code, all of which assumes the height interpretation:
-  `tidy_outputs.R`'s `density = exp(log_density)`, `interpolate_to_heights()`
-  (which interpolates `log_density` *against height*), `tidy_plots.R`'s
-  relative-density shading, and the `densities`/`log_densities` arguments of the
-  initial-state helper in `scm_support.R`, which would load user-supplied height
-  densities as birth-date ones. Needs resolving before the flag goes default-on.
+* On the birth-date path, the *worst-case* node of the reported height density
+  does not improve with schedule refinement, even though the typical node does
+  (see the reporting note under New features). `|dh/dτ|` is a ratio of two
+  differences that both shrink as the schedule is refined, so cancellation error
+  sets a floor, and refinement adds nodes in the near-empty tail where that floor
+  is worst. Aggregate and plotting use is sound; individual node densities far
+  out in the tail are not. A Jacobian obtained from the growth rate rather than
+  by differencing would remove this, and is the obvious follow-up.
 
 * `stochastic_schedule()` passes `patch_area` into
   `stochastic_arrival_times()`'s third positional argument, which is `delta_t`.

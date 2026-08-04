@@ -193,7 +193,8 @@ test_that("a competitively excluded species is no worse off", {
                        1.4e-4, 2.5e-3, 8.8e-3,
                        0.044, 0.044, 0.044),
                      c("b_0", "b_1", "b_2", "c_0", "c_1", "d_0", "d_1"))
-  p <- interleave_schedule(add_strategies(p0, sp, birth_rate = c(20, 20, 20)), 1)
+  p <- add_strategies(p0, sp, birth_rate = c(20, 20, 20))
+  p <- interleave_schedule(p, 1)
 
   h <- offspring_in_coordinate(p, x, FALSE)
   b <- offspring_in_coordinate(p, x, TRUE)
@@ -203,6 +204,123 @@ test_that("a competitively excluded species is no worse off", {
   expect_lt(h[[1]] / max(h), 0.05)
   ## And its relative error is of the same order as the rest.
   expect_lt(rel[[1]], 3 * max(rel[-1]))
+})
+
+## Reporting boundary: whichever coordinate the solver carries internally, R is
+## handed a density in *height*, so tidy_outputs.R's `density`,
+## interpolate_to_heights() and the plots keep their meaning. The carried
+## quantity is reported alongside rather than lost.
+collected_run <- function(birth_date, lifetime = 20) {
+  p0 <- scm_base_parameters("FF16")
+  p0$max_patch_lifetime <- lifetime
+  p <- add_strategies(p0, trait_matrix(0.08, "lma"), birth_rate = 1.0)
+  ctrl <- Control()
+  ctrl$node_density_in_birth_date <- birth_date
+  scm <- SCM("FF16", "FF16_Env")(p, Environment("FF16"), ctrl)
+  scm$collect <- TRUE
+  scm$run()
+  scm
+}
+
+## Compared in log space: |log N_b - log N_h| is the log of the density ratio, so
+## 1e-3 means the densities agree to ~0.1%. A *relative* comparison of the logs
+## is meaningless here because log_density crosses zero.
+log_density_gap <- function(refine) {
+  p_of <- function() {
+    p0 <- scm_base_parameters("FF16")
+    p0$max_patch_lifetime <- 20
+    add_strategies(p0, trait_matrix(0.08, "lma"), birth_rate = 1.0)
+  }
+  one <- function(birth_date) {
+    ctrl <- Control()
+    ctrl$node_density_in_birth_date <- birth_date
+    scm <- SCM("FF16", "FF16_Env")(interleave_schedule(p_of(), refine),
+                                   Environment("FF16"), ctrl)
+    scm$run()
+    scm$patch$species[[1]]
+  }
+  sa <- one(FALSE)
+  sb <- one(TRUE)
+  list(gap = abs(sb$log_densities - sa$log_densities),
+       state_gap = abs(sb$log_densities_state - sa$log_densities))
+}
+
+test_that("log_densities is a height density in both coordinates", {
+  g0 <- log_density_gap(0)
+  g1 <- log_density_gap(1)
+
+  ## The typical node agrees closely, and refining the schedule improves it at
+  ## about the 2nd order of the differenced Jacobian (measured ratios ~3.9).
+  expect_lt(median(g0$gap), 5e-3)
+  expect_gt(median(g0$gap) / median(g1$gap), 2.5)
+  expect_gt(quantile(g0$gap, 0.9) / quantile(g1$gap, 0.9), 2.5)
+
+  ## Deliberately not asserted on max(): the *worst* node does not converge.
+  ## |dh/dtau| is a ratio of two differences that both shrink as the schedule is
+  ## refined, so cancellation error sets a floor, and refinement adds nodes in
+  ## the near-empty tail (log density ~ -11) where that floor is worst. The
+  ## reconstructed height density is sound in aggregate and for plotting; it
+  ## should not be trusted node-by-node out in the tail.
+
+  ## And the conversion is doing real work: unconverted, the carried quantity
+  ## differs from the height density by ~1 in log space, not ~1e-3.
+  expect_gt(median(g0$state_gap), 0.5)
+})
+
+test_that("log_densities_state is the quantity actually integrated", {
+  a <- collected_run(FALSE)
+  b <- collected_run(TRUE)
+  sa <- a$patch$species[[1]]
+  sb <- b$patch$species[[1]]
+
+  ## On the height path there is nothing to convert.
+  expect_equal(sa$log_densities_state, sa$log_densities)
+  ## On the birth-date path it is the raw per-node state, which Node reports
+  ## unconverted (a lone node cannot form dh/dtau).
+  expect_equal(sb$log_densities_state,
+               vapply(sb$nodes, function(nd) nd$log_density, numeric(1)))
+  expect_false(isTRUE(all.equal(sb$log_densities_state, sb$log_densities)))
+
+  ## And the two are related by the Jacobian, boundary node last.
+  jac <- sb$height_jacobian
+  expect_length(jac, sb$size + 1L)
+  expect_equal(sb$log_densities, sb$log_densities_state - log(head(jac, sb$size)))
+})
+
+test_that("the collected state carries both densities", {
+  a <- collected_run(FALSE)
+  b <- collected_run(TRUE)
+
+  rows_h <- rownames(a$patch$state$species[[1]])
+  rows_b <- rownames(b$patch$state$species[[1]])
+  expect_false("log_density_state" %in% rows_h)
+  expect_true("log_density_state" %in% rows_b)
+
+  ## The matrix that feeds tidy_patch() agrees with the accessor, so the
+  ## `density = exp(log_density)` downstream is in height units.
+  sb <- b$patch$species[[1]]
+  st <- b$patch$state$species[[1]]
+  expect_equal(unname(st["log_density", seq_len(sb$size)]), sb$log_densities)
+  expect_equal(unname(st["log_density_state", seq_len(sb$size)]),
+               sb$log_densities_state)
+})
+
+test_that("resume reads the raw state, so it is unaffected by the conversion", {
+  x <- "FF16"; e <- "FF16_Env"
+  ctrl <- Control()
+  ctrl$node_density_in_birth_date <- TRUE
+
+  scm <- collected_run(TRUE)
+  state <- export_patch_state(scm, step = max(2L, length(scm$history) %/% 2L))
+  p2 <- set_initial_state(scm$parameters, state)
+
+  scm2 <- SCM(x, e)(p2, Environment(x), ctrl)
+  scm2$collect <- TRUE
+  scm2$run()
+
+  ## The seeded patch reproduces the exported ODE state exactly -- which it
+  ## could not if the reporting conversion had leaked into the resume path.
+  expect_equal(scm2$history[[1]]$ode_state, state$ode_state)
 })
 
 ## The coordinate is stored per strategy but cannot differ between the species

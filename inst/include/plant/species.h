@@ -142,11 +142,26 @@ public:
   std::vector<double> r_compute_competition_effect_by_nodes() const;
   std::vector<double> r_compute_competition_effect_by_nodes_error(double scal) const;
 
-  // This is just kind of useful
+  // Per-node size density, **always** as a density in height whichever
+  // coordinate the solver carried it in, so downstream code (tidy_outputs.R's
+  // `density`, interpolate_to_heights(), the plots) keeps its meaning. In
+  // birth-date coordinates that means dividing the carried quantity by the
+  // Jacobian; see height_jacobian(). NA for a node where the Jacobian vanishes,
+  // which is where the height density genuinely does not exist.
   std::vector<double> r_log_densities() const;
+  // The quantity actually integrated: the density in height on the height path,
+  // and the density in birth date (nu) on the birth-date one. Reported
+  // alongside r_log_densities() rather than instead of it, because it is the
+  // thing whose ODE the solver solves and the thing that cannot go non-finite.
+  std::vector<double> r_log_densities_state() const;
   // Per-node rate of change of log density; used to guard against initial
-  // conditions whose densities would explode to non-finite values.
+  // conditions whose densities would explode to non-finite values. This is the
+  // rate of the *carried* quantity, so on the birth-date path it is -mortality.
   std::vector<double> r_log_density_rates() const;
+
+  // |dh/dtau| per node, with the boundary node appended last: the Jacobian of
+  // the change of variables between the two coordinates, N = nu / |dh/dtau|.
+  std::vector<double> height_jacobian() const;
 
   // Per-node birth bookkeeping, exposed so an exported patch state can be
   // re-imported faithfully (see node.h::set_birth_state). node_times() above
@@ -596,23 +611,47 @@ Rcpp::NumericMatrix Species<T, E>::r_get_state() const {
   size_t ode_size = node_type::ode_size(), n_nodes = size();
   size_t aux_size = strategy->aux_size();
 
+  // On the birth-date path `log_density` is converted to the density in height
+  // before it leaves C++, so every downstream consumer of this matrix keeps its
+  // meaning, and the quantity actually integrated is reported alongside it as
+  // `log_density_state`. Note export_patch_state() resumes from patch$ode_state,
+  // not from here, so the raw state is what a resume reloads.
+  const size_t extra = control().node_density_in_birth_date ? 1 : 0;
+
   // Set output size. // +1 is seed
-  Rcpp::NumericMatrix ret(static_cast<int>(ode_size + aux_size), n_nodes + 1); 
+  Rcpp::NumericMatrix ret(static_cast<int>(ode_size + aux_size + extra), n_nodes + 1);
   Rcpp::NumericMatrix::iterator it = ret.begin();
-  
+
   for (size_t i = 0; i < n_nodes; ++i)
   {
     it = get_node_state(nodes[i], it);
     it = get_node_aux(nodes[i], it);
+    it += extra;
   }
 
   it = get_node_state(new_node, it);
   it = get_node_aux(new_node, it);
+  it += extra;
 
   // Combine ode_names and aux_names into a single vector for dimnames
   std::vector<std::string> names = node_type::ode_names();
   std::vector<std::string> aux = strategy->aux_names();
   names.insert(names.end(), aux.begin(), aux.end());
+
+  if (extra > 0) {
+    const int ld = static_cast<int>(
+      std::find(names.begin(), names.end(), "log_density") - names.begin());
+    const int st = static_cast<int>(ode_size + aux_size);
+    names.push_back("log_density_state");
+    // This matrix includes the boundary node as its last column, so the
+    // Jacobian's trailing entry is used here (unlike r_log_densities()).
+    const std::vector<double> jac = height_jacobian();
+    for (int col = 0; col <= static_cast<int>(n_nodes); ++col) {
+      const double nu = ret(ld, col);
+      ret(st, col) = nu;
+      ret(ld, col) = util::is_finite(jac[col]) ? nu - std::log(jac[col]) : NA_REAL;
+    }
+  }
 
   ret.attr("dimnames") = Rcpp::List::create(names, R_NilValue);
 
@@ -675,13 +714,60 @@ std::vector<double> Species<T,E>::r_compute_competition_effect_by_nodes_error(do
                                        r_compute_competition_effect_by_nodes(), scal);
 }
 
+// Central differences in the interior, one-sided at the two ends. The boundary
+// node supplies the extra point at the young end, so the youngest real node --
+// the one whose Jacobian a forward difference gets worst -- gets a genuine
+// central difference. NA where the Jacobian vanishes: two cohorts at the same
+// height is exactly where the height density is undefined (it is the multivalued
+// case), and reporting +Inf there would be worse than reporting nothing.
 template <typename T, typename E>
-std::vector<double> Species<T,E>::r_log_densities() const {
+std::vector<double> Species<T,E>::height_jacobian() const {
+  const size_t n = size();
+  std::vector<double> h(n + 1), t(n + 1);
+  for (size_t i = 0; i < n; ++i) {
+    h[i] = nodes[i].height();
+    t[i] = nodes[i].introduction_time();
+  }
+  h[n] = new_node.height();
+  t[n] = new_node.introduction_time();
+
+  std::vector<double> ret(n + 1, NA_REAL);
+  if (n < 1) {
+    return ret; // the boundary node alone has no neighbour to difference against
+  }
+  for (size_t j = 0; j <= n; ++j) {
+    const size_t lo = (j == 0) ? 0 : j - 1;
+    const size_t hi = (j == n) ? n : j + 1;
+    const double jac = std::abs((h[hi] - h[lo]) / (t[hi] - t[lo]));
+    if (util::is_finite(jac) && jac > 0.0) {
+      ret[j] = jac;
+    }
+  }
+  return ret;
+}
+
+template <typename T, typename E>
+std::vector<double> Species<T,E>::r_log_densities_state() const {
   std::vector<double> ret;
   ret.reserve(size());
   for (nodes_const_iterator it = nodes.begin();
        it != nodes.end(); ++it) {
     ret.push_back(it->get_log_density());
+  }
+  return ret;
+}
+
+template <typename T, typename E>
+std::vector<double> Species<T,E>::r_log_densities() const {
+  std::vector<double> ret = r_log_densities_state();
+  if (!control().node_density_in_birth_date) {
+    return ret;
+  }
+  // N = nu / |dh/dtau|. jac carries one extra trailing entry for the boundary
+  // node, which this accessor does not report.
+  const std::vector<double> jac = height_jacobian();
+  for (size_t i = 0; i < ret.size(); ++i) {
+    ret[i] = util::is_finite(jac[i]) ? ret[i] - std::log(jac[i]) : NA_REAL;
   }
   return ret;
 }
