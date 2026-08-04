@@ -37,6 +37,12 @@ public:
     node_introduction_time = time;
     patch_density_at_birth = patch_density;
   }
+  // The height growth rate this node was born at, i.e. |dh/dtau| exactly, at
+  // birth. Current only for the boundary node (re-evaluated every step); frozen
+  // at its own birth for an introduced one. Zero for a node loaded from an
+  // exported state, which never ran compute_initial_conditions().
+  double growth_rate_at_birth() const {return birth_growth_rate;}
+
   // Refresh only the birth date, leaving the rest of the bookkeeping alone.
   // Used for the not-yet-introduced boundary node, whose birth date is the
   // current time and so moves with every step; see
@@ -119,6 +125,8 @@ private:
   // Recorded at introduction (see set_introduction).
   double node_introduction_time;
   double patch_density_at_birth;
+  // |dh/dtau| at birth; see growth_rate_at_birth().
+  double birth_growth_rate;
 };
 
 template <typename T, typename E>
@@ -130,7 +138,8 @@ Node<T,E>::Node(strategy_type_ptr s)
     offspring_produced_survival_weighted(0),
     offspring_produced_survival_weighted_dt(0),
     node_introduction_time(0),
-    patch_density_at_birth(0) {
+    patch_density_at_birth(0),
+    birth_growth_rate(0) {
 }
 
 template <typename T, typename E>
@@ -186,10 +195,19 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   // The birth-date axis of the node about to be introduced; Patch re-stamps
   // this with the exact introduction time as the node is pushed.
   node_introduction_time = environment.time;
+  // dh/dtau = -g(H_0) at birth, so this is |dh/dtau| exactly, with no
+  // differencing: characteristics are labelled by birth date, and a cohort born
+  // an instant later starts an instant's growth behind. Recorded for every node
+  // (a cheap read -- compute_rates() above has just set it, and the height
+  // branch below needs it anyway), but only current for the *boundary* node,
+  // which compute_initial_conditions() re-evaluates every step. For an
+  // introduced node it is frozen at its own birth and so cannot serve as its
+  // present-day Jacobian; see Species::height_jacobian().
+  const double g = individual.rate(HEIGHT_INDEX);
+  birth_growth_rate = g;
   if (individual.control().node_density_in_birth_date) {
     set_log_density(log(birth_rate * pr_estab));
   } else {
-    const double g = individual.rate(HEIGHT_INDEX);
     // NOTE: log(0.0) -> -Inf, which should behave fine.
     set_log_density(g > 0 ? log(birth_rate * pr_estab / g) : log(0.0));
   }

@@ -732,15 +732,33 @@ std::vector<double> Species<T,E>::height_jacobian() const {
   t[n] = new_node.introduction_time();
 
   std::vector<double> ret(n + 1, NA_REAL);
-  if (n < 1) {
-    return ret; // the boundary node alone has no neighbour to difference against
+
+  // The boundary node needs no difference at all: dh/dtau = -g(H_0) at birth,
+  // and compute_initial_conditions() re-evaluates that every step, so the value
+  // it recorded is both exact and current. Only for *this* node -- an introduced
+  // one has aged since, and its recorded rate is frozen at its own birth.
+  const double g0 = new_node.growth_rate_at_birth();
+  if (util::is_finite(g0) && g0 > 0.0) {
+    ret[n] = g0;
   }
-  for (size_t j = 0; j <= n; ++j) {
+
+  if (n < 1) {
+    return ret; // no interior to difference
+  }
+  for (size_t j = 0; j < n; ++j) {
     const size_t lo = (j == 0) ? 0 : j - 1;
-    const size_t hi = (j == n) ? n : j + 1;
+    const size_t hi = j + 1;
     const double jac = std::abs((h[hi] - h[lo]) / (t[hi] - t[lo]));
     if (util::is_finite(jac) && jac > 0.0) {
       ret[j] = jac;
+    }
+  }
+  if (!util::is_finite(ret[n])) {
+    // Fall back to a one-sided difference if the birth rate is unavailable
+    // (a node loaded from an exported state records zero).
+    const double jac = std::abs((h[n] - h[n - 1]) / (t[n] - t[n - 1]));
+    if (util::is_finite(jac) && jac > 0.0) {
+      ret[n] = jac;
     }
   }
   return ret;

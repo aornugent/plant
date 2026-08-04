@@ -229,6 +229,19 @@ were not previously recorded here:
   space — 0.17% in density — improving to `4.4e-4` and `1.1e-4` over two
   schedule refinements. See Known issues for where this is weakest.
 
+  The boundary node needs no differencing at all: `dh/dτ = −g(H₀)` at birth, so
+  `compute_initial_conditions()` now records the birth growth rate on every node
+  (`Node$growth_rate_at_birth`) and the Jacobian uses it there directly. It is
+  exact *and* current for that node, because the boundary node is re-evaluated
+  every step; for an introduced node the recorded rate is frozen at its own
+  birth and so cannot serve as its present-day Jacobian. This removes a 31%
+  error on the boundary node — it sits a whole introduction interval from its
+  neighbour, which is the worst case for a one-sided difference. Recording it
+  also lets the two coordinates' boundary conditions be checked against each
+  other: `exp(log_density) · g(H₀)` on the height path must equal
+  `birth_rate · pr_estab`, which the birth-date path carries directly, and that
+  is now a test.
+
   The quantity actually integrated is reported alongside rather than lost:
   `Species$log_densities_state` (and a `log_density_state` row in `Patch$state`,
   present only on the birth-date path), plus `Species$height_jacobian` for the
@@ -427,8 +440,13 @@ were not previously recorded here:
   differences that both shrink as the schedule is refined, so cancellation error
   sets a floor, and refinement adds nodes in the near-empty tail where that floor
   is worst. Aggregate and plotting use is sound; individual node densities far
-  out in the tail are not. A Jacobian obtained from the growth rate rather than
-  by differencing would remove this, and is the obvious follow-up.
+  out in the tail are not. Note the exact `−g(H₀)` Jacobian does not help here:
+  it is exact only at a node's own birth, and the worst cases are interior nodes
+  in a compressed region of the size distribution (log density ~ −11), not the
+  boundary. Removing this properly means evolving `∂h/∂τ` along the
+  characteristic, whose rate is `∂g/∂h · ∂h/∂τ` — which is the compression term
+  this change exists to avoid, so it would have to be an opt-in extra state
+  wanted only for reporting.
 
 * `stochastic_schedule()` passes `patch_area` into
   `stochastic_arrival_times()`'s third positional argument, which is `delta_t`.

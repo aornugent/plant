@@ -222,8 +222,8 @@ collected_run <- function(birth_date, lifetime = 20) {
   scm
 }
 
-## Compared in log space: |log N_b - log N_h| is the log of the density ratio, so
-## 1e-3 means the densities agree to ~0.1%. A *relative* comparison of the logs
+## Compared in log space: |log N_b - log N_h| is the log of the density ratio,
+## so 1e-3 means the densities agree to ~0.1%. A *relative* comparison of the logs
 ## is meaningless here because log_density crosses zero.
 log_density_gap <- function(refine) {
   p_of <- function() {
@@ -284,7 +284,48 @@ test_that("log_densities_state is the quantity actually integrated", {
   ## And the two are related by the Jacobian, boundary node last.
   jac <- sb$height_jacobian
   expect_length(jac, sb$size + 1L)
-  expect_equal(sb$log_densities, sb$log_densities_state - log(head(jac, sb$size)))
+  expect_equal(sb$log_densities,
+               sb$log_densities_state - log(head(jac, sb$size)))
+})
+
+## The boundary node needs no differencing: dh/dtau = -g(H_0) at birth, and
+## compute_initial_conditions() re-evaluates that every step, so the recorded
+## rate is both exact and current for that node alone.
+test_that("the boundary node's Jacobian is exact, not differenced", {
+  b <- collected_run(TRUE)
+  sb <- b$patch$species[[1]]
+  n <- sb$size
+
+  g0 <- sb$new_node$growth_rate_at_birth
+  expect_gt(g0, 0)
+  expect_identical(sb$height_jacobian[[n + 1L]], g0)
+
+  ## And it is a real improvement over the one-sided difference it replaces:
+  ## the boundary node sits a whole introduction interval from its neighbour.
+  one_sided <- abs((sb$new_node$height - sb$heights[[n]]) /
+                   (sb$new_node$introduction_time - sb$node_times[[n]]))
+  expect_gt(abs(one_sided - g0) / g0, 0.1)
+
+  ## Interior nodes are unaffected -- they never used the boundary node's own
+  ## Jacobian, only its (h, tau) as the far point of a central difference.
+  expect_true(all(is.finite(sb$height_jacobian[seq_len(n)])))
+})
+
+## The height coordinate's boundary condition is N(H_0) = birth_rate * pr_estab
+## / g(H_0) (eq-bc1), and the birth-date one drops the division. Recording
+## g(H_0) lets the two be checked against each other directly.
+test_that("g(H_0) reproduces the height coordinate's boundary condition", {
+  a <- collected_run(FALSE)
+  sa <- a$patch$species[[1]]
+  nd <- sa$new_node
+
+  g0 <- nd$growth_rate_at_birth
+  expect_gt(g0, 0)
+  ## exp(log_density) * g == birth_rate * pr_estab, which the birth-date path
+  ## carries directly. Compare in log space.
+  expect_equal(nd$log_density + log(g0),
+               log(1.0 * nd$individual$establishment_probability(a$patch$environment)),
+               tolerance = 1e-10)
 })
 
 test_that("the collected state carries both densities", {

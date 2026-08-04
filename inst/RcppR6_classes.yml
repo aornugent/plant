@@ -552,6 +552,10 @@ Node:
     ## The node's birth date. For the not-yet-introduced boundary node this is
     ## the current patch time, refreshed on every environment build.
     introduction_time: {type: double, access: member, readonly: true}
+    ## |dh/dtau| at birth, i.e. the height growth rate the node was born at.
+    ## Exact and current for the boundary node; frozen at its own birth for an
+    ## introduced one.
+    growth_rate_at_birth: {type: double, access: member, readonly: true}
     fecundity: {type: double, access: member}
     ode_size: {type: size_t, access: member}
     ode_state: {type: "std::vector<double>", access: function, name_cpp: "odelia::ode::r_ode_state", name_cpp_set: "odelia::ode::r_set_ode_state"}
