@@ -315,26 +315,20 @@ were not previously recorded here:
   variables (#323) and environment state variables (#305) exposed/added.
 * Added an HTML report (plots + analyses) for the FF16 strategy (#350).
 
-### Known issues
-
-* **A stochastic patch holding no individuals discards the environment's ODE
-  state.** `StochasticPatch::compute_environment()` calls
-  `environment.clear_environment()` when `height_max()` is zero, and TF24's
-  override of that restores the soil states and the cumulative-flux accumulators
-  to the values the run started from. Now that the environment is part of the ODE
-  system, that undoes what the solver has integrated: on every derivatives
-  evaluation while the patch is empty, soil water snaps back to 0.214. So the
-  environment is integrated only once at least one individual is alive, and it is
-  re-frozen if the population returns to zero. The effect on the runs measured
-  below is small (arrivals start at patch age ~0.008 yr and layer 0 recharges at
-  3.3 yr⁻¹), but a schedule whose first arrival is years in integrates from a
-  soil state that never moved. `clear_environment()` is doing two jobs — "reset
-  this environment for a new run", from `Environment::clear()`, where restoring
-  the initial soil state is wanted, and "no plants, so no shading", here, where
-  it is not. Splitting them is the fix.
-
 ### Minor changes & bug fixes
 
+* **An empty stochastic patch no longer discards the environment's integrated
+  state.** `StochasticPatch::compute_environment()` calls
+  `Environment::clear_environment()` when the patch holds no individuals, which
+  is right for the competition profile — nothing is casting shade — but TF24's
+  override also restored the soil states and cumulative-flux accumulators to the
+  values the run began with. Now that the environment is part of the ODE system
+  that discarded what the solver had integrated, on every derivatives evaluation
+  while the patch was empty. `clear_environment()` is now the competition
+  profile alone; restoring state moved to a new `clear_state()` that only
+  `Environment::clear()` calls, so resetting for a new run is unchanged. This
+  matters most for a schedule whose first arrival is some way into the run,
+  which is `run_stochastic_collect()`'s default.
 * **The stochastic solver now integrates the environment.** `StochasticPatch`'s
   ODE system was the species alone: `ode_size()`, `set_ode_state()`,
   `ode_state()` and `ode_rates()` did not chain through the environment as

@@ -126,6 +126,29 @@ test_that("the environment's ODE state and rates are part of the system", {
   }
 })
 
+## An empty patch casts no shade, so compute_environment() discards the
+## competition profile. It used to discard the environment's integrated state
+## along with it, because TF24 restored its soil states from clear_environment().
+## The solver evaluates derivatives on an empty patch whenever the schedule puts
+## its first arrival some way into the run, so the state it integrated from was
+## whatever the run started with.
+test_that("an empty patch keeps the environment state the solver has set", {
+  x <- "TF24"
+  e <- environment_types[[x]]
+  n_env <- n_environment_ode_states[[x]]
+  patch <- StochasticPatch(x, e)(
+    Parameters(x, e)(strategies=list(strategy_types[[x]]())),
+    Environment(x), Control())
+
+  expect_equal(patch$ode_size, n_env)
+  moved <- environment_ode_state(patch, x)
+  moved[[1]] <- moved[[1]] + 0.05
+
+  patch$set_ode_state(moved, 1.0)
+  expect_equal(environment_ode_state(patch, x), moved)
+  expect_equal(patch$ode_state, moved)
+})
+
 ## A recruit's strategy-specific initial states are seeded from its birth
 ## environment. The deterministic path does this in
 ## Node::compute_initial_conditions, before the first rates evaluation; the

@@ -70,9 +70,17 @@ public:
   void clear() {
     time = 0.0;
     clear_environment();
+    clear_state();
   }
 
+  // Discard the competition profile. A patch with no individuals casts no
+  // shade, so this runs whenever the patch empties, not only between runs.
   virtual void clear_environment() {}
+
+  // Restore integrated state to the values a run starts from. Only clear()
+  // calls this: an empty patch has nothing to shade with but the state the
+  // solver has integrated is still live.
+  virtual void clear_state() {}
 
   virtual void r_init_interpolators(const std::vector<double>& state) {}
 

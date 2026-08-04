@@ -518,6 +518,9 @@ public:
   // second run from silently continuing out of the first run's depleted soil.
   virtual void clear_environment() {
     light_availability.clear();
+  }
+
+  virtual void clear_state() {
     vars.states = initial_states;
     psi_soil_cache_valid_ = false;
   }

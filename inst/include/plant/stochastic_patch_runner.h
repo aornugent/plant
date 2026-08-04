@@ -138,7 +138,9 @@ template <typename T, typename E> void StochasticPatchRunner<T, E>::reset() {
   if (node_schedule.size() > 0) {
     const double t = node_schedule.next_event().time_introduction();
     if (t >= 0.0) {
-      solver.advance_fixed({solver.time(), t});
+      // One step of this length would be tens of years for a late first
+      // arrival, and the environment's own states are integrated over it.
+      solver.advance_adaptive({solver.time(), t});
       patch = solver.get_system();
     }
   }
