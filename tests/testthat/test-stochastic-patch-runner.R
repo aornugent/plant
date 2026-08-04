@@ -119,7 +119,10 @@ test_that("collect returns a well-formed, non-empty trajectory (#498)", {
     ## content, not shape.
     expect_length(res$env, length(res$time))
     expect_false(any(vapply(res$env, is.null, logical(1))))
-    expect_true(all(vapply(res$env, function(z) "time" %in% names(z), logical(1))))
+    ## Every environment reports light availability, whatever else it carries.
+    expect_true(all(vapply(res$env,
+                           function(z) "light_availability" %in% names(z),
+                           logical(1))))
 
     sp <- res$species[[1]]
     expect_equal(length(dim(sp)), 3)             # [variable, time, plant]
