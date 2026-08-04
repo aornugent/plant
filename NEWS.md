@@ -317,6 +317,22 @@ were not previously recorded here:
 
 ### Minor changes & bug fixes
 
+* **The stochastic arrival schedule now scales with patch area.**
+  `stochastic_schedule()` passed `patch_area` into `stochastic_arrival_times()`'s
+  third positional argument, which is `delta_t`, leaving `patch_area` at its
+  default of 1. Two things followed. The arrival rate never scaled with area, so
+  the expected number of arrivals came out as `max_patch_lifetime × birth_rate`
+  whatever the patch size, and a 50 m² patch was seeded like a 1 m² one. The
+  binning interval was also silently set to the area, which for a large patch
+  left only a handful of intervals over which a variable birth rate was
+  averaged. Arrivals now scale linearly with `patch_area` as intended, and the
+  interval keeps its 0.1 yr default. `run_stochastic_collect()` is the only
+  caller; its runs change accordingly, and even at the default `patch_area = 1`
+  they are unchanged in expectation but not bit-identical, because the finer
+  binning draws from the RNG differently. The seeded baseline in
+  `test-stochastic-patch-runner.R` was re-derived and its `patch_area` reduced
+  from 50 to the default 1, which keeps the ~105-individual stand that test has
+  always actually run rather than the ~5300 that 50 m² now implies.
 * **An empty stochastic patch no longer discards the environment's integrated
   state.** `StochasticPatch::compute_environment()` calls
   `Environment::clear_environment()` when the patch holds no individuals, which
