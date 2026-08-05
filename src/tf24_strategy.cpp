@@ -163,7 +163,11 @@ void TF24_Strategy::compute_rates(const TF24_Environment& environment,  Internal
   vars.set_aux(aux_idx_net_mass_production_dt, net_mass_production_dt_);
   vars.set_aux(aux_idx_root_mass, mass_root(area_leaf_));
   vars.set_aux(aux_idx_opt_psi_stem, leaf.opt_psi_stem_);
-  vars.set_aux(aux_idx_opt_root_psi, leaf.root_collar_psi_);
+  // The aux and TF24f's state of the same name now agree in sign: both are the
+  // positive magnitude the leaf package stores (phylloptim #25). This line used to
+  // report the signed potential while tf24f_strategy.cpp negated it back for the
+  // state -- an inconsistency in plant's own reported outputs.
+  vars.set_aux(aux_idx_opt_root_psi, leaf.opt_root_psi_);
   vars.set_aux(aux_idx_transpiration, leaf.transpiration_);
   vars.set_aux(aux_idx_E_up, leaf.E_up_);
   vars.set_aux(aux_idx_profit, leaf.profit_);
@@ -380,12 +384,11 @@ double TF24_Strategy::net_mass_production_dt(const TF24_Environment& environment
   // height: maximum plant height
   const double leaf_specific_conductance_max = pars.K_s * pars.theta / (height * eta_c);
 
-  // find sapwood volume per leaf area
-  // pars.theta: huber value
-  // eta_c: accounts for average position of leaf mass
+  // sapwood volume per leaf area (pars.theta * height * eta_c) used to be passed
+  // to the leaf, which stored it and never read it. Dropped with the other three
+  // dead set_physiology arguments (phylloptim #15, item 10b); recompute it here if a
+  // caller ever needs it.
 
-  const double sapwood_volume_per_leaf_area = pars.theta * (height * eta_c);
-  
   // ----------------------------------------------------------------------
   // ROOT MASS DISTRIBUTION ACROSS SOIL LAYERS
   // ----------------------------------------------------------------------
@@ -399,23 +402,30 @@ double TF24_Strategy::net_mass_production_dt(const TF24_Environment& environment
   // the root hydraulic network (set_physiology). The loop breaks early once Q
   // reaches 0 (below the rooting depth) to avoid touching empty deep layers.
   //
+  // The leaf package takes this **per unit leaf area** -- it is purely intensive,
+  // and nothing in it scales with plant size. That costs no arithmetic here rather
+  // than a division, because mass_root() is strictly linear in area_leaf
+  // (pars.a_r1 * area_leaf), so root_mass_carbon_scale * mass_root_ / area_leaf_
+  // is exactly root_mass_carbon_scale * pars.a_r1. Multiplying by area_leaf_ and
+  // dividing it back out would be algebraically identical but not bit-identical.
+  //
   // Reuse the member buffer (assign refills + zeroes without reallocating when
   // the layer count is unchanged); zeroing matters because the loop below breaks
   // early below the rooting depth, leaving deep layers that must read as 0.
   // TODO (perf): rooting depth cap (1.5) and scale (83.26) are hard-coded and
   // should become traits.
-  mass_root_prop_.assign(soil_number_of_depths_, 0.0);
+  root_carbon_per_leaf_area_.assign(soil_number_of_depths_, 0.0);
 
 
 
   // Use Q function with new arghument
-  // std::fill(mass_root_prop_.begin(), mass_root_prop_.end(), 0); 
+  // std::fill(root_carbon_per_leaf_area_.begin(), root_carbon_per_leaf_area_.end(), 0); 
   
 // change to while?
 // environment.get_soil_depths() should ask for the ath element to save calling for a new vector each time
 // change environment.get_soil_number_of_depths() change to n or soemtyhing
     double rooting_depth = std::min(height, pars.rooting_depth_max);
-  const double root_mass_scale = root_mass_carbon_scale * mass_root_;
+  const double root_mass_scale = root_mass_carbon_scale * pars.a_r1;
     // std::vector<double> Q_root;
     // Q_root.reserve(soil_number_of_depths_);
 
@@ -427,13 +437,18 @@ double TF24_Strategy::net_mass_production_dt(const TF24_Environment& environment
       const double q = Q(soil_depths_[a], rooting_depth,
              pars.root_depth_shape_eta);
 
-      mass_root_prop_[a] = root_mass_scale * (prev_q - q);
+      root_carbon_per_leaf_area_[a] = root_mass_scale * (prev_q - q);
       prev_q = q;
     }
 
   // Reuse geometry precomputed by environment; avoids rebuilding z midpoints each call.
-  leaf.z_soil_mid_ = environment.get_soil_mid_depths();
-  leaf.use_precomputed_z_soil_mid_ = true;
+  // The soil geometry moved into the leaf package's MultiLayerRoots (phylloptim #2).
+  leaf.roots_.z_soil_mid_ = environment.get_soil_mid_depths();
+  leaf.roots_.use_precomputed_z_soil_mid_ = true;
+
+  // Per-timestep above-canopy wind for the PM aerodynamic resistance (#523);
+  // read only on the energy-balance path in set_physiology.
+  leaf.wind_speed_ = environment.get_wind_speed();
 
   // Optimise the leaf at a given absorbed radiation: rebuilds physiology and
   // solves the root-collar water potential, leaving the leaf.* outputs
@@ -441,7 +456,7 @@ double TF24_Strategy::net_mass_production_dt(const TF24_Environment& environment
   // the radiation argument varies between calls; every other input is
   // depth-independent and already computed above.
   auto optimise_at = [&](double radiation) {
-    leaf.set_physiology(area_leaf_, mass_root_prop_, pars.rho, pars.a_bio, radiation, psi_soil, soil_depths_, leaf_specific_conductance_max, environment.get_atm_vpd(), environment.get_ca(), sapwood_volume_per_leaf_area, environment.get_leaf_temp(), environment.get_atm_o2_kpa(), environment.get_atm_kpa());
+    leaf.set_physiology(root_carbon_per_leaf_area_, radiation, psi_soil, soil_depths_, leaf_specific_conductance_max, environment.get_atm_vpd(), environment.get_ca(), environment.get_leaf_temp(), environment.get_atm_o2_kpa(), environment.get_atm_kpa());
     solve_leaf();
   };
 
@@ -486,7 +501,7 @@ double TF24_Strategy::net_mass_production_dt(const TF24_Environment& environment
       trans_y[i]    = leaf.transpiration_ * qi;
       eup_y[i]      = leaf.E_up_ * qi;
       psi_y[i]      = leaf.opt_psi_stem_ * qi;
-      root_psi_y[i] = leaf.root_collar_psi_ * qi;
+      root_psi_y[i] = leaf.opt_root_psi_ * qi;
       gco2_y[i]     = leaf.stom_cond_CO2_ * qi;
       assim_y[i]    = leaf.assim_colimited_ * qi;
       for (int a = 0; a < soil_number_of_depths_; ++a) {
@@ -501,7 +516,7 @@ double TF24_Strategy::net_mass_production_dt(const TF24_Environment& environment
     leaf.transpiration_   = function_integrator.integrate_vector(trans_y, 0.0, height);
     leaf.E_up_            = function_integrator.integrate_vector(eup_y, 0.0, height);
     leaf.opt_psi_stem_    = function_integrator.integrate_vector(psi_y, 0.0, height);
-    leaf.root_collar_psi_ = function_integrator.integrate_vector(root_psi_y, 0.0, height);
+    leaf.opt_root_psi_    = function_integrator.integrate_vector(root_psi_y, 0.0, height);
     leaf.stom_cond_CO2_   = function_integrator.integrate_vector(gco2_y, 0.0, height);
     leaf.assim_colimited_ = function_integrator.integrate_vector(assim_y, 0.0, height);
     for (int a = 0; a < soil_number_of_depths_; ++a) {
@@ -813,6 +828,11 @@ void TF24_Strategy::prepare_strategy() {
               control.GSS_tol_abs, control.vulnerability_curve_ncontrol,
               control.ci_abs_tol, control.ci_niter, pars.g1_TF24, beta_R_H,
               beta_R_V);
+  // Penman-Monteith leaf energy balance (#523): enable per pars (default off,
+  // backward-compatible) and pass the leaf-dimension trait. Wind speed is a
+  // per-timestep driver, set from the environment before each set_physiology.
+  leaf.use_energy_balance_ = (pars.use_energy_balance != 0.0);
+  leaf.d_ = pars.d;
 }
 
 TF24_Strategy::ptr make_strategy_ptr(TF24_Strategy s) {

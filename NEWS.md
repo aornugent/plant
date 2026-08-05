@@ -7,6 +7,108 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **`TF24_Environment`'s `atm_kpa` driver now defaults to 101.3 kPa, not 100.5.**
+  `scientific_version` for TF24 goes 7 -> 8, TF24f 7.1 -> 8.1. Migration: none
+  required, but read this if you have TF24 results on disk.
+  * The leaf model's ppm -> Pa conversion was the hard-coded constant `0.1013`, which
+    is 101.3 kPa in disguise (`1e-6 * 101300 Pa`). The driver said 100.5, so the
+    model's conductance side responded to 100.5 while Gamma*, Kc, Ko, Km and the ci
+    root-find bounds silently assumed 101.3. Deriving the conversion from `atm_kpa`
+    (phylloptim #15) made the model self-consistent and turned that disagreement into a
+    **+2.4%** shift in output.
+  * 100.5 came from `34d46ac2` (#446), an interface refactor that does not mention
+    atmospheric pressure, with no recorded rationale, while every leaf-level test used
+    101.3. Pinning the driver to the value the rest of the model already assumed
+    reduces the **net** movement of this whole branch to **-0.20%**, and restores
+    every pinned baseline to develop's own values -- including the seeded stochastic
+    TF24 counts, which match exactly.
+  * `atm_kpa` remains a driver: set it per site if you are modelling altitude.
+    `env$extrinsic_drivers_set_constant("atm_kpa", <kPa>)`.
+
+* **The collar bracket is now clamped to `root_psi_crit`** (phylloptim #24, #584).
+  `scientific_version` for TF24 goes 6 -> 7, TF24f 6.1 -> 7.1. The clamp compared a
+  magnitude against a signed potential, so it could never bind and the solver
+  optimised over a root-collar potential the root system cannot supply. The window is
+  **1.2 MPa wide at the defaults** (`psi_crit` 7.0855 vs `root_psi_crit` 5.8703), so
+  water-limited runs change; no mesic run does, and the standard SCM scenario is
+  bit-identical. No migration: no name or signature changes.
+
+* **Water potential now has one representation everywhere: positive magnitudes in
+  MPa** (phylloptim #25). `scientific_version` for TF24 goes 5 -> 6, TF24f 5.1 -> 6.1.
+  Migration:
+  * `leaf$root_collar_psi_` -> `leaf$opt_root_psi_`, **and its sign flips**: it is
+    now the positive magnitude. Renamed rather than reused deliberately, so an old
+    script gets an error instead of quietly reading the wrong sign.
+  * the **`opt_root_psi` aux changes sign** for the same reason, and now agrees with
+    TF24f's `opt_root_psi_state`, which always held the magnitude. Before, the aux
+    reported the signed potential while the state was negated back from it — an
+    inconsistency in plant's own outputs. Any stored output or plot that negated the
+    aux must stop doing so.
+  * `l$E_from_Soil_to_Root_Collar(collar, psi_soil)`, `l$find_root_psi(...)`,
+    `l$find_psi_stem_from_psi_root(...)`, `l$dE_from_soil_dpsi_collar(...)` and
+    `l$transpiration_to_psi_stem(E, psi_upstream)` keep their signatures but now
+    take **positive magnitudes**, and the bracket ends of `find_root_psi` swap
+    (wettest layer first, `psi_crit` second). Passing the old signed values raises
+    an error rather than returning a wrong number — the leaf package validates it.
+  * outputs move by about **-3.2e-4 relative** (one-species SCM offspring production
+    83.9026 -> 83.8761). Not an equation change: the rewrite is exactly
+    sign-symmetric, but boost's TOMS748 iterates depend on the bracket's
+    orientation, and the SCM amplifies the resulting 1-3 ULP. Every pinned test
+    value and the exact stochastic TF24 counts pass unchanged.
+
+* The TF24 leaf gas-exchange and hydraulics model now comes from the standalone
+  header-only [`phylloptim`](https://github.com/traitecoevo/phylloptim) package instead of
+  a copy in this repo (phylloptim #9). `plant::Leaf` is an alias for `phylloptim::Leaf`, so
+  C++ consumers that `#include <plant/leaf_model.h>` and read public `Leaf` members
+  keep compiling unchanged. **`scientific_version` for TF24 goes 4 -> 5 and TF24f
+  4.1 -> 5.1: TF24 output moves by about +2.4%** — see `tf24_strategy.h` for the
+  measurement and its attribution. Migration:
+  * `l$set_physiology(area_leaf =, mass_root_prop =, rho =, a_bio =, PPFD =,
+    psi_soil =, soil_depth =, leaf_specific_conductance_max =, atm_vpd =, ca =,
+    sapwood_volume_per_leaf_area =, leaf_temp =, atm_o2_kpa =, atm_kpa =)`
+    -> `l$set_physiology(root_carbon_per_leaf_area =, PPFD =, psi_soil =,
+    soil_depth =, leaf_specific_conductance_max =, atm_vpd =, ca =, leaf_temp =,
+    atm_o2_kpa =, atm_kpa =)`. **This is a semantic change, not just a rename:**
+    `area_leaf`, `rho`, `a_bio` and `sapwood_volume_per_leaf_area` were dead
+    stores and are gone, and `root_carbon_per_leaf_area` is the old
+    `mass_root_prop` **divided by `area_leaf`**. The leaf is purely intensive now;
+    uptake is exactly homogeneous in that ratio, so passing the old absolute
+    carbon silently gives a root system too weak by a factor of `1/area_leaf`.
+  * `l$area_leaf_`, `l$rho_`, `l$a_bio_`, `l$sapwood_volume_per_leaf_area_`
+    (removed) -> no equivalent; all four were assigned and never read.
+  * `plant::umol_per_mol_to_Pa` (C++, removed) -> `Leaf::umol_per_mol_to_Pa_`, now
+    derived per call from `atm_kpa` rather than hard-coded at 0.1013.
+  * `l$initialize_integrator(rule, tol)` keeps its name but now sets the tolerance
+    of the leaf package's header-only adaptive Simpson quadrature rather than
+    configuring plant's compiled QAG; only `transpiration_full_integration`, a
+    spline-fidelity diagnostic, was ever affected.
+  * Requires **odelia at master** (commit `d8235d1` or later), not just the
+    `>= 0.2.0` in DESCRIPTION: `Patch::ode_rates` is non-const since #585 and
+    odelia 0.2.0's `r_ode_rates` takes the system by `const&`. plant's `develop`
+    does not compile against 0.2.0 either — this is not new here, but it will bite
+    anyone building from a released odelia.
+
+* Penman-Monteith leaf energy balance added to TF24/TF24f behind an
+  opt-in gate, **default off** (#523). With the gate off, runtime behaviour and
+  outputs are bit-identical to before (verified against leaf-level and SCM
+  baselines) and `scientific_version` is unchanged — but the change adds fields
+  to the R-facing `TF24_Pars` and a new environment driver, so any snapshot /
+  round-trip test that encodes the full TF24 parameter set or driver list will
+  see new entries. Migration:
+  * `TF24_Pars` gains two fields (default off / inert): `pars$use_energy_balance`
+    (0 = off = today's `Tleaf = Tair`; non-zero = on) and `pars$d` (characteristic
+    leaf dimension, m, for the aerodynamic resistance). No action needed unless
+    you assert the exact `pars` field set.
+  * `TF24_Environment` gains a `wind_speed` extrinsic driver (default `2.0`
+    m s⁻¹), set like any other driver:
+    `env$extrinsic_drivers_set_constant("wind_speed", U0)` /
+    `env$extrinsic_drivers_set_variable("wind_speed", x =, y =)`.
+  * The `Leaf` submodel exposes `use_energy_balance_`, `d_`, `wind_speed_`
+    (settable) and `Tair_`/`Rn_`/`ra_` (readable) for leaf-level experimentation.
+  * To enable: set `pars$use_energy_balance <- 1` (and optionally `pars$d`,
+    the `wind_speed` driver) before running; leaf temperature is then solved from
+    the energy balance and fed to the Farquhar temperature scaling.
+
 * Strategy biological parameters are now stored in a nested `pars` sub-object
   rather than as flat fields on the strategy (#410). This applies to every
   strategy type (`FF16_Strategy`, `K93_Strategy`, `TF24_Strategy`). Migration —

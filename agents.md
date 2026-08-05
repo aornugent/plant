@@ -196,6 +196,30 @@ What moved into C++ (all on `Node`/`Species`/`SCM` in
 **Known downstream breakage:** `regnans` calls the removed functions in
 `R/community_plant.R` and `scripts/example/ESA.Rmd`; update per the table above.
 
+### 3.4 The TF24 leaf model lives in another repo
+
+TF24's leaf gas-exchange and hydraulics sub-model is **not in this repository**. It
+is the standalone header-only [`phylloptim`](https://github.com/traitecoevo/phylloptim)
+package, reached through `LinkingTo` and a compatibility shim at
+[inst/include/plant/leaf_model.h](inst/include/plant/leaf_model.h) that aliases
+`plant::Leaf = phylloptim::Leaf`. `src/leaf_model.cpp` is gone. Consequences worth
+knowing before you go looking for a leaf bug here:
+
+- **Fix leaf physiology in `phylloptim`, not here.** It has its own golden-file
+  regression baseline over 288 operating points and its own hazard list; a change
+  made here would be invisible to both.
+- **The two repos move together.** plant tracks the package's `master` via
+  `Remotes:`, so a merge there is what changes results here. Any coupled change
+  lands as a pair of PRs, and the plant half is what re-baselines the SCM values.
+- **The leaf is purely intensive.** Every input is per unit leaf area or an
+  intensive driver — whole-plant allometry (`kmax(h)`, root carbon totals) is
+  reduced *here* and passed in already divided. `set_physiology` takes
+  `root_carbon_per_leaf_area`, not absolute root carbon; see the NEWS entry, since
+  passing the absolute value compiles fine and quietly weakens the root system.
+- **`nm` is how you diagnose a stale build.** See the `R CMD INSTALL` note in §6 —
+  a header-only dependency changing underneath a stale `.o` produces an error that
+  names an untouched field accessor.
+
 ### 3.3 When you change the R-facing interface — record it for downstream migration
 
 Renaming, removing, or changing the meaning of anything a user calls (functions,
@@ -357,6 +381,35 @@ Practical rules:
 
 C++ standard is **C++20** (`CXX_STD = CXX20` in [src/Makevars](src/Makevars));
 note the README still mentions C++14. Requires R ≥ 4.5.0.
+
+### `R CMD INSTALL` does not clean, and a stale `.o` fails in a misleading way
+
+`R CMD INSTALL` recompiles only sources newer than their `.o`, so object files
+left in `src/` from an earlier tree get linked as-is. A header-only dependency
+changing underneath them — anything reached via `LinkingTo` — moves no `.cpp`
+timestamp at all, so *nothing* rebuilds.
+
+The failure this produces points nowhere near the cause. Consuming the
+standalone `phylloptim` package turned `plant::Leaf` from a class into a
+`using`-alias for `phylloptim::Leaf`. A stale `RcppExports.o` still carried the
+pre-alias mangling, and the load failed with:
+
+```
+symbol not found in flat namespace '__Z13Leaf__d___getN5plant6RcppR66RcppR6INS_4LeafEEE'
+```
+
+which names a *field accessor* that was never touched, and reads like a missing
+export. The tell is in the mangled names, not the message — compare the two
+objects and look at which namespace the template argument sits in:
+
+```sh
+nm src/RcppExports.o | grep Leaf__d___get   # ...RcppR6INS_4LeafEEE   -> plant::Leaf
+nm src/RcppR6.o      | grep Leaf__d___get   # ...RcppR6IN4leaf4LeafEE -> leaf::Leaf
+```
+
+Two objects disagreeing about what a type *is* means one of them is stale.
+`rm -f src/*.o src/*.so` (or `make rebuild`, which cleans) and build again. Worth
+doing unconditionally after any change to a `LinkingTo` dependency.
 
 ---
 
