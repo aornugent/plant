@@ -548,6 +548,26 @@ were not previously recorded here:
 
 ### Known issues
 
+* **A dense TF24 stochastic run throws at the default ODE step cap** (#599). The
+  soil water balance is stiff — the conductivity curve's exponent is
+  `2*n_psi+3 ≈ 16`, so `K_sat/dz` is ~543/yr at the defaults — and at
+  `Control()`'s `ode_step_size_max` of 5 yr the explicit RKCK stepper diverges
+  rather than losing accuracy. A failing run reaches
+  `theta = [-51.4, 52.0, 0.146, nan, nan]`, and once the rates are non-finite the
+  step is not even rejected, because `adjust_step_size` derives its error ratio
+  from a NaN. Downstream, the leaf's collar root-find is handed a soil potential
+  no retention curve can produce and throws
+  (`find_root_psi ... do not bracket the root`). Measured over seeds 1–40 at
+  `patch_area = 1` (~105 individuals m⁻²): 17 of 40 runs throw on the code before
+  this release's stochastic-solver work, 5 of 40 after it. Setting
+  `ctrl$ode_step_size_max <- 0.05` gives 0 of 60; the relationship is not monotone
+  (0.2 fails *more* often than 5 does), so that value is measured rather than
+  derived. It is left as a user setting rather than clamped in the library,
+  because the right fix is a per-environment bound or odelia's stiff RODAS stepper
+  for environments carrying stiff state, not a global default that every model
+  pays for. `test-stochastic-patch-runner.R` sets it for its own TF24 runs so the
+  suite is deterministic; that is a test setting and changes nothing for callers.
+
 * On the birth-date path, the *worst-case* node of the reported height density
   does not improve with schedule refinement, even though the typical node does
   (see the reporting note under New features). `|dh/dτ|` is a ratio of two

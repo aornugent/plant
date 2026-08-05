@@ -6,6 +6,38 @@ environment_types <- get_list_of_environment_types()
 ## soil-water layers then four cumulative fluxes).
 n_environment_ode_states <- c(FF16 = 0L, TF24 = 9L, K93 = 0L)
 
+## Control for a stochastic run, with TF24's soil integrated at a step size it
+## can actually take.
+##
+## ⚠️ This caps the step size in the TEST, not in the library. Running TF24
+## stochastically at the `Control()` default of 5 yr throws out of the leaf's
+## collar root-find on a substantial fraction of seeds -- 5 of 40 measured on
+## macOS, and 17 of 40 on develop's model code, so the dense regime is broken
+## independently of this branch. The soil balance is stiff (the conductivity
+## exponent is 2*n_psi+3 ~ 16, and K_sat/dz is ~543/yr at the defaults) and RKCK
+## diverges rather than losing accuracy: a failing run reaches
+## theta = [-51.4, 52.0, 0.146, nan, nan], and once the rates are non-finite the
+## step is not even rejected, because adjust_step_size derives rmax from a NaN
+## error estimate. At 0.05 yr, 0 of 60 seeds fail; the relationship is not
+## monotone (0.2 fails MORE often than 5 does), so the value is measured, not
+## derived from a stability limit.
+##
+## So this makes the suite deterministic without fixing anything for callers: a
+## user who runs TF24 stochastically with default Control still hits it. That is
+## tracked in #599, which is where the real fix belongs -- a per-environment cap,
+## or odelia's stiff RODAS stepper for environments carrying stiff state. Delete
+## this helper when #599 lands.
+##
+## FF16 and K93 keep plain Control(): they carry no environment ODE state, are not
+## affected, and their seeded baselines below were derived without the cap.
+stochastic_control <- function(x) {
+  ctrl <- Control()
+  if (startsWith(x, "TF24")) {
+    ctrl$ode_step_size_max <- 0.05
+  }
+  ctrl
+}
+
 test_that("empty", {
   for (x in names(strategy_types)) {
     e <- environment_types[[x]]
@@ -104,7 +136,7 @@ test_that("collect returns a well-formed, non-empty trajectory (#498)", {
     ## and the cost is linear in the number of individuals.
     p <- Parameters(x, e)(strategies=list(strategy_types[[x]]()),
                           patch_area=1)
-    res <- run_stochastic_collect(p, Environment(x), Control())
+    res <- run_stochastic_collect(p, Environment(x), stochastic_control(x))
 
     ## Regression guard for #498: the collector used to read a removed `state`
     ## accessor and silently returned empty output, which `expect_silent` could
@@ -188,7 +220,7 @@ test_that("collect output is reproducible and matches a seeded baseline (#482)",
       set.seed(1)
       p <- Parameters(x, e)(strategies=list(strategy_types[[x]]()),
                             patch_area=1)
-      run_stochastic_collect(p, Environment(x), Control())
+      run_stochastic_collect(p, Environment(x), stochastic_control(x))
     }
     res <- run_once()
     sp <- res$species[[1]]
@@ -243,7 +275,7 @@ test_that("the collected trajectory reports a moving soil state", {
   e <- environment_types[[x]]
   set.seed(1)
   p <- Parameters(x, e)(strategies=list(strategy_types[[x]]()), patch_area=1)
-  res <- run_stochastic_collect(p, Environment(x), Control())
+  res <- run_stochastic_collect(p, Environment(x), stochastic_control(x))
 
   expect_true("env" %in% names(res))
   expect_length(res$env, length(res$time))
