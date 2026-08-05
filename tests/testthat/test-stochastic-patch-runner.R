@@ -169,6 +169,14 @@ test_that("collect output is reproducible and matches a seeded baseline (#482)",
   ## values. TF24's survivor count is also sensitive to the environment's own ODE
   ## state being integrated, since that moves the mortality probabilities without
   ## changing the number of draws; FF16 and K93 carry no environment state.
+  ##
+  ## Note what re-deriving these costs. At patch_area = 50 the TF24 pair was
+  ## 103/28 both before and after the leaf model moved out to standalone
+  ## `phylloptim`, and that exact match of two seeded integers was a sharper
+  ## statement that the swap preserved TF24's behaviour than any tolerance check
+  ## could be. The area fix changes the run, so that particular equivalence is no
+  ## longer what this test pins; it was established at the time (see the atm_kpa
+  ## entry under Breaking changes in NEWS.md) and is not re-checked here.
   baseline <- list(
     FF16 = list(n_total = 83L, n_alive_final = 5L),
     TF24 = list(n_total = 81L, n_alive_final = 3L),

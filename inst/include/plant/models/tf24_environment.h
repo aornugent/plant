@@ -85,7 +85,24 @@ public:
     extrinsic_drivers_set_constant("ca",40);
     extrinsic_drivers_set_constant("leaf_temp",25);
     extrinsic_drivers_set_constant("atm_o2_kpa",21);
-    extrinsic_drivers_set_constant("atm_kpa",100.5);
+    // 101.3 kPa, standard sea-level pressure -- and, more to the point, the value
+    // the leaf model's photosynthesis side has always assumed. Its ppm -> Pa
+    // conversion was the hard-coded constant 0.1013 = 1e-6 * 101300 Pa, i.e. 101.3
+    // kPa in disguise, while this driver said 100.5. The two disagreed, so the
+    // conductance side of the model responded to 100.5 while Gamma*, Kc, Ko, Km and
+    // the ci root-find bounds silently assumed 101.3.
+    //
+    // The leaf package now derives the conversion from atm_kpa (phylloptim #15 item
+    // 10c), which makes the model self-consistent at any pressure -- and turns the
+    // disagreement into a 2.4% shift in TF24 output. **This line is why**: 100.5
+    // arrived in `34d46ac2` ("Simplify scm & environment interface", #446), a pure
+    // interface refactor that does not mention atmospheric pressure, and no
+    // rationale for it is recorded anywhere. Every leaf-level test uses 101.3.
+    // So it was an artefact, not a site elevation, and pinning it to the value the
+    // rest of the model already assumed keeps the published numbers instead of
+    // re-baselining them against an accident. Set it per-site if you mean altitude.
+    extrinsic_drivers_set_constant("atm_kpa",101.3);
+    extrinsic_drivers_set_constant("wind_speed",2.0); // U0, m s^-1 (Penman-Monteith, #523)
 
     set_soil_number_of_depths(soil_number_of_depths);
     set_soil_water_state(std::vector<double>(soil_number_of_depths, soil_moist_sat*0.5));
@@ -186,10 +203,12 @@ public:
   }
   static constexpr double NAN_TIME_ = std::numeric_limits<double>::quiet_NaN();
   mutable double ppfd_cache_ = 0, atm_vpd_cache_ = 0, ca_cache_ = 0,
-                 leaf_temp_cache_ = 0, atm_o2_kpa_cache_ = 0, atm_kpa_cache_ = 0;
+                 leaf_temp_cache_ = 0, atm_o2_kpa_cache_ = 0, atm_kpa_cache_ = 0,
+                 wind_speed_cache_ = 0;
   mutable double ppfd_cache_time_ = NAN_TIME_, atm_vpd_cache_time_ = NAN_TIME_,
                  ca_cache_time_ = NAN_TIME_, leaf_temp_cache_time_ = NAN_TIME_,
-                 atm_o2_kpa_cache_time_ = NAN_TIME_, atm_kpa_cache_time_ = NAN_TIME_;
+                 atm_o2_kpa_cache_time_ = NAN_TIME_, atm_kpa_cache_time_ = NAN_TIME_,
+                 wind_speed_cache_time_ = NAN_TIME_;
 
   // The soil state a run begins from: whatever set_soil_water_state last set,
   // which the R interface lets a caller choose. Restored by clear_environment.
@@ -444,6 +463,8 @@ public:
   double get_leaf_temp()  const { return cached_driver_("leaf_temp", leaf_temp_cache_, leaf_temp_cache_time_); }
   double get_atm_o2_kpa() const { return cached_driver_("atm_o2_kpa", atm_o2_kpa_cache_, atm_o2_kpa_cache_time_); }
   double get_atm_kpa()    const { return cached_driver_("atm_kpa", atm_kpa_cache_, atm_kpa_cache_time_); }
+  // Above-canopy wind speed U0 (m s^-1), Penman-Monteith aerodynamic resistance (#523)
+  double get_wind_speed() const { return cached_driver_("wind_speed", wind_speed_cache_, wind_speed_cache_time_); }
 
 
   std::vector<double> get_soil_water_state() const { return {vars.states.begin(), vars.states.end() - aux_num}; }
