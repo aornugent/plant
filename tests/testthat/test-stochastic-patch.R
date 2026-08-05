@@ -6,6 +6,14 @@ environment_types <- get_list_of_environment_types()
 ## any: five soil-water layers then four cumulative fluxes.
 n_environment_ode_states <- c(FF16 = 0L, TF24 = 9L, K93 = 0L)
 
+## Recompute the environment and every rate at the patch's current state, the way
+## the solver does on each derivatives evaluation. Needed because the introduction
+## path updates the competition profile without recomputing rates.
+refresh_rates <- function(patch) {
+  patch$set_ode_state(patch$ode_state, patch$ode_time)
+  invisible(patch)
+}
+
 environment_ode_state <- function(patch, x) {
   if (n_environment_ode_states[[x]] == 0L) {
     return(numeric(0))
@@ -118,12 +126,79 @@ test_that("the environment's ODE state and rates are part of the system", {
     expect_equal(patch$node_ode_size, n_ind)
     expect_equal(patch$ode_size, n_ind + n_env)
     expect_length(patch$ode_state, n_ind + n_env)
+
+    ## introduce_new_node_and_update() rebuilds the competition profile but does
+    ## not recompute rates, so the environment's rates here are still the ones
+    ## reset() left behind on an empty patch. Refresh through set_ode_state --
+    ## the same door the solver uses -- so what follows tests computed rates.
+    refresh_rates(patch)
     expect_length(patch$ode_rates, n_ind + n_env)
     expect_true(all(is.finite(patch$ode_rates)))
 
     ## The environment's states follow the individuals', as in Patch.
     expect_equal(tail(patch$ode_state, n_env), environment_ode_state(patch, x))
   }
+})
+
+## The two quantities StochasticPatch::compute_rates() introduces are the `/ area`
+## normalisation of resource uptake and the summation over individuals -- each
+## counted once, unlike Species, which integrates a density-weighted rate over the
+## size distribution. Neither is pinned by asserting that uptake is positive and
+## below infiltration: that holds for any positive uptake, so a factor error in
+## either would land silently.
+##
+## They are testable together without reading an individual's uptake directly.
+## Competition is leaf area per unit ground area, so N recruits on N m^2 present
+## exactly the same competition profile as one on 1 m^2, and their physiology is
+## therefore identical -- which the test asserts rather than assumes, by comparing
+## the individuals' own rates. Holding the individuals fixed that way, per-area
+## uptake must be invariant: the sum scales with N and the division by area
+## divides it back out. Drop the division and the N = 4 case comes out 4x too
+## high; count anything other than one uptake per living individual and it comes
+## out wrong by that factor instead.
+##
+## The rate read is the cumulative root-uptake accumulator (the last environment
+## state), whose rate is the per-area total across soil layers, with no positivity
+## guard in the way.
+test_that("resource uptake is summed per individual and normalised by area", {
+  patch_with <- function(patch_area, n_individuals) {
+    p <- Parameters("TF24", "TF24_Env")(strategies = list(TF24_Strategy()),
+                                       patch_area = patch_area)
+    patch <- StochasticPatch("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+    for (i in seq_len(n_individuals)) {
+      patch$introduce_new_node_and_update(1)
+    }
+    expect_equal(patch$species[[1]]$size, n_individuals)
+    refresh_rates(patch)
+    patch
+  }
+  uptake <- function(patch) tail(patch$ode_rates, 1)
+  first_individual_rates <- function(patch) {
+    patch$species[[1]]$individual_at(1)$ode_rates
+  }
+
+  one <- patch_with(1, 1)
+  ## Uptake has to be happening at all, or every comparison below is 0 == 0.
+  expect_gt(uptake(one), 0)
+
+  for (n in c(2, 4)) {
+    dense <- patch_with(n, n)
+    ## The premise: same competition per unit area, so the individuals are in the
+    ## same environment and doing the same thing, to the last bit.
+    expect_identical(first_individual_rates(dense), first_individual_rates(one))
+    ## The conclusion: per-area uptake is unchanged, also to the last bit. Both
+    ## the summation and the division have to be right for this to hold.
+    expect_identical(uptake(dense), uptake(one))
+  }
+
+  ## And the sum really does reach every individual rather than stopping at the
+  ## first: two on one square metre take close to twice as much. Not exactly
+  ## twice, because TF24 averages light over the crown, so two individuals at the
+  ## same height do shade each other a little even though neither is above the
+  ## other -- which is why this direction is a bound rather than an equality.
+  crowded <- uptake(patch_with(1, 2)) / uptake(one)
+  expect_lt(crowded, 2)
+  expect_gt(crowded, 1.99)
 })
 
 ## An empty patch casts no shade, so compute_environment() discards the

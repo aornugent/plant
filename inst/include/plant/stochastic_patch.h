@@ -2,6 +2,8 @@
 #ifndef PLANT_PLANT_STOCHASTIC_PATCH_H_
 #define PLANT_PLANT_STOCHASTIC_PATCH_H_
 
+#include <numeric> // std::accumulate, in compute_rates
+
 namespace plant {
 
 // NOTE: compute_environment() here might fail (especially for
@@ -89,6 +91,11 @@ private:
   E environment;
   std::vector<species_type> species;
   Control control;
+
+  // Scratch for compute_rates(), which the solver calls on every derivatives
+  // evaluation. A member reserved once in reset() and cleared (not freed) after
+  // use, so the RHS does not allocate; mirrors Patch.
+  std::vector<double> resource_depletion;
 };
 
 template <typename T, typename E>
@@ -110,6 +117,7 @@ void StochasticPatch<T,E>::reset() {
   for (auto& s : species) {
     s.clear();
   }
+  resource_depletion.reserve(environment.n_resources());
   environment.clear();
   compute_environment(false);
   compute_rates();
@@ -154,8 +162,6 @@ void StochasticPatch<T,E>::compute_rates() {
   // (for TF24, soil water). Sized by the number of resources the environment
   // consumes, which is not its ODE width: TF24 has five soil layers plus four
   // cumulative-flux states that nothing draws on.
-  std::vector<double> resource_depletion;
-  resource_depletion.reserve(environment.n_resources());
   for (size_t i = 0; i < environment.n_resources(); i++) {
     double resource_consumed = std::accumulate(
         species.begin(), species.end(), 0.0,
@@ -164,6 +170,7 @@ void StochasticPatch<T,E>::compute_rates() {
   }
 
   environment.compute_rates(resource_depletion);
+  resource_depletion.clear();
 }
 
 // In theory, this could be done more efficiently by, in the introdudce_new_node

@@ -80,6 +80,15 @@ public:
   // Restore integrated state to the values a run starts from. Only clear()
   // calls this: an empty patch has nothing to shade with but the state the
   // solver has integrated is still live.
+  //
+  // These are two virtuals rather than one because they have different
+  // lifetimes, not because any environment needs both. StochasticPatch clears
+  // the profile on an empty patch; the state has to survive that. Note that
+  // Patch does *not* clear -- it skips recomputation and leaves the profile
+  // standing -- so the deterministic path never exercises the distinction, and
+  // making StochasticPatch behave like Patch would have avoided the split.
+  // Keeping it means an environment that acquires ODE state later cannot get
+  // this wrong by inheriting a clear_environment() that resets it.
   virtual void clear_state() {}
 
   virtual void r_init_interpolators(const std::vector<double>& state) {}
