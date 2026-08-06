@@ -12022,6 +12022,71 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// census_metric_names
+std::vector<std::string> census_metric_names();
+RcppExport SEXP _plant_census_metric_names() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(census_metric_names());
+    return rcpp_result_gen;
+END_RCPP
+}
+// census_parameter_names
+std::vector<std::string> census_parameter_names();
+RcppExport SEXP _plant_census_parameter_names() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(census_parameter_names());
+    return rcpp_result_gen;
+END_RCPP
+}
+// FF16_census_direct
+Rcpp::List FF16_census_direct(plant::FF16_Strategy s, Rcpp::NumericVector height, Rcpp::NumericVector density, Rcpp::NumericVector area_heartwood, Rcpp::NumericVector mass_heartwood);
+RcppExport SEXP _plant_FF16_census_direct(SEXP sSEXP, SEXP heightSEXP, SEXP densitySEXP, SEXP area_heartwoodSEXP, SEXP mass_heartwoodSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::FF16_Strategy >::type s(sSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type height(heightSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type density(densitySEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type area_heartwood(area_heartwoodSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type mass_heartwood(mass_heartwoodSEXP);
+    rcpp_result_gen = Rcpp::wrap(FF16_census_direct(s, height, density, area_heartwood, mass_heartwood));
+    return rcpp_result_gen;
+END_RCPP
+}
+// TF24_census_direct
+Rcpp::List TF24_census_direct(plant::TF24_Strategy s, Rcpp::NumericVector height, Rcpp::NumericVector density, Rcpp::NumericVector area_heartwood, Rcpp::NumericVector mass_heartwood);
+RcppExport SEXP _plant_TF24_census_direct(SEXP sSEXP, SEXP heightSEXP, SEXP densitySEXP, SEXP area_heartwoodSEXP, SEXP mass_heartwoodSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::TF24_Strategy >::type s(sSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type height(heightSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type density(densitySEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type area_heartwood(area_heartwoodSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type mass_heartwood(mass_heartwoodSEXP);
+    rcpp_result_gen = Rcpp::wrap(TF24_census_direct(s, height, density, area_heartwood, mass_heartwood));
+    return rcpp_result_gen;
+END_RCPP
+}
+// TF24f_census_direct
+Rcpp::List TF24f_census_direct(plant::TF24f_Strategy s, Rcpp::NumericVector height, Rcpp::NumericVector density, Rcpp::NumericVector area_heartwood, Rcpp::NumericVector mass_heartwood);
+RcppExport SEXP _plant_TF24f_census_direct(SEXP sSEXP, SEXP heightSEXP, SEXP densitySEXP, SEXP area_heartwoodSEXP, SEXP mass_heartwoodSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::TF24f_Strategy >::type s(sSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type height(heightSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type density(densitySEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type area_heartwood(area_heartwoodSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type mass_heartwood(mass_heartwoodSEXP);
+    rcpp_result_gen = Rcpp::wrap(TF24f_census_direct(s, height, density, area_heartwood, mass_heartwood));
+    return rcpp_result_gen;
+END_RCPP
+}
 // node_schedule_default__Parameters___FF16__FF16_Env
 plant::NodeSchedule node_schedule_default__Parameters___FF16__FF16_Env(const plant::Parameters<plant::FF16_Strategy,plant::FF16_Environment>& p);
 RcppExport SEXP _plant_node_schedule_default__Parameters___FF16__FF16_Env(SEXP pSEXP) {
@@ -13379,6 +13444,11 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_TF24_Environment__soil__get", (DL_FUNC) &_plant_TF24_Environment__soil__get, 1},
     {"_plant_TF24f_Strategy__ctor", (DL_FUNC) &_plant_TF24f_Strategy__ctor, 0},
     {"_plant_test_adaptive_interpolator", (DL_FUNC) &_plant_test_adaptive_interpolator, 7},
+    {"_plant_census_metric_names", (DL_FUNC) &_plant_census_metric_names, 0},
+    {"_plant_census_parameter_names", (DL_FUNC) &_plant_census_parameter_names, 0},
+    {"_plant_FF16_census_direct", (DL_FUNC) &_plant_FF16_census_direct, 5},
+    {"_plant_TF24_census_direct", (DL_FUNC) &_plant_TF24_census_direct, 5},
+    {"_plant_TF24f_census_direct", (DL_FUNC) &_plant_TF24f_census_direct, 5},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
     {"_plant_make_node_schedule__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___FF16__FF16_Env, 1},
     {"_plant_test_gradient_fd1", (DL_FUNC) &_plant_test_gradient_fd1, 5},
