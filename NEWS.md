@@ -294,6 +294,41 @@ were not previously recorded here:
 
 ### New features
 
+* **A stand census, and the first of the two terms in its parameter
+  sensitivity.** `stand_census_state()` freezes a size distribution out of a
+  collected `run_scm()`; `stand_census()` integrates it to total leaf area, stem
+  (basal) area and above-ground mass; `stand_census_direct_term()` returns
+  `d(census)/d(parameter)` **at fixed state**.
+
+  A census responds to a parameter two ways: the stand develops differently, so
+  the size distribution moves, and each individual is a different plant at
+  whatever size it reached. The second term is not a sensitivity of the stand's
+  state at all — freeze the cohorts, change leaf mass per area, and total
+  above-ground mass still moves. That term is what this computes; the first is
+  not computed anywhere in the package, so a census gradient is not complete
+  without it. The naming and the documentation say so.
+
+  Measured parameter support, derived from the allometry rather than the metric
+  names: `area_leaf` reads `a_l1`, `a_l2`; `area_stem` reads those plus `theta`
+  and `a_b1`, through sapwood and bark; `mass_above_ground` reads all seven
+  registered parameters (`lma`, `rho`, `theta`, `a_b1`, `eta`, `a_l1`, `a_l2`).
+  A registered parameter that reaches nothing comes back as an exact zero with
+  `support = FALSE`, so an absence and a vanishing term stay distinguishable.
+  Columns are named per species; an unknown parameter is refused by name.
+
+  Against a Richardson-extrapolated central difference on the same frozen state,
+  worst relative disagreement over two species x three metrics x seven
+  parameters is `8.4e-12` (`area_leaf`), `1.2e-10` (`area_stem`) and `3.1e-9`
+  (`mass_above_ground`, where heartwood is a large parameter-free part of the
+  total and sets a cancellation floor).
+
+  The census quadrature is height-sorted. Reserve-gated growth lets a younger
+  node overtake an older one (#517, #571), and on a crossed grid neighbouring
+  trapezia cancel instead of accumulating. Crossing the two shortest cohorts of
+  an FF16 stand moves the unguarded total leaf area by 21%; crossing one node
+  lower makes it negative. Derivatives are FF16-family only (FF16, TF24, TF24f
+  share this allometry); K93 has no leaf area or mass cascade.
+
 * **`Control$node_density_in_birth_date`** (default `FALSE`) carries the SCM's
   size distribution as a density in birth date instead of in height.
 

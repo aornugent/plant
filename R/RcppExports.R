@@ -4277,6 +4277,26 @@ test_adaptive_interpolator <- function(f, a, b, atol = 1e-6, rtol = 1e-6, nbase 
     .Call('_plant_test_adaptive_interpolator', PACKAGE = 'plant', f, a, b, atol, rtol, nbase, max_depth)
 }
 
+census_metric_names <- function() {
+    .Call('_plant_census_metric_names', PACKAGE = 'plant')
+}
+
+census_parameter_names <- function() {
+    .Call('_plant_census_parameter_names', PACKAGE = 'plant')
+}
+
+FF16_census_direct <- function(s, height, density, area_heartwood, mass_heartwood) {
+    .Call('_plant_FF16_census_direct', PACKAGE = 'plant', s, height, density, area_heartwood, mass_heartwood)
+}
+
+TF24_census_direct <- function(s, height, density, area_heartwood, mass_heartwood) {
+    .Call('_plant_TF24_census_direct', PACKAGE = 'plant', s, height, density, area_heartwood, mass_heartwood)
+}
+
+TF24f_census_direct <- function(s, height, density, area_heartwood, mass_heartwood) {
+    .Call('_plant_TF24f_census_direct', PACKAGE = 'plant', s, height, density, area_heartwood, mass_heartwood)
+}
+
 node_schedule_default__Parameters___FF16__FF16_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___FF16__FF16_Env', PACKAGE = 'plant', p)
 }
