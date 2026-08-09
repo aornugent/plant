@@ -294,6 +294,45 @@ were not previously recorded here:
 
 ### New features
 
+* **A finite-difference reference for one cohort's Jacobian**
+  (`cohort_rate_jacobian`, `cohort_jacobian_sweep`, `cohort_jacobian_plateau`,
+  `cohort_jacobian_pattern`, `R/cohort_jacobian.R`).
+
+  A reverse-mode sensitivity pass will have to transpose one cohort's physiology
+  at one solver stage, and a transpose checked only against the forward code it
+  came from passes whenever both share an error. A cohort's state is six numbers,
+  so the whole Jacobian can be formed exhaustively by central difference: 13
+  outputs (six ODE rates, the survival-weighted offspring rate, the density rate,
+  five soil layers) by six states, 12 rate evaluations, 44 ms. Nothing is pinned;
+  the harness recomputes.
+
+  The part that is a test rather than a measurement is the sparsity. Derived from
+  which states the rate path reads, **58 of the 78 entries are identically zero**:
+  `fecundity`, `area_heartwood` and `mass_heartwood` are set as rates and never
+  read back, so their columns are entirely zero; `mortality` reaches `mortality_dt`
+  only through a `util::is_finite` test, so the only rate that varies with it is
+  the node's offspring rate, through `exp(-mortality)`; and `storage` reaches
+  neither heartwood rate (turnover-driven, height alone) nor water consumption
+  (the leaf is solved by `net_mass_production_dt`, which is not passed the
+  reserve). Asserted with exact comparison, not a tolerance. Measured at five
+  nodes spanning 2.26-6.22 m: exactly those 58 zeros, no more and no fewer.
+
+  The finite-difference step is established rather than chosen. Common plateau
+  over every rate that depends on the physiology: **1.8e-7 to 5.6e-5** at a
+  flatness of 1e-6, and the default step is its geometric centre, 3e-6. The lower
+  edge is not machine precision but the leaf sub-model's solver tolerances, which
+  leave a relative noise floor of 5e-10 to 4e-9 on the rates. The density rate
+  does not share the plateau: `Node::compute_rates` builds it from a backward
+  difference at a fixed absolute step (`node_gradient_eps`, 1e-6), so its noise
+  floor is 4e-8 and it has no plateau at all at 1e-6 flatness.
+
+* **`Internals$consumption_rates` and `Internals$resource_size` are readable from
+  R.** They were the one part of a cohort's rate vector that was not: `internals`
+  exposed `states`, `rates` and `auxs`, but the per-resource consumption the
+  strategy writes alongside them (for TF24, per-soil-layer water uptake in m/yr)
+  was reachable only from C++, even though it feeds the patch water balance.
+  Read-only in effect for a caller who wants the rate vector; no behaviour changes.
+
 * **`Control$node_density_in_birth_date`** (default `FALSE`) carries the SCM's
   size distribution as a density in birth date instead of in height.
 

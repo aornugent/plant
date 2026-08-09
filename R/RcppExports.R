@@ -1425,6 +1425,22 @@ Internals__auxs__set <- function(obj_, value) {
     invisible(.Call('_plant_Internals__auxs__set', PACKAGE = 'plant', obj_, value))
 }
 
+Internals__resource_size__get <- function(obj_) {
+    .Call('_plant_Internals__resource_size__get', PACKAGE = 'plant', obj_)
+}
+
+Internals__resource_size__set <- function(obj_, value) {
+    invisible(.Call('_plant_Internals__resource_size__set', PACKAGE = 'plant', obj_, value))
+}
+
+Internals__consumption_rates__get <- function(obj_) {
+    .Call('_plant_Internals__consumption_rates__get', PACKAGE = 'plant', obj_)
+}
+
+Internals__consumption_rates__set <- function(obj_, value) {
+    invisible(.Call('_plant_Internals__consumption_rates__set', PACKAGE = 'plant', obj_, value))
+}
+
 Parameters___FF16__FF16_Env__ctor <- function() {
     .Call('_plant_Parameters___FF16__FF16_Env__ctor', PACKAGE = 'plant')
 }

@@ -4044,6 +4044,50 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// Internals__resource_size__get
+size_t Internals__resource_size__get(plant::RcppR6::RcppR6<plant::Internals> obj_);
+RcppExport SEXP _plant_Internals__resource_size__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Internals> >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Internals__resource_size__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Internals__resource_size__set
+void Internals__resource_size__set(plant::RcppR6::RcppR6<plant::Internals> obj_, size_t value);
+RcppExport SEXP _plant_Internals__resource_size__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Internals> >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< size_t >::type value(valueSEXP);
+    Internals__resource_size__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
+// Internals__consumption_rates__get
+std::vector<double> Internals__consumption_rates__get(plant::RcppR6::RcppR6<plant::Internals> obj_);
+RcppExport SEXP _plant_Internals__consumption_rates__get(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Internals> >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(Internals__consumption_rates__get(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Internals__consumption_rates__set
+void Internals__consumption_rates__set(plant::RcppR6::RcppR6<plant::Internals> obj_, std::vector<double> value);
+RcppExport SEXP _plant_Internals__consumption_rates__set(SEXP obj_SEXP, SEXP valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Internals> >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type value(valueSEXP);
+    Internals__consumption_rates__set(obj_, value);
+    return R_NilValue;
+END_RCPP
+}
 // Parameters___FF16__FF16_Env__ctor
 SEXP Parameters___FF16__FF16_Env__ctor();
 RcppExport SEXP _plant_Parameters___FF16__FF16_Env__ctor() {
@@ -12666,6 +12710,10 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Internals__rates__set", (DL_FUNC) &_plant_Internals__rates__set, 2},
     {"_plant_Internals__auxs__get", (DL_FUNC) &_plant_Internals__auxs__get, 1},
     {"_plant_Internals__auxs__set", (DL_FUNC) &_plant_Internals__auxs__set, 2},
+    {"_plant_Internals__resource_size__get", (DL_FUNC) &_plant_Internals__resource_size__get, 1},
+    {"_plant_Internals__resource_size__set", (DL_FUNC) &_plant_Internals__resource_size__set, 2},
+    {"_plant_Internals__consumption_rates__get", (DL_FUNC) &_plant_Internals__consumption_rates__get, 1},
+    {"_plant_Internals__consumption_rates__set", (DL_FUNC) &_plant_Internals__consumption_rates__set, 2},
     {"_plant_Parameters___FF16__FF16_Env__ctor", (DL_FUNC) &_plant_Parameters___FF16__FF16_Env__ctor, 0},
     {"_plant_Parameters___FF16__FF16_Env__vdor", (DL_FUNC) &_plant_Parameters___FF16__FF16_Env__vdor, 1},
     {"_plant_Parameters___TF24__TF24_Env__ctor", (DL_FUNC) &_plant_Parameters___TF24__TF24_Env__ctor, 0},

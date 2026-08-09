@@ -1590,6 +1590,24 @@ void Internals__auxs__set(plant::RcppR6::RcppR6<plant::Internals> obj_, std::vec
   obj_->auxs = value;
 }
 
+// [[Rcpp::export]]
+size_t Internals__resource_size__get(plant::RcppR6::RcppR6<plant::Internals> obj_) {
+  return obj_->resource_size;
+}
+// [[Rcpp::export]]
+void Internals__resource_size__set(plant::RcppR6::RcppR6<plant::Internals> obj_, size_t value) {
+  obj_->resource_size = value;
+}
+
+// [[Rcpp::export]]
+std::vector<double> Internals__consumption_rates__get(plant::RcppR6::RcppR6<plant::Internals> obj_) {
+  return obj_->consumption_rates;
+}
+// [[Rcpp::export]]
+void Internals__consumption_rates__set(plant::RcppR6::RcppR6<plant::Internals> obj_, std::vector<double> value) {
+  obj_->consumption_rates = value;
+}
+
 
 // [[Rcpp::export]]
 SEXP Parameters___FF16__FF16_Env__ctor() {
