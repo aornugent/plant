@@ -502,6 +502,13 @@ Internals:
     states: {type: "std::vector<double>", access: field}
     rates: {type: "std::vector<double>", access: field}
     auxs: {type: "std::vector<double>", access: field}
+    ## Per-resource consumption rates (for TF24, per-soil-layer water uptake in
+    ## m/yr) written by the strategy's compute_rates alongside `rates`. Exposed
+    ## because they were the one part of a cohort's rate vector unreachable from
+    ## R: `rates` carries the six ODE states, and the water uptake that feeds the
+    ## patch water balance was readable only from C++.
+    resource_size: {type: size_t, access: field}
+    consumption_rates: {type: "std::vector<double>", access: field}
   methods:
     state:
       args: [i: int]
