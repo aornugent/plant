@@ -99,6 +99,24 @@ public:
     return tot;
   }
 
+  // The reverse pass runs on the birth-date coordinate only, and refuses the
+  // other one here rather than answering it. On the height coordinate the
+  // abscissa is state, so the quadrature weights carry a derivative the
+  // reduction transposes omit and the density rate carries a compression term
+  // the recorded step does not compute: the sweep is then the transpose of a
+  // function the forward model is not evaluating. Nothing about the arithmetic
+  // complains, and the two coordinates are different functions rather than two
+  // discretisations of one -- one census metric's trait sensitivity changes
+  // sign between them -- so the answer would be finite, plausible and wrong.
+  void require_birth_date_coordinate(const char* entry) const {
+    if (!control.node_density_in_birth_date) {
+      util::stop(std::string(entry) +
+                 ": the reverse-mode gradient runs on the birth-date "
+                 "size-density coordinate only. Set "
+                 "control$node_density_in_birth_date = TRUE and re-run.");
+    }
+  }
+
   // d(census)/d(ODE state) at the current time, one row per metric and one
   // column per ODE state entry. This is what the reverse pass is seeded with.
   template <class Metrics>
@@ -610,6 +628,7 @@ std::vector<double> SCM<T, E>::census() const {
 template <typename T, typename E>
 template <class Metrics>
 std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
+  require_birth_date_coordinate("census_state_adjoint");
   using scalar = odelia::ode::active_scalar<double>;
   const size_t n_metric = std::tuple_size<Metrics>::value;
   const size_t n_state = patch.ode_size();
@@ -648,6 +667,7 @@ std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
 template <typename T, typename E>
 template <class Metrics>
 std::vector<std::vector<double>> SCM<T, E>::census_trait_gradient() {
+  require_birth_date_coordinate("census_trait_gradient");
   // The sweep needs the state at every accepted step, and store_trajectory()
   // re-runs to record them, so the seeds below are taken after it.
   const std::vector<ode_step_record> trajectory = store_trajectory();
