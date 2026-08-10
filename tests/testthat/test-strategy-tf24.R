@@ -290,16 +290,19 @@ test_that("offspring arrival", {
   expect_equal(out$offspring_production, 82.09077702, tolerance = 2e-2)
 
   # two species: the second strategy has a moderately higher lma (0.10 vs
-  # 0.0825), so it grows more slowly and is more heavily shaded. In the height
-  # coordinate the slower species is excluded -- its offspring production is
-  # several orders of magnitude below the faster species. We pin the dominant
-  # species (loosely, for the cross-platform reasons above) and assert the
-  # excluded species stays negligible, rather than pinning its tiny value, which
-  # is too platform-fragile to compare at a fixed relative tolerance.
+  # 0.0825), so it grows more slowly and is more heavily shaded. We pin the
+  # dominant species (loosely, for the cross-platform reasons above) and assert
+  # the second stays negligible, rather than pinning its tiny value, which is
+  # too platform-fragile to compare at a fixed relative tolerance.
   #
-  # This exclusion is a property of the *coordinate*, not of reserve-gated
-  # growth. See the birth-date case below: an earlier version of this comment
-  # recorded it as a finding about #517, which it is not.
+  # The exclusion this pins is a property of the *height* coordinate, and the
+  # ctrl above no longer selects it: Control() now defaults to birth date, so
+  # this run and the out_bd run below integrate over the same coordinate and
+  # return the same numbers. The two recorded values also predate the leaf's
+  # bounded root-conductivity clamp, which removed an unbounded plant-to-soil
+  # flux and moved every whole-run TF24 number. Both halves need re-recording
+  # deliberately: name the coordinate here, then re-bless against a leaf whose
+  # forward model has been re-blessed first.
   p2 <- add_strategies(p0, trait_matrix(c(0.0825, 0.10, 5, 5), c("lma", "hmat")),
                        hyperpar = TF24_hyperpar, birth_rate = list(20, 20))
 

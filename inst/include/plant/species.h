@@ -882,9 +882,12 @@ Species<T,E>::consumption_rate(int i) const {
     // order, so this grid is ascending however the heights behave -- there is no
     // inverted case to sort. new_node's birth date is the current time, which is
     // the newest, so it goes on the end rather than the front.
+    // The abscissa is double and the integrand is not: birth dates are fixed at
+    // birth and carry no derivative, so the quadrature weights are constants,
+    // while the rates are what the uptake's sensitivity runs through.
     std::vector<double> times = node_times();
     times.push_back(new_node.introduction_time());
-    std::vector<double> rates = consumption_rate_by_node(i);
+    std::vector<value_type> rates = consumption_rate_by_node(i);
     rates.push_back(new_node.consumption_rate(i));
     return util::trapezium(times, rates);
   }

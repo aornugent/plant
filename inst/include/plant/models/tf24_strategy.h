@@ -489,28 +489,6 @@ public:
   void graft_leaf_outputs(const S& radiation, const S& area_leaf_,
                           const std::vector<S>& psi_soil,
                           const S& leaf_specific_conductance_max);
-  // The pars member holding the leaf parameter Leaf::inputs() names. Leaf owns
-  // the names and this owns the addresses; an unmapped name is refused.
-  S* leaf_parameter_address(const std::string& name) {
-    if (name == "vcmax_25") return &pars.vcmax_25;
-    if (name == "jmax_25") return &pars.jmax_25;
-    if (name == "a") return &pars.a;
-    if (name == "curv_fact_elec_trans") return &pars.curv_fact_elec_trans;
-    if (name == "curv_fact_colim") return &pars.curv_fact_colim;
-    if (name == "b") return &pars.b;
-    if (name == "c") return &pars.c;
-    if (name == "psi_crit") return &pars.psi_crit;
-    if (name == "beta2") return &pars.beta2;
-    if (name == "g1_TF24") return &pars.g1_TF24;
-    if (name == "rho") return &pars.rho;
-    if (name == "a_bio") return &pars.a_bio;
-    if (name == "root_b") return &pars.root_b;
-    if (name == "root_c") return &pars.root_c;
-    if (name == "root_psi_crit") return &pars.root_psi_crit;
-    util::stop("graft_leaf_outputs: Leaf names the parameter input '" + name +
-               "' and TF24_Pars has no member of that name");
-    return nullptr;
-  }
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
@@ -702,7 +680,8 @@ public:
     out.beta_R_H = beta_R_H;
     out.beta_R_V = beta_R_V;
     out.function_integrator = function_integrator;
-    out.mass_root_prop_.assign(mass_root_prop_.size(), U(0.0));
+    out.root_carbon_per_leaf_area_.assign(root_carbon_per_leaf_area_.size(),
+                                          U(0.0));
     out.refresh_indices();
     return out;
   }
@@ -771,12 +750,17 @@ public:
   // For integrating functions with using Gauss-Kronrod quadrature
   quadrature::QK function_integrator;
 
-  // Reusable per-layer root-mass buffer, refilled (not reallocated) each
+  // Reusable per-layer root-carbon buffer, refilled (not reallocated) each
   // net_mass_production_dt call to avoid a heap allocation per derivs eval.
-  // Carries S: per-layer root mass is one of the state directions the leaf's
-  // supplied Jacobian has rows for, so it is a live gradient channel and is
-  // passed to the double leaf through to_passive at the graft.
-  std::vector<S> mass_root_prop_;
+  // Carries S: per-layer root carbon is one of the state directions the leaf's
+  // supplied Jacobian has rows for, so it is a live gradient channel.
+  std::vector<S> root_carbon_per_leaf_area_;
+
+  // The same numbers with the derivative stripped, because the architecture
+  // model and the leaf both take double. Held rather than made per call for the
+  // reason the buffer above is.
+  std::vector<double> root_carbon_value_;
+  std::vector<double> psi_soil_value_;
 
   // And the resistances derived from it, held the same way and for the same
   // reason (phylloptim #33). Refilled through root_network_from_carbon's in-place
@@ -859,54 +843,66 @@ S TF24_Strategy<S>::graft(double value, const std::vector<double>& partial,
   return out;
 }
 
-// One reverse contraction per output gives that output's row, so the leaf is
-// asked for its profit row and one row per layer it draws from.
+// The leaf's outputs re-enter the active chain at two places, and the leaf
+// supplies rows for one of them. Profit gets the two environment channels --
+// the radiation it reads and each layer's potential -- analytically, at the
+// operating point its own solve left. Per-layer uptake gets none: it is not
+// among the outputs the leaf differentiates, so there is no column to contract.
 template <typename S>
 void TF24_Strategy<S>::graft_leaf_outputs(
     const S& radiation, const S& area_leaf_, const std::vector<S>& psi_soil,
     const S& leaf_specific_conductance_max) {
-  const size_t n = static_cast<size_t>(leaf.max_soil_layer);
-  const size_t n_layer = leaf.soil_consumption_.size();
+  static_cast<void>(area_leaf_);
+  static_cast<void>(leaf_specific_conductance_max);
 
-  // One x per name in Leaf::inputs(): the state-dependent block, then this
-  // strategy's own parameter member for each leaf parameter the leaf names.
-  // These rows are supplied partials, so the block's value is deliberately
-  // independent of them and a block-level difference cannot referee them.
-  const std::vector<std::string> leaf_input_names = leaf.inputs();
+  phylloptim::gradient::EnvAdjoint env;
+  phylloptim::gradient::env_adjoint(leaf, 1.0, env);
+  if (!env.usable) {
+    util::stop("TF24 gradient: the leaf supplies no environment rows at this "
+               "operating point -- " + env.message);
+  }
+
+  // The rows stop at the deepest rooted layer while psi_soil runs the whole
+  // column, so a row shorter than the inputs is grafted only as far as it goes.
+  // The unrooted tail moves no water and its row is a true zero.
+  if (env.soil.size() > psi_soil.size()) {
+    util::stop("TF24 gradient: the leaf returned " +
+               util::to_string(static_cast<int>(env.soil.size())) +
+               " soil rows for " +
+               util::to_string(static_cast<int>(psi_soil.size())) + " layers");
+  }
+
+  // Every partial is tested before it meets a bracket. A non-finite partial
+  // poisons the grafted VALUE and not only the adjoint, because NaN * 0 is not
+  // a number, and there is nowhere downstream to put the test.
   std::vector<S> x;
-  x.reserve(leaf_input_names.size());
+  std::vector<double> row;
+  x.reserve(1 + env.soil.size());
+  row.reserve(1 + env.soil.size());
   x.push_back(radiation);
-  for (size_t j = 0; j < n; ++j) {
+  row.push_back(env.light);
+  for (size_t j = 0; j < env.soil.size(); ++j) {
     x.push_back(psi_soil[j]);
+    row.push_back(env.soil[j]);
   }
-  x.push_back(area_leaf_);
-  for (size_t j = 0; j < n; ++j) {
-    x.push_back(mass_root_prop_[j]);
+  for (size_t i = 0; i < row.size(); ++i) {
+    if (!util::is_finite(row[i])) {
+      util::stop("TF24 gradient: the leaf's supplied partial " +
+                 util::to_string(static_cast<int>(i)) + " is not finite");
+    }
   }
-  x.push_back(leaf_specific_conductance_max);
-  for (size_t j = 2 * n + 3; j < leaf_input_names.size(); ++j) {
-    x.push_back(*leaf_parameter_address(leaf_input_names[j]));
-  }
-
-  // graft checks the row against x, so a length that stops matching is a hard
-  // failure rather than a silently dropped tail.
-  std::vector<double> row, lambda(n, 0.0);
-  leaf.input_adjoints(1.0, lambda, row);
   leaf_profit_ = graft(leaf.profit_, row, x);
 
-  // soil_consumption_ is sized to the layer count and written only where there
-  // is root mass, so the rows stop at max_soil_layer and the rest stay flat.
-  leaf_soil_consumption_.assign(n_layer, S(0.0));
-  for (size_t j = 0; j < n_layer; ++j) {
-    if (j >= n) {
-      leaf_soil_consumption_[j] = leaf.soil_consumption_[j];
-      continue;
-    }
-    std::fill(lambda.begin(), lambda.end(), 0.0);
-    lambda[j] = 1.0;
-    leaf.input_adjoints(0.0, lambda, row);
-    leaf_soil_consumption_[j] = graft(leaf.soil_consumption_[j], row, x);
-  }
+  // Per-layer uptake is what a cohort writes into the shared soil, so this is
+  // the whole of the belowground competitive channel. The leaf differentiates
+  // five outputs -- assimilation, conductance, stem potential, the collar and
+  // profit -- and uptake is not one of them, so no contraction reaches it. Its
+  // rows would need the mixed second derivative of profit in the collar, which
+  // this boundary does not carry. Refuse rather than graft nothing: an ungrafted
+  // output is an exact zero in every trait column that reaches the water, which
+  // reads as a finding.
+  util::stop("TF24 gradient: the leaf supplies no rows for per-layer uptake, "
+             "so the water channel would read exactly zero");
 }
 
 template <typename S>
@@ -1041,7 +1037,7 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
   vars.set_aux(aux_idx_net_mass_production_dt, net_mass_production_dt_);
   vars.set_aux(aux_idx_root_mass, mass_root(area_leaf_));
   vars.set_aux(aux_idx_opt_psi_stem, leaf.opt_psi_stem_);
-  vars.set_aux(aux_idx_opt_root_psi, leaf.root_collar_psi_);
+  vars.set_aux(aux_idx_opt_root_psi, leaf.opt_root_psi_);
   vars.set_aux(aux_idx_transpiration, leaf.transpiration_);
   vars.set_aux(aux_idx_E_up, leaf.E_up_);
   vars.set_aux(aux_idx_profit, leaf.profit_);
@@ -1276,60 +1272,70 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // height: maximum plant height
   const S leaf_specific_conductance_max = pars.K_s * pars.theta / (height * eta_c);
 
-  // find sapwood volume per leaf area
-  // pars.theta: huber value
-  // eta_c: accounts for average position of leaf mass
+  // Sapwood volume per leaf area (pars.theta * height * eta_c) used to be handed
+  // to the leaf, which stored it and never read it. Recompute it here if a
+  // caller ever needs it.
 
-  const S sapwood_volume_per_leaf_area = pars.theta * (height * eta_c);
-  
   // ----------------------------------------------------------------------
   // ROOT MASS DISTRIBUTION ACROSS SOIL LAYERS
   // ----------------------------------------------------------------------
-  // Total fine-root mass (mass_root_) is distributed over depth using the same
-  // cumulative shape function Q() used for the leaf canopy, but parameterised
-  // over soil depth instead of crown height. Q(z, rooting_depth, 0.2) gives the
-  // fraction of roots *below* depth z, so the mass in layer a is
-  //   root_mass_scale * (Q(z_{a-1}) - Q(z_a)).
-  // rooting_depth is capped at 1.5 m (the soil column depth). The constant
-  // 83.26 * 0.5 rescales mass_root_ into the per-layer carbon units expected by
-  // the root hydraulic network (set_physiology). The loop breaks early once Q
-  // reaches 0 (below the rooting depth) to avoid touching empty deep layers.
+  // Fine-root carbon is distributed over depth using the same cumulative shape
+  // function Q() used for the leaf canopy, but parameterised over soil depth
+  // instead of crown height. Q(z, rooting_depth, 0.2) gives the fraction of
+  // roots *below* depth z, so layer a holds root_mass_scale * (Q(z_{a-1}) -
+  // Q(z_a)). rooting_depth is capped at the soil column depth and the loop
+  // breaks once Q reaches 0, so deeper layers stay at zero.
+  //
+  // The quantity is carbon PER UNIT LEAF AREA, and that is a hard requirement
+  // rather than a convenience: the leaf is intensive, it takes resistances built
+  // from this, and a network built from absolute carbon is five vectors of
+  // positive numbers that no check on the far side can distinguish -- uptake
+  // then comes back wrong by the leaf area with nothing raised. mass_root() is
+  // strictly linear in area_leaf, so dividing it back out is exactly
+  // root_mass_carbon_scale * pars.a_r1 and costs no arithmetic.
   //
   // Reuse the member buffer (assign refills + zeroes without reallocating when
   // the layer count is unchanged); zeroing matters because the loop below breaks
   // early below the rooting depth, leaving deep layers that must read as 0.
-  // TODO (perf): rooting depth cap (1.5) and scale (83.26) are hard-coded and
-  // should become traits.
-  mass_root_prop_.assign(soil_number_of_depths_, 0.0);
+  // TODO (perf): the scale (83.26) is hard-coded and should become a trait.
+  root_carbon_per_leaf_area_.assign(soil_number_of_depths_, 0.0);
+  root_carbon_value_.assign(soil_number_of_depths_, 0.0);
 
+  const S rooting_depth = std::min(height, pars.rooting_depth_max);
+  const S root_mass_scale = root_mass_carbon_scale * pars.a_r1;
 
-
-  // Use Q function with new arghument
-  // std::fill(mass_root_prop_.begin(), mass_root_prop_.end(), 0); 
-  
-// change to while?
-// environment.get_soil_depths() should ask for the ath element to save calling for a new vector each time
-// change environment.get_soil_number_of_depths() change to n or soemtyhing
-    S rooting_depth = std::min(height, pars.rooting_depth_max);
-  const S root_mass_scale = root_mass_carbon_scale * mass_root_;
-    // std::vector<double> Q_root;
-    // Q_root.reserve(soil_number_of_depths_);
-
+  {
+    using odelia::util::to_passive;
     S prev_q = 1.0;
     for (int a = 0; a < soil_number_of_depths_; ++a) {
-      if(prev_q == 0){
+      if (prev_q == 0) {
         break;
       }
-      const S q = Q(soil_depths_[a], rooting_depth,
-             pars.root_depth_shape_eta);
-
-      mass_root_prop_[a] = root_mass_scale * (prev_q - q);
+      const S q = Q(soil_depths_[a], rooting_depth, pars.root_depth_shape_eta);
+      root_carbon_per_leaf_area_[a] = root_mass_scale * (prev_q - q);
+      root_carbon_value_[a] = to_passive(root_carbon_per_leaf_area_[a]);
       prev_q = q;
     }
+  }
+
+  // Carbon -> resistance: the root architecture model runs here, on the plant
+  // side. The leaf's supply solve reads r_R_H_min and r_R_V_sum and knows
+  // nothing about root carbon, the horizontal/vertical split or the layer
+  // thickness, so this strategy owns the model exactly as it already owns the
+  // conductance-versus-height model above, and hands over the reduced quantity.
+  // layer_thickness is the shared definition of dz -- do not open-code it, since
+  // the vertical resistance scales with dz^2 and the two sides drifting apart
+  // would be a silent squared factor neither side could detect.
+  phylloptim::root_network_from_carbon(
+      root_carbon_value_, phylloptim::layer_thickness(soil_depths_), beta_R_H,
+      beta_R_V, root_network_);
 
   // Reuse geometry precomputed by environment; avoids rebuilding z midpoints each call.
-  leaf.z_soil_mid_ = environment.get_soil_mid_depths();
-  leaf.use_precomputed_z_soil_mid_ = true;
+  leaf.roots_.z_soil_mid_ = environment.get_soil_mid_depths();
+  leaf.roots_.use_precomputed_z_soil_mid_ = true;
+
+  // Per-timestep above-canopy wind, read only on the energy-balance path.
+  leaf.wind_speed_ = environment.get_wind_speed();
 
   // Optimise the leaf at a given absorbed radiation: rebuilds physiology and
   // solves the root-collar water potential, leaving the leaf.* outputs
@@ -1348,18 +1354,25 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   auto optimise_at = [&](const S& radiation) -> void {
     radiation_used = radiation;
     if constexpr (std::is_same_v<S, double>) {
-      leaf.set_physiology(area_leaf_, mass_root_prop_, pars.rho, pars.a_bio, radiation, psi_soil, soil_depths_, leaf_specific_conductance_max, environment.get_atm_vpd(), environment.get_ca(), sapwood_volume_per_leaf_area, environment.get_leaf_temp(), environment.get_atm_o2_kpa(), environment.get_atm_kpa());
+      leaf.set_physiology(root_network_, radiation, psi_soil, soil_depths_,
+                          leaf_specific_conductance_max,
+                          environment.get_atm_vpd(), environment.get_ca(),
+                          environment.get_leaf_temp(),
+                          environment.get_atm_o2_kpa(),
+                          environment.get_atm_kpa());
     } else {
       using odelia::util::to_passive;
-      std::vector<double> mass_root_prop_value(mass_root_prop_.size());
-      for (size_t a = 0; a < mass_root_prop_.size(); ++a) {
-        mass_root_prop_value[a] = to_passive(mass_root_prop_[a]);
-      }
-      std::vector<double> psi_soil_value(psi_soil.size());
+      psi_soil_value_.resize(psi_soil.size());
       for (size_t a = 0; a < psi_soil.size(); ++a) {
-        psi_soil_value[a] = to_passive(psi_soil[a]);
+        psi_soil_value_[a] = to_passive(psi_soil[a]);
       }
-      leaf.set_physiology(to_passive(area_leaf_), mass_root_prop_value, to_passive(pars.rho), to_passive(pars.a_bio), to_passive(radiation), psi_soil_value, soil_depths_, to_passive(leaf_specific_conductance_max), environment.get_atm_vpd(), environment.get_ca(), to_passive(sapwood_volume_per_leaf_area), environment.get_leaf_temp(), environment.get_atm_o2_kpa(), environment.get_atm_kpa());
+      leaf.set_physiology(root_network_, to_passive(radiation), psi_soil_value_,
+                          soil_depths_,
+                          to_passive(leaf_specific_conductance_max),
+                          environment.get_atm_vpd(), environment.get_ca(),
+                          environment.get_leaf_temp(),
+                          environment.get_atm_o2_kpa(),
+                          environment.get_atm_kpa());
     }
     solve_leaf();
   };
@@ -1406,7 +1419,7 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
         trans_y[i]    = leaf.transpiration_ * qi;
         eup_y[i]      = leaf.E_up_ * qi;
         psi_y[i]      = leaf.opt_psi_stem_ * qi;
-        root_psi_y[i] = leaf.root_collar_psi_ * qi;
+        root_psi_y[i] = leaf.opt_root_psi_ * qi;
         gco2_y[i]     = leaf.stom_cond_CO2_ * qi;
         assim_y[i]    = leaf.assim_colimited_ * qi;
         for (int a = 0; a < soil_number_of_depths_; ++a) {
@@ -1421,7 +1434,7 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
       leaf.transpiration_   = function_integrator.integrate_vector(trans_y, 0.0, height);
       leaf.E_up_            = function_integrator.integrate_vector(eup_y, 0.0, height);
       leaf.opt_psi_stem_    = function_integrator.integrate_vector(psi_y, 0.0, height);
-      leaf.root_collar_psi_ = function_integrator.integrate_vector(root_psi_y, 0.0, height);
+      leaf.opt_root_psi_    = function_integrator.integrate_vector(root_psi_y, 0.0, height);
       leaf.stom_cond_CO2_   = function_integrator.integrate_vector(gco2_y, 0.0, height);
       leaf.assim_colimited_ = function_integrator.integrate_vector(assim_y, 0.0, height);
       for (int a = 0; a < soil_number_of_depths_; ++a) {
@@ -1801,8 +1814,8 @@ void TF24_Strategy<S>::prepare_strategy() {
                 pars.beta2, pars.jmax_25, pars.a,
                 pars.curv_fact_elec_trans, pars.curv_fact_colim,
                 this->control.GSS_tol_abs, this->control.vulnerability_curve_ncontrol,
-                this->control.ci_abs_tol, this->control.ci_niter, pars.g1_TF24, beta_R_H,
-                beta_R_V);
+                this->control.ci_abs_tol, this->control.ci_niter,
+                pars.g1_TF24);
   } else {
     static_assert(std::is_same_v<S, double>,
                   "Leaf carries double; an active strategy must supply the leaf's "

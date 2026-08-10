@@ -237,7 +237,8 @@ expect_error(l$set_physiology(root_network = net(rep((root_carbon_) / area_leaf_
   
   upper_bound_int <- 3*((log(1/1e-5))^(1/2.04))
   #for situations where psi_stem exceeds tolerance of integrator
-  expect_error(l$transpiration(upper_bound_int, psi_stem[1]), "Extrapolation disabled and evaluation point outside of interpolated domain.")
+  expect_error(l$transpiration(upper_bound_int, psi_stem[1]),
+               "evaluated outside its domain")
   
   #for situations where psi_soil exceeds psi_crit + tolerance
   
@@ -245,7 +246,8 @@ expect_error(l$set_physiology(root_network = net(rep((root_carbon_) / area_leaf_
   l$set_physiology(root_network = net((1) / area_leaf_, soil_depth), PPFD = PPFD, psi_soil = psi_soil, soil_depth = soil_depth, leaf_specific_conductance_max = leaf_specific_conductance_max, atm_vpd = atm_vpd, ca = ca, leaf_temp = leaf_temp_, atm_o2_kpa = atm_o2_kpa_, atm_kpa = atm_kpa_)
   psi_stem = psi_soil 
   
-  expect_error(l$transpiration(psi_stem[1], psi_soil[1]), "Extrapolation disabled and evaluation point outside of interpolated domain.")
+  expect_error(l$transpiration(psi_stem[1], psi_soil[1]),
+               "evaluated outside its domain")
   
   #test that fast E supply calculation is closely approximating full integration
   psi_soil = 0
@@ -1164,15 +1166,15 @@ polish_leaf <- function(psi_soil, height, GSS_tol_abs) {
             beta2 = 1, a = 0.3, curv_fact_elec_trans = 0.7,
             curv_fact_colim = 0.99, GSS_tol_abs = GSS_tol_abs,
             vulnerability_curve_ncontrol = 100, ci_abs_tol = 1e-6,
-            ci_niter = 1000, g1_TF24 = 46.32995,
-            beta_R_H = 3.4e3, beta_R_V = 9.4e4)
+            ci_niter = 1000, g1_TF24 = 46.32995)
   n <- length(psi_soil)
-  l$set_physiology(area_leaf = 0.05, mass_root_prop = rep(10 / n, n), rho = 608,
-                   a_bio = 0.0245, PPFD = 900, psi_soil = psi_soil,
-                   soil_depth = seq_len(n),
+  soil_depth <- seq_len(n)
+  # Root carbon per unit leaf area, as the boundary requires: the leaf takes the
+  # resistances and cannot tell an absolute profile from an intensive one.
+  l$set_physiology(root_network = net(rep(10 / n / 0.05, n), soil_depth),
+                   PPFD = 900, psi_soil = psi_soil, soil_depth = soil_depth,
                    leaf_specific_conductance_max = theta / height,
                    atm_vpd = 2, ca = 40,
-                   sapwood_volume_per_leaf_area = theta * height,
                    leaf_temp = 25, atm_o2_kpa = 21, atm_kpa = 101.3)
   l
 }
@@ -1197,9 +1199,9 @@ polish_states <- function() {
 # to that interval, so a clamped probe is the signature of a bound).
 expect_interior <- function(l, op) {
   l$evaluate_root_collar_psi(op - 2e-3)
-  expect_equal(-l$root_collar_psi_, op - 2e-3)
+  expect_equal(l$opt_root_psi_, op - 2e-3)
   l$evaluate_root_collar_psi(op + 2e-3)
-  expect_equal(-l$root_collar_psi_, op + 2e-3)
+  expect_equal(l$opt_root_psi_, op + 2e-3)
 }
 
 test_that("the returned collar operating point is stationary in profit", {
@@ -1212,7 +1214,7 @@ test_that("the returned collar operating point is stationary in profit", {
   for (s in states) {
     l <- polish_leaf(s$psi_soil, s$height, GSS_tol_abs = 1e-3)
     l$find_root_collar_psi()
-    op <- -l$root_collar_psi_
+    op <- l$opt_root_psi_
     expect_interior(l, op)
     l$find_root_collar_psi()
     R <- l$dprofit_droot_collar_psi(op)
@@ -1236,8 +1238,8 @@ test_that("the polished collar operating point does not depend on the bracket to
     l_loose <- polish_leaf(s$psi_soil, s$height, GSS_tol_abs = 1e-1)
     l_tight$find_root_collar_psi()
     l_loose$find_root_collar_psi()
-    p_tight <- -l_tight$root_collar_psi_
-    p_loose <- -l_loose$root_collar_psi_
+    p_tight <- l_tight$opt_root_psi_
+    p_loose <- l_loose$opt_root_psi_
     expect_lt(abs(l_tight$dprofit_droot_collar_psi(p_tight)), 1e-7)
     expect_lt(abs(l_loose$dprofit_droot_collar_psi(p_loose)), 1e-7)
     expect_lt(abs(p_tight - p_loose), allowed)

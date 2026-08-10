@@ -137,7 +137,7 @@ void TF24f_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,
 // Track instead of optimise: evaluate the leaf at the tracked collar psi and
 // supply d(profit)/d(psi) for the gradient-ascent rate. evaluate_root_collar_psi
 // clamps to the feasible interval, so we read back the *clamped* operating value
-// (`used` = -root_collar_psi_) and form the gradient about it; this keeps the
+// (`used` = opt_root_psi_) and form the gradient about it; this keeps the
 // gradient meaningful even when the tracked state has drifted outside the
 // interval (e.g. an uninitialised state at 0), pulling it back inside, and the
 // final evaluate leaves the leaf outputs at the operating point that
@@ -159,7 +159,7 @@ void TF24f_Strategy<S>::solve_leaf() {
     // Establish the operating point (and the clamped collar psi `used`) and leave
     // the leaf outputs there for compute_rates' aux reads.
     this->leaf.evaluate_root_collar_psi(tracked_root_psi_);
-    const double used = -this->leaf.root_collar_psi_;
+    const double used = this->leaf.opt_root_psi_;
     dprofit_dpsi_ = this->leaf.dprofit_droot_collar_psi(used);
     this->leaf.evaluate_root_collar_psi(used);  // restore operating-point outputs
   } else {
@@ -201,8 +201,8 @@ void TF24f_Strategy<S>::solve_leaf() {
 
 // Seed the tracked state at its optimum: run the base optimiser once (via the
 // initializing_ flag, which makes solve_leaf optimise rather than track) and
-// store the resulting collar psi as the initial state. leaf.root_collar_psi_ is
-// the signed (negative) potential; the tracked state is the positive magnitude.
+// store the resulting collar psi as the initial state. Both are the positive
+// magnitude of the potential, in MPa.
 template <typename S>
 void TF24f_Strategy<S>::set_initial_states(const TF24_Environment<S>& environment,
                                         Internals<S>& vars) {
@@ -213,7 +213,7 @@ void TF24f_Strategy<S>::set_initial_states(const TF24_Environment<S>& environmen
   initializing_ = true;
   this->net_mass_production_dt(environment, vars);
   initializing_ = false;
-  vars.set_state(state_idx_opt_root_psi_state, -this->leaf.root_collar_psi_);
+  vars.set_state(state_idx_opt_root_psi_state, this->leaf.opt_root_psi_);
 }
 
 template <typename S>

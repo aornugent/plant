@@ -500,9 +500,11 @@ Internals:
   active:
     state_size: {type: size_t, access: field}
     aux_size: {type: size_t, access: field}
+    resource_size: {type: size_t, access: field}
     states: {type: "std::vector<double>", access: field}
     rates: {type: "std::vector<double>", access: field}
     auxs: {type: "std::vector<double>", access: field}
+    consumption_rates: {type: "std::vector<double>", access: field}
   methods:
     state:
       args: [i: int]
@@ -511,6 +513,9 @@ Internals:
       args: [i: int]
       return_type: double
     aux:
+      args: [i: int]
+      return_type: double
+    consumption_rate:
       args: [i: int]
       return_type: double
     set_aux:
