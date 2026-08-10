@@ -109,7 +109,13 @@ public:
   // the simulation output for identical inputs. Do NOT bump for refactors,
   // performance, interface, or serialisation changes. Bumping invalidates
   // logpile's cache for this model (see plant::model_version() / model_id()).
-  static constexpr int scientific_version = 1;
+  // v2: the reductions over the size distribution take their trapezium widths
+  // from the coordinate the density is carried in, so a run on the birth-date
+  // coordinate integrates over birth dates rather than over heights. Measured on
+  // the full-lifetime deep-crown anchor, offspring production moves
+  // 16.884586 -> 17.172004, i.e. **+1.70%**; on the height coordinate it is
+  // unchanged to the last bit.
+  static constexpr int scientific_version = 2;
 
   // Fixed integer slots for the hot ODE rate path, used instead of
   // state_index.at("...") / aux_index.at("...") string-map lookups (those map

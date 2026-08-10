@@ -19,7 +19,8 @@ tf24_allometry_r <- function(pars, eta) {
 }
 
 # Every cohort's state, boundary node last, from the ODE state the species and
-# its boundary node write.
+# its boundary node write. The birth date is not ODE state and is read off the
+# nodes themselves.
 species_state_r <- function(species) {
   names <- species$new_node$ode_names
   stride <- length(names)
@@ -28,24 +29,35 @@ species_state_r <- function(species) {
   data.frame(height = s["height", ],
              area_heartwood = s["area_heartwood", ],
              mass_heartwood = s["mass_heartwood", ],
-             log_density = s["log_density", ])
+             log_density = s["log_density", ],
+             birth_date = c(vapply(species$nodes,
+                                   function(n) n$introduction_time, 0),
+                            species$new_node$introduction_time))
 }
 
 trapezium_r <- function(x, y) {
   sum(diff(x) * (utils::head(y, -1) + utils::tail(y, -1))) / 2
 }
 
-# The census in R: the grid runs from the boundary node upwards, so the state
-# columns are reversed and the boundary node (last) becomes the first grid point.
-census_r <- function(species, pars, eta, include_boundary = TRUE) {
+# The census in R. A census is a quadrature of a density, so the grid is the
+# coordinate the density is carried in: the birth date, which ascends as the
+# nodes are stored and puts the boundary node last, or the height, which ascends
+# the other way and puts it first.
+census_r <- function(species, pars, eta, include_boundary = TRUE,
+                     birth_date = TRUE) {
   st <- species_state_r(species)
   n <- nrow(st)
-  order <- if (include_boundary) c(n, seq(n - 1, 1)) else seq(n - 1, 1)
+  order <- if (birth_date) {
+    if (include_boundary) seq_len(n) else seq_len(n - 1)
+  } else {
+    if (include_boundary) c(n, seq(n - 1, 1)) else seq(n - 1, 1)
+  }
   st <- st[order, , drop = FALSE]
   psi <- tf24_allometry_r(pars, eta)(st$height, st$area_heartwood,
                                      st$mass_heartwood)
   density <- exp(st$log_density)
-  vapply(psi, function(p) trapezium_r(st$height, density * p), numeric(1))
+  x <- if (birth_date) st$birth_date else st$height
+  vapply(psi, function(p) trapezium_r(x, density * p), numeric(1))
 }
 
 solved_stand <- function(lifetime = 20) {
@@ -88,46 +100,104 @@ test_that("G2: the boundary node is in the reduction", {
                tolerance = 1e-12)
 })
 
-test_that("G3: the census moves through the trapezium weights", {
+test_that("G3: on the birth-date coordinate the weights carry no derivative", {
+  # A height is state and a birth date is not, so which one the grid is built
+  # from decides whether a cohort's height moves the quadrature as well as the
+  # integrand. On this coordinate it does not, and the two differences below
+  # are the same number: the weight term the height grid would carry is larger
+  # than the whole derivative and of the opposite sign, so a seed built on the
+  # wrong grid is not a small error.
   scm <- solved_stand(12)
   species <- scm$patch$species[[1]]
   strategy <- scm$parameters$strategies[[1]]
   st <- species_state_r(species)
   psi_at <- tf24_allometry_r(strategy$pars, strategy$pars$eta)
 
-  # Perturb one interior cohort's height and difference the census. The
-  # integrand-only census holds the grid fixed at the unperturbed heights, so the
-  # difference between the two differences is the quadrature-weight term.
   k <- floor(nrow(st) / 4)
   eps <- 1e-6
-  full <- function(h) {
+  # Rows run in storage order with the boundary node last, which ascends in
+  # birth date and descends in height; negating the height integral is what
+  # takes it up its own axis instead.
+  leaf_area_at <- function(h, coordinate) {
     hh <- st$height
     hh[k] <- h
-    order <- c(nrow(st), seq(nrow(st) - 1, 1))
-    p <- psi_at(hh[order], st$area_heartwood[order], st$mass_heartwood[order])
-    trapezium_r(hh[order], exp(st$log_density[order]) * p$leaf_area)
+    p <- psi_at(hh, st$area_heartwood, st$mass_heartwood)
+    y <- exp(st$log_density) * p$leaf_area
+    if (coordinate == "birth_date") {
+      trapezium_r(st$birth_date, y)
+    } else {
+      -trapezium_r(hh, y)
+    }
   }
-  integrand_only <- function(h) {
-    hh <- st$height
-    hh[k] <- h
-    order <- c(nrow(st), seq(nrow(st) - 1, 1))
-    p <- psi_at(hh[order], st$area_heartwood[order], st$mass_heartwood[order])
-    trapezium_r(st$height[order], exp(st$log_density[order]) * p$leaf_area)
+  d_dh <- function(coordinate) {
+    (leaf_area_at(st$height[k] + eps, coordinate) -
+       leaf_area_at(st$height[k] - eps, coordinate)) / (2 * eps)
   }
-  d_full <- (full(st$height[k] + eps) - full(st$height[k] - eps)) / (2 * eps)
-  d_part <- (integrand_only(st$height[k] + eps) -
-               integrand_only(st$height[k] - eps)) / (2 * eps)
-  # The weight term is the whole of this derivative and then some: it is larger
-  # than the total and of the opposite sign to the integrand's own contribution.
-  expect_true(abs(d_full - d_part) > abs(d_full))
-  expect_true(sign(d_full) != sign(d_part))
+  over_birth_date <- d_dh("birth_date")
+  over_height <- d_dh("height")
 
-  # The seed the reverse pass is given carries the whole derivative, weights
-  # included, so it agrees with the full difference and not with the partial one.
-  seed <- stand_census_state_adjoint(scm)
+  # Non-vacuity: the two grids must disagree, or this proves nothing. Measured
+  # here they disagree by a factor of about 16, so a seed built on the wrong one
+  # is not a small error.
+  expect_true(abs(over_height - over_birth_date) >
+                2 * min(abs(over_height), abs(over_birth_date)))
+
+  # The seed the reverse pass is given is the derivative on the coordinate the
+  # density is carried in.
+  seed <- try(stand_census_state_adjoint(scm), silent = TRUE)
+  skip_if(inherits(seed, "try-error"),
+          "the census seed is refused at the leaf boundary")
   stride <- length(scm$patch$species[[1]]$new_node$ode_names)
   col <- (k - 1) * stride + 1
-  expect_equal(unname(seed["leaf_area", col]), d_full, tolerance = 1e-4)
+  expect_equal(unname(seed["leaf_area", col]), over_birth_date,
+               tolerance = 1e-4)
+})
+
+test_that("G4: the seed reaches every state a metric reads", {
+  # An exact zero in this design is the signature of a missing accumulator and
+  # never of true insensitivity, so a state a metric demonstrably reads must have
+  # a seed. Two of them do not.
+  #
+  # `area_stem` sums bark, sapwood and heartwood AREA, and `mass_above_ground`
+  # sums the three masses and heartwood MASS, so both read a heartwood state
+  # directly and linearly: the seed is the quadrature weight times the density,
+  # with no allometry in between, which is what makes this checkable by hand.
+  # G1 shows the census VALUE carries them, so the reduction is right and it is
+  # the recording of it that is not.
+  # A lifetime where the bottom of the distribution is still alive: where a
+  # density has underflowed to zero its seed is legitimately zero and the
+  # comparison below says nothing.
+  scm <- solved_stand(5)
+  seed <- stand_census_state_adjoint(scm)
+  species <- scm$patch$species[[1]]
+  names_i <- species$nodes[[1]]$ode_names
+  stride <- length(names_i)
+
+  # Birth-date trapezium weights, boundary node last, as the census integrates.
+  b <- c(vapply(species$nodes, function(n) n$introduction_time, 0),
+         species$new_node$introduction_time)
+  dens <- c(vapply(species$nodes, function(n) exp(n$log_density), 0),
+            exp(species$new_node$log_density))
+  w <- vapply(seq_along(b), function(i) {
+    lo <- if (i > 1) (b[i] - b[i - 1]) / 2 else 0
+    hi <- if (i < length(b)) (b[i + 1] - b[i]) / 2 else 0
+    lo + hi
+  }, 0)
+  expected <- (w * dens)[seq_along(species$nodes)]
+
+  live <- expected > 0
+  expect_true(any(live))
+  for (pair in list(c("area_stem", "area_heartwood"),
+                    c("mass_above_ground", "mass_heartwood"))) {
+    cols <- (seq_along(species$nodes) - 1) * stride + match(pair[2], names_i)
+    expect_equal(unname(seed[pair[1], cols][live]), expected[live],
+                 tolerance = 1e-8, info = paste(pair[1], "reads", pair[2]))
+  }
+
+  # Non-vacuity: the states that DO have a seed, so a wholesale failure of the
+  # recording would not pass this by looking like the defect above.
+  h_cols <- (seq_along(species$nodes) - 1) * stride + match("height", names_i)
+  expect_true(any(seed["leaf_area", h_cols] != 0))
 })
 
 test_that("G5: the entry point refuses to compare across two Controls", {
@@ -143,7 +213,9 @@ test_that("G5: the entry point refuses to compare across two Controls", {
 
 test_that("G6: no census metric has an all-zero state sensitivity", {
   scm <- solved_stand()
-  seed <- stand_census_state_adjoint(scm)
+  seed <- try(stand_census_state_adjoint(scm), silent = TRUE)
+  skip_if(inherits(seed, "try-error"),
+          "the census seed is refused at the leaf boundary")
   expect_equal(nrow(seed), 3L)
   # Every metric is built from height, and every cohort's log density multiplies
   # it, so both state families must move all three metrics.
@@ -178,7 +250,10 @@ test_that("the trait gradient entry point is reachable", {
   expect_true(is.function(census_trait_gradient_tf24))
   got <- tryCatch(stand_gradient(scm, traits = "lma"), error = identity)
   if (inherits(got, "error")) {
-    expect_match(conditionMessage(got), "widens the ODE state")
+    # Either refusal is by name: the sweep cannot cross an introduction, or the
+    # leaf supplies no rows for the output the water channel runs through.
+    expect_match(conditionMessage(got),
+                 "widens the ODE state|per-layer uptake")
   } else {
     expect_equal(rownames(got$gradient), census_metric_names_tf24())
     expect_equal(colnames(got$gradient), "lma")

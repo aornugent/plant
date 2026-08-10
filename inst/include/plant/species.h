@@ -144,8 +144,8 @@ public:
                                              double lambda_slope,
                                              node_size_adjoints* out) const;
 
-  // Transpose of consumption_rate for one resource. The trapezium's grid is the
-  // node heights, so the weights reach the heights as well as the rates.
+  // Transpose of consumption_rate for one resource. The grid is the quadrature
+  // abscissa, so the weights reach the heights only where that abscissa is one.
   void consumption_rate_adjoint(int resource, double lambda_uptake,
                                 node_uptake_adjoints* out) const;
 
@@ -157,11 +157,11 @@ public:
     new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
   }
 
-  // The trapezium integral of n_k psi(state_k) over the cohort heights, with
-  // n_k = exp(l_k). The grid runs from the inflow boundary node upwards: the
-  // boundary node is the lower limit of the size distribution, and starting at
-  // the smallest cohort instead drops the interval between them. The heights are
-  // the grid, so the weights carry them as well as the integrand does.
+  // The trapezium integral of n_k psi(state_k) over the size distribution, with
+  // n_k = exp(l_k). A census is a quadrature of a density, so the grid is the
+  // coordinate that density is carried in; taking gaps in any other variable
+  // integrates one density against another's spacing. The inflow boundary node
+  // closes the grid, being the lower limit of the distribution.
   template <class Psi> value_type census(Psi psi) const;
 
   // Whether the decreasing-height node ordering still holds (see height_max()).
@@ -343,13 +343,21 @@ private:
   using base_type::control;
   node_type new_node;
 
-  // The abscissa both resource integrals are taken over, increasing as the node
-  // list is walked from the tallest down. Heights are negated so that both
-  // coordinates increase in the same direction; negation is exact, so the height
-  // branch's trapezium widths are bit-identical to differencing the heights
-  // themselves. Callers in hot loops read the coordinate once and pass it in.
+  // The abscissa every reduction over the size distribution is taken over,
+  // increasing as the node list is walked from the tallest down. Heights are
+  // negated so that both coordinates increase in the same direction; negation is
+  // exact, so the height branch's trapezium widths are bit-identical to
+  // differencing the heights themselves. Callers in hot loops read the
+  // coordinate once and pass it in.
+  //
+  // It is a position, so it is read at its value even where the height it comes
+  // from is active: a quadrature grid is structure. On the birth-date coordinate
+  // that is exact, the date being fixed at birth. On the height coordinate it
+  // drops the weights' own channel, which the transposes below supply by hand.
   static double abscissa_of(const node_type& n, bool birth_date) {
-    return birth_date ? n.introduction_time() : -n.height();
+    using odelia::util::to_passive;
+    return birth_date ? to_passive(n.introduction_time())
+                      : -to_passive(n.height());
   }
   double quadrature_abscissa(const node_type& n) const {
     return abscissa_of(n, control().node_density_in_birth_date);
@@ -618,38 +626,41 @@ Species<T,E>::compute_competition_and_slope_impl(double height,
   if (scan.h_max < height) {
     return {value_type(0.0), value_type(0.0)};
   }
-  if (!scan.decreasing) {
+  const bool birth_date = control().node_density_in_birth_date;
+  if (!birth_date && !scan.decreasing) {
     return compute_competition_and_slope_unordered(height, include_boundary);
   }
   value_type tot = 0.0, tot_slope = 0.0;
   nodes_const_iterator it = nodes.begin();
   std::pair<value_type, value_type> fs1 =
     it->compute_competition_and_slope(height);
-  value_type h1 = it->height(), f_h1 = fs1.first, s_h1 = fs1.second;
+  value_type x1 = abscissa_of(*it, birth_date), f_h1 = fs1.first,
+             s_h1 = fs1.second;
 
   for (++it; it != nodes.end(); ++it) {
     const std::pair<value_type, value_type> fs0 =
       it->compute_competition_and_slope(height);
-    const value_type h0 = it->height(), f_h0 = fs0.first, s_h0 = fs0.second;
+    const value_type x0 = abscissa_of(*it, birth_date), h0 = it->height(),
+                     f_h0 = fs0.first, s_h0 = fs0.second;
     if (!util::is_finite(f_h0) || !util::is_finite(s_h0)) {
       util::stop("Detected non-finite contribution");
     }
-    tot       += (h1 - h0) * (f_h1 + f_h0);
-    tot_slope += (h1 - h0) * (s_h1 + s_h0);
-    h1   = h0;
+    tot       += (x0 - x1) * (f_h1 + f_h0);
+    tot_slope += (x0 - x1) * (s_h1 + s_h0);
+    x1   = x0;
     f_h1 = f_h0;
     s_h1 = s_h0;
-    if (h0 < height) {
+    if (scan.decreasing && h0 < height) {
       break;
     }
   }
 
-  if (include_boundary && (size() == 1 || f_h1 > 0)) {
+  if (include_boundary && (size() == 1 || birth_date || f_h1 > 0)) {
     const std::pair<value_type, value_type> fs0 =
       new_node.compute_competition_and_slope(height);
-    const value_type h0 = new_node.height();
-    tot       += (h1 - h0) * (f_h1 + fs0.first);
-    tot_slope += (h1 - h0) * (s_h1 + fs0.second);
+    const value_type x0 = abscissa_of(new_node, birth_date);
+    tot       += (x0 - x1) * (f_h1 + fs0.first);
+    tot_slope += (x0 - x1) * (s_h1 + fs0.second);
   }
 
   return {tot / 2, tot_slope / 2};
@@ -966,17 +977,26 @@ Species<T,E>::census(Psi psi) const {
   if (size() == 0) {
     return value_type(0.0);
   }
-  std::vector<value_type> heights, weighted;
-  heights.reserve(size() + 1);
+  // The abscissa ascends as the nodes are walked in storage order and the
+  // boundary node closes the grid: it is the youngest, and the shortest.
+  const bool birth_date = control().node_density_in_birth_date;
+  if (!birth_date && !heights_are_decreasing()) {
+    util::stop("The census needs the node heights in decreasing order; on a"
+               " crossed grid neighbouring trapezia cancel instead of"
+               " accumulating");
+  }
+  std::vector<double> x;
+  std::vector<value_type> weighted;
+  x.reserve(size() + 1);
   weighted.reserve(size() + 1);
-  heights.push_back(new_node.height());
+  for (auto& c : nodes) {
+    x.push_back(abscissa_of(c, birth_date));
+    weighted.push_back(c.get_density() * psi(*strategy, c.individual));
+  }
+  x.push_back(abscissa_of(new_node, birth_date));
   weighted.push_back(new_node.get_density() *
                      psi(*strategy, new_node.individual));
-  for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
-    heights.push_back(it->height());
-    weighted.push_back(it->get_density() * psi(*strategy, it->individual));
-  }
-  return util::trapezium(heights, weighted);
+  return util::trapezium(x, weighted);
 }
 
 // Mirrors compute_competition_and_slope_impl(height, true) term by term: the
@@ -993,7 +1013,8 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
   if (to_passive(scan.h_max) < height) {
     return;
   }
-  if (!scan.decreasing) {
+  const bool birth_date = control().node_density_in_birth_date;
+  if (!birth_date && !scan.decreasing) {
     util::stop("The competition adjoint needs the node heights in decreasing"
                " order; the sorted-view reduction has no transpose here");
   }
@@ -1004,40 +1025,47 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
   std::pair<value_type, value_type> fs1 =
     nodes[0].compute_competition_and_slope(height);
   size_t upper = 0, last = 0;
-  double h1 = to_passive(nodes[0].height());
+  double x1 = abscissa_of(nodes[0], birth_date);
   double f_h1 = to_passive(fs1.first), s_h1 = to_passive(fs1.second);
 
   for (size_t k = 1; k < size(); ++k) {
     const std::pair<value_type, value_type> fs0 =
       nodes[k].compute_competition_and_slope(height);
+    const double x0 = abscissa_of(nodes[k], birth_date);
     const double h0 = to_passive(nodes[k].height());
     const double f_h0 = to_passive(fs0.first), s_h0 = to_passive(fs0.second);
-    const double width = h1 - h0;
-    // The interval's width is built from two node heights, so the quadrature
-    // moves with them and not only the integrand does.
-    const double edge = lv * (f_h1 + f_h0) + ls * (s_h1 + s_h0);
-    out[upper].height += edge;
-    out[k].height     -= edge;
+    const double width = x0 - x1;
+    if (!birth_date) {
+      // On the height abscissa the interval's width is built from two node
+      // heights, so the quadrature moves with them and not only the integrand
+      // does. A birth date is fixed at birth, so there the width is a constant
+      // and this term does not exist.
+      const double edge = lv * (f_h1 + f_h0) + ls * (s_h1 + s_h0);
+      out[upper].height += edge;
+      out[k].height     -= edge;
+    }
     lambda_f[upper] += lv * width;
     lambda_s[upper] += ls * width;
     lambda_f[k]     += lv * width;
     lambda_s[k]     += ls * width;
     upper = k; last = k;
-    h1 = h0; f_h1 = f_h0; s_h1 = s_h0;
-    if (h0 < height) {
+    x1 = x0; f_h1 = f_h0; s_h1 = s_h0;
+    if (scan.decreasing && h0 < height) {
       break;
     }
   }
 
-  if (size() == 1 || f_h1 > 0) {
+  if (size() == 1 || birth_date || f_h1 > 0) {
     // The boundary node's own height and density are not ODE state.
     const std::pair<value_type, value_type> fs0 =
       new_node.compute_competition_and_slope(height);
-    const double h0 = to_passive(new_node.height());
-    out[upper].height += lv * (f_h1 + to_passive(fs0.first)) +
-                         ls * (s_h1 + to_passive(fs0.second));
-    lambda_f[upper] += lv * (h1 - h0);
-    lambda_s[upper] += ls * (h1 - h0);
+    const double x0 = abscissa_of(new_node, birth_date);
+    if (!birth_date) {
+      out[upper].height += lv * (f_h1 + to_passive(fs0.first)) +
+                           ls * (s_h1 + to_passive(fs0.second));
+    }
+    lambda_f[upper] += lv * (x0 - x1);
+    lambda_s[upper] += ls * (x0 - x1);
   }
 
   for (size_t k = 0; k <= last; ++k) {
@@ -1064,28 +1092,43 @@ void Species<T,E>::consumption_rate_adjoint(int resource, double lambda_uptake,
   if (size() == 0) {
     return;
   }
+  // The grid is the quadrature abscissa, which ascends as the nodes are walked
+  // in storage order and puts the boundary node last on either coordinate: it is
+  // the youngest, and the shortest. So slot j holds node j, slot n-1 holds the
+  // boundary node, and that last one is not ODE state.
+  const bool birth_date = control().node_density_in_birth_date;
+  if (!birth_date && !heights_are_decreasing()) {
+    util::stop("The uptake adjoint needs the node heights in decreasing order;"
+               " the sorted-view reduction has no transpose here");
+  }
   const size_t n = size() + 1;
   std::vector<double> x(n), y(n);
-  x[0] = to_passive(new_node.height());
-  y[0] = to_passive(new_node.consumption_rate(resource));
-  for (size_t j = 1; j < n; ++j) {
-    x[j] = to_passive(nodes[size() - j].height());
-    y[j] = to_passive(nodes[size() - j].consumption_rate(resource));
+  for (size_t j = 0; j + 1 < n; ++j) {
+    x[j] = abscissa_of(nodes[j], birth_date);
+    y[j] = to_passive(nodes[j].consumption_rate(resource));
   }
+  x[n - 1] = abscissa_of(new_node, birth_date);
+  y[n - 1] = to_passive(new_node.consumption_rate(resource));
+
   std::vector<double> lambda_x(n, 0.0), lambda_y(n, 0.0);
   for (size_t j = 0; j + 1 < n; ++j) {
     const double half = 0.5 * lambda_uptake;
-    lambda_x[j]     -= half * (y[j + 1] + y[j]);
-    lambda_x[j + 1] += half * (y[j + 1] + y[j]);
+    if (!birth_date) {
+      // The height abscissa is state, so the width carries a derivative. A
+      // birth date is fixed at birth and the width is a constant.
+      lambda_x[j]     -= half * (y[j + 1] + y[j]);
+      lambda_x[j + 1] += half * (y[j + 1] + y[j]);
+    }
     lambda_y[j]     += half * (x[j + 1] - x[j]);
     lambda_y[j + 1] += half * (x[j + 1] - x[j]);
   }
-  for (size_t j = 1; j < n; ++j) {
-    const size_t k = size() - j;
-    const double density = to_passive(nodes[k].get_density());
-    out[k].uptake      += lambda_y[j] * density;
-    out[k].log_density += lambda_y[j] * y[j];
-    out[k].height      += lambda_x[j];
+  for (size_t j = 0; j + 1 < n; ++j) {
+    const double density = to_passive(nodes[j].get_density());
+    out[j].uptake      += lambda_y[j] * density;
+    out[j].log_density += lambda_y[j] * y[j];
+    // lambda_x is taken in the abscissa, and on the height coordinate the
+    // abscissa is minus the height.
+    out[j].height      -= lambda_x[j];
   }
 }
 

@@ -635,23 +635,39 @@ std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
 
   std::vector<double> in(n_state);
   patch.ode_state(in.begin());
-  auto active = patch.template rebind_from<scalar>();
 
-  auto reduce = [&](const std::vector<scalar>& x,
-                    std::vector<scalar>& y) -> void {
-    active.set_ode_state(x.begin(), time());
-    size_t m = 0;
-    std::apply(
-        [&](auto... psi) -> void {
-          ((y[m++] = census_over(active, psi)), ...);
-        },
-        Metrics{});
-  };
-
-  typename scalar::tape_type tape(false);
   std::vector<std::vector<double>> ret(n_metric,
                                        std::vector<double>(n_state, 0.0));
   for (size_t m = 0; m < n_metric; ++m) {
+    // The active patch and the tape are built inside the loop, one per metric,
+    // and that is a correctness requirement rather than tidiness.
+    //
+    // Clearing a tape returns its derivative-slot counter to zero, so an active
+    // value constructed OUTSIDE the sweep loop and read inside it refers, after
+    // the first clear, to a slot that now belongs to something else. Hoisting
+    // the patch out of the loop is the tempting economy -- rebinding it is not
+    // free -- and it is the worst failure shape available here: the first metric
+    // comes back correct and lends its credibility to the rest, while every
+    // later one reads unrelated storage. Measured before this was closed, the
+    // second and third metrics' seeds were wrong by three orders and their
+    // heartwood columns read exactly zero.
+    //
+    // Recording once and sweeping many is what a shared tape would buy, and this
+    // reduction cannot express it: the states are re-set inside the recording,
+    // so each metric's recording is a different one. The saving is not available
+    // and pretending otherwise is what produced the defect.
+    typename scalar::tape_type tape(false);
+    auto active = patch.template rebind_from<scalar>();
+    auto reduce = [&](const std::vector<scalar>& x,
+                      std::vector<scalar>& y) -> void {
+      active.set_ode_state(x.begin(), time());
+      size_t at = 0;
+      std::apply(
+          [&](auto... psi) -> void {
+            ((y[at++] = census_over(active, psi)), ...);
+          },
+          Metrics{});
+    };
     std::vector<double> seed(n_metric, 0.0);
     seed[m] = 1.0;
     odelia::ode::vector_jacobian_product(tape, in, seed, reduce, ret[m]);

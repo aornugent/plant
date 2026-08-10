@@ -280,7 +280,11 @@ public:
   // Gamma*/Kc/Ko/Km and conductance side, which is the whole point of item 10c. Set
   // `atm_kpa` per site if you mean altitude; it just no longer defaults to an
   // altitude nobody chose.
-  static constexpr int scientific_version = 8;
+  // v9: as FF16 v2 -- the light field and the census take their trapezium widths
+  // from the coordinate the density is carried in. TF24 defaults to the
+  // birth-date coordinate, so this moves its output; the water reduction already
+  // integrated over birth dates and is unchanged.
+  static constexpr int scientific_version = 9;
 
   S compute_average_light_environment(S z, S height,
                                       const TF24_Environment<S> &environment);
@@ -480,15 +484,27 @@ public:
   // when net_mass_production_dt is reused unchanged by the subclass.
   virtual void solve_leaf();
 
-  // value + sum_i partial_i * (x_i - to_passive(x_i)). Every term is zero in
-  // value, so the number is the leaf's and the derivative is the supplied one.
-  S graft(double value, const std::vector<double>& partial,
-          const std::vector<S>& x) const;
-  // Read the leaf's local Jacobian at the operating point its solve left, and
-  // put a row on each of the two outputs that re-enter the active chain.
-  void graft_leaf_outputs(const S& radiation, const S& area_leaf_,
-                          const std::vector<S>& psi_soil,
-                          const S& leaf_specific_conductance_max);
+  // One input, and how the output being recorded responds to it. Kept as a pair
+  // so the two cannot be assembled from separate lists and paired by position.
+  struct input_and_derivative {
+    S input;
+    double derivative;
+  };
+  // value + sum_i derivative_i * (input_i - to_passive(input_i)). Every term is
+  // zero in value, so the number is the leaf's own and the derivative recorded
+  // against it is the supplied one.
+  S record_with_derivatives(
+      double value, const std::vector<input_and_derivative>& against) const;
+  // Read how the leaf's outputs respond to what it was given, and record each
+  // output that re-enters the active chain carrying that response.
+  //
+  // `drive` re-supplies the leaf's physiology at a radiation and a soil profile
+  // handed to it, leaving the operating point unsolved. It is the caller's,
+  // because the caller is what owns those inputs; the leaf never sees an active
+  // value and this function never solves.
+  template <typename Drive>
+  void record_leaf_outputs(const S& radiation, const std::vector<S>& psi_soil,
+                           Drive drive);
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
@@ -832,77 +848,263 @@ S TF24_Strategy<S>::evapotranspiration_dt(S area_leaf_, int soil_layer) {
 }
 
 template <typename S>
-S TF24_Strategy<S>::graft(double value, const std::vector<double>& partial,
-                          const std::vector<S>& x) const {
+S TF24_Strategy<S>::record_with_derivatives(
+    double value, const std::vector<input_and_derivative>& against) const {
   using odelia::util::to_passive;
-  util::check_length(partial.size(), x.size());
   S out = value;
-  for (size_t i = 0; i < x.size(); ++i) {
-    out += partial[i] * (x[i] - to_passive(x[i]));
+  for (const input_and_derivative& term : against) {
+    // A non-finite derivative poisons the VALUE and not only what is recorded
+    // against it, because NaN times zero is not a number. Tested here, where the
+    // two are still separable; downstream they are one expression.
+    if (!util::is_finite(term.derivative)) {
+      util::stop("TF24 gradient: the leaf's derivative with respect to input " +
+                 util::to_string(static_cast<int>(&term - against.data())) +
+                 " of " + util::to_string(static_cast<int>(against.size())) +
+                 " is not finite (" + util::to_string(term.derivative) +
+                 "), so the value it belongs to cannot be recorded");
+    }
+    out += term.derivative * (term.input - to_passive(term.input));
   }
   return out;
 }
 
-// The leaf's outputs re-enter the active chain at two places, and the leaf
-// supplies rows for one of them. Profit gets the two environment channels --
-// the radiation it reads and each layer's potential -- analytically, at the
-// operating point its own solve left. Per-layer uptake gets none: it is not
-// among the outputs the leaf differentiates, so there is no column to contract.
+// Two of the leaf's outputs re-enter the active chain, and they respond to the
+// environment in two different ways.
+//
+// PROFIT is the objective at the operating point the leaf chose, so by the
+// envelope theorem its response is the direct one, at a frozen operating point.
+// The leaf supplies it analytically.
+//
+// PER-LAYER UPTAKE is set as a side effect AT that operating point. It consumes
+// the choice rather than being it, so the choice's own movement is part of the
+// answer:
+//
+//     dE_i/du = dE_i/du at a frozen collar  +  (dE_i/dcollar) * (dcollar/du)
+//
+// and dcollar/du comes from the condition that defines the collar rather than
+// from the solve that found it: dprofit/dcollar is zero there, so
+// dcollar/du = -(d2profit/dcollar du) / (d2profit/dcollar2).
+//
+// ⚠️ d2profit/dcollar du CANNOT be had by differencing the leaf's analytic
+// dprofit/du in the collar, which is the obvious economy and is wrong by a
+// factor of 1.40. That expression prices water at a lambda the collar solve
+// equalises, so it is dprofit/du AT the operating point and not away from it.
+// It has to come from the marginal profit itself, which is what the
+// perturbations below read.
+//
+// Two of them, and they are in deliberately different families -- one soil
+// potential, one layer resistance. Marginal profit reads the state only through
+// total uptake and through uptake's own collar sensitivity, so two evaluations
+// fix the pair of scalars that then serves every direction analytically. Two
+// potentials would not: their pair of sensitivities is collinear to about one
+// part in 10^4, and the condition number below is what refuses that rather than
+// absorbing it.
 template <typename S>
-void TF24_Strategy<S>::graft_leaf_outputs(
-    const S& radiation, const S& area_leaf_, const std::vector<S>& psi_soil,
-    const S& leaf_specific_conductance_max) {
-  static_cast<void>(area_leaf_);
-  static_cast<void>(leaf_specific_conductance_max);
+template <typename Drive>
+void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
+                                           const std::vector<S>& psi_soil,
+                                           Drive drive) {
+  using odelia::util::to_passive;
+  namespace grad = phylloptim::gradient;
 
-  phylloptim::gradient::EnvAdjoint env;
-  phylloptim::gradient::env_adjoint(leaf, 1.0, env);
+  grad::ProfitEnvDerivatives env;
+  grad::profit_env_derivatives(leaf, env);
   if (!env.usable) {
-    util::stop("TF24 gradient: the leaf supplies no environment rows at this "
-               "operating point -- " + env.message);
+    util::stop("TF24 gradient: the leaf cannot say how profit responds to its "
+               "environment here -- " + env.message);
+  }
+  const size_t n_layer = env.dprofit_dpsi_soil.size();
+  // The leaf answers only as deep as it is rooted, while psi_soil runs the whole
+  // column. Deeper layers move no water and their response is a true zero.
+  if (n_layer > psi_soil.size()) {
+    util::stop("TF24 gradient: the leaf answered for " +
+               util::to_string(static_cast<int>(n_layer)) + " layers out of " +
+               util::to_string(static_cast<int>(psi_soil.size())));
   }
 
-  // The rows stop at the deepest rooted layer while psi_soil runs the whole
-  // column, so a row shorter than the inputs is grafted only as far as it goes.
-  // The unrooted tail moves no water and its row is a true zero.
-  if (env.soil.size() > psi_soil.size()) {
-    util::stop("TF24 gradient: the leaf returned " +
-               util::to_string(static_cast<int>(env.soil.size())) +
-               " soil rows for " +
-               util::to_string(static_cast<int>(psi_soil.size())) + " layers");
+  const double collar = leaf.opt_root_psi_;
+  const double radiation_value = to_passive(radiation);
+  const std::vector<double>& psi_value = psi_soil_value_;
+
+  // The marginal profit at the collar the solve left, and its slope there.
+  const double h_collar = std::max(std::abs(collar), 1.0) * 1e-6;
+  const double marginal = leaf.dprofit_droot_collar_psi(collar);
+  const double marginal_hi = leaf.dprofit_droot_collar_psi(collar + h_collar);
+  const double marginal_lo = leaf.dprofit_droot_collar_psi(collar - h_collar);
+  const double curvature = (marginal_hi - marginal_lo) / (2.0 * h_collar);
+  if (!util::is_finite(curvature) || curvature >= 0.0) {
+    util::stop("TF24 gradient: the leaf's profit has no usable curvature at "
+               "this operating point, so the collar's own response has nothing "
+               "to stand on");
   }
 
-  // Every partial is tested before it meets a bracket. A non-finite partial
-  // poisons the grafted VALUE and not only the adjoint, because NaN * 0 is not
-  // a number, and there is nowhere downstream to put the test.
-  std::vector<S> x;
-  std::vector<double> row;
-  x.reserve(1 + env.soil.size());
-  row.reserve(1 + env.soil.size());
-  x.push_back(radiation);
-  row.push_back(env.light);
-  for (size_t j = 0; j < env.soil.size(); ++j) {
-    x.push_back(psi_soil[j]);
-    row.push_back(env.soil[j]);
-  }
-  for (size_t i = 0; i < row.size(); ++i) {
-    if (!util::is_finite(row[i])) {
-      util::stop("TF24 gradient: the leaf's supplied partial " +
-                 util::to_string(static_cast<int>(i)) + " is not finite");
+  // How total uptake and its collar sensitivity respond to each layer, in closed
+  // form. These are what the two scalars multiply.
+  std::vector<double> dEup_dpsi, d2Eup_dcollar_dpsi, dE_dcollar;
+  leaf.dE_from_soil_dpsi_soil(collar, psi_value, dEup_dpsi);
+  leaf.roots_.d2uptake_dpsi_dpsi_soil(collar, psi_value, d2Eup_dcollar_dpsi);
+  leaf.dE_from_soil_dpsi_collar_by_layer(collar, psi_value, dE_dcollar);
+  for (size_t j = 0; j < n_layer; ++j) {
+    if (!util::is_finite(dEup_dpsi[j]) || !util::is_finite(d2Eup_dcollar_dpsi[j]) ||
+        !util::is_finite(dE_dcollar[j])) {
+      util::stop("TF24 gradient: layer " + util::to_string(static_cast<int>(j)) +
+                 " sits on a branch kink, so its water response does not exist");
     }
   }
-  leaf_profit_ = graft(leaf.profit_, row, x);
 
-  // Per-layer uptake is what a cohort writes into the shared soil, so this is
-  // the whole of the belowground competitive channel. The leaf differentiates
-  // five outputs -- assimilation, conductance, stem potential, the collar and
-  // profit -- and uptake is not one of them, so no contraction reaches it. Its
-  // rows would need the mixed second derivative of profit in the collar, which
-  // this boundary does not carry. Refuse rather than graft nothing: an ungrafted
-  // output is an exact zero in every trait column that reaches the water, which
-  // reads as a finding.
-  util::stop("TF24 gradient: the leaf supplies no rows for per-layer uptake, "
-             "so the water channel would read exactly zero");
+  // One perturbed evaluation: re-supply the leaf, hold the collar where it was,
+  // and read the marginal profit there. No solve, so the operating point does
+  // not move and this is a partial derivative.
+  auto marginal_at = [&](double rad, const std::vector<double>& psi) -> double {
+    drive(rad, psi);
+    leaf.evaluate_root_collar_psi(collar);
+    return leaf.dprofit_droot_collar_psi(collar);
+  };
+
+  // Direction one: a soil potential. Direction two: the deepest layer's vertical
+  // resistance, which reaches uptake by a different route and so is not
+  // collinear with the first.
+  size_t wettest = n_layer;
+  for (size_t j = 0; j < n_layer; ++j) {
+    if (dEup_dpsi[j] != 0.0) { wettest = j; break; }
+  }
+  if (wettest == n_layer) {
+    util::stop("TF24 gradient: no layer's potential reaches uptake, so the "
+               "water response has no first direction to be read along");
+  }
+  // A relative step of 1e-6 does not move total uptake above the solve's own
+  // floor, so the pair comes back as zeros and the two directions cannot be told
+  // apart. Measured over three decades, the residual of the two-scalar fit
+  // scales as 1/step -- round-off, not truncation -- so the largest step that is
+  // still local is the best-conditioned one.
+  const double fit_step = 1e-3;
+  const double h_psi = std::max(std::abs(psi_value[wettest]), 1.0) * fit_step;
+  std::vector<double> psi_up = psi_value, psi_dn = psi_value;
+  psi_up[wettest] += h_psi;
+  psi_dn[wettest] -= h_psi;
+  const double m_psi_up = marginal_at(radiation_value, psi_up);
+  const double m_psi_dn = marginal_at(radiation_value, psi_dn);
+  const double dR_dpsi0 = (m_psi_up - m_psi_dn) / (2.0 * h_psi);
+
+  // The deepest layer that actually carries roots. A rooting depth shallower
+  // than the soil column leaves the bottom layers with no resistance at all, and
+  // perturbing one of those moves nothing -- the pair of directions would then
+  // be one direction twice, which is the collinearity the determinant refuses.
+  size_t deepest = n_layer;
+  for (size_t j = n_layer; j-- > 0;) {
+    if (root_network_.r_R_V_sum[j] > 0.0 && dE_dcollar[j] != 0.0) {
+      deepest = j;
+      break;
+    }
+  }
+  if (deepest == n_layer) {
+    util::stop("TF24 gradient: no layer both carries roots and moves water, so "
+               "the water response has no second direction to be read along");
+  }
+  const double r_base = root_network_.r_R_V_sum[deepest];
+  const double h_r = std::abs(r_base) * fit_step;
+  std::vector<double> dEup_dr(n_layer, 0.0), d2Eup_dcollar_dr(n_layer, 0.0);
+  double dR_dr = 0.0;
+  {
+    const double restore = root_network_.r_R_V_sum[deepest];
+    root_network_.r_R_V_sum[deepest] = restore + h_r;
+    const double m_up = marginal_at(radiation_value, psi_value);
+    std::vector<double> e_up, de_up;
+    leaf.dE_from_soil_dpsi_collar_by_layer(collar, psi_value, de_up);
+    const double eup_up = leaf.E_up_;
+    root_network_.r_R_V_sum[deepest] = restore - h_r;
+    const double m_dn = marginal_at(radiation_value, psi_value);
+    std::vector<double> de_dn;
+    leaf.dE_from_soil_dpsi_collar_by_layer(collar, psi_value, de_dn);
+    const double eup_dn = leaf.E_up_;
+    root_network_.r_R_V_sum[deepest] = restore;
+    dR_dr = (m_up - m_dn) / (2.0 * h_r);
+    double sum_up = 0.0, sum_dn = 0.0;
+    for (size_t j = 0; j < n_layer; ++j) { sum_up += de_up[j]; sum_dn += de_dn[j]; }
+    dEup_dr[deepest] = (eup_up - eup_dn) / (2.0 * h_r);
+    d2Eup_dcollar_dr[deepest] = (sum_up - sum_dn) / (2.0 * h_r);
+  }
+  // Put the leaf back where its own solve left it, so everything read after this
+  // is the operating point the value came from.
+  drive(radiation_value, psi_value);
+  leaf.evaluate_root_collar_psi(collar);
+
+  // The pair, from the two directions. Refuse a pairing that cannot separate
+  // them rather than absorbing one into the other.
+  const double a11 = dEup_dpsi[wettest], a12 = d2Eup_dcollar_dpsi[wettest];
+  const double a21 = dEup_dr[deepest], a22 = d2Eup_dcollar_dr[deepest];
+  const double det = a11 * a22 - a12 * a21;
+  const double scale = (std::abs(a11) + std::abs(a12)) *
+                       (std::abs(a21) + std::abs(a22));
+  if (!util::is_finite(det) || std::abs(det) < 1e-6 * scale) {
+    util::stop("TF24 gradient: the two directions the leaf's water response is "
+               "read along cannot be told apart here, so the pair of scalars "
+               "they fix is not determined");
+  }
+  const double a = (dR_dpsi0 * a22 - dR_dr * a12) / det;
+  const double b = (a11 * dR_dr - a21 * dR_dpsi0) / det;
+  if (!util::is_finite(a) || !util::is_finite(b)) {
+    util::stop("TF24 gradient: the two scalars the water response is built from "
+               "are not finite -- dR/dpsi=" + util::to_string(dR_dpsi0) +
+               " dR/dr=" + util::to_string(dR_dr) +
+               " dEup/dpsi=" + util::to_string(a11) +
+               " d2Eup=" + util::to_string(a12) +
+               " dEup/dr=" + util::to_string(a21) +
+               " d2Eup_r=" + util::to_string(a22));
+  }
+
+  // Profit, carrying the envelope response, and the two channels stay apart
+  // because they are different objects: a soil term is a price times a supply
+  // derivative, and radiation moves no water at all.
+  std::vector<input_and_derivative> against;
+  against.reserve(1 + n_layer);
+  against.push_back({radiation, env.dprofit_dlight});
+  for (size_t j = 0; j < n_layer; ++j) {
+    against.push_back({psi_soil[j], env.dprofit_dpsi_soil[j]});
+  }
+  leaf_profit_ = record_with_derivatives(leaf.profit_, against);
+
+  // The collar's own response, then uptake. dE_i/d(radiation) at a frozen collar
+  // is exactly zero -- light moves no water -- so the whole of the light channel
+  // into the water arrives through the collar.
+  const double dR_dlight =
+      (marginal_at(radiation_value * (1.0 + 1e-6), psi_value) -
+       marginal_at(radiation_value * (1.0 - 1e-6), psi_value)) /
+      (2.0 * radiation_value * 1e-6);
+  drive(radiation_value, psi_value);
+  leaf.evaluate_root_collar_psi(collar);
+  static_cast<void>(marginal);
+
+  if (!util::is_finite(dR_dlight)) {
+    util::stop("TF24 gradient: the marginal profit's response to radiation is "
+               "not finite, so the collar's light response has nothing to "
+               "stand on");
+  }
+  const double dcollar_dlight = -dR_dlight / curvature;
+  std::vector<double> dcollar_dpsi(n_layer, 0.0);
+  for (size_t j = 0; j < n_layer; ++j) {
+    dcollar_dpsi[j] =
+        -(a * dEup_dpsi[j] + b * d2Eup_dcollar_dpsi[j]) / curvature;
+  }
+
+  leaf_soil_consumption_.assign(psi_soil.size(), S(0.0));
+  for (size_t i = 0; i < n_layer; ++i) {
+    against.clear();
+    against.push_back({radiation, dE_dcollar[i] * dcollar_dlight});
+    for (size_t j = 0; j < n_layer; ++j) {
+      const double frozen = (i == j) ? dEup_dpsi[i] : 0.0;
+      against.push_back({psi_soil[j], frozen + dE_dcollar[i] * dcollar_dpsi[j]});
+    }
+    // The leaf reports uptake in mol and E_up in kg; soil_consumption_ is the
+    // mol one, which is what the patch water balance reads.
+    leaf_soil_consumption_[i] =
+        record_with_derivatives(leaf.soil_consumption_[i], against);
+  }
+  // Layers below the deepest rooted one draw nothing and respond to nothing, and
+  // that zero is the model rather than a missing answer.
+  for (size_t i = n_layer; i < psi_soil.size(); ++i) {
+    leaf_soil_consumption_[i] = S(0.0);
+  }
 }
 
 template <typename S>
@@ -1455,8 +1657,17 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // converts to canopy area, then years, then mols
   S profit_ = leaf.profit_;
   if constexpr (!std::is_same_v<S, double>) {
-    graft_leaf_outputs(radiation_used, area_leaf_, psi_soil,
-                       leaf_specific_conductance_max);
+    // Re-supplying the leaf is the caller's job, because the caller is what owns
+    // these inputs; every one of them crosses as a value.
+    auto drive = [&](double rad, const std::vector<double>& psi) -> void {
+      leaf.set_physiology(root_network_, rad, psi, soil_depths_,
+                          odelia::util::to_passive(leaf_specific_conductance_max),
+                          environment.get_atm_vpd(), environment.get_ca(),
+                          environment.get_leaf_temp(),
+                          environment.get_atm_o2_kpa(),
+                          environment.get_atm_kpa());
+    };
+    record_leaf_outputs(radiation_used, psi_soil, drive);
     profit_ = leaf_profit_;
   }
   const S assimilation_ = profit_ * area_leaf_* 60*60*12*365/1e6;

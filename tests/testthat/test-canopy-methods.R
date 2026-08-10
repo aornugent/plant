@@ -171,12 +171,21 @@ test_that("deep-crown reproduces the baseline SCM result", {
   # SCM test kept at the full default horizon: it is the canonical anchor, so it
   # pins the established full-lifetime FF16 number rather than a shortened-horizon
   # value.
+  #
+  # The established number is the one on the height coordinate, which is the
+  # coordinate it was established on. A stand carried in birth date is a
+  # quadrature over a different abscissa, so the same model returns a different
+  # number there -- +1.70% -- and that is a property of the coordinate rather
+  # than of the shading model. Both are pinned, because a change that moved only
+  # one of them would be a change to the reduction and not to the coordinate.
   p0 <- scm_base_parameters("FF16")
   env <- Environment("FF16")
-  ctrl <- Control() # shading_model defaults to "deep-crown"
+  # shading_model defaults to "deep-crown"
   p1 <- add_strategies(p0, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar, birth_rate = list(20))
-  out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 16.8846, tolerance = 1e-4)
+  over_height <- run_scm(p1, env, Control(node_density_in_birth_date = FALSE))
+  expect_equal(over_height$offspring_production, 16.8846, tolerance = 1e-4)
+  over_birth_date <- run_scm(p1, env, Control(node_density_in_birth_date = TRUE))
+  expect_equal(over_birth_date$offspring_production, 17.1720, tolerance = 1e-4)
 })
 
 test_that("crown-centre runs through the SCM and changes the outcome", {
@@ -379,6 +388,11 @@ test_that("the light field carries Beer's law and its derivative at every knot",
   scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
   scm$run()
   patch <- scm$patch
+  # Rebuilt at the clock it is read at. On the birth-date coordinate the closing
+  # interval runs from the youngest cohort's birth date to now, so the field is a
+  # function of the time as well as of the state, and a build left behind by an
+  # earlier stage is a field at a different argument.
+  patch$compute_environment()
 
   state <- patch$environment$light_availability$state
   expect_identical(colnames(state), c("height", "light_availability", "slope"))

@@ -4425,6 +4425,46 @@ test_gradient_richardson <- function(f, x, d, r) {
     .Call('_plant_test_gradient_richardson', PACKAGE = 'plant', f, x, d, r)
 }
 
+ladder_block_input_names_tf24 <- function(obj_, node) {
+    .Call('_plant_ladder_block_input_names_tf24', PACKAGE = 'plant', obj_, node)
+}
+
+ladder_block_output_names_tf24 <- function(obj_) {
+    .Call('_plant_ladder_block_output_names_tf24', PACKAGE = 'plant', obj_)
+}
+
+ladder_block_jacobian_forward_tf24 <- function(obj_, node) {
+    .Call('_plant_ladder_block_jacobian_forward_tf24', PACKAGE = 'plant', obj_, node)
+}
+
+ladder_block_value_tf24 <- function(obj_, node) {
+    .Call('_plant_ladder_block_value_tf24', PACKAGE = 'plant', obj_, node)
+}
+
+ladder_block_jacobian_reverse_tf24 <- function(obj_, node) {
+    .Call('_plant_ladder_block_jacobian_reverse_tf24', PACKAGE = 'plant', obj_, node)
+}
+
+ladder_rhs_state_jacobian_forward_tf24 <- function(obj_) {
+    .Call('_plant_ladder_rhs_state_jacobian_forward_tf24', PACKAGE = 'plant', obj_)
+}
+
+ladder_rhs_trait_jacobian_forward_tf24 <- function(obj_) {
+    .Call('_plant_ladder_rhs_trait_jacobian_forward_tf24', PACKAGE = 'plant', obj_)
+}
+
+ladder_rhs_adjoint_tf24 <- function(obj_, lambda_dydt) {
+    .Call('_plant_ladder_rhs_adjoint_tf24', PACKAGE = 'plant', obj_, lambda_dydt)
+}
+
+ladder_trait_names_tf24 <- function(obj_) {
+    .Call('_plant_ladder_trait_names_tf24', PACKAGE = 'plant', obj_)
+}
+
+ladder_node_count_tf24 <- function(obj_) {
+    .Call('_plant_ladder_node_count_tf24', PACKAGE = 'plant', obj_)
+}
+
 FF16_oderunner_individual_internals <- function(obj) {
     .Call('_plant_FF16_oderunner_individual_internals', PACKAGE = 'plant', obj)
 }

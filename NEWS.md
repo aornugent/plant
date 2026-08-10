@@ -294,6 +294,36 @@ were not previously recorded here:
 
 ### New features
 
+* **Every reduction over the size distribution now integrates over the
+  coordinate that distribution is a density in.** Scientific version: FF16 and
+  K93 1 -> 2, TF24 8 -> 9.
+
+  A reduction over the size distribution is a quadrature of a density, so its
+  trapezium widths are gaps in the coordinate the density is carried in. Three
+  of them took gaps in height whatever the coordinate was: the fused
+  value-and-slope reduction that builds the light field, the census, and the
+  transposes of both resource reductions. `Species::compute_competition()` and
+  `Species::consumption_rate()` already followed the coordinate, so the fused
+  reduction and its own value accessor disagreed by 100% relative on a
+  birth-date run while agreeing bit for bit on a height run.
+
+  **This moves results on the birth-date coordinate and on no other.** Measured
+  on the full-lifetime deep-crown FF16 anchor, offspring production is
+  16.884586 over heights -- unchanged to the last bit -- and 17.172004 over
+  birth dates, i.e. **+1.70%**. The height-coordinate arithmetic is bit-identical
+  because the abscissa is minus the height and negation is exact.
+
+  Two consequences worth knowing. The fused reduction and the value reduction
+  now agree bit for bit on both coordinates. And on the birth-date coordinate
+  the closing interval runs from the youngest cohort's birth date to the current
+  time, so the field is a function of the time as well as of the state: a field
+  left behind by an earlier stage and read at a later clock differs from a fresh
+  build. `Species::consumption_rate()` has always had this property.
+
+  `integrate_over_size_distribution()` genuinely does integrate over height, so
+  it now orders its grid before integrating rather than assuming the rows arrive
+  in height order.
+
 * **`Control$node_density_in_birth_date`** (default `FALSE`) carries the SCM's
   size distribution as a density in birth date instead of in height.
 

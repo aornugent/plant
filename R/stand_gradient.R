@@ -1,9 +1,10 @@
 ##' Census metrics of a solved stand.
 ##'
-##' The trapezium integral of \eqn{n_k \psi(\mathrm{state}_k)} over the cohort
-##' heights, for each metric \eqn{\psi}. The quadrature grid starts at the inflow
-##' boundary node, so the interval between it and the smallest cohort is in the
-##' sum.
+##' The trapezium integral of \eqn{n_k \psi(\mathrm{state}_k)} over the size
+##' distribution, for each metric \eqn{\psi}. The grid is the coordinate the
+##' density is carried in -- the birth date, or the height -- and the inflow
+##' boundary node closes it, so the interval between it and the smallest cohort
+##' is in the sum.
 ##'
 ##' @param scm A run \code{SCM} object for the TF24 strategy.
 ##' @return A named numeric vector, one entry per census metric.
@@ -16,8 +17,9 @@ stand_census <- function(scm) {
 ##'
 ##' One row per metric and one column per ODE state entry, in the order
 ##' \code{scm$patch$ode_state} writes. This is what the reverse pass is seeded
-##' with, and the cohort-height columns carry the trapezium weights as well as
-##' the integrand.
+##' with. The cohort-height columns carry the trapezium weights as well as the
+##' integrand only where the height is the coordinate integrated over; on the
+##' birth-date coordinate the weights are constants.
 ##'
 ##' @param scm A run \code{SCM} object for the TF24 strategy.
 ##' @return A numeric matrix, metrics by ODE state entries.
@@ -45,6 +47,23 @@ gradient_control <- function(scm) {
                     "schedule_eps"))
 }
 
+##' Traits the sweep reaches no equation for yet, and so refuses by name.
+##'
+##' The leaf is entered at a solved operating point with its derivatives supplied
+##' rather than recorded, so a trait of the leaf's own reaches the tape only if a
+##' derivative is supplied for it. Those are not supplied yet. An exact zero here
+##' would be indistinguishable from a trait the model genuinely does not use,
+##' which is the one failure shape this design cannot afford, so the entry point
+##' refuses them instead.
+##'
+##' @return A character vector of trait names.
+##' @export
+stand_gradient_unanswered <- function() {
+  c("K_s", "c", "b", "psi_crit", "beta2", "g1_TF24", "a",
+    "curv_fact_elec_trans", "curv_fact_colim", "root_c", "root_b",
+    "root_psi_crit", "rooting_depth_max")
+}
+
 ##' Gradient of a stand's census metrics with respect to traits.
 ##'
 ##' Doubles in and doubles out: the active scalar is created and destroyed inside
@@ -62,16 +81,30 @@ gradient_control <- function(scm) {
 ##' @export
 stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
   all_metrics <- census_metric_names_tf24()
+  # Every column the strategy declares stays in the matrix and is CLASSIFIED,
+  # rather than being dropped. A caller comparing shapes, or indexing by
+  # position, must see the same width whatever the sweep can currently answer;
+  # what changes is the class attached to a column, not whether it exists.
   all_traits <- census_trait_names_tf24(scm)
   if (is.null(metrics)) {
     metrics <- all_metrics
   }
+  # Asking for everything is not asking for the unanswered ones: the default
+  # takes what the sweep can answer and reports the rest as a class. Naming one
+  # explicitly is a different question and gets a refusal.
+  asked_by_name <- !is.null(traits)
   if (is.null(traits)) {
     traits <- all_traits
   }
   unknown <- setdiff(metrics, all_metrics)
   if (length(unknown) > 0L) {
     stop("Unknown census metric: ", paste(unknown, collapse = ", "))
+  }
+  unanswered <- intersect(traits, stand_gradient_unanswered())
+  if (asked_by_name && length(unanswered) > 0L) {
+    stop("The sweep supplies no derivative for the leaf's own traits, so it ",
+         "refuses them rather than returning a zero that reads as a finding: ",
+         paste(unanswered, collapse = ", "))
   }
   unknown <- setdiff(traits, all_traits)
   if (length(unknown) > 0L) {
@@ -80,10 +113,11 @@ stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
 
   value <- stand_census(scm)[metrics]
   gradient <- do.call(rbind, census_trait_gradient_tf24(scm))
-  dimnames(gradient) <- list(all_metrics, all_traits)
+  dimnames(gradient) <- list(all_metrics, census_trait_names_tf24(scm))
 
   list(value = value,
        gradient = gradient[metrics, traits, drop = FALSE],
+       unanswered = intersect(traits, stand_gradient_unanswered()),
        control = gradient_control(scm))
 }
 
