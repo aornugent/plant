@@ -132,13 +132,14 @@ struct TF24_Pars {
   // the leaf's supplied Jacobian, so declaring it active would read an exact zero
   // that is indistinguishable from insensitivity.
   //
-  // Being double, neither is in field_ptrs() below, so a rebind does not carry
-  // them and a rebound strategy runs with PM off at the default leaf dimension.
-  // That matches every configuration measured so far, and it is wrong the moment
-  // PM is enabled on a differentiated run -- pair them with the copy in
-  // rebind_from() before turning use_energy_balance on.
-  double use_energy_balance = 0.0;
-  double d = 0.05;
+  // Both carry S so that field_ptrs() lists them and a rebind carries them: the
+  // set field_ptrs() spans is the whole parameter set, not the differentiable
+  // subset, so listing a parameter here does not make it a gradient target.
+  // ad_parameter_names() decides that, and neither is in it -- d has no row in
+  // the leaf's supplied Jacobian, and an unrouted target would read an exact
+  // zero indistinguishable from insensitivity.
+  S use_energy_balance = 0.0;
+  S d = 0.05;
 
   // Every member above, in declaration order. Carries the whole parameter set
   // across a scalar change; ad_parameters() is the differentiable subset only.
@@ -151,10 +152,11 @@ struct TF24_Pars {
       &beta1, &beta2, &g1_TF24, &jmax_25, &a, &curv_fact_elec_trans,
       &curv_fact_colim, &var_sapwood_volume_cost, &nmass_l, &nmass_s, &nmass_b,
       &nmass_r, &dmass_dN, &root_depth_shape_eta, &root_c, &root_b,
-      &root_psi_crit, &rooting_depth_max, &recruitment_decay
+      &root_psi_crit, &rooting_depth_max, &recruitment_decay,
+      &use_energy_balance, &d
     };
   }
-  static constexpr size_t field_count = 59;
+  static constexpr size_t field_count = 61;
 };
 
 // Every member of TF24_Pars is an S, so one added without extending
@@ -651,11 +653,6 @@ public:
   S darea_leaf_dheight(S area_leaf) const {
     return 1.0 / dheight_darea_leaf(area_leaf);
   }
-
-  // [eqn 10] Cumulative fraction of a quantity distributed over an extent with
-  // shape exponent eta_x, above coordinate `z` of a total `height`. Used for the
-  // root mass distribution over soil depth.
-  S Q(S z, S height, S eta_x) const;
 
   // The aim is to find a plant height that gives the correct seed mass.
   double height_seed(void) const;

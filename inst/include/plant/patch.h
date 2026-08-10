@@ -481,7 +481,6 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
                                     control.ppa_layer_optical_depth,
                                     control.ppa_layer_smoothing);
   out.compute_environment(false);
-  out.environment_ptr = &out.environment;
   out.compute_rates();
   return out;
 }
@@ -1225,7 +1224,6 @@ It Patch<T,E>::set_ode_state_and_field(It it, double time) {
   // Pre-compute environment, as shaped by residents
   compute_environment(true);
 
-  environment_ptr = &environment;
   return it;
 }
 
