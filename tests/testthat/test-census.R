@@ -60,6 +60,9 @@ census_r <- function(species, pars, eta, include_boundary = TRUE,
   vapply(psi, function(p) trapezium_r(x, density * p), numeric(1))
 }
 
+# A solved stand on the birth-date coordinate, named rather than defaulted: the
+# reverse sweep transposes only that one, and it is the grid census_r's reference
+# reduction is written on.
 solved_stand <- function(lifetime = 20, schedule = NULL) {
   p <- scm_base_parameters("TF24")
   p$max_patch_lifetime <- lifetime
@@ -73,7 +76,8 @@ solved_stand <- function(lifetime = 20, schedule = NULL) {
   if (!is.null(schedule)) {
     p$node_schedule_times <- schedule
   }
-  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"),
+                                 Control(node_density_in_birth_date = TRUE))
   scm$run()
   scm
 }

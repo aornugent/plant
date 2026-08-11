@@ -295,14 +295,8 @@ test_that("offspring arrival", {
   # the second stays negligible, rather than pinning its tiny value, which is
   # too platform-fragile to compare at a fixed relative tolerance.
   #
-  # The exclusion this pins is a property of the *height* coordinate, and the
-  # ctrl above no longer selects it: Control() now defaults to birth date, so
-  # this run and the out_bd run below integrate over the same coordinate and
-  # return the same numbers. The two recorded values also predate the leaf's
-  # bounded root-conductivity clamp, which removed an unbounded plant-to-soil
-  # flux and moved every whole-run TF24 number. Both halves need re-recording
-  # deliberately: name the coordinate here, then re-bless against a leaf whose
-  # forward model has been re-blessed first.
+  # The exclusion this pins is a property of the *height* coordinate, which the
+  # ctrl above selects; the birth-date run below names its own.
   p2 <- add_strategies(p0, trait_matrix(c(0.0825, 0.10, 5, 5), c("lma", "hmat")),
                        hyperpar = TF24_hyperpar, birth_rate = list(20, 20))
 
