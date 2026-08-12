@@ -878,17 +878,17 @@ ladder_zero_at_an_interior_optimum <- function() {
   c("psi_crit", "root_psi_crit")
 }
 
-# The seed's mass and the accessory cost of a seed. They reach two rates and no
-# others -- offspring production, and the survival-weighted offspring the census
-# does not read -- and they reach both only through the sum (omega + a_f3), so
-# the two are not separately identifiable even there. Neither accumulator is read
-# by any equation or by any of the three metrics, so the column is exactly zero
-# on this metric set and would be live on a fitness functional.
+# The accessory cost of a seed. It reaches two rates and no others -- offspring
+# production, and the survival-weighted offspring the census does not read -- so
+# the column is exactly zero on this metric set and would be live on a fitness
+# functional.
 #
-# omega has a second route, through birth size, and that one is the imposed zero
-# below rather than this one.
+# omega was here while its second route, through birth size, was imposed to zero.
+# The seed height now solves its own condition, so that route carries a row: omega
+# sets the height a newborn is given, and through it the storage the height scales
+# and every resource row the newborn's own physiology writes.
 ladder_zero_outside_the_metric_support <- function() {
-  c("omega", "a_f3")
+  "a_f3"
 }
 
 # The rates a parameter outside the metric support is allowed to move. Naming
@@ -929,21 +929,6 @@ ladder_zero_cause <- function(name) {
   } else {
     NA_character_
   }
-}
-
-# Whose birth-size channel is imposed to zero, which is a declared bias rather
-# than a column class. The seed height solves an implicit condition on the
-# strategy and the strategy's preparation is evaluated in double, so every
-# parameter reaching birth size carries no row through that channel while keeping
-# whatever rows its other routes give it.
-#
-# This is the one term no available instrument can referee: a forward tangent
-# imposes the same equation, and a re-run finite difference cannot referee at
-# production because a relative step of two parts in ten million moves a mature
-# stand between alive and identically zero. So it is declared rather than
-# measured, and a silent zero here is the failure the declaration prevents.
-ladder_birth_size_channel_zero <- function() {
-  c("lma", "omega", "a_l1", "a_l2", "rho", "theta", "a_r1", "a_b1")
 }
 
 # The trajectory reference: a tangent run of the same solve, stepped at the sizes

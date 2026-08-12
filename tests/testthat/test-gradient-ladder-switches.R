@@ -122,15 +122,31 @@ test_that("the census's direct term has no other home", {
 
   # It is refereed as well as switchable, and by a path it shares nothing with:
   # this one records the census and sweeps a tape, the difference below evaluates
-  # the census twice with the strategy moved in place. A difference that rebuilt
-  # from Parameters would re-run preparation and carry the birth-size channel the
-  # sweep imposes to zero, which is why it perturbs the prepared strategy.
-  # Normalised over the matrix rather than per entry, which is the convention the
-  # difference floor is itself measured in: the columns span orders of magnitude
-  # and a per-entry quotient on a near-zero entry reports its own denominator.
+  # the census twice with the strategy moved in place. Perturbing the prepared
+  # strategy is what keeps one registered parameter moving at a time, which a
+  # difference rebuilt from Parameters would not; what it costs is the birth-size
+  # channel, and the split below is that cost.
+  # Normalised per column rather than per entry, because the columns span orders
+  # of magnitude and a per-entry quotient on a near-zero entry reports its own
+  # denominator.
   fine <- do.call(rbind, census_trait_difference_tf24(stand, 1e-6))
   coarse <- do.call(rbind, census_trait_difference_tf24(stand, 1e-5))
   floor <- ladder_difference_floor(coarse, fine)
+  # This reference is complete for every column but the eight that reach birth
+  # size. It moves a prepared strategy in place, and on the double path the seed's
+  # height is the value preparation already resolved -- so the difference holds
+  # birth size still while the sweep derives it from the residual, and the gap is
+  # the channel rather than an error in either.
+  per_column <- apply(abs(own - fine), 2, max) / max(abs(fine))
+  birth <- ladder_bare_traits(colnames(own)) %in% ladder_birth_size_parameters()
+  message(sprintf(paste("\n  direct term against a difference: %.3e over the",
+                        "birth-size columns, %.3e over the rest"),
+                  max(per_column[birth]), max(per_column[!birth])))
+  # Earning the exclusion rather than asserting it: the largest disagreement has
+  # to be one of the eight. If it is not, the split is hiding a defect that has
+  # nothing to do with birth size.
+  expect_true(ladder_bare_traits(names(which.max(per_column))) %in%
+                ladder_birth_size_parameters())
   # The bound is the difference's ROUND-OFF and not its truncation, which is the
   # opposite of the usual case and is why the measured floor alone is too tight
   # here. A central difference at a relative step of 1e-6 on a census of order ten
@@ -138,18 +154,26 @@ test_that("the census's direct term has no other home", {
   # The truncation floor is three orders below that and would report the step's
   # own noise as a disagreement.
   ladder_report_margin("the census's direct term against a difference",
-                       max(abs(own - fine)) / max(abs(fine)),
+                       max(per_column[!birth]),
                        max(100 * floor, 1e-7))
 })
 
 test_that("the boundary's three channels are three switches", {
   # The density slot is the obvious one. The initial reserve is a trait times the
   # storage capacity, so how well a seedling is provisioned reads the traits
-  # directly. And the seed height is imposed to zero rather than derived.
+  # directly. And the seed height solves its own condition, so the third channel
+  # is switchable too rather than declared.
   stand <- ladder_stand_introductions()
   columns <- ladder_bare_traits(census_trait_names_tf24(stand))
   expect_true("a_st3" %in% columns)
   expect_true("recruitment_decay" %in% columns)
-  # The third has no numerical switch and must therefore be declared.
-  expect_gt(length(ladder_birth_size_channel_zero()), 0L)
+  # omega is the seed height's own switch, and the only parameter that is one: it
+  # enters the residual whose root is the height, and every other route it has
+  # ends in an accumulator no metric here reads. So a zero column is the channel
+  # gone, with nothing else to supply the number.
+  expect_true("omega" %in% columns)
+  result <- ladder_gradient_or_skip(stand)
+  at <- which(ladder_bare_traits(colnames(result$gradient)) == "omega")
+  expect_length(at, length(stand$patch$species))
+  expect_gt(max(abs(result$gradient[, at, drop = FALSE])), 0)
 })

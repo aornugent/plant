@@ -289,25 +289,29 @@ test_that("the initial condition carries no trait row on these fixtures", {
                   widths[[1]]))
 })
 
-test_that("seed height is on a declared list rather than silently zero", {
-  # The seed height solves an implicit condition on the strategy and the
-  # strategy's preparation is evaluated in double, so every parameter reaching
-  # birth size carries no row through that channel. This is imposed, not derived,
-  # and it is the one term no available instrument can referee: a tangent imposes
-  # the same equation and a re-run finite difference cannot referee at production
-  # because a relative step of two parts in ten million moves a mature stand
-  # between alive and identically zero.
+test_that("seed height carries a row rather than a declaration", {
+  # The seed height solves an implicit condition on the strategy. Preparation runs
+  # in double and resolves it before the traits are differentiable inputs, so a
+  # strategy that receives the result carries nothing through this channel -- and
+  # the loss is exact on a tangent and on a sweep alike, because both inherit the
+  # same declaration. That is why it was a declared bias for as long as it was one.
   #
-  # So it is not a numerical probe. What it must be is declared, because a silent
-  # zero here is the failure. Eight parameters reach birth size, and each keeps
-  # whatever rows its other routes give it, so this is a declared bias rather
-  # than a column of zeros.
-  declared <- ladder_birth_size_channel_zero()
-  expect_length(declared, 8L)
+  # It is now derived where the newborn's state is written, so the eight
+  # parameters reaching birth size carry a row and the check is a measurement.
+  # Every one of them must be a column here; omega is the one whose column is the
+  # channel and nothing else, so it is asserted non-zero rather than merely
+  # present.
+  eight <- ladder_birth_size_parameters()
+  expect_length(eight, 8L)
 
   stand <- ladder_stand_introductions()
   columns <- ladder_bare_traits(census_trait_names_tf24(stand))
-  expect_length(setdiff(declared, columns), 0L)
+  expect_length(setdiff(eight, columns), 0L)
+
+  result <- ladder_gradient_or_skip(stand)
+  at <- which(ladder_bare_traits(colnames(result$gradient)) == "omega")
+  expect_length(at, length(stand$patch$species))
+  expect_gt(max(abs(result$gradient[, at, drop = FALSE])), 0)
 })
 
 test_that("a newcomer's leaf area reaches the census through a field built without it", {

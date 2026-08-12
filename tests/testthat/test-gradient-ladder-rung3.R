@@ -428,17 +428,39 @@ test_that("the trait rows a difference can reach agree with one", {
   expect_setequal(ladder_bare_traits(unreachable), ladder_leaf_own_traits())
 
   keep <- setdiff(seq_along(columns), match(unreachable, columns))
-  floor <- ladder_difference_floor(coarse[keep], fine[keep])
+
+  # A second set this reference cannot referee, on a different mechanism from the
+  # declared one above: the eight that reach birth size. The difference moves a
+  # prepared strategy in place, and on the double path the seed's height is the
+  # value preparation already resolved -- so it holds birth size still while the
+  # adjoint derives it from the residual.
+  #
+  # The model supplies its own control for that claim, which is why this is a
+  # split rather than a loosened tolerance. Fecundity reads (omega + a_f3) as a
+  # sum, so those two share a rate route exactly, and a_f3 does not enter the
+  # seed's residual. Their differences agree to every digit printed; omega's
+  # disagreement is an order larger and a_f3's is where every other column sits.
+  # Nothing but the seed-height route separates them.
+  birth <- ladder_bare_traits(columns) %in% ladder_birth_size_parameters()
+  refereeable <- setdiff(keep, which(birth))
+  floor <- ladder_difference_floor(coarse[refereeable], fine[refereeable])
   message(sprintf("  the difference's own error at this step: %.3e", floor))
 
   scale <- max(abs(fine[keep]))
-  residual <- max(abs(fine[keep] - observed[keep])) / scale
-  worst <- keep[[which.max(abs(fine[keep] - observed[keep]))]]
+  resid <- abs(fine - observed) / scale
+  worst <- keep[[which.max(resid[keep])]]
   message(sprintf("  worst refereeable column %s: difference %.6e  adjoint %.6e",
                   columns[[worst]], fine[[worst]], observed[[worst]]))
+  message(sprintf("  birth-size columns %.3e, every other column %.3e",
+                  max(resid[intersect(keep, which(birth))]),
+                  max(resid[refereeable])))
+  # Earning the split: the largest disagreement has to be one of the eight, or it
+  # is a defect that has nothing to do with birth size and the exclusion hides it.
+  expect_true(birth[[worst]])
   ladder_report_margin(
-    sprintf("trait transpose against a difference, %d columns", length(keep)),
-    residual, 10 * floor)
+    sprintf("trait transpose against a difference, %d columns",
+            length(refereeable)),
+    max(resid[refereeable]), 10 * floor)
 })
 
 test_that("the recording does not grow with the stand", {
