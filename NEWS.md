@@ -31,6 +31,37 @@ products using plant.
   against `develop`; phylloptim's own 288-point golden file is bit-identical too.
   `scientific_version` is therefore unchanged.
 
+* **A census gradient's trait columns are named per species: `"lma"` -> `"1.lma"`.**
+  Migration:
+  * `colnames(stand_gradient(scm)$gradient)`  -> same, now `"<species>.<parameter>"`
+  * `stand_gradient(scm, traits = "lma")`     -> `stand_gradient(scm, traits = "1.lma")`
+  * `census_trait_names_tf24(scm)`            -> same, now prefixed
+  * `g$gradient[, "lma"]`                     -> `g$gradient[, "1.lma"]`, or
+    `g$gradient[, sub("^[0-9]+\\.", "", colnames(g$gradient)) == "lma"]` for every
+    species' column
+
+  Concatenating each species' parameter names with no prefix gave `S * P` columns
+  with every name repeated `S` times. Character indexing resolves a name to its
+  *first* match, so a multi-species gradient silently returned **species one's
+  column** for every named parameter, and the unknown-parameter check could not
+  see it because the name was present. A bare name now refuses, naming the
+  convention. The prefix is applied at every species count, including one, so a
+  single-species caller is not written against a shape that changes when a second
+  species arrives. Found by asserting the columns are unique; it was live in three
+  of this suite's own checks, one of which was comparing a quantity summed over
+  both species against species one's column.
+
+* **`stand_gradient_unanswered()` is now empty, so no trait is refused by name.**
+  Migration: none mechanical, but the *behaviour* changed and a caller relying on
+  the refusal will now get an answer. It listed thirteen traits the leaf supplied
+  no derivative for; the leaf now supplies rows for all of them, and eleven come
+  back live. The remaining two, `psi_crit` and `root_psi_crit`, are exactly zero
+  at an interior operating point by complementary slackness -- they set the dry
+  bound of a feasible interval the point is inside -- so they are declared zeros
+  rather than refusals, and they carry the whole row at a pin. The refusal
+  mechanism is kept, and matches on the parameter rather than the column, so a
+  trait that loses its row is refused rather than reported as zero.
+
 * **`run_stochastic_collect()`'s environment field is `env`, not `light_env`.**
   Migration: `out$light_env -> out$env`. The old name was never produced by
   anything — `StochasticPatch::r_get_state()` had its environment leg commented
@@ -601,7 +632,303 @@ were not previously recorded here:
   variables (#323) and environment state variables (#305) exposed/added.
 * Added an HTML report (plots + analyses) for the FF16 strategy (#350).
 
+* **The census gradient has a reference over a whole trajectory for the first
+  time: a forward tangent of the same run, stepped at the sizes it recorded.**
+  `SCM::census_trait_tangent<Metrics>(direction, value)`, exported for the ladder
+  as `ladder_trajectory_tangent_tf24(scm, direction)`. One weight per gradient
+  column, so a unit vector returns one exact column of the census-by-trait
+  Jacobian and a mixed one returns a contraction.
+
+  It replays the recorded step **sizes** rather than the times, and rather than a
+  controller of its own. A tangent run left to choose its own steps differentiates
+  the controller, which the model does not contain; and a size differenced back
+  out of two recorded times is not the size that was taken, since
+  `fl(fl(t + h) - t) != h`. The replay lands on the run's own census to
+  **3.2e-12** relative, which is what says it is the same function, and it is the
+  comparison's floor.
+
+  The reference traverses both reductions, the stage recursion and the
+  introduction boundary, and none of the transposes under test are on its path.
+  With the two defects below closed, the whole 3 x 88 gradient agrees with it to
+  **3.7e-06** relative to the matrix, and per column to 1.2e-04 or better for
+  every column the inflow boundary node does not carry.
+
+* **The inflow boundary node now carries its own row in both reduction
+  transposes, and the soil rows are right for the first time.** Both forward
+  reductions integrate a trapezium from the boundary node up -- it is the size
+  distribution's lower grid point -- while both transposes scattered onto the
+  introduced nodes only, because the boundary node holds no ODE row to scatter to.
+  Its draw and its shading do depend on the state, so the rows the reductions feed
+  read low by that node's share.
+
+  A quadrature node is not a term that can be dropped: its weight is shared with
+  its neighbour, so the transposes were getting the neighbour's weight right and
+  losing the node's own integrand. Both now scatter over `size() + 1` slots, the
+  boundary node last within its species, and the block loop sweeps it too --
+  `Patch::reduction_node_count()` is the index space that widening created.
+
+  The two rows it has no ODE slot for are read out rather than dropped in silence:
+  `Patch::boundary_node_adjoint` carries its height, which birth size imposes
+  passive, and its density, which is the inflow condition. Naming them is what
+  keeps the remaining channel measurable.
+
+  Measured against both references, which agree with each other, on one
+  right-hand-side evaluation:
+  * the soil-rate rows against the tangent: **1.06e-05 -> 5.38e-08**, and
+    1.14e-05 -> 4.67e-08 on the one-cohort patch;
+  * the whole-state contraction against a plain-double difference:
+    **3.01e-06 -> 8.91e-07**;
+  * cohort rows and trait rows off the soil block unchanged at round-off
+    (1.99e-16 and 2.39e-16).
+
+  What is left at 5.4e-08 is the leaf's own supplied-row gap -- a difference
+  re-solves the collar where the transpose grafts -- and not a missing channel.
+
+  **One index hazard is worth recording, because it is the failure report 02 §4.8
+  predicts for this shape.** Two index spaces now exist, the reduction's grid
+  points and the ODE rows, and they differ by one node per species.
+  `Patch::offspring_adjoint` seeded through the first while indexing the second,
+  which put every fecundity seed in the wrong slot: the cohort-row residual went
+  from 2e-16 to **3.5e+04**. Not a wrong number but a wrong address, exactly as
+  predicted, and caught by a check that was already there.
+
+* **Both faults the trajectory rung has to inject are injected, and both are
+  caught only by the reference.** A rung whose faults have not been injected has
+  not been climbed, so these are the evidence rather than a by-product. Each is a
+  deliberately broken build, measured against the four-node stand and reverted.
+  * **An active value held across a tape clear** -- the census recording's patch
+    and tape hoisted out of the per-metric loop, which is the tempting economy,
+    since rebinding is not free. Caught at **169x** the contraction's tolerance
+    and up to **5264x** on a coordinate column.
+  * **The lost stage term** -- the reverse pass's sum over every later stage
+    replaced by the immediate successor alone. Caught at **363x** on the
+    contraction and up to **3333x** on a column, with the residual at 1.0
+    relative: the columns are not degraded but wrong.
+
+* **Three test files were still written against the height coordinate, and now name
+  the coordinate they mean; seven more fail for two other reasons.** Carrying the
+  size distribution in birth date by default left old references stale, and the
+  earlier re-blessing covered `test-strategy-ff16.R` and `test-patch.R` only. The
+  ten failures separate into three causes, and only the first is a test-side fix.
+
+  **Fixed -- a test that took its coordinate from the default.** `test-species.R`
+  (45 failures), `test-node.R` (9) and `test-density-coordinate.R` (3). Every
+  reference in `test-species.R` is a trapezium over node *heights*, so a
+  `height_coordinate_strategy()` helper names that and the twelve construction
+  sites use it. `test-node.R`'s ODE-interface reference now reads
+  `control$node_density_in_birth_date` and builds the matching boundary condition
+  and density rate -- `log(pr_estab)` against `log(pr_estab / g)`, mortality alone
+  against mortality plus the compression term -- so it documents that the two
+  coordinates are different functions instead of pinning one. Where a bare
+  `Control()` stood for *the height coordinate*, it now says so.
+
+  **Not a test bug -- seeding a patch from a size distribution is unavailable on
+  the default coordinate.** `test-initial-state.R` (3) and `test-canopy-methods.R`
+  (1) fail because `make_initial_state` gives every node the same birth date --
+  `test-initial-state.R` asserts exactly that, `all(node_times == 0)` -- and the
+  birth-date coordinate's guard rightly refuses it, since such nodes span zero
+  width in its reductions. The guard's own advice is to supply
+  `parameters$initial_node_times`, which the state exporter does not. **This is a
+  forward-model gap, not a stale reference**, and pinning the tests to the height
+  coordinate would hide it.
+
+  **Stale numbers the coordinate moved, left un-re-blessed deliberately.**
+  `test-strategy-k93.R` (2): offspring production 0.07545 against a recorded
+  0.0753261, and `c(0.00254, 0.23262, 0.22014)` against
+  `c(0.00254, 0.23215, 0.21944)`. **K93 is scientifically frozen**, so a 0.16
+  percent move in its output is a question about whether the default belongs to a
+  frozen model rather than a number to re-bless. `test-schedule-build.R` (1) 147
+  schedule times against 148, `test-scm-support.R` (1) 17 auxiliary columns against
+  16, `test-stochastic-patch-runner.R` (1) three stems alive against two, and
+  `test-stochastic-patch.R` (3) an all-missing `min()` on an empty patch. Each needs
+  a decision about what the right answer is before its reference is rewritten.
+
+* **Rung 5's marginal-recruit limit is built, and it needed no new C++.** The check
+  was skipped on the premise that nothing reports a boundary node's establishment
+  probability or the production driving it. Both are already reachable --
+  `new_node$individual$establishment_probability(env)` and its
+  `net_mass_production_dt` aux -- so the premise was wrong.
+
+  Its fixture assertion is derived rather than chosen. Establishment is
+  `P^2/(P^2 + k^2)` times a decay in patch age with `k = a_d0 * a_0`, so the
+  derivative peaks at `P = k/sqrt(3)`; at the shipped constant this fixture's
+  recruits sit at **36 and 21 times** that production with establishment 0.998,
+  which is the flat region where the limit would pass on the signal being small.
+  Scaling `a_d0` by 30 puts them at **1.48 and 1.05** of the peak.
+
+  From there the gradient is finite at every point of a sweep spanning **2000x** in
+  establishment (0.423 down to 2.05e-04), and the establishment decay's column --
+  which reaches the census through the boundary condition and nothing else -- falls
+  monotonically from **1.24e-01 to 6.15e-05**, linearly in establishment. `a_d0`'s
+  own column falls faster, roughly as `P^2`, which is the second-order contribution
+  a recruit that cannot pay for itself is supposed to make.
+
+* **The sweep can be split and resumed, and it is bit-identical when it is.**
+  `census_trait_gradient(extra_splits)` stops and resumes at each named recorded
+  step, exported as `census_trait_gradient_split_tf24(scm, splits)`. The reverse
+  pass is a backward linear recursion over steps, so composition is associative and
+  a split must change nothing: tolerance is exactly zero and no reference is needed,
+  because it is a property the implementation either has or does not.
+
+  What it watches is anything carried across a step boundary that is not the
+  adjoint. The trait accumulator accumulates by design, but the block workspace, the
+  tape, the knot adjoints and the strategy templates all live across steps, and a
+  split forces a clean re-entry at the cut.
+
+  Verified on the three-introduction stand -- 102 recorded steps, widening after
+  steps 1, 24, 38 and 57 -- at an interior step, one step either side of a widening,
+  and all three at once. Every one is `identical()` to the unsplit gradient.
+
+  **Its non-vacuity guard is not decoration, and building it found the trap.**
+  A split landing exactly *on* a widening is outside every segment's interior, so it
+  cuts nothing and the equality holds between two identical sweeps.
+  `SCM::adjoint_segments` counts the backward ranges the last gradient swept --
+  12 unsplit (four segments times three metrics), 15 for one genuine cut, 21 for
+  three -- and the check requires that count to rise. The boundary case is asserted
+  rather than left as a trap.
+
+* **A rejected step attempt is not a gradient question, and the ladder's framing of
+  it was wrong.** The reverse pass never sees one: the adaptive run establishes the
+  schedule, one state and step size are recorded per *accepted* step, and the
+  replay steps by those sizes. So "require the gradient unchanged when rejections
+  are excluded" tests nothing -- they are already excluded from everything the tape
+  sees.
+
+  What the design does have is a seam, which `SCM::store_trajectory` already names:
+  a pinned replay does not reproduce the adaptive run, because a rejected attempt
+  moves patch state that is not ODE state -- the first-same-as-last derivative
+  carry, and anything cached on the patch. The check that matters is therefore
+  *does the replay reproduce the run*, which is what the trajectory reference's own
+  floor measures: **3.2e-12** on the four-node stand and **1.17e-12** on the
+  three-introduction one. A rejected-attempt count is worth publishing only as the
+  non-vacuity guard on that floor, since with no rejected attempts the equality is
+  trivial.
+
+* **Rung 5's fourth boundary probe is now buildable, and it passes.** Of the five
+  single-channel probes, four test for an exact zero and were already in place; the
+  fifth -- the newcomer's leaf area reaching the census through a field built
+  without it -- has a **shortfall** as its dropped-channel signature rather than a
+  zero, so it needed a reference and could not be written until the trajectory
+  tangent existed. On the three-introduction fixture the replay reaches that
+  stand's own census to 1.17e-12, and the field-borne columns agree at 4.35e-06
+  (`1.k_I`), 4.98e-07 (`2.k_I`), 2.70e-04 (`1.a_l1`) and 2.21e-03 (`1.a_l2`).
+
+  Two rung-5 items remain and both need a new entry point rather than test work:
+  §8.2's marginal recruit needs something reporting a boundary node's
+  establishment probability and net production, so a recruit can be asserted into
+  the stiff band where the check is not vacuous; and §2.2's split-at-the-boundary
+  check needs a sweep over a sub-range of a recorded trajectory, with the
+  rejected-step count needing the solver's attempt count published.
+
+* **The record-once-sweep-many permutation check cannot fail, and the injection
+  above is what showed it.** With an active value deliberately held across the
+  tape clear -- the exact defect that check exists for -- it passed, along with
+  every other structural check in the file. Only the reference saw it.
+
+  The cause is on the R side: `stand_gradient(scm, metrics = m)` computes
+  **every** metric in C++ and subsets the result in R, so "swept alone" and "swept
+  with the others" are the same sweep and comparing them is a tautology. Closing
+  it needs `census_trait_gradient` to take a metric subset, so that a
+  single-metric sweep is genuinely one recording; the check is left in place and
+  marked, because the shape it watches for is real even though this instance of it
+  is vacuous.
+
+* **The census gradient was missing its direct term, and the trajectory reference
+  is what found it.** A census reads the traits itself --
+  `C = sum_k w_k n_k m(h_k, phi)` -- so its total derivative has a term at fixed
+  state that no sweep produces. `SCM::census_trait_gradient` returned the
+  trajectory term alone, so every metric's row was wrong for every parameter the
+  metric algebra reads, and `a_l1` came back with **the wrong sign**: +0.1717
+  against a true -0.2848 for leaf area.
+
+  The suite could not see it. The check that would have -- suppressing the term
+  and requiring the row to move -- was skipped for want of a switch, and the
+  check that ran only established that an independently computed direct term was
+  *the same size* as the reported row, not that it was in it. The gap
+  `tangent - sweep` equalled that independent term on all four measurable columns
+  to three significant figures.
+
+  Fixed by `SCM::census_trait_direct<Metrics>()`, which records the census with
+  the traits seeded and the state held and sweeps it once per metric -- so it is
+  the metric algebra that is differentiated, and a metric added in `species.h`
+  needs no edit. Adding it to the trajectory term is not double counting: the
+  trajectory term is `(dC/dy)^T (dy/dphi)`, and the boundary node, which setting
+  the state rebuilds through the field, is not in `y` at all.
+
+  **This changes every census gradient `stand_gradient()` returns.** Worst
+  affected on the four-node fixture: `a_l2` by a factor of 1.8, `a_l1` by a sign
+  flip, `lma`'s above-ground-mass row by 13 percent. Columns the metrics do not
+  read -- `k_I` among them -- are unchanged to round-off.
+
 ### Known issues
+
+* **The scientific-surface drift guard is dark by default, and it is red.** It
+  skips on CRAN, so an ordinary run has no live gate on a default that changes a
+  model's output. Run with `NOT_CRAN` set it fails for all four models, on three
+  changes, and only two of them are accounted for:
+  * `control.node_density_in_birth_date`, `FALSE` -> `TRUE`, from the birth-date
+    default. Intended.
+  * `model_id`, `FF16@v1` -> `FF16@v2`. The bump was made; the snapshot was not
+    re-blessed with it.
+  * `control.GSS_tol_abs`, `0.001` -> `0.1`. **Unaccounted for**, and it is one of
+    the four entries `gradient_control()` reports precisely because it changes the
+    function being differentiated. Not blessed, for that reason.
+
+  The third has a second problem beside its provenance: the quantity has **two
+  defaults**. `Control` sets `1e-1`, `TF24_Strategy` declares `1e-3` as its own
+  member, and the `Leaf` is constructed from the `Control` one -- while a comment
+  in the same header reasons about "the ~GSS_tol_abs (1e-3) ceiling the leaf
+  package documents", and `collar_census.h` warns that a loose value reports
+  nearly every solve as pinned. So the looser value wins at the call site and two
+  places in the tree assert the tighter one.
+
+  What this does and does not put in question: every gradient measured on this
+  branch was taken at `0.1`, and the interior operating point is evidently still
+  well determined there -- the block's forward and reverse Jacobians agree to
+  `2.4e-16` and the factorisation predicts out of sample to `2.6e-08`. That is
+  consistent with the collar being obtained by solving its own first-order
+  condition rather than by a golden-section search, which would make this tolerance
+  largely vestigial. What it would bias is the *incidence* of points classified as
+  pinned, which is a different claim and is not measured.
+
+* **The reverse sweep's wall-clock cost is not established, and the one figure
+  measured is bad enough to question the premise.** On one species at a lifetime of
+  2 with the default node schedule — 81 cohorts, 171 accepted steps — the forward
+  run takes **6.2 s** and one census gradient takes **1006 s**, a factor of 162.
+  The sweep records and sweeps once per cohort per stage per step, so its cost is
+  set by the node count, and 81 nodes is an ordinary schedule rather than a large
+  one.
+  * Taken at face value that inverts the project's cost argument: the adjoint
+    exists because it answers 44 traits for one run plus one sweep, against 44
+    re-runs, and 44 one-sided re-runs of this configuration would be about 273 s.
+    A re-run difference is not actually an alternative — at production a relative
+    step of `2e-7` in leaf mass per area moves a mature stand between alive and
+    identically zero — so this is a statement about cost and not about method. But
+    the cost premise is not currently met at this configuration.
+  * **Nothing in the testing ladder measures this.** The flatness guarantees the
+    design rests on are about peak memory and about the differentiation-target
+    count, and rung 3 does check them (a recording of 62,896 entries at one cohort
+    and at four). Time is the quantity that is not flat and no rung asserts
+    anything about it, which is why a test file absorbed 30 to 40 minutes without
+    anyone deciding it should.
+  * One figure at one configuration, measured once. What it justifies is a cost
+    assertion in the ladder, not a conclusion.
+
+* **The introduction boundary's transpose disagrees with the trajectory tangent,
+  by up to 3.4e-03 on the columns a widening carries.** This is what is left after
+  the boundary node's row in both reductions was closed (below): that fix moved the
+  rate-level residual by 200x and left this one untouched, so they are two defects
+  and not one.
+
+  The attribution is a prediction rather than a fit. On a stand whose trajectory
+  never widens -- one cohort per species, both introduced at t = 0 -- `a_l2`'s
+  residual falls from 2.9e-03 to 6.1e-06, `a_l1`'s from 6.9e-04 to 1.2e-05 and
+  `k_I`'s from 1.2e-04 to 1.2e-05. So the disagreement is carried by the widening
+  events, which means `Patch::introduction_adjoint` against the tangent's own
+  `introduce_new_nodes`, and it is rung 5's business rather than rung 4's.
+
+  Every column whose route does not run through a widening agrees to 1.2e-04 or
+  better, and the shortlist's tightest are at 5.7e-13.
 
 * **A dense TF24 stochastic run throws at the default ODE step cap** (#599). The
   soil water balance is stiff — the conductivity curve's exponent is
@@ -638,6 +965,322 @@ were not previously recorded here:
   wanted only for reporting.
 
 ### Minor changes & bug fixes
+
+* **The inflow boundary's own adjoint reaches the trait accumulator.** The boundary
+  node holds no ODE row, so the census's sensitivity to its density was accumulated
+  into `Patch::boundary_node_adjoint` and read by nothing: written in three places
+  and consumed in none. The adjoint at the boundary times the boundary condition's
+  own derivative is the whole of the boundary's contribution, and the second factor
+  was never applied.
+
+  `Patch::boundary_condition_adjoint` now records the condition at an active scalar
+  and takes one vector-Jacobian product, which delivers the state rows and the trait
+  rows together rather than hand-writing either. Measured against a forward tangent
+  of the same trajectory, on a stand carrying one cohort per species:
+  `recruitment_decay` falls from **1.9e-02 to 2.9e-12** and `a_d0` from **2.0e-03
+  to 2.1e-05**. Both reach the census through establishment and through nothing
+  else, so their columns were the whole of the missing channel; neither had ever
+  been compared against a reference. `k_I` also improves, to 1.4e-07.
+
+  The condition is recorded in the density rather than in its logarithm, and the
+  incoming adjoint divided by the density to match. At a marginal recruit the log
+  density and its trait sensitivity both diverge while the density and its own
+  sensitivity both tend to zero, so the logarithmic form is a vanishing adjoint
+  times a diverging row.
+
+* **A reloaded state now carries the boundary node the run carries.** A stage
+  evaluates the inflow condition twice, in two different fields: once with every
+  species' boundary interval left off, and again in the field rebuilt to include it.
+  The reductions were built on the first; the water aggregation, an introduced node
+  and a census all read the second. Every rebuild the sweep does started from a
+  recorded state and stopped at the first evaluation, so the sweep linearised a
+  boundary node the trajectory never carried — by **1.2 per cent** in the boundary
+  density by the end of a two-year run, guarded only by a length check.
+
+  `Patch::set_recorded_state` is the named form of the reload, and the census seed,
+  the census's direct term, the replay of an introduction and the introduction's own
+  transpose all take it. Within one stage the two transposes are now each linearised
+  at the evaluation their own forward pass read. No forward number moves: the FF16
+  bit-identity guard and its reference comparison both pass unchanged.
+
+* **The census's direct term is reported on its own and refereed for the first
+  time.** `census_trait_direct_tf24()` returns the metric's own reading of the
+  traits at fixed state — the one route to the census no transpose check touches,
+  and the one report 08 §6 asks for a switch on. `census_trait_difference_tf24()`
+  is the same quantity differenced in plain double with the strategy moved in
+  place, so the two share no path: one records the census and sweeps a tape, the
+  other evaluates the census twice. They agree to **5.1e-09** over the matrix,
+  which is the difference's own round-off rather than a disagreement. The switch
+  test that had been skipping now runs.
+
+  The difference perturbs the *prepared* strategy rather than rebuilding from
+  `Parameters`, because a rebuild re-runs preparation and so carries the birth-size
+  channel the differentiated path imposes to zero — which is exactly the channel
+  the allometric constants would be refereed on.
+
+* **An introduction's transpose derives which widened row each narrow row became,
+  instead of writing it out.** `introduction_adjoint` built a per-species index map,
+  copied the rows an introduction does not touch, and contracted only the
+  newcomer's — which asserts that the first group is an exact identity in the state
+  and carries no trait row. The recording now emits the whole widened state and the
+  contraction runs over all of it, so the map is derived and the assertion is gone.
+  It is the shape report 01 §5 asks for, where a narrowing written as a truncation
+  of the tail is wrong for every species but the last.
+
+  **No number moves**: every figure in the item below is bit-identical across the
+  change, which is also what establishes that those rows were the identity.
+
+* **A third reference now exists, and it says the sweep and the tangent are both
+  wrong together on the traits that reach birth size — by far more than the stated
+  domain records.** A whole-run central difference of the census shares no path with
+  either: it runs the forward model twice. It is step-stable across `1e-05`,
+  `1e-04` and `1e-03` at two- and four-year lifetimes, so it is usable at these
+  sizes despite report 06 §8's warning about production stands.
+
+  Against it, on a one-species two-cohort stand, leaf area:
+
+  | lifetime | `a_l1` sweep/truth | `lma` sweep/truth |
+  |---|---|---|
+  | 0.4 yr | 2.184 | 1.507 |
+  | 1 yr | 1.419 | 1.869 |
+  | 2 yr | 1.059 | 2.368 |
+  | 4 yr | **1.003** | **3.054** |
+
+  Two opposite readings, and the second is the serious one. `a_l1` **converges**: its
+  factor of two is a short-run artefact, where a census with almost no accumulated
+  biomass is dominated by the seed and the boundary node, and it is gone by four
+  years. `lma` **diverges**: its gradient is 2.4 times the truth at two years and 3.1
+  at four, step-stable at every step size, and growing with run length. Report 06
+  §11 records the birth-size channel as "worth about 3 per cent for leaf mass per
+  area"; measured here it is 137 per cent at two years and 205 at four.
+
+  The sweep and the tangent agree with each other throughout — `a_l1` at four years
+  differs between them in the fourth digit — so this is not the sweep-versus-tangent
+  residual below. It is a channel both impose to zero, and on the most-measured trait
+  in the model it does not decay.
+
+* **The two allometric constants are measured, and they are the "size unknown" entry
+  in the stated domain.** Report 06 §11 lists `a_l1` and `a_l2` as *short,
+  unmeasured — the reduction's contribution is dropped*, the same class as the
+  extinction coefficient's documented 3.041 per cent shortfall, with the size never
+  reported. It is **3.3e-02** at worst, on stem area, once a species carries more
+  than one cohort. Report 05 §6.1 predicts the shape: the pair "also has a live path
+  through the cohort step and through the size-space adjoint, so the reduction's
+  contribution is an addition to a non-zero row rather than the whole of it" — a
+  finite, correctly-signed, short row.
+
+* **Known, and not closed: the two allometric constants disagree with a tangent by
+  up to 3.4e-03 once a species carries more than one cohort.** It is per species and
+  it switches on with that species' second cohort — with one cohort each `a_l2`
+  measures 6.0e-05, and introducing a second cohort of one species moves that
+  species to 3.4e-03 while the other stays at 1.6e-06. Further cohorts do not add to
+  it.
+
+  Five causes are now excluded by measurement rather than by argument: the inflow
+  condition and the reload above (closing those moved `recruitment_decay` by ten
+  orders and left this at 3.05e-03 against 3.06e-03), the census's direct term
+  (exact, above), the reduction's own parameter rows (rung 3 forms them entry by
+  entry on a two-cohort fixture and takes `a_l1`/`a_l2` by name), and the rows an
+  introduction carries through untouched. **The whole of it is in the trajectory
+  term.**
+
+  **The introduction boundary is excluded, and that is now three checks rather than
+  an argument.** The introduction map's whole Jacobian — the pre-introduction state
+  and the traits in, the widened state out — agrees forward against reverse to
+  **7.5e-16 over every one of its 3729 cells**, at a widening into an empty patch
+  and at one into a populated patch. The rows an introduction carries through are
+  bit-identical to the recorded state and the rows it writes are bit-identical to
+  the boundary node the patch held, both at tolerance zero. The newcomer's own
+  sensitivity to these two traits is 4.0e-07 and 1.9e-05, the seed height being
+  imposed passive.
+
+  So what is left is a species carrying **two cohorts rather than one**, with the
+  introduction that necessarily accompanies it excluded. Rung 3 forms the per-stage
+  Jacobian entry by entry on a two-cohort patch and finds it correct, so the
+  remaining difference is the **time dimension**.
+
+  It has a per-step character without being a clean lost term. Tightening the ODE
+  tolerance from `1e-04` to `1e-10` takes the run from 98 steps to 635 and the
+  residual from `3.3e-02` to `1.3e-02` — six and a half times the steps for two and
+  a half times the residual, near `h^0.6`. The sweep and the tangent replay the
+  **same** recorded step sizes, so a truncation error would cancel between them
+  exactly; what does not cancel is a linearisation taken at a point they do not
+  share.
+
+  **It accumulates per step while a species carries two cohorts.** Moving the second
+  introduction later shortens the time two cohorts coexist while widening the
+  quadrature's interior interval, and the residual follows the former: `7.6e-03`
+  over a duration of 0.38, `4.0e-03` over 0.20, `4.7e-04` over 0.02 — about 0.02 per
+  unit time throughout. Three cohorts land where two of the same duration would, so
+  it turns on at the second cohort and does not scale with the count. That excludes
+  the quadrature's interior interval, which is the first thing a second cohort
+  creates and which moves the opposite way.
+
+  **The stage state and aux restore is exact**, which was the one per-step path rung
+  3 does not exercise. Instrumenting that boundary — recomputing the rates after the
+  restore and comparing against the stage the forward pass computed — gives a worst
+  relative difference of **zero** over every stage of every step, on one cohort and
+  on two.
+
+  **And the light field's discretisation is excluded, which answers a question
+  report 03 §3.3 left open.** That report asks whether the dropped knot-position
+  channel shrinks with knot density, calling the convergence "the falsifier for the
+  passive-position treatment", and records that it had never been checked. Built at
+  33, 65 and 129 knots: `k_I`'s residual falls from `2.22e-10` to `4.58e-11`, so the
+  treatment **does** converge — the falsifier comes back in its favour. `a_l2`'s is
+  `1.4371e-03` at all three, identical to five figures while the forward model
+  itself moves, so it is not a field quantity at all.
+
+  **The stage recursion is excluded, and by injection rather than by reading.**
+  Report 08 §7 lists a lost stage term as the one defect with no signature of its
+  own, and names the fault: replace the sweep's scatter over every earlier stage
+  with the immediate predecessor alone. Built into `odelia` and measured against the
+  probe pair, it moves the **one-cohort control from 2.2e-07 to 7.0e-03** — a margin
+  of thirty-one thousand — and saturates the longer fixtures at 1.0. So the check is
+  live and hugely sensitive to that fault, and the real defect does not have its
+  shape: a lost term raises the one-cohort control to the same order as the
+  two-cohort case, while the defect leaves it at 2.2e-07. `odelia` is unchanged; the
+  injected build was measured and reverted, and the baseline returns bit-identical.
+
+  Two measurement corrections came with this and both had been hiding size. A
+  column must be normalised **per metric row**: leaf area and above-ground mass are
+  of order one while stem area is of order 1e-04, so a stem-area row wrong by three
+  per cent read as 1e-06 of the column's peak. And on a stand whose species carries
+  two cohorts the total is a **near-cancellation** of the direct and trajectory
+  terms — the ratio reaches −16.8 on stem area — so the column's relative error is
+  an amplified view of the trajectory term's, and both are now reported.
+
+  On the birth-date coordinate a second cohort cannot exist without an introduction
+  after `t = 0`, so per-introduction and per-interior-trapezium causes are not
+  separable by scheduling alone. Seeding the cohorts does not separate them either:
+  a run resumed from a populated state lands far outside the ladder's declared
+  regime (relative reserve 0.44 to 0.73 against 0.02 to 0.30, gate slope 0.010
+  against 0.4), which invalidates it as an instrument. **The resumed path is
+  unrefereed and its disagreements are larger again — worth its own item.**
+  `ladder_introduction_residual()` carries the measurements and the exclusions.
+
+* **The reverse sweep's soil and trait rows are refereed for the first time, and
+  they are correct.** Three references now run, each scoped to where it is valid,
+  and the selection rule is the supplied row: difference where nothing is grafted,
+  tangent where something is.
+  * The forward tangent is exact but structurally silent about the water channel —
+    the environment holds its integrated state as a `double` store and takes it
+    passively, so every soil column and soil rate row of its Jacobian is exactly
+    zero. That silence is now asserted rather than left to a residual, because a
+    reference silent about a channel and a transpose wrong in it agree perfectly.
+  * A plain-double central difference of the same right-hand side referees the
+    channel the tangent cannot reach. The sweep agrees to **3.0e-06** on the state
+    contraction and **4.3e-05** over the 70 trait columns such a difference can
+    reach, both against the reference's own measured error rather than a literal
+    tolerance. So `dsoil_K_dtheta` and `d(psi)/d(theta)` — hand-written, with
+    nothing structural enforcing the pairing — are right.
+  * The remaining 18 columns are the leaf's own nine traits per species. A
+    perturbation of a *prepared* strategy cannot reach them: the leaf holds its own
+    copy from preparation and a rate evaluation never pushes one back, so such a
+    difference reads exactly zero whether the row is right, wrong or absent.
+    Rebuilding the strategy from its parameters does reach them, and pays no
+    birth-size penalty on exactly these columns because the seed height solves
+    `mass_live(h) = omega`, which reads no leaf trait. The two schemes are
+    unbiased on disjoint sets and together referee the whole row: worst
+    **1.3e-03**, the leaf's own solve tolerance appearing on both sides.
+  * One consequence worth knowing: because nothing on the forward path pushes a
+    leaf trait into the leaf, setting one on a live strategy reaches no equation.
+    The reported row is the derivative of setting it *and* re-preparing.
+
+* **Re-blessed the references the birth-date default moved, which had been left
+  stale.** Carrying the size distribution in birth date by default changed forward
+  numbers -- the commit that made the change said so -- but did not update the
+  references that encode them, so `test-strategy-ff16.R` and `test-patch.R` were
+  failing against the height coordinate's answers. FF16 offspring production is
+  `17.1720` against `16.8846`, its accepted-step count 276 against 307, and the
+  two-species pair `c(12.04841, 16.59391)` against `c(11.99578, 16.47192)`.
+  * Each re-blessed value now **names the coordinate it belongs to**, and the
+    whole-run test asserts that the other coordinate gives a different answer
+    rather than pinning a second set of literals. The two coordinates are
+    different functions, not two discretisations of one, so a reference that does
+    not say which one it is for cannot be interpreted.
+  * `test-patch.R`'s two FF16 vectors are asserted alongside the relations that
+    produce them: the density rate is exactly minus the mortality rate, which is
+    the birth-date equation itself, and at a birth rate of one the log density is
+    exactly minus the cumulative mortality, because the boundary condition no
+    longer divides by the growth rate. Those two relations are what the stale
+    literals `-0.78726` and `1.08695` were hiding -- they differ from the new
+    values by `-dg/dh` and `-log(g)` exactly.
+  * One of those failures was a latent test bug rather than a stale number.
+    `test-patch.R` read the per-layer uptake auxiliaries *before* any rate
+    evaluation at the state it had just loaded, so it was reading zeros; it passed
+    only because the height coordinate's density rate solves the physiology again
+    at a displaced height and populated them on the way.
+  * `FF16_generate_stand_report`'s test now skips when `ggridges` is absent. It is
+    a `Suggests`, so a tree without it cannot answer that check rather than
+    failing it.
+
+* **The rank-two factorisation of the marginal profit is measured out of sample,
+  and its recorded blocker was stale.** It is the load-bearing claim for the whole
+  water channel: the argmax channel is two scalars times closed-form vectors, and
+  a compensating pair fits every row of the potential family equally well, so a
+  joint residual cannot detect an error in it.
+  * The blocker on record was which direction the second term differentiates. That
+    is settled, in the code and in the corpus: the second intermediate is uptake's
+    sensitivity to the **collar**, so the second basis vector is
+    `d(dE_up/dp)/dpsi_j`. And the pair is already solved from a **cross-family**
+    pair — one soil potential and one root-carbon direction — which is what a
+    prediction rather than a fit requires.
+  * So every layer but the solved-from one is already a prediction, and refereeing
+    it needs no new machinery. The supplied uptake rows use the factorisation; a
+    difference of the plain-double block re-solves the collar and so carries the
+    true `dp*/dpsi_j` with none of it. Out of sample over four layers:
+    **2.6e-08**, against the difference's own error of 1.2e-08. In sample at the
+    solved-from layer: 4.2e-07, set by the fit's own `1e-3` step.
+  * A fixture note that fell out of it: the wettest layer's potential sits on the
+    root vulnerability grid's lower bound (`0.0127952` against a minimum of
+    `0.012795`), so a downward perturbation at the fit's own step is infeasible and
+    the leaf refuses to bracket. The declared regime covers the potential ceiling
+    and not this floor.
+
+* **The uptake-by-potential block's rank-one claim is verified, and the check that
+  said otherwise was wrong.** The block is a diagonal explicit part plus a rank-one
+  argmax channel. Zeroing the observed diagonal removes `D + diag(u_i v_i)`, taking
+  the rank-one term's own diagonal with it and leaving a matrix of full rank — so a
+  rank test on that residue fails whether or not the claim holds. Tested as an
+  out-of-sample prediction of the off-diagonal entries instead: worst **4.9e-16**
+  over 13 predicted entries, and all 120 off-diagonal 2x2 minors vanish to 5.7e-16.
+
+* **A `Patch` took its disturbance regime from the constructor's argument rather
+  than from the member it had just validated**, so a patch built from a
+  `Parameters` whose `max_patch_lifetime` was assigned *after* that object's own
+  construction ran on the default 105.32-year regime instead of the assigned one.
+  Both `Patch` constructors now read `parameters.disturbance`, which
+  `parameters.validate()` derives from `patch_type` and `max_patch_lifetime` one
+  line earlier.
+
+  What was wrong is every patch built by `Patch::rebind_from`, which assigns the
+  lifetime onto a default-constructed `Parameters` and so never re-derived the
+  regime. That is on the census gradient's path twice -- the introduction
+  boundary's recorded condition reads both the patch survival and the patch
+  density, and the census recording rebinds -- and it is the patch the
+  forward-mode tangent reference is taken on.
+
+  **Scope of the forward claim, stated as narrowly as it was tested.** No FF16
+  result changes, and that is measured rather than argued: `test-strategy-ff16.R`
+  and `test-patch.R` fail identically with this change reverted, and the FF16
+  bit-identity reference comparison passes with it in. The mechanism is that
+  `scm_base_parameters("FF16")` uses the same `max_patch_lifetime` as the
+  `Parameters()` default, 105.32, so the argument's regime and the member's are
+  built from the same number. **Whether a forward run whose lifetime differs from
+  that default is affected has not been established** -- it depends on whether the
+  R boundary re-derives the regime on assignment, which was not measured. Every
+  fixture in the gradient ladder is such a configuration.
+
+  Measured on a fixture at `max_patch_lifetime = 2` and `t = 1.37`: the reference's
+  offspring-production rate was **93.727756x** the model's, uniformly across every
+  node of every species, which is exactly
+  `pr_survival(1.37 | 105.32) / pr_survival(1.37 | 2)`. Every other rate agreed to
+  round-off. After the fix the reference reproduces the model's rates to 0 and
+  3.9e-16 on three fixtures, and the residual disagreement between the tangent and
+  a plain-double difference of the same right-hand side falls from **0.986 to
+  0.120** -- with everything that survives being a soil row or column, which is a
+  separate and now-isolated gap (see Known issues).
 
 * **The scenario gateway scores numerical viability and persistence as separate
   axes, and no longer leads with a match rate** (#572). `scenario_summary()`
@@ -868,6 +1511,35 @@ were not previously recorded here:
   populated again.
 
 ### Internals & performance
+
+* **The environment carries its integrated state at the scalar the model carries.**
+  `Internals<S> vars`, `std::vector<S> resource_uptake`, `compute_rates` taking an
+  uptake vector at `S`, and the soil retention and conductivity curves returning
+  `S`. `Environment::set_ode_state` no longer strips to a value, and the whole
+  ODE-state interface moved from the untemplated base onto `TF24_Environment<S>`,
+  where the scalar is known; the base keeps the no-state defaults, which is what
+  FF16 and K93 already relied on -- neither references `vars`.
+
+  This is what makes a reference possible at all. A tangent whose soil state is
+  held at a value differentiates a model with frozen soil: the state's tangent is
+  dropped at every stage, so the soil rate carries none, and a cohort reading a
+  layer potential sees no route from a trait to the water and back. Both
+  directions were dead, and a reference silent about a channel agrees perfectly
+  with a transpose that is wrong in it.
+
+  **No forward result changes.** The FF16 bit-identity reference comparison, the
+  FF16 and K93 suites, `test-patch.R`, `test-scm.R` (including its pinned
+  step-size replay) and `test-environment.R` all pass unchanged, and production is
+  `S = double` where every added conversion is the identity.
+
+  Two smaller repairs fell out of it. `Patch::check_finite_ode_state` read
+  `environment.vars` directly and now reads the ODE interface, so it is generic
+  over environments rather than reaching into one. And `TF24_Environment`'s
+  potential cache is now invalidated when the state is written, not only when the
+  state's *value* changes -- a cache keyed on an exact value cannot see a changed
+  derivative behind an unchanged one, which is a hazard that only exists once the
+  state carries a derivative.
+
 
 * The scenario gateway's seasonal rainfall driver places its spline knots **per
   year** (48 yr⁻¹) rather than per run, so the realised seasonality no longer
