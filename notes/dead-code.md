@@ -38,15 +38,32 @@ rediscovery.
   enforced. Confirm that before removing anything here — if the refusal is at
   one entry point rather than all of them, these branches are reachable.
 
-- **`boundary_node_adjoints` has three write-only members.** `.area_leaf`,
-  `.height` and `.extinction` are written from four sites in `patch.h` and read
-  from none; only `.density_in_field` and `.density_in_uptake` are consumed, by
-  `boundary_condition_adjoint`. Each is accounted for — `.height` is the imposed
-  `dh0/dphi = 0`, and `.area_leaf`/`.extinction` are already consumed by
-  `light_reduction_trait_adjoint`, which runs for the boundary node before the
-  branch that writes them — so these are redundant writes rather than a dropped
-  channel. Worth deleting because a write-only accumulator is indistinguishable
-  by inspection from a channel that was forgotten.
+- ~~**`boundary_node_adjoints` has three write-only members.**~~ **Retracted: they
+  are live, and this entry was wrong within an hour of being written.**
+
+  `.area_leaf`, `.height` and `.extinction` are written from four sites in
+  `patch.h` and read from none; only `.density_in_field` and `.density_in_uptake`
+  are consumed. The original reasoning was that `.height` was the imposed
+  `dh0/dphi = 0` and the other two were already consumed by
+  `light_reduction_trait_adjoint`, so all three were redundant writes.
+
+  Declaring the seed height by its residual falsified that. The boundary node's
+  height is now a function of the traits, so the field's sensitivity to it —
+  which is what `.height` collects, from the light reduction's transpose — is a
+  real trait channel, and it is still dropped. The same argument applies to
+  `.area_leaf`, since the seed's leaf area follows from the height.
+
+  **Do not remove these.** Seed them into the boundary condition's
+  vector-Jacobian product instead and measure: the completeness ratios are
+  0.999 to 1.000 at four tenths of a year but `a_l2` is 0.924 at four years, and
+  a channel that acts once per introduction while the census accumulates is the
+  right shape for a residual that grows with run length.
+
+  **The general lesson is worth more than the entry.** "Written and never read"
+  was a correct observation and a wrong conclusion, because whether a dropped
+  adjoint matters depends on whether its upstream quantity carries a derivative —
+  which a later change can alter. An accumulator is dead only relative to a set of
+  declarations, and this corpus keeps closing those.
 
 - **`Node::set_log_density_rate`** (`node.h:121`) — declared and called from
   nowhere in the tree. The density rate is assigned by another route.

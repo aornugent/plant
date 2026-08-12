@@ -118,7 +118,6 @@ public:
   // nodes, so it reads these rather than perturbing a copy.
   value_type growth_rate() const {return individual.rate(HEIGHT_INDEX);}
   value_type mortality_rate() const {return individual.rate(MORTALITY_INDEX);}
-  void set_log_density_rate(const value_type& rate) {log_density_dt = rate;}
 
   // Bookkeeping recorded at the moment the node is introduced, so that
   // lifetime-fitness calculations need not look these up after the run.
