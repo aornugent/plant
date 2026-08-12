@@ -16,7 +16,17 @@ for (x in names(strategy_types)) {
                         patch_type = 'meta-population')
   env <- Environment(x)
   
-  ctrl <- Control()
+  # The FF16 references below are blessed on the birth-date coordinate, named
+  # here rather than inherited: Control() defaults to height, and a fixture that
+  # reads its coordinate from the default silently re-points at another function
+  # when the default moves.
+  #
+  # It has to be named in two places. A Patch imposes its own control on its
+  # species, but a standalone Node reads the coordinate from its own strategy's
+  # control, so the comparison node below is only the same function as the
+  # patch's node if the strategy carries the coordinate too.
+  ctrl <- Control(node_density_in_birth_date = TRUE)
+  p$strategies[[1]]$control <- ctrl
   patch <- Patch(x, e)(p, env, ctrl)
   cmp <- Node(x, e)(p$strategies[[1]])
 
@@ -90,11 +100,12 @@ for (x in names(strategy_types)) {
     # seeding -- about 1% of a quantity of order 1e-21.
     expect_equal(patch$ode_rates, ode_rates, tolerance = 1e-2)
     if (x == "FF16") {
-      # Blessed on the birth-date coordinate, which is the default. The two
+      # Blessed on the birth-date coordinate, which ctrl names above. The two
       # coordinates are different functions rather than two discretisations of
       # one, and the last entry of each vector is where they part company -- so
       # the two literals below are asserted alongside the relations that produce
       # them, which is what says WHICH function this is a reference for.
+      expect_true(ctrl$node_density_in_birth_date)
       expect_equal(ode_state, c(0.3441947, 0.009159, 0, 0, 0, 0, -0.009159),
                    tolerance = 1e-4)
       expect_equal(ode_rates,
