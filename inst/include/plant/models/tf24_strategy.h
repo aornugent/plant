@@ -9,6 +9,7 @@
 #include <plant/leaf_model.h>
 #include <plant/canopy_shape.h>
 #include <odelia/ode_util.hpp>
+#include <odelia/implicit_node.hpp>
 #include <type_traits>
 
 namespace plant {
@@ -704,6 +705,26 @@ public:
 
   // The aim is to find a plant height that gives the correct seed mass.
   double height_seed(void) const;
+
+  // The seed's height and leaf area at the current scalar.
+  //
+  // Preparation solves the height in plain arithmetic and cannot run at an active
+  // scalar, so on a differentiated path the height is declared by the residual that
+  // defines it -- live mass equals seed mass -- and the leaf area is derived from
+  // the height it returns. The two come from one call because the leaf area's own
+  // partials in the allometric constants and its chain through the height are the
+  // same channel: taking either against the other held fixed mixes them.
+  struct SeedGeometry { S height; S area_leaf; };
+  SeedGeometry seed_geometry() const {
+    if constexpr (std::is_same_v<S, double>) {
+      return {height_0, area_leaf_0};
+    } else {
+      const S h = odelia::implicit_value<S>(
+        height_0,
+        [&](S y) -> S { return mass_live_given_height(y) - pars.omega; });
+      return {h, area_leaf(h)};
+    }
+  }
 
   // Set constants within TF24_Strategy
   void prepare_strategy();
@@ -2116,18 +2137,27 @@ template <typename S>
 void TF24_Strategy<S>::set_initial_states(const TF24_Environment<S>& environment,
                                        Internals<S>& vars) {
   (void)environment;
-  const S height = vars.state(HEIGHT_INDEX);
-  const S area_leaf_ = area_leaf(height);
+  // The seed's height is written here, not inherited from the height an
+  // Individual was constructed with. Construction runs in plain arithmetic and an
+  // active strategy receives its results rather than deriving them, so a height
+  // that arrives that way carries no trait derivative and every rate the newborn
+  // goes on to have inherits the loss. Declaring it by its own residual at this
+  // point puts it where the parameters are already differentiable inputs, and the
+  // value written is the same one either way.
+  const SeedGeometry seed = seed_geometry();
+  vars.set_state(HEIGHT_INDEX, seed.height);
   vars.set_state(state_idx_storage,
-                 pars.a_st3 * storage_capacity(area_leaf_, height));
+                 pars.a_st3 * storage_capacity(seed.area_leaf, seed.height));
 }
 
 // [eqn 20] Survival of seedlings during establishment
 template <typename S>
 S TF24_Strategy<S>::establishment_probability(const TF24_Environment<S>& environment) {
+  const SeedGeometry seed = seed_geometry();
   return establishment_probability(
     environment,
-    net_mass_production_dt(environment, height_0, area_leaf_0, 1.0 / height_0));
+    net_mass_production_dt(environment, seed.height, seed.area_leaf,
+                           1.0 / seed.height));
 }
 
 // Both forms above end here. The carbon is birth-size carbon either way, whatever
@@ -2139,7 +2169,7 @@ S TF24_Strategy<S>::establishment_probability(const TF24_Environment<S>& environ
   S decay_over_time = exp(-pars.recruitment_decay * environment.time);
 
   if (net_mass_production_dt_ > 0) {
-    const S tmp = pars.a_d0 * area_leaf_0 / net_mass_production_dt_;
+    const S tmp = pars.a_d0 * seed_geometry().area_leaf / net_mass_production_dt_;
     return 1.0 / (tmp * tmp + 1.0) * decay_over_time;
   } else {
     return 0.0;

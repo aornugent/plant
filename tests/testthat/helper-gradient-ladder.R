@@ -626,16 +626,28 @@ ladder_regime_report <- function(x, level = c("patch", "stand")) {
     entry("both species separated in every reduction parameter",
           ladder_species_separated(patch), ladder_species_ratio(patch)))
 
-  if (level == "patch") {
-    reserve <- ladder_relative_reserve(patch)
-    gate <- ladder_reserve_gate_slope(patch)
-    report <- rbind(
-      report,
-      entry("relative reserve inside the gate's transition band",
-            length(reserve) > 0 && all(reserve > 0.02) && all(reserve < 0.30),
-            range(reserve)),
-      entry("reserve gate slope above its floor",
-            length(gate) > 0 && all(gate > 0.4), min(gate)))
+  # The vacuity guard, and it is measured at both levels because dropping it at one
+  # is how a fixture comes to pass on a damped signal. A constructed patch is put
+  # in the band; a run stand lands where the trajectory took it, which is a
+  # relative reserve near a half and a gate slope an order below the floor -- so
+  # every channel running through growth is damped there by roughly the ratio of
+  # the two slopes. Reported at stand level rather than enforced, because moving
+  # the stands into the band retunes every margin the suite has recorded.
+  reserve <- ladder_relative_reserve(patch)
+  gate <- ladder_reserve_gate_slope(patch)
+  report <- rbind(
+    report,
+    entry("relative reserve inside the gate's transition band",
+          length(reserve) > 0 && all(reserve > 0.02) && all(reserve < 0.30),
+          range(reserve)),
+    entry("reserve gate slope above its floor",
+          length(gate) > 0 && all(gate > 0.4), min(gate)))
+  report$enforced <- TRUE
+  if (level == "stand") {
+    at <- report$assertion %in%
+      c("relative reserve inside the gate's transition band",
+        "reserve gate slope above its floor")
+    report$enforced[at] <- FALSE
   }
   # Crossing is an adversariality condition rather than a regime one, and the
   # fixtures come in both forms, so the check that needs it asserts it itself.
@@ -644,7 +656,13 @@ ladder_regime_report <- function(x, level = c("patch", "stand")) {
 
 ladder_require_regime <- function(x, level = c("patch", "stand")) {
   report <- ladder_regime_report(x, level)
-  bad <- report[!report$ok, , drop = FALSE]
+  unmet <- report[!report$ok & !report$enforced, , drop = FALSE]
+  if (nrow(unmet) > 0L) {
+    message("  regime measured but not enforced here: ",
+            paste(sprintf("%s (%s)", unmet$assertion, unmet$value),
+                  collapse = "; "))
+  }
+  bad <- report[!report$ok & report$enforced, , drop = FALSE]
   if (nrow(bad) > 0L) {
     testthat::skip(paste0(
       "fixture outside its declared regime, so this run is invalid rather than ",
@@ -962,6 +980,122 @@ ladder_column_residual <- function(got, reference, trajectory = NULL) {
     out$amplification <- max(abs(trajectory) / scale)
   }
   out
+}
+
+# ---- the reference a tangent cannot be -------------------------------------
+
+# A differenced column moves one registered parameter and no other.
+#
+# A trait set through the hyperparameter function moves several: lma carries leaf
+# turnover and leaf dark respiration with it, and each of those is a separate
+# gradient column. A difference taken that way is the derivative along a
+# direction in parameter space, and the sweep's column is the derivative along a
+# basis vector. Both are finite, plausible and the same sign, and on lma at four
+# years they differ by a factor of three -- so the refusal belongs where the
+# perturbation is made, because nothing downstream of it can tell the two apart.
+ladder_assert_one_parameter <- function(before, after, name) {
+  same <- before == after[names(before)]
+  moved <- names(before)[is.na(same) | !same]
+  if (identical(moved, name)) {
+    return(invisible(moved))
+  }
+  stop(sprintf("differencing %s moved %d registered parameters (%s)", name,
+               length(moved), paste(moved, collapse = ", ")), call. = FALSE)
+}
+
+# A whole-run central difference of the census: set one registered parameter, run
+# the model, and difference. It shares no code with the sweep or the tangent and,
+# which is the point, it inherits none of their declarations. Setting a parameter
+# re-runs preparation, so the seed height moves, where both differentiated paths
+# hold it still -- and that is the one channel neither of them can referee,
+# because a tangent imposes the same equation the sweep does.
+#
+# It is for the columns a declared zero reaches, not for a sweep: two model runs
+# per column against one seeded run for a tangent column.
+#
+# The parameter is set on the built strategy rather than on the trait vector, and
+# the seed-height slope is identical either way -- so this keeps the whole of what
+# the reference is for and drops the only thing it cannot referee.
+ladder_run_difference <- function(traits, name, rel = 1e-5, lifetime = 0.4,
+                                  times = c(0, 0.29), birth_rate = 1.10) {
+  build <- function() {
+    p <- scm_base_parameters("TF24")
+    p$max_patch_lifetime <- lifetime
+    p <- add_strategies(p, trait_matrix(unname(traits), names(traits)),
+                        hyperpar = TF24_hyperpar,
+                        birth_rate = list(birth_rate))
+    p$node_schedule_times <- list(times)
+    p
+  }
+  census_at <- function(value) {
+    p <- build()
+    before <- unlist(p$strategies[[1]]$pars)
+    strategies <- p$strategies
+    pars <- strategies[[1]]$pars
+    pars[[name]] <- value
+    strategies[[1]]$pars <- pars
+    p$strategies <- strategies
+    ladder_assert_one_parameter(before, unlist(p$strategies[[1]]$pars), name)
+    stand <- ladder_run(p)
+    list(census = stand_census(stand),
+         seed_height = ladder_as_patch(stand)$species[[1]]$new_node$height)
+  }
+  # The base value comes from the registered set, so a trait the strategy does not
+  # carry as a parameter has no column here to referee.
+  value <- unlist(build()$strategies[[1]]$pars)[[name]]
+  h <- abs(value) * rel
+  a <- census_at(value + h)
+  b <- census_at(value - h)
+  list(gradient = (a$census - b$census) / (2 * h),
+       # The channel the differentiated paths impose to zero, measured rather than
+       # assumed: preparation re-runs, so the seed height moves and this is by how
+       # much.
+       seed_height_slope = (a$seed_height - b$seed_height) / (2 * h))
+}
+
+# The parameters that reach the census through birth size, where both
+# differentiated paths impose the seed height's derivative to zero. They are the
+# ones a whole-run difference is for, and they are named here rather than derived
+# because the imposition is a declaration and not a property of the arithmetic:
+# the seed height solves mass_live(h) = omega, and mass_live sums leaf, sapwood,
+# bark and root mass.
+#
+# Reaching all eight needs a difference that perturbs a registered parameter
+# rather than a trait, because only three of them are traits the fixture carries.
+ladder_birth_size_parameters <- function() {
+  c("lma", "rho", "omega", "theta", "a_l1", "a_l2", "a_r1", "a_b1")
+}
+
+# Which registered parameters a trait moves through the hyperparameter function,
+# read by differencing that function rather than by reading it. Every entry
+# besides the trait's own is a channel the sweep reports in its own column, and a
+# difference taken on the trait vector would fold them all into one.
+ladder_trait_fanout <- function(traits, name, rel = 1e-6) {
+  derived <- function(tr) {
+    unlist(as.data.frame(TF24_hyperpar(
+      trait_matrix(unname(tr), names(tr)), TF24_Strategy(), filter = FALSE))[1, ])
+  }
+  h <- abs(traits[[name]]) * rel
+  up <- traits; up[[name]] <- traits[[name]] + h
+  dn <- traits; dn[[name]] <- traits[[name]] - h
+  slope <- (derived(up) - derived(dn)) / (2 * h)
+  slope[abs(slope) > 0 & names(slope) != name]
+}
+
+# Whether that difference is in its own domain on this fixture, which is not
+# assumed. A re-run difference is unusable at production -- a relative step of two
+# parts in ten million in leaf mass per area moves a mature stand between alive and
+# identically zero -- so the check on the check is that the answer holds its figures
+# across steps spanning two orders. Where it does not, the run is invalid rather
+# than failing, as a violated regime assertion is.
+ladder_run_difference_stable <- function(traits, name, ...,
+                                         steps = c(1e-5, 1e-4, 1e-3)) {
+  got <- lapply(steps, function(r) ladder_run_difference(traits, name, rel = r, ...))
+  g <- vapply(got, function(x) x$gradient, numeric(length(got[[1]]$gradient)))
+  scale <- max(abs(g))
+  list(gradient = got[[1]]$gradient,
+       seed_height_slope = got[[1]]$seed_height_slope,
+       spread = if (scale > 0) max(apply(g, 1, function(r) diff(range(r)))) / scale else 0)
 }
 
 # A unit direction in trait space, named as the gradient's columns are.
