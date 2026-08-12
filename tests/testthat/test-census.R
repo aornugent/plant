@@ -60,10 +60,19 @@ census_r <- function(species, pars, eta, include_boundary = TRUE,
   vapply(psi, function(p) trapezium_r(x, density * p), numeric(1))
 }
 
-solved_stand <- function(lifetime = 20) {
+solved_stand <- function(lifetime = 20, schedule = NULL) {
   p <- scm_base_parameters("TF24")
   p$max_patch_lifetime <- lifetime
   p <- add_strategies(p, trait_matrix(0.0825, "lma"))
+  # A reverse sweep costs one recording and one sweep per cohort per stage per
+  # step, so its cost is set by the NODE COUNT and not by the lifetime. The
+  # default schedule gives 81 nodes at a lifetime of 2, where the forward run
+  # takes 6 seconds and the sweep takes 1006. A test that needs a realistic size
+  # distribution takes the default; one that only needs an entry point to answer
+  # passes a short schedule and gets the same code paths for seconds.
+  if (!is.null(schedule)) {
+    p$node_schedule_times <- schedule
+  }
   scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
   scm$run()
   scm
@@ -246,9 +255,14 @@ test_that("the trait gradient entry point is reachable", {
   # carries one lambda of one width and nothing narrows the system to meet an
   # earlier record, so such a run is refused by name rather than swept at a
   # width its records do not have.
-  scm <- solved_stand(5)
+  # Two nodes, because this test asks whether the entry point answers and with
+  # what names -- not what the numbers are. On the default schedule the same
+  # assertions cost a sweep over eighty-one cohorts.
+  scm <- solved_stand(5, schedule = list(c(0, 0.63)))
   expect_true(is.function(census_trait_gradient_tf24))
-  got <- tryCatch(stand_gradient(scm, traits = "lma"), error = identity)
+  # A column is named for its species as well as its parameter: a bare name would
+  # resolve to species one's column silently on a multi-species stand.
+  got <- tryCatch(stand_gradient(scm, traits = "1.lma"), error = identity)
   if (inherits(got, "error")) {
     # Either refusal is by name: the sweep cannot cross an introduction, or the
     # leaf supplies no rows for the output the water channel runs through.
@@ -256,6 +270,8 @@ test_that("the trait gradient entry point is reachable", {
                  "widens the ODE state|per-layer uptake")
   } else {
     expect_equal(rownames(got$gradient), census_metric_names_tf24())
-    expect_equal(colnames(got$gradient), "lma")
+    expect_equal(colnames(got$gradient), "1.lma")
   }
+  # And the bare name refuses, naming the convention rather than only failing.
+  expect_error(stand_gradient(scm, traits = "lma"), "species index")
 })

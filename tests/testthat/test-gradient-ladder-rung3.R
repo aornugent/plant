@@ -14,16 +14,6 @@
 # The unit is the adjoint of one right-hand-side evaluation at one stage. No
 # solver, no trajectory.
 
-ladder_block_or_skip <- function(patch, node = 1L) {
-  out <- tryCatch(list(value = ladder_block_value_tf24(patch, node)),
-                  error = function(e) e)
-  if (inherits(out, "error")) {
-    testthat::skip(paste("the cohort block does not record at an active scalar:",
-                         conditionMessage(out)))
-  }
-  out
-}
-
 test_that("the recorded block has the shape the design is costed on", {
   patch <- ladder_patch_one()
   inputs <- ladder_block_input_names_tf24(patch, 1L)
@@ -110,16 +100,57 @@ test_that("the block's structure is what every cost argument assumes", {
                   numerical_rank(light_block), sum(is_light)))
   expect_equal(numerical_rank(light_block), 1L)
 
-  # Per-layer uptake reads its own layer's potential and the collar, so the
-  # explicit part is diagonal. What is left after removing the diagonal is the
-  # argmax channel, and it is rank one because the collar is one number.
+  # Per-layer uptake reads its own layer's potential and the collar, so the block
+  # is a diagonal explicit part plus the argmax channel, and the argmax channel is
+  # rank one because the collar is one number: M = D + u v'.
+  #
+  # The explicit part is NOT the observed diagonal. Zeroing the diagonal removes
+  # D + diag(u_i v_i), which takes the rank-one term's own diagonal with it and
+  # leaves a matrix of full rank -- so a rank test on that residue fails whether
+  # or not the claim holds, and measuring it here gives five singular values of
+  # comparable size rather than one.
+  #
+  # What is testable without knowing D is the OFF-DIAGONAL structure, and it is
+  # testable as a prediction rather than a fit. For M_ij = u_i v_j off the
+  # diagonal, one reference row and one reference column determine u and v, and
+  # every remaining off-diagonal entry follows:
+  #
+  #   M_ij = M_ic * M_rj / M_rc,   i != j, i != c, j != r
+  #
+  # None of the predicted entries is used to build the prediction, so this is out
+  # of sample, and the reference entry's magnitude is reported beside it so a
+  # degenerate pair is refused rather than absorbed.
   soil_block <- j[uptake, is_soil, drop = FALSE]
   expect_equal(dim(soil_block), c(5L, 5L))
-  message(sprintf("  uptake-by-potential block rank %d",
-                  numerical_rank(soil_block)))
-  off_diagonal <- soil_block
-  diag(off_diagonal) <- 0
-  expect_equal(numerical_rank(off_diagonal), 1L)
+  n_layer <- nrow(soil_block)
+  scale <- max(abs(soil_block))
+
+  # The diagonal is the explicit Ohm's-law term and must dominate: a layer's own
+  # potential drives its own flux. Without this the split is not identifiable and
+  # the prediction below would be a statement about noise.
+  expect_true(all(abs(diag(soil_block)) >
+                    apply(abs(soil_block) - diag(diag(abs(soil_block))), 1, max)))
+
+  r <- 1L; c <- 2L
+  pivot <- soil_block[r, c]
+  expect_gt(abs(pivot) / scale, 1e-6)
+  predicted <- 0
+  worst <- 0
+  for (i in seq_len(n_layer)) {
+    for (k in seq_len(n_layer)) {
+      if (i == k || i == c || k == r) next
+      got <- soil_block[i, k]
+      want <- soil_block[i, c] * soil_block[r, k] / pivot
+      predicted <- predicted + 1L
+      worst <- max(worst, abs(got - want) / max(abs(got), abs(want)))
+    }
+  }
+  message(sprintf(
+    "  uptake-by-potential: rank %d, off-diagonal rank one predicted over %d entries",
+    numerical_rank(soil_block), predicted))
+  expect_gt(predicted, 0L)
+  ladder_report_margin("argmax channel, out-of-sample rank one",
+                       worst, 1e4 * ladder_forward_floor(patch))
 
   # Density enters no cohort rate: it reaches the world only through the two
   # reductions. It is not among the block's inputs at all, which is the strongest
@@ -148,13 +179,26 @@ test_that("every trait the block reads has a column, or is refused by name", {
   names(peak) <- traits
 
   refused <- ladder_refused_by_name()
-  declared <- ladder_zero_by_construction()
+  # This level has its own two causes and not the census's. The parameters the
+  # census cannot see for want of a metric reading offspring are live HERE,
+  # because the offspring-production rate is one of the block's own outputs, so
+  # excusing them here would excuse an absent row; and the parameters that reach
+  # the census only through the introduction boundary are correctly silent here,
+  # because the block is one individual's physiology and no introduction is in it.
+  declared <- c(ladder_zero_at_an_interior_optimum(),
+                ladder_zero_outside_the_cohort_block())
   unaccounted <- names(peak)[peak == 0 & !(names(peak) %in% c(refused, declared))]
   if (length(unaccounted) > 0) {
     message("\n  traits with no row in the block: ",
             paste(unaccounted, collapse = " "))
   }
   expect_length(unaccounted, 0L)
+
+  # And the pair the census cannot see is live here, which is what makes that a
+  # statement about the metric set rather than about the model.
+  for (name in ladder_zero_outside_the_metric_support()) {
+    expect_gt(peak[[name]], 0)
+  }
 })
 
 # ---- the reduction transposes, where the reference shares no code ------------
@@ -191,36 +235,109 @@ test_that("a crossed stand transposes, because the forward model runs it", {
   expect_no_error(ladder_rhs_adjoint_tf24(crossed, seed))
 })
 
-test_that("one right-hand-side evaluation transposes to its own tangent", {
-  # Here the reference and the object under test are genuinely disjoint: the
-  # tangent traverses the forward reductions and the adjoint traverses their
-  # transposes. Every reduction defect the design fears is a wrong entry in this
-  # comparison.
+test_that("the tangent carries the soil channel, and two references agree in it", {
+  # The environment holds its integrated soil state at the scalar the model
+  # carries, so a tangent seeded anywhere propagates through the water balance and
+  # back through the retention curve. Every soil column and every soil rate row of
+  # its Jacobian is live, where all of them used to be exactly zero -- and that is
+  # asserted rather than left to a residual, because a reference silent about a
+  # channel and a transpose wrong in it agree perfectly.
   patch <- ladder_patch_two_by_two(cross = FALSE)
   ladder_require_regime(patch, "patch")
   ladder_block_or_skip(patch)
 
   n <- patch$ode_size
+  n_env <- patch$environment$ode_size
+  is_soil <- seq_len(n) > (n - n_env)
   jacobian <- ladder_rhs_state_jacobian_forward_tf24(patch)
   expect_equal(dim(jacobian), c(n, n))
   expect_true(all(is.finite(jacobian)))
 
-  # Seeds from a fixed generator, block-normalised, because soil moisture is of
-  # order a third and heartwood mass is in kilograms and an unnormalised inner
-  # product is a test of the largest block alone.
+  expect_gt(sum(jacobian[, is_soil] != 0), n_env)
+  expect_gt(sum(jacobian[is_soil, ] != 0), n_env)
+
+  # The two references are independent -- one exact and tape-free, the other a
+  # plain-double difference that re-runs the forward balance -- so their agreement
+  # in the channel that was unrefereed is what licenses using either in it.
+  coarse <- ladder_rhs_state_difference(patch, 1e-5)
+  fine <- ladder_rhs_state_difference(patch, 1e-6)
+  floor <- ladder_difference_floor(coarse, fine)
+  ladder_report_margin("tangent against a difference, whole Jacobian",
+                       max(abs(jacobian - fine)) / max(abs(fine)),
+                       1e3 * floor)
+
+  # The transpose against the tangent, seeded on every rate. Off the soil rates it
+  # is round-off. On them it is the leaf's own supplied-row gap: both reductions
+  # now carry the boundary node's row, so what is left is the difference between a
+  # grafted uptake row and one taken by re-solving the collar.
   rates <- patch$ode_rates
   seed <- ladder_seeds(n, scale = ladder_block_scale(rates))
+  cohort_seed <- seed
+  cohort_seed[is_soil] <- 0
+  expected <- as.vector(crossprod(jacobian[!is_soil, , drop = FALSE],
+                                  cohort_seed[!is_soil]))
+  observed <- ladder_rhs_adjoint_tf24(patch, cohort_seed)$state
+  ladder_report_margin("right-hand-side transpose, off the soil rates",
+                       max(abs(expected - observed)) / max(abs(expected)),
+                       1e3 * ladder_forward_floor(patch))
 
-  expected <- as.vector(crossprod(jacobian, seed))
+  soil_seed <- seed
+  soil_seed[!is_soil] <- 0
+  soil_expected <- as.vector(crossprod(jacobian[is_soil, , drop = FALSE],
+                                       seed[is_soil]))
+  soil_observed <- ladder_rhs_adjoint_tf24(patch, soil_seed)$state
+  ladder_report_margin("the transpose on the soil rates",
+                       max(abs(soil_expected - soil_observed)) /
+                         max(abs(soil_expected)),
+                       3 * ladder_soil_row_agreement())
+})
+
+test_that("one right-hand-side evaluation transposes to a difference of itself", {
+  # The referee for the channel the tangent cannot reach. A plain-double central
+  # difference of the same right-hand side traverses the forward soil balance and
+  # the retention curve, and the transpose under test is not on its path -- which
+  # is what path disjointness asks for, and it is not the same requirement as
+  # sharing no code.
+  #
+  # A difference is admissible HERE and not at the block, and the distinction is
+  # the supplied row: the leaf's rows are grafted, so a difference of the step
+  # that consumes them is identically zero on those columns whether they are
+  # right, wrong or absent. The soil balance grafts nothing, so differencing it
+  # measures what it computes. This is where d(psi)/d(theta) and the drainage
+  # cascade's own derivative get a referee for the first time.
+  patch <- ladder_patch_two_by_two(cross = FALSE)
+  ladder_require_regime(patch, "patch")
+  ladder_block_or_skip(patch)
+
+  n <- patch$ode_size
+  rates <- patch$ode_rates
+  seed <- ladder_seeds(n, scale = ladder_block_scale(rates))
   observed <- ladder_rhs_adjoint_tf24(patch, seed)$state
 
-  scale <- max(abs(expected))
-  residual <- max(abs(expected - observed)) / scale
-  worst <- which.max(abs(expected - observed))
-  message(sprintf("  worst state entry %d: tangent %.6e  adjoint %.6e",
-                  worst, expected[[worst]], observed[[worst]]))
-  ladder_report_margin("right-hand-side transpose, per state entry",
-                       residual, 1e3 * ladder_forward_floor(patch))
+  # Two steps, so the tolerance is the reference's own uncertainty rather than a
+  # literal: a central difference is truncation-dominated above its minimum and
+  # round-off-dominated below, so the gap between two decades bounds the better
+  # one's error.
+  coarse <- as.vector(crossprod(ladder_rhs_state_difference(patch, 1e-5), seed))
+  fine <- as.vector(crossprod(ladder_rhs_state_difference(patch, 1e-6), seed))
+  floor <- ladder_difference_floor(coarse, fine)
+  message(sprintf("  the difference's own error at this step: %.3e", floor))
+
+  scale <- max(abs(fine))
+  residual <- max(abs(fine - observed)) / scale
+  worst <- which.max(abs(fine - observed))
+  message(sprintf("  worst state entry %d: difference %.6e  adjoint %.6e",
+                  worst, fine[[worst]], observed[[worst]]))
+
+  # Non-vacuity: the soil block has to carry adjoint traffic, or this check
+  # passes with the whole water channel missing from both sides.
+  n_env <- patch$environment$ode_size
+  is_soil <- seq_len(n) > (n - n_env)
+  ladder_expect_moves(observed[is_soil], rep(0, sum(is_soil)),
+                      "the soil block's state adjoint")
+
+  ladder_report_margin("right-hand-side transpose, against a difference",
+                       residual, 10 * floor)
 })
 
 test_that("the trait rows that arise inside a reduction arrive", {
@@ -234,30 +351,94 @@ test_that("the trait rows that arise inside a reduction arrive", {
   ladder_block_or_skip(patch)
 
   n <- patch$ode_size
+  n_env <- patch$environment$ode_size
+  is_soil <- seq_len(n) > (n - n_env)
+  columns <- ladder_trait_names_tf24(patch)
   rates <- patch$ode_rates
   seed <- ladder_seeds(n, scale = ladder_block_scale(rates))
 
+  # Seeded on the cohort rates only. The soil rates now carry trait rows in the
+  # reference too, but their transpose is short of the boundary node's own draw,
+  # so including them here would report that gap as a reduction defect.
+  cohort_seed <- seed
+  cohort_seed[is_soil] <- 0
   jacobian <- ladder_rhs_trait_jacobian_forward_tf24(patch)
-  expected <- as.vector(crossprod(jacobian, seed))
-  observed <- ladder_rhs_adjoint_tf24(patch, seed)$trait
-  names(expected) <- names(observed) <- ladder_trait_names_tf24(patch)
+  expect_gt(sum(jacobian[is_soil, ] != 0), n_env)
+  expected <- as.vector(crossprod(jacobian[!is_soil, , drop = FALSE],
+                                  cohort_seed[!is_soil]))
+  observed <- ladder_rhs_adjoint_tf24(patch, cohort_seed)$trait
+  names(expected) <- names(observed) <- columns
 
   # Non-vacuity first: the reduction's own contribution has to be non-zero in
-  # the reference, or its absence in the sweep proves nothing.
+  # the reference, or its absence in the sweep proves nothing. Both species'
+  # columns are taken, because a per-species row summed over every cohort of
+  # every species is the collapse this fixture exists to catch. The crown shape
+  # is the fourth reduction-borne parameter and has no column at all, so it drops
+  # out here rather than being checked.
   reduction_borne <- c("k_I", "eta", "a_l1", "a_l2")
-  present <- intersect(reduction_borne, names(expected))
-  expect_gt(length(present), 0L)
+  present <- names(expected)[ladder_bare_traits(names(expected)) %in%
+                               reduction_borne]
+  expect_length(present, 6L)
   expect_true(all(abs(expected[present]) > 0),
               label = "the tangent's reduction-borne rows are themselves zero")
 
   scale <- max(abs(expected))
-  residual <- max(abs(expected - observed)) / scale
   gap <- names(expected)[abs(expected - observed) > 1e-6 * scale]
   if (length(gap) > 0) {
     message("\n  trait rows that disagree: ", paste(unique(gap), collapse = " "))
   }
-  ladder_report_margin("right-hand-side transpose, per trait",
-                       residual, 1e3 * ladder_forward_floor(patch))
+  ladder_report_margin("trait transpose, off the soil rows",
+                       max(abs(expected - observed)) / scale,
+                       1e3 * ladder_forward_floor(patch))
+})
+
+test_that("the trait rows a difference can reach agree with one", {
+  # The whole contraction, soil rows included, refereed against a plain-double
+  # difference of the same right-hand side in each trait. This is the only
+  # reference that carries the water channel, so it is the only one that referees
+  # a trait whose route runs through it.
+  #
+  # Eighteen columns are outside its reach and the set is declared rather than
+  # discovered: the leaf holds its own copy of nine traits per species, taken when
+  # the strategy was prepared, and a rate evaluation does not push them back in.
+  # So the difference is EXACTLY zero there whether the sweep's row is right,
+  # wrong or absent -- the same shape as a grafted row one level down. Their
+  # referee is the leaf's own algebra at a solved operating point, which is rung 1
+  # and is not built, so those columns are unrefereed by anything.
+  patch <- ladder_patch_two_by_two(cross = FALSE)
+  ladder_block_or_skip(patch)
+
+  n <- patch$ode_size
+  columns <- ladder_trait_names_tf24(patch)
+  seed <- ladder_seeds(n, scale = ladder_block_scale(patch$ode_rates))
+  observed <- ladder_rhs_adjoint_tf24(patch, seed)$trait
+
+  coarse <- as.vector(crossprod(
+    ladder_rhs_trait_difference_tf24(patch, 1e-5), seed))
+  fine <- as.vector(crossprod(
+    ladder_rhs_trait_difference_tf24(patch, 1e-6), seed))
+
+  # Which columns the difference cannot reach, asserted to be exactly the
+  # declared set. A column that leaves this set has become refereeable, and one
+  # that joins it has stopped being so; either is a finding.
+  scale_all <- max(abs(fine))
+  unreachable <- columns[fine == 0 & abs(observed) > 1e-8 * scale_all]
+  message("\n  columns no difference of the rates can reach: ",
+          paste(unique(ladder_bare_traits(unreachable)), collapse = " "))
+  expect_setequal(ladder_bare_traits(unreachable), ladder_leaf_own_traits())
+
+  keep <- setdiff(seq_along(columns), match(unreachable, columns))
+  floor <- ladder_difference_floor(coarse[keep], fine[keep])
+  message(sprintf("  the difference's own error at this step: %.3e", floor))
+
+  scale <- max(abs(fine[keep]))
+  residual <- max(abs(fine[keep] - observed[keep])) / scale
+  worst <- keep[[which.max(abs(fine[keep] - observed[keep]))]]
+  message(sprintf("  worst refereeable column %s: difference %.6e  adjoint %.6e",
+                  columns[[worst]], fine[[worst]], observed[[worst]]))
+  ladder_report_margin(
+    sprintf("trait transpose against a difference, %d columns", length(keep)),
+    residual, 10 * floor)
 })
 
 test_that("the recording does not grow with the stand", {
@@ -273,8 +454,16 @@ test_that("the recording does not grow with the stand", {
   seed_four <- rep(1, four$ode_size)
   a <- ladder_rhs_adjoint_tf24(one, seed_one)
   b <- ladder_rhs_adjoint_tf24(four, seed_four)
-  message(sprintf("\n  recording size: %.0f at 1 cohort, %.0f at 4",
-                  a$block_recording_size, b$block_recording_size))
-  expect_equal(b$block_recording_size, a$block_recording_size)
-  expect_equal(b$block_sweeps, 4)
+  message(sprintf("\n  recording size: %.0f at 1 cohort, %.0f at 4, %d sweeps",
+                  a$block_recording_size, b$block_recording_size,
+                  b$block_sweeps))
+  # The size reported is the last block's, and the two stands' last blocks belong
+  # to different species, so this is a bound rather than an equality: a recording
+  # that grew with the stand would exceed it by a factor, not by a few percent.
+  expect_lt(b$block_recording_size, 1.1 * a$block_recording_size)
+
+  # One block per grid point of the reductions, which is one per cohort plus one
+  # boundary node per species: the boundary node is the distribution's lower grid
+  # point and both reductions integrate from it.
+  expect_equal(b$block_sweeps, 6)
 })

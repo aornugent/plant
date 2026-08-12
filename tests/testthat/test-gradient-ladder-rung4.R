@@ -38,18 +38,80 @@ test_that("the structural checks hold before any reference is consulted", {
   expect_length(census_trait_names_tf24(stand), 88L)
 })
 
-test_that("the gradient contracts to a tangent of the same trajectory", {
-  # The reference is a tangent run of the whole solve, replaying the recorded
-  # step sizes. Without that replay the tangent run's controller chooses its own
-  # steps and the comparison differentiates the controller, which is not the
-  # model.
+test_that("the replay reaches the run's own census", {
+  # Before any derivative the reference reports means anything, it has to be a
+  # derivative of the same function. The tangent run replays the recorded step
+  # SIZES rather than the times -- a size differenced back out of two recorded
+  # times is not the size that was taken, since fl(fl(t + h) - t) != h -- and
+  # rather than a controller of its own, which would differentiate the
+  # controller. Landing on the run's own census is what says the replay worked.
+  #
+  # It is also every trajectory check's floor: the reference reports derivatives
+  # at the state it actually reached.
   stand <- ladder_stand_two_by_two()
-  ladder_gradient_or_skip(stand)
-  skip_if_not(
-    exists("ladder_trajectory_tangent_tf24", mode = "function"),
-    paste("no tangent run replays a recorded trajectory's step sizes, so the",
-          "trajectory sweep has no reference and the stage recursion, the",
-          "step-size handling and the cross-species accumulation are unrefereed"))
+  ladder_require_regime(stand, "stand")
+  result <- ladder_gradient_or_skip(stand)
+  ladder_report_margin("the replay reaches the run's own census",
+                       ladder_replay_floor(stand, result$value), 1e-9)
+
+  # Non-vacuity of the seed: an unseeded replay must report no derivative, or a
+  # zero tangent would be evidence of nothing about a column that reads zero.
+  quiet <- ladder_trajectory_tangent(
+    stand, numeric(length(colnames(result$gradient))))
+  expect_true(all(quiet$tangent == 0))
+})
+
+test_that("the gradient contracts to a tangent of the same trajectory", {
+  # The reference traverses both reductions, the stage recursion and the
+  # introduction boundary, and none of the transposes under test are on its path.
+  # Here the Jacobian can no longer be formed, so the contraction returns.
+  stand <- ladder_stand_two_by_two()
+  result <- ladder_gradient_or_skip(stand)
+  columns <- colnames(result$gradient)
+
+  direction <- ladder_seeds(length(columns),
+                            scale = ladder_block_scale(result$gradient[1, ]))
+  reference <- ladder_trajectory_tangent(stand, direction)$tangent
+  observed <- as.vector(result$gradient %*% direction)
+  expect_length(reference, nrow(result$gradient))
+
+  # Normalised by the largest single contribution rather than by their sum. The
+  # sum cancels -- that cancellation is the contraction's blind spot, and it is
+  # why the coordinate directions below are run beside it -- so dividing by it
+  # would report cancellation as error.
+  term <- max(abs(sweep(result$gradient, 2, direction, `*`)))
+  ladder_report_margin("the contraction against the trajectory tangent",
+                       max(abs(reference - observed)) / term,
+                       3 * ladder_introduction_residual())
+})
+
+test_that("each shortlisted trait's own column is refereed", {
+  # A contraction against one direction masks a column whose true value is near
+  # zero, so every shortlisted parameter is asked for as a coordinate direction:
+  # one replay, one exact column of the census-by-trait Jacobian.
+  #
+  # Two bounds, because the columns fall into two classes and one bound would
+  # excuse the worse of them. A column a widening carries is held to the looser
+  # one, and which columns those are is declared rather than discovered from the
+  # residual.
+  stand <- ladder_stand_two_by_two()
+  result <- ladder_gradient_or_skip(stand)
+  columns <- colnames(result$gradient)
+  present <- columns[ladder_bare_traits(columns) %in% ladder_shortlist()]
+  expect_length(present, 10L)
+
+  for (name in present) {
+    reference <- ladder_trajectory_tangent(
+      stand, ladder_trait_direction(columns, name))$tangent
+    peak <- max(abs(result$gradient[, name]))
+    expect_gt(peak, 0)
+    borne <- ladder_bare_traits(name) %in% ladder_introduction_borne_traits()
+    ladder_report_margin(
+      paste("column", name, if (borne) "(introduction-borne)" else ""),
+      max(abs(reference - result$gradient[, name])) / peak,
+      if (borne) ladder_introduction_residual()
+      else ladder_trajectory_agreement())
+  }
 })
 
 test_that("no shortlisted trait reads exactly zero", {
@@ -59,8 +121,12 @@ test_that("no shortlisted trait reads exactly zero", {
   # for a structural reason.
   stand <- ladder_stand_two_by_two()
   result <- ladder_gradient_or_skip(stand)
-  present <- intersect(ladder_shortlist(), colnames(result$gradient))
-  expect_gt(length(present), 0L)
+  # Every species' column for every shortlisted parameter, because a column that
+  # reads zero for one species only is exactly the collapse the shortlist is
+  # watching for. The crown shape has no column at all and drops out here.
+  columns <- colnames(result$gradient)
+  present <- columns[ladder_bare_traits(columns) %in% ladder_shortlist()]
+  expect_length(present, 10L)
 
   peak <- vapply(present, function(n) max(abs(result$gradient[, n])), numeric(1))
   message("\n  shortlisted trait magnitudes:")
@@ -88,8 +154,8 @@ test_that("a trait is one input read by every cohort, not one input per cohort",
 
   # Refining the schedule at fixed ecology moves the answer by quadrature, not
   # by a whole cohort count. A ratio near the node-count ratio is the signature.
-  ratio <- result_more$gradient["leaf_area", "lma"] /
-    result_fewer$gradient["leaf_area", "lma"]
+  ratio <- result_more$gradient["leaf_area", "1.lma"] /
+    result_fewer$gradient["leaf_area", "1.lma"]
   message(sprintf("\n  lma row, four nodes over three: %.4f", ratio))
   expect_lt(abs(ratio - 1), 0.5)
 })
@@ -106,8 +172,11 @@ test_that("the two species do not collapse into one scalar", {
   half <- length(columns) / 2L
 
   for (name in c("k_I", "a_l1", "a_l2")) {
-    at <- which(columns == name)
-    if (length(at) != 2L) next
+    # Naming the two columns rather than searching for them: a search that comes
+    # back with one match, or none, would skip the check that earns the second
+    # species.
+    at <- match(paste0(1:2, ".", name), columns)
+    expect_false(anyNA(at), label = paste("both species' columns for", name))
     first <- result$gradient[, at[[1]]]
     second <- result$gradient[, at[[2]]]
     expect_false(isTRUE(all.equal(first, second)),
@@ -132,8 +201,13 @@ test_that("record once and sweep many gives each metric its own recording", {
                           logical(1))
   expect_false(any(zero_families))
 
-  # And the positional check: each metric swept alone must equal itself swept
-  # with the others, which is the floor's permutation check read per metric.
+  # And the positional check, which CANNOT FAIL as written and is kept only
+  # because the shape it watches for is real. stand_gradient(metrics = m) computes
+  # every metric in C++ and subsets in R, so "swept alone" and "swept with the
+  # others" are one sweep and comparing them is a tautology. Established by
+  # injection: with an active value deliberately held across the tape clear, this
+  # passed and only the trajectory reference saw the defect. Closing it needs the
+  # sweep itself to take a metric subset.
   for (m in metrics) {
     alone <- stand_gradient(stand, metrics = m)
     expect_identical(alone$gradient[m, ], result$gradient[m, ])

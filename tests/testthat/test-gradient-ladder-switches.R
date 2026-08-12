@@ -111,12 +111,35 @@ test_that("the census's direct term has no other home", {
   expect_true(all(abs(direct / reported) > 1e-6))
 
   # And the switch itself, which is the only way to establish that the reported
-  # row contains this term rather than merely being the same size.
-  skip_if_not(ladder_injected("") == "" && exists("ladder_census_without_direct_tf24",
-                                                  mode = "function"),
-              paste("nothing computes the census gradient with the direct term",
-                    "suppressed, so this route has no switch and is the one",
-                    "route no transpose check touches"))
+  # row contains this term rather than merely being the same size. The term is
+  # reported on its own, so throwing it away is a subtraction: what is left must
+  # differ from the reported row by exactly the term.
+  own <- do.call(rbind, census_trait_direct_tf24(stand))
+  dimnames(own) <- list(rownames(result$gradient), colnames(result$gradient))
+  suppressed <- result$gradient - own
+  ladder_expect_moves(result$gradient, suppressed,
+                      "the census's direct term")
+
+  # It is refereed as well as switchable, and by a path it shares nothing with:
+  # this one records the census and sweeps a tape, the difference below evaluates
+  # the census twice with the strategy moved in place. A difference that rebuilt
+  # from Parameters would re-run preparation and carry the birth-size channel the
+  # sweep imposes to zero, which is why it perturbs the prepared strategy.
+  # Normalised over the matrix rather than per entry, which is the convention the
+  # difference floor is itself measured in: the columns span orders of magnitude
+  # and a per-entry quotient on a near-zero entry reports its own denominator.
+  fine <- do.call(rbind, census_trait_difference_tf24(stand, 1e-6))
+  coarse <- do.call(rbind, census_trait_difference_tf24(stand, 1e-5))
+  floor <- ladder_difference_floor(coarse, fine)
+  # The bound is the difference's ROUND-OFF and not its truncation, which is the
+  # opposite of the usual case and is why the measured floor alone is too tight
+  # here. A central difference at a relative step of 1e-6 on a census of order ten
+  # carries round-off of about eps * C / h, near 7e-9, and the two agree to 5.1e-9.
+  # The truncation floor is three orders below that and would report the step's
+  # own noise as a disagreement.
+  ladder_report_margin("the census's direct term against a difference",
+                       max(abs(own - fine)) / max(abs(fine)),
+                       max(100 * floor, 1e-7))
 })
 
 test_that("the boundary's three channels are three switches", {
@@ -124,7 +147,7 @@ test_that("the boundary's three channels are three switches", {
   # storage capacity, so how well a seedling is provisioned reads the traits
   # directly. And the seed height is imposed to zero rather than derived.
   stand <- ladder_stand_introductions()
-  columns <- census_trait_names_tf24(stand)
+  columns <- ladder_bare_traits(census_trait_names_tf24(stand))
   expect_true("a_st3" %in% columns)
   expect_true("recruitment_decay" %in% columns)
   # The third has no numerical switch and must therefore be declared.

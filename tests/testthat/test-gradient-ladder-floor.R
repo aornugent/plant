@@ -81,6 +81,31 @@ test_that("the census refuses a grid its own abscissa cannot order", {
   }
 })
 
+test_that("the reference computes the model's own rates", {
+  # The cheapest check in the corpus and the one everything above it rests on: a
+  # reference whose VALUE disagrees with the model is a reference to a different
+  # function, and every Jacobian taken from it is that function's Jacobian --
+  # internally consistent, plausible, and refereeing nothing.
+  #
+  # It needs no derivative and no seed, so it is a floor item rather than part of
+  # the harness, and it is not subsumed by any agreement between a tangent and a
+  # sweep: both are built on the same rebound twin, so a twin that differs from
+  # the model in value can have them agree with each other exactly.
+  for (fixture in list(ladder_patch_one(),
+                       ladder_patch_two_by_two(cross = FALSE),
+                       ladder_patch_two_by_two(cross = TRUE))) {
+    model <- fixture$ode_rates
+    reference <- ladder_rhs_value_forward_tf24(fixture)
+    scale <- pmax(abs(model), abs(reference))
+    relative <- ifelse(scale > 0, abs(model - reference) / scale, 0)
+    worst <- which.max(relative)
+    names(relative) <- ladder_rate_names(fixture)
+    ladder_report_margin(
+      sprintf("reference value, worst at %s", names(relative)[[worst]]),
+      max(relative), 1e3 * ladder_forward_floor(fixture))
+  }
+})
+
 # ---- the sweep computes the same thing however it is decomposed -------------
 
 test_that("two consecutive sweeps of one recording are bit-identical", {
@@ -118,26 +143,75 @@ test_that("a gradient is bit-identical under a permutation of the sweep order", 
 })
 
 test_that("a sweep split at an interior step equals the whole sweep", {
-  # Splitting a recording and sweeping the halves must give the whole sweep bit
-  # for bit, at an interior step and at an introduction and at one step either
-  # side of one. Non-vacuity: the split point must carry non-zero adjoint
-  # traffic, or the equality is between two copies of the same thing.
-  skip_if_not(ladder_can_split_sweep(),
-              paste("no entry point sweeps a recorded trajectory in two parts,",
-                    "so the decomposition this design rests on is unchecked"))
+  # The reverse pass is a backward linear recursion over recorded steps, chopped
+  # into one segment per width. Composition over steps is therefore associative,
+  # and splitting a segment must give the whole sweep BIT FOR BIT -- tolerance is
+  # exactly zero, and no reference is needed because this is a property the
+  # implementation either has or does not.
+  #
+  # What it catches is anything carried across a step boundary that is not the
+  # adjoint. The trait accumulator accumulates by design, but the block
+  # workspace, the tape, the knot adjoints and the strategy templates all live
+  # across steps, and a split forces a clean re-entry at the cut.
   stand <- ladder_stand_introductions()
   ladder_gradient_or_skip(stand)
+  whole <- do.call(rbind, census_trait_gradient_tf24(stand))
+  unsplit_ranges <- census_adjoint_segments_tf24(stand)
+
+  widths <- vapply(stand$store_trajectory(), function(s) length(s$state),
+                   numeric(1))
+  widening <- which(diff(widths) != 0)
+  expect_gte(length(widening), 3L)
+
+  # An interior step, one either side of a widening, and all three at once. The
+  # step counted here is the one the split names, from one.
+  interior <- floor((widening[[2]] + widening[[3]]) / 2)
+  points <- list("an interior step" = interior,
+                 "one step before a widening" = widening[[2]] - 1,
+                 "one step after a widening" = widening[[2]] + 1,
+                 "all three at once" = c(interior, widening[[2]] - 1,
+                                         widening[[2]] + 1))
+  for (name in names(points)) {
+    split <- do.call(rbind,
+                     census_trait_gradient_split_tf24(stand, points[[name]]))
+    ranges <- census_adjoint_segments_tf24(stand)
+    # Non-vacuity, and it is not decoration: a split landing ON a segment
+    # boundary is outside every segment's interior and cuts nothing, so the
+    # equality below would hold between two identical sweeps. The range count is
+    # what says the cut happened.
+    expect_gt(ranges, unsplit_ranges)
+    message(sprintf("  %-28s %2.0f ranges against %2.0f", name, ranges,
+                    unsplit_ranges))
+    expect_identical(split, whole)
+  }
+
+  # And the boundary case stated rather than left as a trap: naming a widening
+  # itself requests a split no segment contains.
+  boundary_split <- do.call(rbind,
+                            census_trait_gradient_split_tf24(stand,
+                                                             widening[[2]]))
+  expect_equal(census_adjoint_segments_tf24(stand), unsplit_ranges)
+  expect_identical(boundary_split, whole)
 })
 
-test_that("rejected steps contribute nothing, and the fixture has some", {
-  # A rejected attempt is not part of the trajectory, and excluding it is exact
-  # rather than an approximation. Asserting the count first is what stops the
-  # claim from being vacuous.
+test_that("a rejected step attempt is not a question about the gradient", {
+  # This is where the ladder asked for the rejection count, and the requirement is
+  # withdrawn rather than skipped. The reverse pass never sees a rejected attempt:
+  # the adaptive pass resolves the schedule, one state and one step size are
+  # recorded per ACCEPTED step, and the sweep runs over those. There is no
+  # exclusion left to perform, so "the gradient is unchanged when rejections are
+  # excluded" compares a thing with itself.
+  #
+  # The seam a rejected attempt does leave is in the FORWARD replay, not the
+  # sweep: it moves patch state that is not ODE state -- the first-same-as-last
+  # derivative carry, and anything cached on the patch -- so a pinned replay is
+  # not bit-identical to the adaptive run it replays. That is what the trajectory
+  # reference's own floor measures, and it is asserted where the reference is
+  # used rather than here.
   stand <- ladder_stand_introductions()
-  skip_if_not(ladder_can_count_rejections(),
-              paste("the recorded trajectory does not report how many step",
-                    "attempts were rejected, so 'a rejected step contributes",
-                    "nothing' cannot be made non-vacuous"))
+  result <- ladder_gradient_or_skip(stand)
+  ladder_report_margin("the replay reaches this stand's own census",
+                       ladder_replay_floor(stand, result$value), 1e-9)
 })
 
 test_that("a sweep that never ran is distinguishable from an insensitive stand", {
@@ -180,18 +254,23 @@ test_that("every trait column resolves to one declared class", {
 
   declared_zero <- ladder_zero_by_construction()
   band <- ladder_roundoff_band()
+  bare <- ladder_bare_traits(colnames(g))
 
   classify <- function(column, name) {
     peak <- max(abs(column))
-    if (name %in% declared_zero) return("zero by construction")
+    declared <- name %in% declared_zero
+    if (declared && peak == 0) return("zero by construction")
+    # A declared zero that comes back non-zero is as much a finding as an
+    # undeclared zero: the declaration names a reason, and a number means the
+    # reason has stopped holding.
+    if (declared) return("declared zero, now live")
     if (peak == 0) return("exact zero, unaccounted")
     if (peak < band[[2]]) return("round-off, reaches no equation")
     "live"
   }
 
-  classes <- vapply(seq_len(ncol(g)),
-                    function(j) classify(g[, j], colnames(g)[[j]]),
-                    character(1))
+  classes <- vapply(seq_along(bare),
+                    function(j) classify(g[, j], bare[[j]]), character(1))
   names(classes) <- colnames(g)
 
   message("\ntrait column classes:")
@@ -200,10 +279,55 @@ test_that("every trait column resolves to one declared class", {
                     paste(names(classes)[classes == cls], collapse = " ")))
   }
 
-  expect_equal(unname(classes[names(classes) %in% declared_zero]),
-               rep("zero by construction", sum(names(classes) %in% declared_zero)))
+  expect_length(names(classes)[classes == "declared zero, now live"], 0L)
   expect_length(names(classes)[classes == "exact zero, unaccounted"], 0L)
   expect_length(names(classes)[classes == "round-off, reaches no equation"], 0L)
+  # Non-vacuity: a declaration that named nothing would make the class above
+  # unfalsifiable, and every column being live would make this check pass with
+  # the classification absent.
+  expect_gt(sum(classes == "zero by construction"), 0L)
+  expect_gt(sum(classes == "live"), 0L)
+})
+
+test_that("each declared zero is zero for the cause it is declared for", {
+  # Naming a cause is only worth more than tolerating a zero if the cause is
+  # measured. Each cause is a claim about which rows of the right-hand side the
+  # parameter moves, and the trait Jacobian of one rate evaluation answers it
+  # directly: a column of zeros for a parameter claimed to move one rate, or a
+  # moved rate for one claimed to move none, is a wrong declaration.
+  # One species, because the cause is a property of the parameter and not of
+  # which species carries it, and the trait Jacobian costs one evaluation per
+  # column: forty-four here against eighty-eight on the four-node fixture, for
+  # the same claim. The per-species question belongs to rungs 3 and 4.
+  patch <- ladder_patch_one()
+  ladder_require_regime(patch, "patch")
+  j <- ladder_rhs_trait_jacobian_forward_tf24(patch)
+  columns <- ladder_trait_names_tf24(patch)
+  bare <- ladder_bare_traits(columns)
+  rates <- ladder_rate_names(patch)
+
+  message("\ndeclared zeros, and the rates they move:")
+  for (name in ladder_zero_by_construction()) {
+    # Both species' columns, so a cause that holds for one species and not the
+    # other is a failure rather than a pass on the first match.
+    at <- which(bare == name)
+    expect_length(at, length(patch$species))
+    moved <- rates[apply(abs(j[, at, drop = FALSE]) > 0, 1, any)]
+    message(sprintf("  %-16s %-46s %s", name, ladder_zero_cause(name),
+                    paste(unique(moved), collapse = " ")))
+    if (name %in% ladder_zero_at_an_interior_optimum()) {
+      # The dry bound of a feasible interval the operating point is inside. It
+      # moves nothing at all, and that is complementary slackness rather than a
+      # missing row -- the same parameter carries the whole row at a pin.
+      expect_length(moved, 0L)
+    } else {
+      # The two reproductive accumulators and nothing else. A third rate would
+      # make the census's silence about the column wrong, and neither of these
+      # two is read by any metric or by any equation -- which is why the same
+      # column would be live on a fitness functional.
+      expect_setequal(unique(moved), ladder_reproductive_rates())
+    }
+  }
 })
 
 test_that("an unknown parameter refuses by name rather than returning a number", {

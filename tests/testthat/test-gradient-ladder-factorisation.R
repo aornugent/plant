@@ -41,19 +41,71 @@ test_that("the marginal profit's factorisation is measured, not assumed", {
   # network or leaf area. The residual is then three central differences per
   # direction and a two-column least squares.
   #
-  # WHAT IS NOT SETTLED, and it is why this is written as a specification rather
-  # than run: the factorisation's second term differentiates the sensitivity of
-  # total uptake to "root mass", and whether that is the per-layer root mass in
-  # the direction being differentiated or one scalar summarising the network
-  # decides both the arity of the term and what the coefficient means. Writing
-  # the check against the wrong reading produces a residual that fails for a
-  # reason that is not the model's.
-  skip(paste(
-    "the factorisation of the marginal profit is unmeasured, and it is the",
-    "load-bearing claim for the whole water channel: if it does not hold, the",
-    "argmax channel is not two scalars times closed-form vectors and the cost",
-    "argument for the design changes. Closing it needs the reading of the",
-    "root-mass direction settled first."))
+  # The reading IS settled, in the code and in the corpus: the second intermediate
+  # is uptake's sensitivity to the COLLAR, not to root mass, and the second basis
+  # vector is d(dE_up/dp)/dpsi_j. So the factorisation is not a specification --
+  # it is the production path, and every layer but the one it is solved from is
+  # already a PREDICTION.
+  #
+  # That is what makes it refereeable without any new machinery. The supplied
+  # uptake rows use the factorisation; a difference of the PLAIN-DOUBLE block
+  # re-solves the collar, so it carries the true dp*/dpsi_j with no factorisation
+  # in it. The two disagree only by the factorisation's own error.
+  #
+  # A difference is admissible here for the reason it is admissible at the soil
+  # balance and not at the recorded step: it differences the double path, which
+  # runs the leaf's own solve, rather than the grafted expression whose value does
+  # not depend on a grafted input at all.
+  patch <- ladder_patch_one()
+  ladder_require_regime(patch, "patch")
+  ladder_block_or_skip(patch)
+
+  inputs <- ladder_block_input_names_tf24(patch, 1L)
+  outputs <- ladder_block_output_names_tf24(patch)
+  is_soil <- grepl("^psi_soil_", inputs)
+  uptake <- grepl("^uptake_", outputs)
+  supplied <- ladder_block_jacobian_forward_tf24(patch, 1L)[uptake, is_soil,
+                                                            drop = FALSE]
+
+  # Two steps, so the reference's own error is measured rather than assumed. A
+  # step of 1e-3 is NOT usable here: it drives the wettest layer's potential below
+  # the root vulnerability grid's lower bound and the leaf refuses to bracket.
+  differenced <- function(rel) {
+    ladder_block_difference_tf24(patch, 1L, rel)[uptake, is_soil, drop = FALSE]
+  }
+  coarse <- differenced(1e-6)
+  fine <- differenced(1e-7)
+  scale <- max(abs(fine))
+  floor <- max(max(abs(coarse - fine)) / scale, 4 * .Machine$double.eps)
+  residual <- apply(abs(supplied - fine), 2, max) / scale
+  message(sprintf("\n  the difference's own error at this step: %.3e", floor))
+  message("  per-layer residual: ",
+          paste(sprintf("%.2e", residual), collapse = " "))
+
+  # The layer the pair is solved FROM is in sample, and its residual is set by the
+  # fit's own step rather than by the factorisation: the two scalars are recovered
+  # from a central difference at a relative 1e-3, so a second-order error of order
+  # 1e-6 is expected there and is not evidence about the prediction.
+  solved_from <- which.max(abs(diag(supplied)))
+  fit_step <- 1e-3
+  ladder_report_margin("factorisation, in sample at the solved-from layer",
+                       residual[[solved_from]], 10 * fit_step^2)
+
+  # Every other layer is predicted, and this is the claim that matters: the pair
+  # is fitted in one direction and has to work in the others, so a compensating
+  # (a, b) cannot hide here the way it hides in a joint residual.
+  predicted <- residual[-solved_from]
+  expect_gt(length(predicted), 0L)
+  ladder_report_margin(
+    sprintf("factorisation, OUT OF SAMPLE over %d layers", length(predicted)),
+    max(predicted), 10 * floor)
+
+  # Non-vacuity: the predicted entries must carry a response, or agreeing about
+  # zero would pass. The off-diagonal of the supplied block IS the argmax channel.
+  off <- supplied
+  diag(off) <- 0
+  ladder_expect_moves(off, matrix(0, nrow(off), ncol(off)),
+                      "the argmax channel's off-diagonal")
 })
 
 test_that("the leaf's supplied rows are refereed against its own algebra", {
@@ -67,16 +119,61 @@ test_that("the leaf's supplied rows are refereed against its own algebra", {
   # So the rows have to be checked against the solver's own algebra, or against
   # a transpose identity that needs no reference gradient -- never against a
   # difference of the step that consumes them.
-  patch <- ladder_patch_one()
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
+  # The referee is not the leaf's algebra but something that serves the same
+  # purpose and is available: the forward model rebuilt from its parameters. A
+  # rebuild runs preparation, so the leaf is CONSTRUCTED with the moved trait
+  # rather than handed it afterwards, and differencing the rates then traverses
+  # the leaf's forward solve while touching none of the derivative code the rows
+  # come from.
+  #
+  # It reaches exactly the columns nothing else does. A perturbation of the
+  # prepared strategy leaves the leaf at the value it was prepared with, so that
+  # difference is EXACTLY zero on these -- not small, zero -- whether the row is
+  # right, wrong or absent.
+  patch <- ladder_patch_two_by_two(cross = FALSE)
+  ladder_require_regime(patch, "patch")
+  ladder_block_or_skip(patch)
 
-  # The columns a supplied row occupies, so the claim above is concrete rather
-  # than general: the radiation the leaf reads and each layer's potential.
-  supplied <- grepl("^psi_soil_", inputs)
-  expect_gt(sum(supplied), 0L)
+  n <- patch$ode_size
+  seed <- ladder_seeds(n, scale = ladder_block_scale(patch$ode_rates))
+  columns <- ladder_trait_names_tf24(patch)
+  sweep_row <- ladder_rhs_adjoint_tf24(patch, seed)$trait
+  names(sweep_row) <- columns
 
-  skip(paste(
-    "nothing compares the leaf's supplied rows against the leaf's own",
-    "algebra at one solved operating point, so the rows every rung above",
-    "consumes are unrefereed"))
+  # Non-vacuity, and it is the whole point of the check: the reference that is
+  # normally used must be silent on these columns, or refereeing them here would
+  # be redundant rather than necessary.
+  prepared <- as.vector(crossprod(
+    ladder_rhs_trait_difference_tf24(patch, 1e-6), seed))
+  names(prepared) <- columns
+
+  message("\n  leaf traits, refereed by a rebuilt forward model:")
+  worst <- 0
+  for (name in ladder_leaf_own_traits()) {
+    for (index in seq_len(length(patch$species))) {
+      key <- paste0(index, ".", name)
+      # Skip the two whose row is zero at an interior optimum by complementary
+      # slackness; they are declared in the floor and have nothing to referee.
+      if (name %in% ladder_zero_at_an_interior_optimum()) next
+      expect_equal(prepared[[key]], 0,
+                   label = paste("the prepared-strategy difference reaches", key))
+      coarse <- sum(ladder_rate_difference_rebuilt(patch, index, name, 1e-5) * seed)
+      fine <- sum(ladder_rate_difference_rebuilt(patch, index, name, 1e-6) * seed)
+      got <- sweep_row[[key]]
+      scale <- max(abs(got), abs(fine))
+      residual <- abs(got - fine) / scale
+      worst <- max(worst, residual)
+      message(sprintf("    %-24s sweep %13.6e  rebuilt %13.6e  rel %.2e",
+                      key, got, fine, residual))
+      # Non-vacuity per column: a row of zero on both sides would agree perfectly.
+      expect_gt(abs(got) / max(abs(sweep_row)), 1e-10)
+    }
+  }
+
+  # The tolerance is the leaf's own solve tolerance appearing twice, because both
+  # sides difference a re-solved operating point. That is three orders looser than
+  # the 3e-06 the columns a prepared-strategy difference reaches are held to, and
+  # tightening it needs the analytic route rather than a better step.
+  ladder_report_margin("leaf trait rows, against a rebuilt forward model",
+                       worst, 1e-2)
 })

@@ -90,8 +90,29 @@ for (x in names(strategy_types)) {
     # seeding -- about 1% of a quantity of order 1e-21.
     expect_equal(patch$ode_rates, ode_rates, tolerance = 1e-2)
     if (x == "FF16") {
-      expect_equal(ode_state, c(0.3441947, 0.009159, 0, 0, 0, 0, 1.08695), tolerance = 1e-4)
-      expect_equal(ode_rates, c(0.3341652, 0.01000000, 0, 5.1781e-09, 9.60270e-07, 0, -0.78726), tolerance = 1e-4)
+      # Blessed on the birth-date coordinate, which is the default. The two
+      # coordinates are different functions rather than two discretisations of
+      # one, and the last entry of each vector is where they part company -- so
+      # the two literals below are asserted alongside the relations that produce
+      # them, which is what says WHICH function this is a reference for.
+      expect_equal(ode_state, c(0.3441947, 0.009159, 0, 0, 0, 0, -0.009159),
+                   tolerance = 1e-4)
+      expect_equal(ode_rates,
+                   c(0.3341652, 0.01000000, 0, 5.1781e-09, 9.60270e-07, 0, -0.01),
+                   tolerance = 1e-4)
+
+      # The density rate is minus the mortality rate and nothing else. On the
+      # height coordinate it carries a compression term as well, which is what
+      # made this entry -0.78726 and cost a displaced-height solve to compute.
+      expect_equal(ode_rates[[7]], -ode_rates[[2]])
+
+      # And the boundary condition is the seed arrival times the establishment
+      # probability, with no division by the growth rate. At a birth rate of one
+      # that makes the log density exactly minus the cumulative mortality, since
+      # the mortality a node is seeded with is -log(pr_estab). On the height
+      # coordinate the division put this entry -log(g) higher, at 1.08695.
+      expect_equal(patch$species[[1]]$extrinsic_drivers$evaluate("birth_rate", 0), 1)
+      expect_equal(ode_state[[7]], -ode_state[[2]])
     }
     y <- patch$ode_state
     patch$set_ode_state(y, 0)
@@ -230,9 +251,30 @@ test_that("TF24 patch aux reports the per-layer uptake", {
   y <- patch$ode_state
   y[[which(names_ode == "height")]] <- 10
   y[[which(names_ode == "log_density")]] <- log(5)
-  patch$set_ode_state(y, 1.0)
 
   n_layers <- Environment("TF24")$get_soil_number_of_depths()
+  # A dry layer under a wet one, because that is the arrangement signed uptake
+  # needs and it is not the one an arbitrary state supplies. Water moves on the
+  # difference between a layer's potential and the collar's, so where a deep
+  # layer is drier than the collar the flux runs the other way and the plant
+  # releases into it. On a uniform column every layer is drawn from and the
+  # signedness below would be asserting a phenomenon the state does not contain.
+  #
+  # The profile is measured rather than chosen: at these contents the deepest two
+  # layers come back at -0.158 and -0.169 against +1.7 at the top. It is written
+  # for the five-layer column and refuses a wider one rather than padding with
+  # NAs, because a silently truncated profile would be a uniform column again.
+  moisture <- c(0.35, 0.32, 0.25, 0.12, 0.06)
+  expect_lte(n_layers, length(moisture))
+  at <- length(y) - Environment("TF24")$ode_size
+  y[at + seq_len(n_layers)] <- moisture[seq_len(n_layers)]
+  patch$set_ode_state(y, 1.0)
+  # The auxiliaries are written by a rate evaluation and not by loading a state,
+  # so a read taken before one returns the previous evaluation's values -- zeros,
+  # on a patch whose rates have never been computed at this state. This was
+  # passing by accident: the height coordinate's density rate solves the
+  # physiology again at a displaced height, which populated them on the way.
+  invisible(patch$ode_rates)
   uptake <- tail(patch$ode_aux, n_layers)
 
   # The soil's cumulative total-uptake rate is the last environment rate and is
@@ -240,7 +282,9 @@ test_that("TF24 patch aux reports the per-layer uptake", {
   expect_equal(sum(uptake), tail(patch$ode_rates, 1))
   expect_true(all(is.finite(uptake)))
   expect_gt(uptake[[1]], 0)
-  # Uptake is signed: the plant can release water into the deepest layer.
+  # Uptake is signed, and the state above is what makes that observable rather
+  # than incidental: the deepest layer is drier than the collar, so the plant
+  # releases into it instead of drawing from it.
   expect_lt(uptake[[n_layers]], 0)
 })
 
