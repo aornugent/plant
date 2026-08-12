@@ -53,11 +53,19 @@ rediscovery.
   real trait channel, and it is still dropped. The same argument applies to
   `.area_leaf`, since the seed's leaf area follows from the height.
 
-  **Do not remove these.** Seed them into the boundary condition's
-  vector-Jacobian product instead and measure: the completeness ratios are
-  0.999 to 1.000 at four tenths of a year but `a_l2` is 0.924 at four years, and
-  a channel that acts once per introduction while the census accumulates is the
-  right shape for a residual that grows with run length.
+  **Resolved by measurement rather than by argument.** `.height` and `.area_leaf`
+  are now seeded into the boundary condition's vector-Jacobian product, as one
+  pull-back through the seed's height: the leaf-area adjoint converts to a height
+  adjoint by `darea_leaf_dheight` and sums with it, because the seed's leaf area is
+  the allometry at the seed's height, and seeding it separately would deliver its
+  fixed-height partials twice. Consuming them moves the answer toward the
+  rebuilding reference, so they were dropped rather than redundant.
+  `.extinction` is the genuinely redundant one — `light_reduction_trait_adjoint`
+  takes that row from the same value one line above the boundary branch — and it
+  stays unconsumed.
+
+  The size is worth recording against the reason it was reached for: `4e-5` on a
+  residual of `7.6e-2`. `a_l2` is still 0.924 at four years, so this was not it.
 
   **The general lesson is worth more than the entry.** "Written and never read"
   was a correct observation and a wrong conclusion, because whether a dropped

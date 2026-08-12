@@ -179,10 +179,10 @@ public:
   size_t reduction_node_count() const;
 
   // The boundary node's own size and density adjoints, one entry per species. No
-  // ODE row holds them, so boundary_condition_adjoint() pulls the density back
-  // through the condition that sets it. The height and leaf-area slots have no
-  // route left once the reduction has taken its trait rows: both reach the seed
-  // height, which is double by declaration.
+  // ODE row holds them, so boundary_condition_adjoint() pulls each back through
+  // the condition that sets it. The height and leaf-area slots reach the seed
+  // height, which solves its own condition, so they carry a trait row rather
+  // than terminating.
   std::vector<boundary_node_adjoints> boundary_node_adjoint;
 
   // The trait adjoints, species-major in each strategy's ad_parameters() order.
@@ -1709,8 +1709,8 @@ void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
       for (size_t s = 0; s < n_state; ++s) {
         const double row = ws.in_adjoint[at++];
         if (boundary) {
-          // The boundary node's height is imposed passive and its remaining
-          // states are the inflow condition's, so no ODE row holds them.
+          // No ODE row holds the boundary node's states: its height solves the
+          // seed's own condition and the rest are the inflow condition's.
           if (s == HEIGHT_INDEX) {
             boundary_node_adjoint[i].height += row;
           }
@@ -1995,10 +1995,13 @@ void Patch<T,E>::boundary_condition_adjoint(
     clear_trait_adjoint();
   }
   util::check_length(boundary_node_adjoint.size(), n_species);
-  // The recording is the expensive part and a seed of zeros buys nothing.
+  // The recording is the expensive part and a seed of zeros buys nothing. Every
+  // channel the product carries has to be tested here, or a stand whose only
+  // boundary sensitivity is the seed's size returns before recording anything.
   bool seeded = false;
   for (const boundary_node_adjoints& b : boundary_node_adjoint) {
-    seeded = seeded || b.density_in_field != 0.0 || b.density_in_uptake != 0.0;
+    seeded = seeded || b.density_in_field != 0.0 || b.density_in_uptake != 0.0 ||
+             b.height != 0.0 || b.area_leaf != 0.0;
   }
   if (!seeded) {
     return;
@@ -2041,6 +2044,9 @@ void Patch<T,E>::boundary_condition_adjoint(
     active.compute_boundary_nodes();
     for (size_t i = 0; i < n_species; ++i) {
       y[n_species + i] = active.species[i].r_new_node().get_density();
+      // The seed's height, which solves its own condition here rather than
+      // arriving as a value, so this output is what carries dh_0/dtrait.
+      y[2 * n_species + i] = active.species[i].r_new_node().height();
     }
   };
 
@@ -2049,7 +2055,7 @@ void Patch<T,E>::boundary_condition_adjoint(
   // carries a zero adjoint with it, and the quotient is the contribution's limit.
   util::check_length(density_in_field.size(), n_species);
   util::check_length(density_in_uptake.size(), n_species);
-  std::vector<double> out_adjoint(2 * n_species, 0.0);
+  std::vector<double> out_adjoint(3 * n_species, 0.0);
   for (size_t i = 0; i < n_species; ++i) {
     if (density_in_field[i] > 0.0) {
       out_adjoint[i] =
@@ -2059,6 +2065,16 @@ void Patch<T,E>::boundary_condition_adjoint(
       out_adjoint[n_species + i] =
         boundary_node_adjoint[i].density_in_uptake / density_in_uptake[i];
     }
+    // The leaf-area adjoint is converted to a height one and summed with it,
+    // exactly as an interior node's is, because the seed's leaf area is the
+    // allometry at the seed's height. Seeding leaf area as a second output
+    // instead would deliver its partials at fixed height a second time, and the
+    // reduction has already taken those.
+    const double darea_leaf_dheight = odelia::util::to_passive(
+      species[i].r_new_node().individual.darea_leaf_dheight());
+    out_adjoint[2 * n_species + i] =
+      boundary_node_adjoint[i].height +
+      boundary_node_adjoint[i].area_leaf * darea_leaf_dheight;
   }
   std::vector<double> in_adjoint;
   typename scalar::tape_type tape(false);
