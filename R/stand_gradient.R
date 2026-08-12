@@ -47,34 +47,47 @@ gradient_control <- function(scm) {
                     "schedule_eps"))
 }
 
-##' Traits the sweep reaches no equation for yet, and so refuses by name.
+##' Traits the sweep reaches no equation for, and so refuses by name.
 ##'
 ##' The leaf is entered at a solved operating point with its derivatives supplied
 ##' rather than recorded, so a trait of the leaf's own reaches the tape only if a
-##' derivative is supplied for it. Those are not supplied yet. An exact zero here
-##' would be indistinguishable from a trait the model genuinely does not use,
-##' which is the one failure shape this design cannot afford, so the entry point
-##' refuses them instead.
+##' derivative is supplied for it. Every leaf trait the strategy declares as
+##' differentiable now has one, so this set is empty. An exact zero here would be
+##' indistinguishable from a trait the model genuinely does not use, which is the
+##' one failure shape this design cannot afford, so a trait that loses its row
+##' belongs here rather than in the matrix.
 ##'
-##' @return A character vector of trait names.
+##' A parameter the strategy does not declare as differentiable is a different
+##' case and is already refused by name as an unknown trait.
+##'
+##' @return A character vector of trait names, without the species prefix a
+##'   gradient's columns carry.
 ##' @export
 stand_gradient_unanswered <- function() {
-  c("K_s", "c", "b", "psi_crit", "beta2", "g1_TF24", "a",
-    "curv_fact_elec_trans", "curv_fact_colim", "root_c", "root_b",
-    "root_psi_crit", "rooting_depth_max")
+  character(0)
 }
+
+# The parameter a gradient column names, with its species index stripped. The
+# refusal above is a property of the strategy's parameter and not of which
+# species carries it, so it is matched on this rather than on the column name.
+trait_without_species <- function(x) sub("^[0-9]+\\.", "", x)
 
 ##' Gradient of a stand's census metrics with respect to traits.
 ##'
 ##' Doubles in and doubles out: the active scalar is created and destroyed inside
-##' one call and never crosses into R. The census functional is seeded on the
-##' states it reads at the end of the run, and the reverse pass runs back over
-##' the steps the adaptive pass resolved.
+##' one call and never crosses into R.
+##'
+##' Two terms, because a census reads the traits as well as the state. The reverse
+##' pass is seeded on the states the census reads at the end of the run and runs
+##' back over the steps the adaptive pass resolved; added to it is the census's own
+##' reading of the traits at that state, which is not a sensitivity of the state
+##' and so no sweep produces it.
 ##'
 ##' @param scm A run \code{SCM} object for the TF24 strategy.
 ##' @param metrics Census metric names to differentiate; defaults to all of them.
-##' @param traits Trait names to differentiate with respect to; defaults to every
-##'   differentiable parameter the strategy declares.
+##' @param traits Column names to differentiate with respect to; defaults to
+##'   every differentiable parameter every species declares. A column is named
+##'   for its species and its parameter, as \code{"1.lma"}.
 ##' @return A list with \code{value}, the metrics at the end of the run;
 ##'   \code{gradient}, a metrics-by-traits matrix; and \code{control}, the four
 ##'   entries the gradient was taken at.
@@ -100,24 +113,33 @@ stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
   if (length(unknown) > 0L) {
     stop("Unknown census metric: ", paste(unknown, collapse = ", "))
   }
-  unanswered <- intersect(traits, stand_gradient_unanswered())
+  unanswered <- traits[trait_without_species(traits) %in%
+                         stand_gradient_unanswered()]
   if (asked_by_name && length(unanswered) > 0L) {
-    stop("The sweep supplies no derivative for the leaf's own traits, so it ",
-         "refuses them rather than returning a zero that reads as a finding: ",
+    stop("The sweep supplies no derivative for these traits, so it refuses ",
+         "them rather than returning a zero that reads as a finding: ",
          paste(unanswered, collapse = ", "))
   }
   unknown <- setdiff(traits, all_traits)
   if (length(unknown) > 0L) {
-    stop("Unknown trait: ", paste(unknown, collapse = ", "))
+    # A bare parameter name is the shape of the defect the prefix exists to
+    # prevent, so say what the columns are called rather than only refusing.
+    hint <- if (any(unknown %in% trait_without_species(all_traits))) {
+      paste0(". Columns carry their species index, as \"",
+             all_traits[[1]], "\"")
+    } else {
+      ""
+    }
+    stop("Unknown trait: ", paste(unknown, collapse = ", "), hint)
   }
 
   value <- stand_census(scm)[metrics]
   gradient <- do.call(rbind, census_trait_gradient_tf24(scm))
-  dimnames(gradient) <- list(all_metrics, census_trait_names_tf24(scm))
+  dimnames(gradient) <- list(all_metrics, all_traits)
 
   list(value = value,
        gradient = gradient[metrics, traits, drop = FALSE],
-       unanswered = intersect(traits, stand_gradient_unanswered()),
+       unanswered = unanswered,
        control = gradient_control(scm))
 }
 

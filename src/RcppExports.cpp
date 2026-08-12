@@ -12386,6 +12386,52 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// census_trait_direct_tf24
+std::vector<std::vector<double>> census_trait_direct_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_census_trait_direct_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(census_trait_direct_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// census_trait_difference_tf24
+std::vector<std::vector<double>> census_trait_difference_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, double rel);
+RcppExport SEXP _plant_census_trait_difference_tf24(SEXP obj_SEXP, SEXP relSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< double >::type rel(relSEXP);
+    rcpp_result_gen = Rcpp::wrap(census_trait_difference_tf24(obj_, rel));
+    return rcpp_result_gen;
+END_RCPP
+}
+// census_trait_gradient_split_tf24
+std::vector<std::vector<double>> census_trait_gradient_split_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<int> splits);
+RcppExport SEXP _plant_census_trait_gradient_split_tf24(SEXP obj_SEXP, SEXP splitsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<int> >::type splits(splitsSEXP);
+    rcpp_result_gen = Rcpp::wrap(census_trait_gradient_split_tf24(obj_, splits));
+    return rcpp_result_gen;
+END_RCPP
+}
+// census_adjoint_segments_tf24
+double census_adjoint_segments_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_census_adjoint_segments_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(census_adjoint_segments_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
 // gradient_control_tf24
 std::vector<double> gradient_control_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
 RcppExport SEXP _plant_gradient_control_tf24(SEXP obj_SEXP) {
@@ -12507,6 +12553,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ladder_rhs_value_forward_tf24
+std::vector<double> ladder_rhs_value_forward_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_ladder_rhs_value_forward_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(ladder_rhs_value_forward_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
 // ladder_rhs_state_jacobian_forward_tf24
 Rcpp::NumericMatrix ladder_rhs_state_jacobian_forward_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
 RcppExport SEXP _plant_ladder_rhs_state_jacobian_forward_tf24(SEXP obj_SEXP) {
@@ -12541,6 +12598,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ladder_trajectory_tangent_tf24
+Rcpp::List ladder_trajectory_tangent_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<double> direction);
+RcppExport SEXP _plant_ladder_trajectory_tangent_tf24(SEXP obj_SEXP, SEXP directionSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type direction(directionSEXP);
+    rcpp_result_gen = Rcpp::wrap(ladder_trajectory_tangent_tf24(obj_, direction));
+    return rcpp_result_gen;
+END_RCPP
+}
 // ladder_trait_names_tf24
 std::vector<std::string> ladder_trait_names_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
 RcppExport SEXP _plant_ladder_trait_names_tf24(SEXP obj_SEXP) {
@@ -12560,6 +12629,69 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
     rcpp_result_gen = Rcpp::wrap(ladder_node_count_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ladder_field_knots_tf24
+Rcpp::List ladder_field_knots_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_ladder_field_knots_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(ladder_field_knots_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ladder_light_reduction_adjoint_tf24
+Rcpp::List ladder_light_reduction_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<double> lambda_value, std::vector<double> lambda_slope);
+RcppExport SEXP _plant_ladder_light_reduction_adjoint_tf24(SEXP obj_SEXP, SEXP lambda_valueSEXP, SEXP lambda_slopeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type lambda_value(lambda_valueSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type lambda_slope(lambda_slopeSEXP);
+    rcpp_result_gen = Rcpp::wrap(ladder_light_reduction_adjoint_tf24(obj_, lambda_value, lambda_slope));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ladder_block_difference_tf24
+Rcpp::NumericMatrix ladder_block_difference_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, int node, double rel);
+RcppExport SEXP _plant_ladder_block_difference_tf24(SEXP obj_SEXP, SEXP nodeSEXP, SEXP relSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< int >::type node(nodeSEXP);
+    Rcpp::traits::input_parameter< double >::type rel(relSEXP);
+    rcpp_result_gen = Rcpp::wrap(ladder_block_difference_tf24(obj_, node, rel));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ladder_introduction_jacobian_tf24
+Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<int> species_index, std::vector<double> state_before, double time_before);
+RcppExport SEXP _plant_ladder_introduction_jacobian_tf24(SEXP obj_SEXP, SEXP species_indexSEXP, SEXP state_beforeSEXP, SEXP time_beforeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<int> >::type species_index(species_indexSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type state_before(state_beforeSEXP);
+    Rcpp::traits::input_parameter< double >::type time_before(time_beforeSEXP);
+    rcpp_result_gen = Rcpp::wrap(ladder_introduction_jacobian_tf24(obj_, species_index, state_before, time_before));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ladder_rhs_trait_difference_tf24
+Rcpp::NumericMatrix ladder_rhs_trait_difference_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, double rel);
+RcppExport SEXP _plant_ladder_rhs_trait_difference_tf24(SEXP obj_SEXP, SEXP relSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< double >::type rel(relSEXP);
+    rcpp_result_gen = Rcpp::wrap(ladder_rhs_trait_difference_tf24(obj_, rel));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -13901,6 +14033,10 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_census_state_adjoint_tf24", (DL_FUNC) &_plant_census_state_adjoint_tf24, 1},
     {"_plant_census_trait_names_tf24", (DL_FUNC) &_plant_census_trait_names_tf24, 1},
     {"_plant_census_trait_gradient_tf24", (DL_FUNC) &_plant_census_trait_gradient_tf24, 1},
+    {"_plant_census_trait_direct_tf24", (DL_FUNC) &_plant_census_trait_direct_tf24, 1},
+    {"_plant_census_trait_difference_tf24", (DL_FUNC) &_plant_census_trait_difference_tf24, 2},
+    {"_plant_census_trait_gradient_split_tf24", (DL_FUNC) &_plant_census_trait_gradient_split_tf24, 2},
+    {"_plant_census_adjoint_segments_tf24", (DL_FUNC) &_plant_census_adjoint_segments_tf24, 1},
     {"_plant_gradient_control_tf24", (DL_FUNC) &_plant_gradient_control_tf24, 1},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
     {"_plant_make_node_schedule__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___FF16__FF16_Env, 1},
@@ -13911,11 +14047,18 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ladder_block_jacobian_forward_tf24", (DL_FUNC) &_plant_ladder_block_jacobian_forward_tf24, 2},
     {"_plant_ladder_block_value_tf24", (DL_FUNC) &_plant_ladder_block_value_tf24, 2},
     {"_plant_ladder_block_jacobian_reverse_tf24", (DL_FUNC) &_plant_ladder_block_jacobian_reverse_tf24, 2},
+    {"_plant_ladder_rhs_value_forward_tf24", (DL_FUNC) &_plant_ladder_rhs_value_forward_tf24, 1},
     {"_plant_ladder_rhs_state_jacobian_forward_tf24", (DL_FUNC) &_plant_ladder_rhs_state_jacobian_forward_tf24, 1},
     {"_plant_ladder_rhs_trait_jacobian_forward_tf24", (DL_FUNC) &_plant_ladder_rhs_trait_jacobian_forward_tf24, 1},
     {"_plant_ladder_rhs_adjoint_tf24", (DL_FUNC) &_plant_ladder_rhs_adjoint_tf24, 2},
+    {"_plant_ladder_trajectory_tangent_tf24", (DL_FUNC) &_plant_ladder_trajectory_tangent_tf24, 2},
     {"_plant_ladder_trait_names_tf24", (DL_FUNC) &_plant_ladder_trait_names_tf24, 1},
     {"_plant_ladder_node_count_tf24", (DL_FUNC) &_plant_ladder_node_count_tf24, 1},
+    {"_plant_ladder_field_knots_tf24", (DL_FUNC) &_plant_ladder_field_knots_tf24, 1},
+    {"_plant_ladder_light_reduction_adjoint_tf24", (DL_FUNC) &_plant_ladder_light_reduction_adjoint_tf24, 3},
+    {"_plant_ladder_block_difference_tf24", (DL_FUNC) &_plant_ladder_block_difference_tf24, 3},
+    {"_plant_ladder_introduction_jacobian_tf24", (DL_FUNC) &_plant_ladder_introduction_jacobian_tf24, 4},
+    {"_plant_ladder_rhs_trait_difference_tf24", (DL_FUNC) &_plant_ladder_rhs_trait_difference_tf24, 2},
     {"_plant_FF16_oderunner_individual_internals", (DL_FUNC) &_plant_FF16_oderunner_individual_internals, 1},
     {"_plant_K93_oderunner_individual_internals", (DL_FUNC) &_plant_K93_oderunner_individual_internals, 1},
     {"_plant_TF24_oderunner_individual_internals", (DL_FUNC) &_plant_TF24_oderunner_individual_internals, 1},

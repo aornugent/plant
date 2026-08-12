@@ -4405,6 +4405,22 @@ census_trait_gradient_tf24 <- function(obj_) {
     .Call('_plant_census_trait_gradient_tf24', PACKAGE = 'plant', obj_)
 }
 
+census_trait_direct_tf24 <- function(obj_) {
+    .Call('_plant_census_trait_direct_tf24', PACKAGE = 'plant', obj_)
+}
+
+census_trait_difference_tf24 <- function(obj_, rel) {
+    .Call('_plant_census_trait_difference_tf24', PACKAGE = 'plant', obj_, rel)
+}
+
+census_trait_gradient_split_tf24 <- function(obj_, splits) {
+    .Call('_plant_census_trait_gradient_split_tf24', PACKAGE = 'plant', obj_, splits)
+}
+
+census_adjoint_segments_tf24 <- function(obj_) {
+    .Call('_plant_census_adjoint_segments_tf24', PACKAGE = 'plant', obj_)
+}
+
 gradient_control_tf24 <- function(obj_) {
     .Call('_plant_gradient_control_tf24', PACKAGE = 'plant', obj_)
 }
@@ -4445,6 +4461,10 @@ ladder_block_jacobian_reverse_tf24 <- function(obj_, node) {
     .Call('_plant_ladder_block_jacobian_reverse_tf24', PACKAGE = 'plant', obj_, node)
 }
 
+ladder_rhs_value_forward_tf24 <- function(obj_) {
+    .Call('_plant_ladder_rhs_value_forward_tf24', PACKAGE = 'plant', obj_)
+}
+
 ladder_rhs_state_jacobian_forward_tf24 <- function(obj_) {
     .Call('_plant_ladder_rhs_state_jacobian_forward_tf24', PACKAGE = 'plant', obj_)
 }
@@ -4457,12 +4477,36 @@ ladder_rhs_adjoint_tf24 <- function(obj_, lambda_dydt) {
     .Call('_plant_ladder_rhs_adjoint_tf24', PACKAGE = 'plant', obj_, lambda_dydt)
 }
 
+ladder_trajectory_tangent_tf24 <- function(obj_, direction) {
+    .Call('_plant_ladder_trajectory_tangent_tf24', PACKAGE = 'plant', obj_, direction)
+}
+
 ladder_trait_names_tf24 <- function(obj_) {
     .Call('_plant_ladder_trait_names_tf24', PACKAGE = 'plant', obj_)
 }
 
 ladder_node_count_tf24 <- function(obj_) {
     .Call('_plant_ladder_node_count_tf24', PACKAGE = 'plant', obj_)
+}
+
+ladder_field_knots_tf24 <- function(obj_) {
+    .Call('_plant_ladder_field_knots_tf24', PACKAGE = 'plant', obj_)
+}
+
+ladder_light_reduction_adjoint_tf24 <- function(obj_, lambda_value, lambda_slope) {
+    .Call('_plant_ladder_light_reduction_adjoint_tf24', PACKAGE = 'plant', obj_, lambda_value, lambda_slope)
+}
+
+ladder_block_difference_tf24 <- function(obj_, node, rel) {
+    .Call('_plant_ladder_block_difference_tf24', PACKAGE = 'plant', obj_, node, rel)
+}
+
+ladder_introduction_jacobian_tf24 <- function(obj_, species_index, state_before, time_before) {
+    .Call('_plant_ladder_introduction_jacobian_tf24', PACKAGE = 'plant', obj_, species_index, state_before, time_before)
+}
+
+ladder_rhs_trait_difference_tf24 <- function(obj_, rel) {
+    .Call('_plant_ladder_rhs_trait_difference_tf24', PACKAGE = 'plant', obj_, rel)
 }
 
 FF16_oderunner_individual_internals <- function(obj) {

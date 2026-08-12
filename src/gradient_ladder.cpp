@@ -269,6 +269,34 @@ Rcpp::NumericMatrix ladder_block_jacobian_reverse_tf24(plant::RcppR6::RcppR6<pla
   return to_matrix(rows, n_in);
 }
 
+// The rates the reference itself computes, at the state the patch holds. A
+// reference whose value disagrees with the model is a reference to a different
+// function, and every Jacobian taken from it is that function's, so this is the
+// first thing to compare and it needs no derivative at all.
+// [[Rcpp::export]]
+std::vector<double> ladder_rhs_value_forward_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  const patch_type& patch = *obj_;
+  const size_t n = patch.ode_size();
+  const double time = patch.ode_time();
+  std::vector<double> x0(n);
+  patch.ode_state(x0.begin());
+
+  auto active = patch.rebind_from<tangent>();
+  std::vector<tangent> x(n);
+  for (size_t i = 0; i < n; ++i) {
+    x[i] = x0[i];
+  }
+  active.set_ode_state(x.begin(), time);
+  std::vector<tangent> dydt(n);
+  active.ode_rates(dydt.begin());
+
+  std::vector<double> out(n);
+  for (size_t i = 0; i < n; ++i) {
+    out[i] = xad::value(dydt[i]);
+  }
+  return out;
+}
+
 // One right-hand-side evaluation's Jacobian with respect to the ODE state, by
 // forward tangent. The reference for the reduction transposes.
 // [[Rcpp::export]]
@@ -373,29 +401,229 @@ Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF2
   patch.ode_rates_adjoint(lambda_dydt.begin(), lambda_y.begin());
   return Rcpp::List::create(Rcpp::_["state"] = lambda_y,
                             Rcpp::_["trait"] = patch.trait_adjoint,
+                            Rcpp::_["knot_value"] = patch.last_knot_adjoint.value,
+                            Rcpp::_["knot_slope"] = patch.last_knot_adjoint.slope,
                             Rcpp::_["block_recording_size"] =
                               static_cast<double>(patch.block_recording_size),
                             Rcpp::_["block_sweeps"] =
                               static_cast<double>(patch.block_sweeps));
 }
 
-// The trait columns' names, species-major, so a gradient's columns can be told
-// apart when two species carry the same parameter.
+// The trajectory reference: one exact directional derivative of the census by a
+// forward tangent of the same run, stepped at the sizes it recorded. `direction`
+// carries one weight per trait column, so a unit vector gives one Jacobian column
+// and a mixed direction gives the contraction the trajectory rungs compare.
+// [[Rcpp::export]]
+Rcpp::List ladder_trajectory_tangent_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                          std::vector<double> direction) {
+  std::vector<double> value;
+  const std::vector<double> tangent =
+    obj_->census_trait_tangent<plant::tf24_census>(direction, value);
+  return Rcpp::List::create(Rcpp::_["value"] = value,
+                            Rcpp::_["tangent"] = tangent);
+}
+
+// The trait columns' names, species-major and each carrying its species index,
+// so a gradient's columns can be told apart when two species carry the same
+// parameter.
 // [[Rcpp::export]]
 std::vector<std::string> ladder_trait_names_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  const patch_type& patch = *obj_;
-  std::vector<std::string> out;
-  for (size_t i = 0; i < patch.size(); ++i) {
-    for (const std::string& n :
-         patch.at_species(i).strategy_ptr()->ad_parameter_names()) {
-      out.push_back(n);
-    }
-  }
-  return out;
+  return obj_->trait_adjoint_names();
 }
 
 // How many nodes the block loop visits, which is what a node index runs over.
 // [[Rcpp::export]]
 int ladder_node_count_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   return static_cast<int>(obj_->node_count());
+}
+
+// The field's knot data, which is what the recorded step reads and what the
+// light reduction's transpose is the transpose of. Exposed so a reduction row
+// can be refereed against a difference of the reduction alone, without the
+// cohort block or the boundary condition in the way.
+// [[Rcpp::export]]
+Rcpp::List ladder_field_knots_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  const patch_type& patch = *obj_;
+  const environment_type& environment = patch.r_environment();
+  const std::vector<double>& value = environment.light_availability.knot_values();
+  const std::vector<double>& slope = environment.light_availability.knot_slopes();
+  return Rcpp::List::create(Rcpp::_["value"] = value,
+                            Rcpp::_["slope"] = slope,
+                            Rcpp::_["height"] =
+                              environment.light_availability.spline.knots());
+}
+
+// The light reduction's transpose on its own: knot adjoints in, the size-space
+// adjoints scattered onto the state and the trait rows they pull back to out.
+// The cohort block and the water reduction are not on this path.
+// [[Rcpp::export]]
+Rcpp::List ladder_light_reduction_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                               std::vector<double> lambda_value,
+                                               std::vector<double> lambda_slope) {
+  patch_type& patch = *obj_;
+  patch.clear_trait_adjoint();
+  patch_type::light_knot_adjoints lambda_knot{lambda_value, lambda_slope};
+  std::vector<plant::node_size_adjoints> sizes(
+    patch.reduction_node_count(), plant::node_size_adjoints{0, 0, 0, 0});
+  patch.light_knot_adjoint(lambda_knot, sizes);
+  std::vector<double> lambda_state(patch.ode_size(), 0.0);
+  patch.allometry_adjoint(sizes, lambda_state);
+  return Rcpp::List::create(Rcpp::_["state"] = lambda_state,
+                            Rcpp::_["trait"] = patch.trait_adjoint);
+}
+
+// The block's outputs differenced in one input, in plain double, with the
+// environment held. A difference of the RECORDED step cannot see an error in a
+// supplied row -- the graft makes the value independent of a grafted input -- so
+// this differences the double path instead, which runs the leaf's own solve.
+// Columns are the block's inputs in block_inputs order, rows its outputs.
+// [[Rcpp::export]]
+Rcpp::NumericMatrix ladder_block_difference_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                                 int node, double rel) {
+  patch_type& patch = *obj_;
+  const node_address at = locate(patch, static_cast<size_t>(node - 1));
+
+  const strategy_type& source = *patch.at_species(at.species).strategy_ptr();
+  environment_type environment = patch.r_environment();
+  strategy_type::ptr strategy = std::make_shared<strategy_type>(source);
+  plant::Individual<strategy_type, environment_type> individual(strategy);
+
+  const size_t n_in = individual.block_input_size(environment);
+  const size_t n_out = individual.block_output_size(environment);
+  std::vector<double> in(n_in);
+  patch.at_species(at.species).node_at(at.node).individual
+    .block_inputs(in.begin(), patch.r_environment());
+
+  auto evaluate = [&](const std::vector<double>& x, std::vector<double>& y) {
+    environment = patch.r_environment();
+    individual.set_block_inputs(x.begin(), environment);
+    individual.compute_rates(environment);
+    y.resize(n_out);
+    individual.block_outputs(y.begin(), environment);
+  };
+
+  Rcpp::NumericMatrix out(static_cast<int>(n_out), static_cast<int>(n_in));
+  std::vector<double> up(n_out), dn(n_out);
+  for (size_t c = 0; c < n_in; ++c) {
+    const double h = std::max(std::abs(in[c]) * rel, rel);
+    std::vector<double> x = in;
+    x[c] = in[c] + h;
+    evaluate(x, up);
+    x[c] = in[c] - h;
+    evaluate(x, dn);
+    for (size_t r = 0; r < n_out; ++r) {
+      out(static_cast<int>(r), static_cast<int>(c)) = (up[r] - dn[r]) / (2.0 * h);
+    }
+  }
+  return out;
+}
+
+// The introduction map's whole Jacobian, both ways, at one widening.
+//
+// This is rung 5's own unit and the one object it had no reference for. The map is
+// the pre-introduction state and the traits in, the whole widened state out; the
+// forward side seeds one tangent per input column, and the reverse side is the
+// transpose the sweep actually runs, seeded with one unit output adjoint per row.
+// Both go through introduce_over, so the reference traverses the forward function
+// and not the transpose.
+//
+// Forming it entirely is what localises a disagreement to a cell. A contraction
+// returns one number, hides an error behind a small seed component, and when it
+// fails localises to nothing.
+// [[Rcpp::export]]
+Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                             std::vector<int> species_index,
+                                             std::vector<double> state_before,
+                                             double time_before) {
+  patch_type& patch = *obj_;
+  std::vector<size_t> which;
+  which.reserve(species_index.size());
+  for (const int i : species_index) {
+    if (i < 1 || static_cast<size_t>(i) > patch.size()) {
+      plant::util::stop("a species index is counted from one");
+    }
+    which.push_back(static_cast<size_t>(i - 1));
+  }
+
+  const size_t n_state = patch.ode_size();
+  const size_t n_trait = patch.trait_adjoint_size();
+  const std::vector<std::vector<double>> forward =
+    patch.introduction_jacobian(which, state_before, time_before);
+  const size_t n_out = forward.size();
+
+  // One sweep per output row gives one row of the transpose. The trait accumulator
+  // adds across calls by design, so it is cleared between rows.
+  Rcpp::NumericMatrix rev(static_cast<int>(n_out),
+                          static_cast<int>(n_state + n_trait));
+  for (size_t r = 0; r < n_out; ++r) {
+    std::vector<double> seed(n_out, 0.0);
+    seed[r] = 1.0;
+    std::vector<double> lambda_before;
+    patch.clear_trait_adjoint();
+    patch.introduction_adjoint(which, state_before, time_before, seed,
+                               lambda_before);
+    for (size_t c = 0; c < n_state; ++c) {
+      rev(static_cast<int>(r), static_cast<int>(c)) = lambda_before[c];
+    }
+    for (size_t p = 0; p < n_trait; ++p) {
+      rev(static_cast<int>(r), static_cast<int>(n_state + p)) =
+        patch.trait_adjoint[p];
+    }
+  }
+  patch.clear_trait_adjoint();
+
+  Rcpp::NumericMatrix fwd(static_cast<int>(n_out),
+                          static_cast<int>(n_state + n_trait));
+  for (size_t r = 0; r < n_out; ++r) {
+    for (size_t c = 0; c < n_state + n_trait; ++c) {
+      fwd(static_cast<int>(r), static_cast<int>(c)) = forward[r][c];
+    }
+  }
+  return Rcpp::List::create(Rcpp::_["forward"] = fwd, Rcpp::_["reverse"] = rev,
+                            Rcpp::_["traits"] = patch.trait_adjoint_names());
+}
+
+// The whole right-hand side differenced in each trait, in plain double, by
+// perturbing the prepared strategy exactly where the tangent seeds it. A
+// difference that rebuilds from Parameters re-runs prepare_strategy and so
+// carries the birth-size channel the differentiated path imposes to zero; this
+// one does not, so it referees the trait rows the sweep actually computes.
+// [[Rcpp::export]]
+Rcpp::NumericMatrix ladder_rhs_trait_difference_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                                     double rel) {
+  patch_type& patch = *obj_;
+  const size_t n = patch.ode_size();
+  const double time = patch.ode_time();
+  std::vector<double> x0(n);
+  patch.ode_state(x0.begin());
+
+  std::vector<double*> pars;
+  for (size_t i = 0; i < patch.size(); ++i) {
+    for (double* p : patch.at_species(i).strategy_ptr()->ad_parameters()) {
+      pars.push_back(p);
+    }
+  }
+
+  auto rates_at = [&](std::vector<double>& y) {
+    patch.set_ode_state(x0.begin(), time);
+    y.resize(n);
+    patch.ode_rates(y.begin());
+  };
+
+  Rcpp::NumericMatrix out(static_cast<int>(n), static_cast<int>(pars.size()));
+  std::vector<double> up(n), dn(n);
+  for (size_t c = 0; c < pars.size(); ++c) {
+    const double base = *pars[c];
+    const double h = std::max(std::abs(base) * rel, rel);
+    *pars[c] = base + h;
+    rates_at(up);
+    *pars[c] = base - h;
+    rates_at(dn);
+    *pars[c] = base;
+    for (size_t r = 0; r < n; ++r) {
+      out(static_cast<int>(r), static_cast<int>(c)) = (up[r] - dn[r]) / (2.0 * h);
+    }
+  }
+  rates_at(up);
+  return out;
 }
