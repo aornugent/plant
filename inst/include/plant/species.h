@@ -1018,9 +1018,12 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
     util::stop("The competition adjoint needs the node heights in decreasing"
                " order; the sorted-view reduction has no transpose here");
   }
-  // The forward halves both sums once at the end.
+  // The forward halves both sums once at the end. One slot per grid point, so
+  // the boundary node -- the distribution's lower point -- carries its own row
+  // rather than only lending its abscissa to its neighbour's weight.
   const double lv = lambda_value * 0.5, ls = lambda_slope * 0.5;
-  std::vector<double> lambda_f(size(), 0.0), lambda_s(size(), 0.0);
+  const size_t n_slot = size() + 1;
+  std::vector<double> lambda_f(n_slot, 0.0), lambda_s(n_slot, 0.0);
 
   std::pair<value_type, value_type> fs1 =
     nodes[0].compute_competition_and_slope(height);
@@ -1066,20 +1069,25 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
     }
     lambda_f[upper] += lv * (x0 - x1);
     lambda_s[upper] += ls * (x0 - x1);
+    lambda_f[size()] += lv * (x0 - x1);
+    lambda_s[size()] += ls * (x0 - x1);
   }
 
-  for (size_t k = 0; k <= last; ++k) {
+  for (size_t k = 0; k < n_slot; ++k) {
     if (lambda_f[k] == 0.0 && lambda_s[k] == 0.0) {
       continue;
     }
+    const node_type& node = k + 1 < n_slot ? nodes[k] : new_node;
     const typename node_type::competition_partials p =
-      nodes[k].compute_competition_and_slope_partials(height);
+      node.compute_competition_and_slope_partials(height);
     out[k].area_leaf += lambda_f[k] * to_passive(p.value_darea_leaf) +
                         lambda_s[k] * to_passive(p.slope_darea_leaf);
     out[k].height    += lambda_f[k] * to_passive(p.value_dheight) +
                         lambda_s[k] * to_passive(p.slope_dheight);
     out[k].log_density += lambda_f[k] * to_passive(p.value_dlog_density) +
                           lambda_s[k] * to_passive(p.slope_dlog_density);
+    out[k].extinction += lambda_f[k] * to_passive(p.value_dk_I) +
+                         lambda_s[k] * to_passive(p.slope_dk_I);
   }
 }
 
@@ -1122,8 +1130,13 @@ void Species<T,E>::consumption_rate_adjoint(int resource, double lambda_uptake,
     lambda_y[j]     += half * (x[j + 1] - x[j]);
     lambda_y[j + 1] += half * (x[j + 1] - x[j]);
   }
-  for (size_t j = 0; j + 1 < n; ++j) {
-    const double density = to_passive(nodes[j].get_density());
+  // Every slot, boundary node included. It is the distribution's lower grid
+  // point, so a transpose stopping at the introduced nodes is the transpose of a
+  // reduction the forward model is not computing -- and a quadrature node is not
+  // a term that can be dropped, because its weight is shared with its neighbour.
+  for (size_t j = 0; j < n; ++j) {
+    const node_type& node = j + 1 < n ? nodes[j] : new_node;
+    const double density = to_passive(node.get_density());
     out[j].uptake      += lambda_y[j] * density;
     out[j].log_density += lambda_y[j] * y[j];
     // lambda_x is taken in the abscissa, and on the height coordinate the

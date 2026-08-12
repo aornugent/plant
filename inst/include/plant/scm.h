@@ -122,11 +122,53 @@ public:
   template <class Metrics>
   std::vector<std::vector<double>> census_state_adjoint() const;
 
+  // d(census)/d(trait) at the state held, which no sweep produces: a metric
+  // reads the traits itself, and the boundary node's own quantities are rebuilt
+  // when the state is set. One row per metric, columns as census_trait_gradient.
+  template <class Metrics>
+  std::vector<std::vector<double>> census_trait_direct();
+
+  // The same quantity differenced, by moving the prepared strategy exactly where
+  // the recording seeds it. It referees census_trait_direct while sharing none of
+  // it: that one records the census and sweeps a tape, this one evaluates the
+  // census twice. A difference that rebuilt from Parameters would re-run
+  // preparation and carry the birth-size channel the differentiated path imposes
+  // to zero, so this one perturbs in place.
+  template <class Metrics>
+  std::vector<std::vector<double>> census_trait_difference(double rel);
+
   // d(census)/d(trait), one row per metric and one column per trait in each
   // strategy's ad_parameters() order, species-major. Requires an adaptive run to
   // have resolved the schedule this replays.
+  //
+  // `extra_splits` names recorded steps at which the sweep stops and resumes. The
+  // adjoint recursion is linear in the step, so composition over steps is
+  // associative and any split must give the same numbers bit for bit; a
+  // difference is something carried across a step boundary that is not the
+  // adjoint. Splits outside a segment's interior are ignored, so a caller may
+  // pass a boundary index without special-casing it.
   template <class Metrics>
-  std::vector<std::vector<double>> census_trait_gradient();
+  std::vector<std::vector<double>>
+  census_trait_gradient(const std::vector<size_t>& extra_splits = {});
+
+  // One exact directional derivative of the census, by a forward tangent of the
+  // same trajectory stepped at the sizes the run recorded. `direction` carries
+  // one weight per trait, species-major in each strategy's ad_parameters()
+  // order; a coordinate direction gives one Jacobian column and a mixed one a
+  // contraction. Returns one tangent per metric, and writes the metrics the
+  // replay itself reached: a reference whose value disagrees with the model is a
+  // reference to a different function, and the gap is this check's own floor.
+  template <class Metrics>
+  std::vector<double> census_trait_tangent(const std::vector<double>& direction,
+                                           std::vector<double>& value);
+
+  // Where the recorded trajectory widens and which species widened it. Returns
+  // with the solver's system narrowed to the first segment's width.
+  void narrow_over_introductions(
+      const std::vector<std::vector<double>>& states,
+      const std::vector<ode_step_record>& trajectory,
+      std::vector<size_t>& boundary,
+      std::vector<std::vector<size_t>>& introduced);
 
   // Re-introduce every node the sweep's narrowing removed, recovering the state
   // each block's first step ran from. See the definition.
@@ -185,6 +227,11 @@ public:
   // ---- Public state ------------------------------------------------------
   // The two toggles are exposed to R directly (access: field), so they need
   // no getter/setter wrappers.
+  // How many backward ranges the last census_trait_gradient swept, summed over
+  // metrics. One per segment with no splits requested, and one more per split
+  // that fell inside a segment -- which is what says a requested split cut.
+  size_t adjoint_segments = 0;
+
   bool collect;                    // record a patch snapshot after each step
   bool collect_refinement_errors;  // accumulate competition errors during run
   std::vector<patch_type> history; // per-step patch snapshots when collect
@@ -619,12 +666,13 @@ std::vector<double> SCM<T, E>::census() const {
 // once per metric. The inputs are the ODE state, so the rows come back in the
 // order ode_state writes and can be handed straight to the reverse pass.
 //
-// set_ode_state rebuilds the environment and the boundary node from the state it
-// is given. Both are on the census's path -- the boundary node is the
-// reduction's lower grid point and is not ODE state -- so the recording must
-// carry that rebuild. Loading the state without it leaves the boundary node at
-// the values it was copied with, and its whole contribution to the seed is then
-// exactly zero with nothing thrown.
+// set_recorded_state rebuilds the environment and the boundary node from the state
+// it is given. Both are on the census's path -- the boundary node is the
+// reduction's lower grid point and is not ODE state -- so the recording must carry
+// that rebuild. Loading the state without it leaves the boundary node at the values
+// it was copied with, and its whole contribution to the seed is then exactly zero
+// with nothing thrown. Loading it with set_ode_state alone leaves the condition at
+// its first evaluation, which is not the one census() reads.
 template <typename T, typename E>
 template <class Metrics>
 std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
@@ -660,7 +708,7 @@ std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
     auto active = patch.template rebind_from<scalar>();
     auto reduce = [&](const std::vector<scalar>& x,
                       std::vector<scalar>& y) -> void {
-      active.set_ode_state(x.begin(), time());
+      active.set_recorded_state(x.begin(), time());
       size_t at = 0;
       std::apply(
           [&](auto... psi) -> void {
@@ -675,6 +723,119 @@ std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
   return ret;
 }
 
+// The census's own reading of the traits, with the state held. This is not a
+// sensitivity of the state, so the sweep below cannot produce it and adding it is
+// not double counting: the trajectory term is (dC/dy)^T (dy/dphi), and the
+// boundary node -- which a set of the state rebuilds, through the field -- is not
+// in y at all.
+//
+// Recorded rather than written out, so it is the metric algebra that is
+// differentiated and a metric added in species.h needs no edit here. One patch
+// and one tape per metric, for the reason census_state_adjoint gives.
+template <typename T, typename E>
+template <class Metrics>
+std::vector<std::vector<double>> SCM<T, E>::census_trait_direct() {
+  require_birth_date_coordinate("census_trait_direct");
+  using scalar = odelia::ode::active_scalar<double>;
+  const size_t n_metric = std::tuple_size<Metrics>::value;
+
+  std::vector<double> state(patch.ode_size());
+  patch.ode_state(state.begin());
+
+  std::vector<double> in;
+  for (size_t i = 0; i < patch.size(); ++i) {
+    for (const double* p : patch.at_species(i).strategy_ptr()->ad_parameters()) {
+      in.push_back(*p);
+    }
+  }
+
+  std::vector<std::vector<double>> ret(n_metric,
+                                       std::vector<double>(in.size(), 0.0));
+  for (size_t m = 0; m < n_metric; ++m) {
+    typename scalar::tape_type tape(false);
+    auto active = patch.template rebind_from<scalar>();
+    auto reduce = [&](const std::vector<scalar>& x,
+                      std::vector<scalar>& y) -> void {
+      size_t at = 0;
+      for (size_t i = 0; i < active.size(); ++i) {
+        std::vector<scalar*> pars =
+          active.at_species(i).strategy_ptr()->ad_parameters();
+        for (size_t p = 0; p < pars.size(); ++p) {
+          *pars[p] = x[at++];
+        }
+      }
+      util::check_length(at, x.size());
+      // The state is handed in at its value, which is what holds it fixed.
+      active.set_recorded_state(state.begin(), time());
+      at = 0;
+      std::apply(
+          [&](auto... psi) -> void {
+            ((y[at++] = census_over(active, psi)), ...);
+          },
+          Metrics{});
+    };
+    std::vector<double> seed(n_metric, 0.0);
+    seed[m] = 1.0;
+    odelia::ode::vector_jacobian_product(tape, in, seed, reduce, ret[m]);
+  }
+  return ret;
+}
+
+// The census twice per trait, at the state held, with the strategy moved in place.
+// See the declaration for why it perturbs rather than rebuilds.
+template <typename T, typename E>
+template <class Metrics>
+std::vector<std::vector<double>>
+SCM<T, E>::census_trait_difference(double rel) {
+  require_birth_date_coordinate("census_trait_difference");
+  const size_t n_metric = std::tuple_size<Metrics>::value;
+  const size_t n_state = patch.ode_size();
+
+  std::vector<double> state(n_state);
+  patch.ode_state(state.begin());
+  const double time_ = time();
+
+  std::vector<typename T::value_type*> pars;
+  for (size_t i = 0; i < patch.size(); ++i) {
+    for (typename T::value_type* p :
+         patch.at_species(i).strategy_ptr()->ad_parameters()) {
+      pars.push_back(p);
+    }
+  }
+
+  // The state is re-set on every evaluation, which is what makes the moved trait
+  // reach the quantities a state determines -- the boundary node among them.
+  auto census_at = [&](std::vector<double>& out) -> void {
+    patch.set_recorded_state(state.begin(), time_);
+    out.clear();
+    std::apply(
+        [&](auto... psi) -> void {
+          (out.push_back(odelia::util::to_passive(census_over(patch, psi))), ...);
+        },
+        Metrics{});
+  };
+
+  std::vector<std::vector<double>> ret(n_metric,
+                                       std::vector<double>(pars.size(), 0.0));
+  std::vector<double> up, dn;
+  for (size_t c = 0; c < pars.size(); ++c) {
+    const double base = odelia::util::to_passive(*pars[c]);
+    const double h = std::max(std::abs(base) * rel, rel);
+    *pars[c] = base + h;
+    census_at(up);
+    *pars[c] = base - h;
+    census_at(dn);
+    *pars[c] = base;
+    for (size_t m = 0; m < n_metric; ++m) {
+      ret[m][c] = (up[m] - dn[m]) / (2.0 * h);
+    }
+  }
+  // Leave the patch where it was found, so this call is repeatable beside the
+  // recording that shares its state.
+  census_at(up);
+  return ret;
+}
+
 // Seed lambda on the states the census reads at T, then run the reverse pass
 // back over the recorded steps. The trait adjoints accumulate across every
 // cohort and every step, so the accumulator is cleared once per metric and read
@@ -682,7 +843,8 @@ std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
 // a snapshot the run copies out, and reading its accumulator gives zeros.
 template <typename T, typename E>
 template <class Metrics>
-std::vector<std::vector<double>> SCM<T, E>::census_trait_gradient() {
+std::vector<std::vector<double>>
+SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits) {
   require_birth_date_coordinate("census_trait_gradient");
   // The sweep needs the state at every accepted step, and store_trajectory()
   // re-runs to record them, so the seeds below are taken after it.
@@ -693,36 +855,15 @@ std::vector<std::vector<double>> SCM<T, E>::census_trait_gradient() {
     states.push_back(record.state);
   }
 
-  if (states.size() < 2) {
-    util::stop("no recorded steps to sweep");
-  }
+  std::vector<size_t> boundary;
+  std::vector<std::vector<size_t>> introduced;
+  narrow_over_introductions(states, trajectory, boundary, introduced);
   patch_type& live = solver.get_system_ref();
 
-  // A node introduction widens the state between two steps, so the sweep runs
-  // one segment per width. states[b] is the state before the introduction at its
-  // own time: the last step of the block ended exactly there, since
-  // advance_adaptive lands its final step on the event time, and the
-  // introduction followed. So the width changes across b, and step b + 1 starts
-  // from the widened state, which no record holds and which is rebuilt below.
-  std::vector<size_t> boundary;
-  for (size_t k = 1; k < states.size(); ++k) {
-    if (states[k].size() != states[k - 1].size()) {
-      boundary.push_back(k - 1);
-    }
-  }
-
-  // Which species introduced at each boundary. Read newest-first with the system
-  // narrowed as it goes, so each read sees the nodes that were the newest then.
-  std::vector<std::vector<size_t>> introduced(boundary.size());
-  for (size_t j = boundary.size(); j-- > 0;) {
-    const size_t b = boundary[j];
-    introduced[j] = live.nodes_introduced_at(trajectory[b].time);
-    live.remove_new_nodes(introduced[j]);
-    util::check_length(live.ode_size(), states[b].size());
-  }
-
+  adjoint_segments = 0;
   const std::vector<std::vector<double>> seeds =
       census_state_adjoint<Metrics>();
+  const std::vector<std::vector<double>> direct = census_trait_direct<Metrics>();
   std::vector<std::vector<double>> ret;
   ret.reserve(seeds.size());
   std::vector<std::vector<double>> sweep_states = states;
@@ -739,19 +880,172 @@ std::vector<std::vector<double>> SCM<T, E>::census_trait_gradient() {
       const size_t b = boundary[j];
       const size_t k_last =
           j + 1 < boundary.size() ? boundary[j + 1] : states.size() - 1;
-      solver.solve_adjoint(sweep_states, lambda, b, k_last);
+      // Stopped and resumed at each requested step inside this segment, highest
+      // first, so the pieces compose in the order the whole sweep would take
+      // them. With none requested this is the single call it replaces.
+      std::vector<size_t> cuts;
+      for (const size_t s : extra_splits) {
+        if (s > b && s < k_last) {
+          cuts.push_back(s);
+        }
+      }
+      std::sort(cuts.begin(), cuts.end());
+      size_t upper = k_last;
+      for (size_t c = cuts.size(); c-- > 0;) {
+        solver.solve_adjoint(sweep_states, lambda, cuts[c], upper);
+        upper = cuts[c];
+        ++adjoint_segments;
+      }
+      solver.solve_adjoint(sweep_states, lambda, b, upper);
+      ++adjoint_segments;
       std::vector<double> narrowed;
       live.remove_new_nodes(introduced[j]);
       live.introduction_adjoint(introduced[j], states[b], trajectory[b].time,
                                 lambda, narrowed);
       lambda = narrowed;
     }
-    ret.push_back(live.trait_adjoint);
+    std::vector<double> row = live.trait_adjoint;
+    util::check_length(row.size(), direct[m].size());
+    for (size_t p = 0; p < row.size(); ++p) {
+      row[p] += direct[m][p];
+    }
+    ret.push_back(row);
   }
 
   // Leave the system at the width the run left it, so this call is repeatable.
   widen_over_introductions(states, trajectory, boundary, introduced,
                            sweep_states);
+  return ret;
+}
+
+// A node introduction widens the state between two steps, so a trajectory runs
+// one segment per width. states[b] is the state before the introduction at its
+// own time: the last step of the segment ended exactly there, since
+// advance_adaptive lands its final step on the event time, and the introduction
+// followed. So the width changes across b, and step b + 1 starts from the
+// widened state, which no record holds.
+//
+// The species are read newest-first with the system narrowed as it goes, so each
+// read sees the nodes that were the newest then -- which leaves the system at the
+// first segment's width, where both the sweep and the tangent start.
+template <typename T, typename E>
+void SCM<T, E>::narrow_over_introductions(
+    const std::vector<std::vector<double>>& states,
+    const std::vector<ode_step_record>& trajectory,
+    std::vector<size_t>& boundary,
+    std::vector<std::vector<size_t>>& introduced) {
+  if (states.size() < 2) {
+    util::stop("no recorded steps to sweep");
+  }
+  boundary.clear();
+  for (size_t k = 1; k < states.size(); ++k) {
+    if (states[k].size() != states[k - 1].size()) {
+      boundary.push_back(k - 1);
+    }
+  }
+  introduced.assign(boundary.size(), {});
+  patch_type& live = solver.get_system_ref();
+  for (size_t j = boundary.size(); j-- > 0;) {
+    const size_t b = boundary[j];
+    introduced[j] = live.nodes_introduced_at(trajectory[b].time);
+    live.remove_new_nodes(introduced[j]);
+    util::check_length(live.ode_size(), states[b].size());
+  }
+}
+
+// The reference the trajectory sweep is checked against. It is a tangent of the
+// same forward source: exact, with no step size of its own and no truncation,
+// and it traverses both reductions and the introduction boundary while none of
+// the transposes under test are on its path.
+//
+// The recorded step sizes are replayed rather than the times, and rather than a
+// controller of its own. A tangent run left to choose its own steps
+// differentiates the controller, which the model does not contain -- and a size
+// differenced back out of two recorded times is not the size that was taken,
+// since fl(fl(t + h) - t) != h.
+template <typename T, typename E>
+template <class Metrics>
+std::vector<double>
+SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
+                                std::vector<double>& value) {
+  require_birth_date_coordinate("census_trait_tangent");
+  using tangent = xad::fwd<double>::active_type;
+
+  const std::vector<ode_step_record> trajectory = store_trajectory();
+  std::vector<std::vector<double>> states;
+  states.reserve(trajectory.size());
+  for (const ode_step_record& record : trajectory) {
+    states.push_back(record.state);
+  }
+  std::vector<size_t> boundary;
+  std::vector<std::vector<size_t>> introduced;
+  narrow_over_introductions(states, trajectory, boundary, introduced);
+
+  patch_type& live = solver.get_system_ref();
+  live.set_ode_state_and_field(states[0].begin(), trajectory[0].time);
+  auto active = live.template rebind_from<tangent>();
+
+  // Seeded before the state is set: the quantities a state determines read the
+  // parameters, and would otherwise be derived at the unseeded values.
+  size_t at = 0;
+  for (size_t i = 0; i < active.size(); ++i) {
+    std::vector<tangent*> pars =
+      active.at_species(i).strategy_ptr()->ad_parameters();
+    for (size_t p = 0; p < pars.size(); ++p, ++at) {
+      if (at >= direction.size()) {
+        util::stop("census_trait_tangent: one weight per trait, species-major");
+      }
+      xad::derivative(*pars[p]) = direction[at];
+    }
+  }
+  util::check_length(direction.size(), at);
+  std::vector<tangent> x0(states[0].size());
+  for (size_t i = 0; i < x0.size(); ++i) {
+    x0[i] = states[0][i];
+  }
+  active.set_ode_state_and_field(x0.begin(), trajectory[0].time);
+
+  odelia::ode::Solver<decltype(active)> forward(active, make_ode_control(control));
+  forward.set_collect(false);
+  forward.set_state_from_system();
+
+  size_t first = 0;
+  for (size_t j = 0; j <= boundary.size(); ++j) {
+    const size_t last =
+      j < boundary.size() ? boundary[j] : states.size() - 1;
+    // The first entry is the size no step reached, which is how
+    // advance_fixed_steps reads a recorded run.
+    std::vector<double> sizes(1, std::numeric_limits<double>::quiet_NaN());
+    for (size_t k = first + 1; k <= last; ++k) {
+      sizes.push_back(trajectory[k].step_size);
+    }
+    if (sizes.size() > 1) {
+      forward.advance_fixed_steps(sizes);
+    }
+    if (j < boundary.size()) {
+      forward.get_system_ref().introduce_new_nodes(introduced[j]);
+      forward.set_state_from_system();
+      first = last;
+    }
+  }
+
+  // Leave the double system where the run left it, so this call is repeatable
+  // beside the sweep that shares its trajectory.
+  std::vector<std::vector<double>> sweep_states = states;
+  widen_over_introductions(states, trajectory, boundary, introduced,
+                           sweep_states);
+
+  std::vector<double> ret;
+  ret.reserve(std::tuple_size<Metrics>::value);
+  value.clear();
+  value.reserve(std::tuple_size<Metrics>::value);
+  const auto& reached = forward.get_system_ref();
+  std::apply(
+      [&](auto... psi) -> void {
+        ((ret.push_back(xad::derivative(census_over(reached, psi))),
+          value.push_back(xad::value(census_over(reached, psi)))), ...);
+      },
+      Metrics{});
   return ret;
 }
 
@@ -769,7 +1063,7 @@ void SCM<T, E>::widen_over_introductions(
   for (size_t j = 0; j < boundary.size(); ++j) {
     const size_t b = boundary[j];
     util::check_length(live.ode_size(), states[b].size());
-    live.set_ode_state_and_field(states[b].begin(), trajectory[b].time);
+    live.set_recorded_state(states[b].begin(), trajectory[b].time);
     live.introduce_new_nodes(introduced[j]);
     sweep_states[b].assign(live.ode_size(), 0.0);
     live.ode_state(sweep_states[b].begin());

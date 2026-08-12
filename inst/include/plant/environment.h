@@ -31,8 +31,11 @@ public:
                                  double /*layer_optical_depth*/,
                                  double /*layer_smoothing*/) {}
 
-  // ODE interface: do nothing if the environment has no state.
-  size_t ode_size() const { return vars.state_size; }
+  // ODE interface. An environment holding no integrated state answers zero and
+  // leaves every iterator where it found it. One that integrates state declares
+  // these itself, at the scalar it holds that state in, so the state and the
+  // rates a cohort reads back travel at the same scalar the cohort does.
+  size_t ode_size() const { return 0; }
 
   // How many entries of resource_depletion compute_rates reads, and so how
   // long each individual's consumption vector must be.
@@ -46,57 +49,24 @@ public:
 
   template <typename It> It set_cohort_reads(It it) { return it; }
 
-  virtual void compute_rates(std::vector<double> const& resource_depletion){};
-
   // One aux slot per resource, holding the uptake the individuals supplied to
   // compute_rates. The soil rates subtract it and keep no record of it, so
   // without this slot the consumption is unrecoverable from the state.
   size_t aux_size() const { return n_resources(); }
 
-  // The soil state is passive by declaration: its parameter sensitivity travels
-  // by the adjoint ODE, and set_cohort_reads is where an active value arrives.
-  template <typename It> It set_ode_state(It it) {
-    for (size_t i = 0; i < vars.state_size; i++) {
-      vars.states[i] = odelia::util::to_passive(*it++);
-    }
-    return it;
-  }
+  template <typename It> It set_ode_state(It it) { return it; }
 
-  template <typename It> It ode_state(It it) const {
-    for (size_t i = 0; i < vars.state_size; i++) {
-      *it++ = vars.states[i];
-    }
-    return it;
-  }
+  template <typename It> It ode_state(It it) const { return it; }
 
-  template <typename It> It ode_rates(It it) const {
-    for (size_t i = 0; i < vars.state_size; i++) {
-      *it++ = vars.rates[i];
-    }
-    return it;
-  }
+  template <typename It> It ode_rates(It it) const { return it; }
 
-  template <typename It> It ode_aux(It it) const {
-    util::check_length(resource_uptake.size(), aux_size());
-    for (size_t i = 0; i < aux_size(); i++) {
-      *it++ = resource_uptake[i];
-    }
-    return it;
-  }
+  template <typename It> It ode_aux(It it) const { return it; }
 
-  // Passive: aux carries a linearisation point and a branch condition, and both
-  // want a value. A metric reading aux is a block output and overturns this.
-  template <typename It> It set_ode_aux(It it) {
-    util::check_length(resource_uptake.size(), aux_size());
-    for (size_t i = 0; i < aux_size(); i++) {
-      resource_uptake[i] = odelia::util::to_passive(*it++);
-    }
-    return it;
-  }
+  template <typename It> It set_ode_aux(It it) { return it; }
 
-  // n_resources() is the count and this is the buffer it sizes, so an environment
-  // that changes its resource count calls this and the two cannot disagree.
-  void resize_resource_uptake() { resource_uptake.assign(n_resources(), 0.0); }
+  // No integrated state, so no rates of it. An environment that has them
+  // declares its own, taking the uptake at the scalar the patch summed it in.
+  template <typename V> void compute_rates(const std::vector<V>&) {}
 
   virtual Rcpp::List r_get_state() const
   {
@@ -138,12 +108,7 @@ public:
 
   size_t species_arriving_index;
 
-  Internals<double> vars;
   ExtrinsicDrivers extrinsic_drivers;
-
-  // Uptake per resource, as compute_rates received it. Sized to n_resources()
-  // by whichever derived environment defines the resources.
-  std::vector<double> resource_uptake;
 
   // The
   std::vector<std::string> extrinsic_drivers_get_names() const

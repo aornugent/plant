@@ -13,9 +13,11 @@ using namespace Rcpp;
 
 namespace plant {
 
-// Templated on the scalar S the light profile carries; double is production.
-// The soil water balance below reads the state on the untemplated Environment
-// base, so it stays double.
+// Templated on the scalar S the light profile and the soil water balance both
+// carry; double is production. The integrated soil state lives here rather than
+// on the base because this is where its scalar is known: a cohort reads a layer
+// potential derived from that state, so holding it at a value severs every
+// route from a trait to the soil and back.
 template <typename S = double>
 class TF24_Environment : public Environment {
 public:
@@ -121,8 +123,8 @@ public:
   void set_soil_number_of_depths(int n) {
     soil_number_of_depths = n;
     
-    vars = Internals<double>(soil_number_of_depths + aux_num);
-    initial_states = vars.states;
+    vars = Internals<S>(soil_number_of_depths + aux_num);
+    initial_states = passive(vars.states);
 
     z.resize(soil_number_of_depths);
     z_mid.resize(soil_number_of_depths);
@@ -181,6 +183,68 @@ public:
 
   int get_soil_number_of_depths() const {return soil_number_of_depths;}
 
+  // The integrated soil state: one moisture per layer, then the four
+  // cumulative-flux accumulators.
+  size_t ode_size() const { return vars.state_size; }
+
+  template <typename It> It set_ode_state(It it) {
+    for (size_t i = 0; i < vars.state_size; i++) {
+      vars.states[i] = *it++;
+    }
+    // The potentials are derived from the state just written, and the cache that
+    // holds them is keyed on that state by value -- which cannot see a changed
+    // derivative behind an unchanged value.
+    psi_soil_cache_valid_ = false;
+    return it;
+  }
+
+  template <typename It> It ode_state(It it) const {
+    for (size_t i = 0; i < vars.state_size; i++) {
+      *it++ = util::as_iterator_scalar<It>(vars.states[i]);
+    }
+    return it;
+  }
+
+  template <typename It> It ode_rates(It it) const {
+    for (size_t i = 0; i < vars.state_size; i++) {
+      *it++ = util::as_iterator_scalar<It>(vars.rates[i]);
+    }
+    return it;
+  }
+
+  template <typename It> It ode_aux(It it) const {
+    util::check_length(resource_uptake.size(), aux_size());
+    for (size_t i = 0; i < aux_size(); i++) {
+      *it++ = util::as_iterator_scalar<It>(resource_uptake[i]);
+    }
+    return it;
+  }
+
+  template <typename It> It set_ode_aux(It it) {
+    util::check_length(resource_uptake.size(), aux_size());
+    for (size_t i = 0; i < aux_size(); i++) {
+      resource_uptake[i] = *it++;
+    }
+    return it;
+  }
+
+  // n_resources() is the count and this is the buffer it sizes, so an
+  // environment that changes its resource count calls this and the two cannot
+  // disagree.
+  void resize_resource_uptake() {
+    resource_uptake.assign(n_resources(), S(0.0));
+  }
+
+  // The values of an active vector, for the R boundary and for the state a run
+  // restarts from.
+  static std::vector<double> passive(const std::vector<S>& x) {
+    std::vector<double> out(x.size());
+    for (size_t i = 0; i < x.size(); ++i) {
+      out[i] = odelia::util::to_passive(x[i]);
+    }
+    return out;
+  }
+
   // Water is taken up per soil layer; the trailing aux_num state slots only
   // accumulate diagnostics and are never consumed.
   size_t n_resources() const override {
@@ -224,7 +288,7 @@ public:
     psi_soil_cache_state_.resize(soil_number_of_depths);
     for (int i = 0; i < soil_number_of_depths; ++i) {
       psi_soil_cache_[i] = *it++;
-      psi_soil_cache_state_[i] = vars.state(i);
+      psi_soil_cache_state_[i] = odelia::util::to_passive(vars.state(i));
     }
     psi_soil_cache_valid_ = true;
     return it;
@@ -241,7 +305,12 @@ public:
   TF24_Environment<U> rebind_from() const {
     TF24_Environment<U> out;
     static_cast<Environment&>(out) = static_cast<const Environment&>(*this);
-    out.water_flux = water_flux;
+    out.vars = Internals<U>(vars.state_size, vars.aux_size, vars.resource_size);
+    for (size_t i = 0; i < vars.state_size; ++i) {
+      out.vars.states[i] = U(odelia::util::to_passive(vars.states[i]));
+    }
+    out.water_flux.assign(water_flux.size(), U(0.0));
+    out.resource_uptake.assign(resource_uptake.size(), U(0.0));
     out.z = z;
     out.z_mid = z_mid;
     out.dz = dz;
@@ -269,8 +338,12 @@ public:
     return out;
   }
 
+  // The state the solver integrates, and the uptake compute_rates received.
+  Internals<S> vars;
+  std::vector<S> resource_uptake;
+
   // TODO: should we use auxilliary in internals
-  std::vector<double> water_flux;
+  std::vector<S> water_flux;
   std::vector<double> z;
   std::vector<double> z_mid;
   std::vector<double> dz;
@@ -396,10 +469,12 @@ public:
   // This is an explicit, first-order representation; drainage is instantaneous
   // single-direction (no upward capillary flux between layers - that is handled
   // hydraulically inside the plant via E_from_Soil_to_Root_Collar).
-  virtual void compute_rates(std::vector<double> const &resource_depletion)
+  void compute_rates(std::vector<S> const &resource_depletion)
   {
+    using std::max;
+    using std::pow;
 
-    double water_input;
+    S water_input;
     // Rainfall is floored at zero. Drivers are interpolated with a cubic
     // spline, which overshoots badly on intermittent forcing: a realistic daily
     // series with a ~10% wet-day fraction evaluates negative at ~45% of points,
@@ -422,10 +497,10 @@ public:
     double rainfall = std::max(0.0, extrinsic_drivers.evaluate("rainfall", time));
     const double soil_moist_sat_0 =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
-    double infiltration = rainfall * std::max(
-      0.0,
-      1 - a_infil * std::pow(vars.state(0) / soil_moist_sat_0, b_infil));
-    double total_resource_depletion = 0;
+    S infiltration = rainfall * max(
+      S(0.0),
+      S(1) - a_infil * pow(vars.state(0) / soil_moist_sat_0, b_infil));
+    S total_resource_depletion = 0.0;
 
 
     // treat each soil layer as a separate resource pool
@@ -452,8 +527,8 @@ public:
       // layer to theta <= 0, where the retention curve psi_from_soil_moist and
       // the conductivity curve soil_K_from_soil_theta go non-finite. Wetter
       // layers are unaffected, so non-drought runs are unchanged.
-      const double theta = vars.state(i);
-      double rate = (water_input - water_flux[i] - resource_depletion[i]) / dz[i];
+      const S theta = vars.state(i);
+      S rate = (water_input - water_flux[i] - resource_depletion[i]) / dz[i];
       // Positivity guard (issue #485), hardened for #549: at/below the residual
       // moisture a layer must not be dried further. The original `rate < 0.0`
       // test let a *non-finite* rate through, because `NaN < 0.0` is false in
@@ -476,7 +551,10 @@ public:
   }
 
   // calculate K from K_sat based on theta
-  double soil_K_from_soil_theta(double theta, size_t layer) const {
+  S soil_K_from_soil_theta(S theta, size_t layer) const {
+    using std::max;
+    using std::min;
+    using std::pow;
     //Eq. 5 Zeng and Decker (2009), ref Clapp and Hornberger (1978)
     // Clamp theta to [0, soil_moist_sat] (issue #485/#549): an intermediate
     // explicit-RK stage can probe theta < 0 (std::pow(negative, non-integer) is
@@ -490,37 +568,40 @@ public:
     const double soil_moist_sat_layer =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
     const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
-    const double t = std::min(std::max(theta, 0.0), soil_moist_sat_layer);
-    return k_sat_layer * std::pow(t / soil_moist_sat_layer, 2 * n_psi_layer + 3);
+    const S t = min(max(theta, S(0.0)), S(soil_moist_sat_layer));
+    return k_sat_layer * pow(t / soil_moist_sat_layer, 2 * n_psi_layer + 3);
   }
 
-  double soil_K_from_soil_theta(double theta) {
+  S soil_K_from_soil_theta(S theta) {
     return soil_K_from_soil_theta(theta, 0);
   }
 
 
   // convert soil moisture to soil water potential
-  double psi_from_soil_moist(double soil_moist_, size_t layer) const {
+  S psi_from_soil_moist(S soil_moist_, size_t layer) const {
+    using std::max;
+    using std::min;
+    using std::pow;
     // Floor at the residual moisture: the retention curve (negative exponent)
     // diverges to +inf as theta->0, so an empty layer would otherwise yield a
     // non-finite potential. At/below theta_r the potential is large but finite
     // and the plant's root vulnerability curve has already shut uptake to ~0.
-    const double t = std::max(soil_moist_, soil_moist_residual);
+    const S t = max(soil_moist_, S(soil_moist_residual));
     const double a_psi_layer = soil_parameter_value(a_psi_layers, a_psi, layer);
     const double soil_moist_sat_layer =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
     const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
-    const double psi =
-      a_psi_layer * std::pow(t / soil_moist_sat_layer, -n_psi_layer) / 1e6; // Pa -> MPa
+    const S psi =
+      a_psi_layer * pow(t / soil_moist_sat_layer, -n_psi_layer) / 1e6; // Pa -> MPa
     // Cap at a large-but-finite ceiling (#549): near theta_r the retention curve
     // gives psi ~ 1e8 MPa, which pushes the leaf hydraulic solve non-finite and
     // corrupts the soil feedback. Root conductance is already ~0 far below this
     // (psi_crit ~ few MPa), so clamping to soil_psi_max_ leaves uptake at ~0
     // while keeping every downstream calculation finite.
-    return std::min(psi, soil_psi_max_);
+    return min(psi, S(soil_psi_max_));
   }
 
-  double psi_from_soil_moist(double soil_moist_) const {
+  S psi_from_soil_moist(S soil_moist_) const {
     return psi_from_soil_moist(soil_moist_, 0);
   }
 
@@ -557,14 +638,18 @@ public:
   double get_wind_speed() const { return cached_driver_("wind_speed", wind_speed_cache_, wind_speed_cache_time_); }
 
 
-  std::vector<double> get_soil_water_state() const { return {vars.states.begin(), vars.states.end() - aux_num}; }
+  std::vector<double> get_soil_water_state() const {
+    std::vector<double> out = passive(vars.states);
+    out.resize(out.size() - aux_num);
+    return out;
+  }
   const std::vector<S>& get_soil_water_potential_state() const {
     bool cache_stale = !psi_soil_cache_valid_ ||
       psi_soil_cache_state_.size() != static_cast<size_t>(soil_number_of_depths);
 
     if (!cache_stale) {
       for (int i = 0; i < soil_number_of_depths; ++i) {
-        if (psi_soil_cache_state_[i] != vars.state(i)) {
+        if (psi_soil_cache_state_[i] != odelia::util::to_passive(vars.state(i))) {
           cache_stale = true;
           break;
         }
@@ -575,22 +660,30 @@ public:
       psi_soil_cache_.resize(soil_number_of_depths);
       psi_soil_cache_state_.resize(soil_number_of_depths);
       for (int i = 0; i < soil_number_of_depths; ++i) {
-        const double soil_moist = vars.state(i);
-        psi_soil_cache_state_[i] = soil_moist;
-        psi_soil_cache_[i] = S(psi_from_soil_moist(soil_moist, i));
+        const S soil_moist = vars.state(i);
+        psi_soil_cache_state_[i] = odelia::util::to_passive(soil_moist);
+        psi_soil_cache_[i] = psi_from_soil_moist(soil_moist, i);
       }
       psi_soil_cache_valid_ = true;
     }
 
     return psi_soil_cache_;
   }
-  std::vector<double> get_soil_water_state_cumulative_flux() const { return {vars.states.end()-aux_num, vars.states.end()}; }
+  std::vector<double> get_soil_water_state_cumulative_flux() const {
+    const std::vector<double> all = passive(vars.states);
+    return {all.end() - aux_num, all.end()};
+  }
   std::vector<double> get_soil_depths() const { return z; }
   // double get_soil_depth(int layer) const { return z[layer]; }
 
 
   // TODO: I wonder if this needs a better name? See also environment.h
-  Internals<double> r_internals() const { return vars; }
+  Internals<double> r_internals() const {
+    Internals<double> out(vars.state_size, vars.aux_size, vars.resource_size);
+    out.states = passive(vars.states);
+    out.rates = passive(vars.rates);
+    return out;
+  }
 
   // R interface
   void set_soil_water_state(std::vector<double> state) {
@@ -604,7 +697,7 @@ public:
         vars.set_state(i, 0);
       }
   }
-    initial_states = vars.states;
+    initial_states = passive(vars.states);
     psi_soil_cache_valid_ = false;
 }
 
@@ -640,6 +733,12 @@ public:
     return -n_psi_layer * psi / soil_moist_;
   }
 
+  // The conductivity at a value. The transpose below linearises about a
+  // recorded state, so it reads the curve rather than carrying it.
+  double dsoil_K_value(S theta, size_t layer) const {
+    return odelia::util::to_passive(soil_K_from_soil_theta(theta, layer));
+  }
+
   // d(soil_K_from_soil_theta)/d(theta). Zero outside the clamped range, where
   // the forward conductivity is constant.
   double dsoil_K_dtheta(double theta, size_t layer) const {
@@ -671,22 +770,26 @@ public:
     const double soil_moist_sat_0 =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
     const double excess =
-      1 - a_infil * std::pow(vars.state(0) / soil_moist_sat_0, b_infil);
+      1 - a_infil * std::pow(odelia::util::to_passive(vars.state(0)) /
+                             soil_moist_sat_0, b_infil);
     const double infiltration = rainfall * std::max(0.0, excess);
     // Saturation-excess runoff makes layer 0's inflow a function of its own
     // moisture; once the excess term has clipped at zero the channel is gone.
     const double dinfiltration_dtheta =
       excess > 0.0 ? -rainfall * a_infil * b_infil *
-                       std::pow(vars.state(0) / soil_moist_sat_0, b_infil - 1) /
+                       std::pow(odelia::util::to_passive(vars.state(0)) /
+                                soil_moist_sat_0, b_infil - 1) /
                        soil_moist_sat_0
                    : 0.0;
 
     for (size_t i = 0; i < n; i++) {
-      const double theta = vars.state(i);
+      const double theta = odelia::util::to_passive(vars.state(i));
       const double water_input =
-        i == 0 ? infiltration : soil_K_from_soil_theta(vars.state(i - 1), i - 1);
-      const double flux = soil_K_from_soil_theta(theta, i);
-      const double rate = (water_input - flux - resource_uptake[i]) / dz[i];
+        i == 0 ? infiltration : dsoil_K_value(vars.state(i - 1), i - 1);
+      const double flux = dsoil_K_value(theta, i);
+      const double rate =
+        (water_input - flux -
+         odelia::util::to_passive(resource_uptake[i])) / dz[i];
       if (theta <= soil_moist_residual && !(rate > 0.0)) {
         continue;
       }
@@ -696,7 +799,8 @@ public:
       if (i == 0) {
         lambda_state[0] += l * dinfiltration_dtheta;
       } else {
-        lambda_state[i - 1] += l * dsoil_K_dtheta(vars.state(i - 1), i - 1);
+        lambda_state[i - 1] +=
+          l * dsoil_K_dtheta(odelia::util::to_passive(vars.state(i - 1)), i - 1);
       }
     }
 
@@ -704,7 +808,8 @@ public:
     // read the soil moisture.
     lambda_state[0] += lambda_rate[n + 1] * dinfiltration_dtheta;
     lambda_state[n - 1] +=
-      lambda_rate[n + 2] * dsoil_K_dtheta(vars.state(n - 1), n - 1);
+      lambda_rate[n + 2] *
+        dsoil_K_dtheta(odelia::util::to_passive(vars.state(n - 1)), n - 1);
     for (size_t i = 0; i < n; i++) {
       lambda_uptake[i] += lambda_rate[n + 3];
     }
@@ -725,7 +830,10 @@ public:
   // did rather than silently continuing out of the first run's depleted soil.
   // Only Environment::clear() calls this.
   virtual void clear_state() {
-    vars.states = initial_states;
+    util::check_length(initial_states.size(), vars.state_size);
+    for (size_t i = 0; i < vars.state_size; ++i) {
+      vars.states[i] = S(initial_states[i]);
+    }
     psi_soil_cache_valid_ = false;
   }
 

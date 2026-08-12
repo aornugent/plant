@@ -502,9 +502,10 @@ public:
   // handed to it, leaving the operating point unsolved. It is the caller's,
   // because the caller is what owns those inputs; the leaf never sees an active
   // value and this function never solves.
-  template <typename Drive>
+  template <typename Drive, typename Rebuild>
   void record_leaf_outputs(const S& radiation, const std::vector<S>& psi_soil,
-                           Drive drive);
+                           const S& conductance_max,
+                           Drive drive, Rebuild rebuild_roots);
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
@@ -621,12 +622,17 @@ public:
   S Q(S z, S rooting_depth, S eta_x) const;
 
   // Partials of the pair compute_competition_and_slope returns, in the
-  // individual's leaf area and in its height at fixed z.
+  // individual's leaf area, in its height at fixed z, and in the extinction
+  // coefficient the kernel scales by. The last is here because no size variable
+  // carries it: leaf area reaches the allometric constants and height reaches
+  // everything derived from it, and k_I is read by the kernel itself.
   struct competition_partials {
     S value_darea_leaf;
     S value_dheight;
+    S value_dk_I;
     S slope_darea_leaf;
     S slope_dheight;
+    S slope_dk_I;
   };
 
   competition_partials
@@ -639,8 +645,56 @@ public:
       canopy_shape.Q_and_q_dheight(u, z, height_inverse);
     return {pars.k_I * Qq.first,
             pars.k_I * area_leaf_ * dQq.first,
+            area_leaf_ * Qq.first,
             -(pars.k_I * Qq.second),
-            -(pars.k_I * area_leaf_ * dQq.second)};
+            -(pars.k_I * area_leaf_ * dQq.second),
+            -(area_leaf_ * Qq.second)};
+  }
+
+  // The slot ad_parameters() gives a parameter, found by address so a widened
+  // or reordered list moves the row with it. Refuses a parameter with no slot
+  // rather than returning one.
+  size_t ad_parameter_slot(const S* p) {
+    const std::vector<S*> all = ad_parameters();
+    for (size_t i = 0; i < all.size(); ++i) {
+      if (all[i] == p) {
+        return i;
+      }
+    }
+    util::stop("ad_parameter_slot: parameter is not a differentiation target");
+    return 0;
+  }
+
+  // Where the light reduction's own rows land, in ad_parameters() order. Taken
+  // once per sweep: ad_parameters() allocates and the reduction runs once per
+  // node per stage.
+  struct light_reduction_slots {
+    size_t a_l1;
+    size_t a_l2;
+    size_t k_I;
+  };
+
+  light_reduction_slots light_reduction_trait_slots() {
+    return {ad_parameter_slot(&pars.a_l1), ad_parameter_slot(&pars.a_l2),
+            ad_parameter_slot(&pars.k_I)};
+  }
+
+  // One node's contribution to those rows. The leaf-area adjoint chains through
+  // area_leaf at fixed height, which is a different object from the dA/dheight
+  // the size-space adjoint already carries; the extinction adjoint arrives
+  // already formed. Both are additions to rows the cohort block also writes.
+  void light_reduction_trait_adjoint(const light_reduction_slots& at,
+                                     S area_leaf_, double lambda_area_leaf,
+                                     double lambda_k_I, double* out) const {
+    // A = (height/a_l1)^(1/a_l2), so log(height/a_l1) is a_l2 * log(A) and both
+    // partials are the leaf area's own.
+    const S darea_leaf_da_l1 = -area_leaf_ / (pars.a_l2 * pars.a_l1);
+    const S darea_leaf_da_l2 = -area_leaf_ * log(area_leaf_) / pars.a_l2;
+    out[at.a_l1] +=
+      lambda_area_leaf * odelia::util::to_passive(darea_leaf_da_l1);
+    out[at.a_l2] +=
+      lambda_area_leaf * odelia::util::to_passive(darea_leaf_da_l2);
+    out[at.k_I] += lambda_k_I;
   }
 
   // The inverse of dheight_darea_leaf, so the allometry has one source.
@@ -900,10 +954,11 @@ S TF24_Strategy<S>::record_with_derivatives(
 // part in 10^4, and the condition number below is what refuses that rather than
 // absorbing it.
 template <typename S>
-template <typename Drive>
+template <typename Drive, typename Rebuild>
 void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                                            const std::vector<S>& psi_soil,
-                                           Drive drive) {
+                                           const S& conductance_max,
+                                           Drive drive, Rebuild rebuild_roots) {
   using odelia::util::to_passive;
   namespace grad = phylloptim::gradient;
 
@@ -955,9 +1010,14 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // One perturbed evaluation: re-supply the leaf, hold the collar where it was,
   // and read the marginal profit there. No solve, so the operating point does
   // not move and this is a partial derivative.
-  auto marginal_at = [&](double rad, const std::vector<double>& psi) -> double {
-    drive(rad, psi);
+  const double kmax_value = to_passive(conductance_max);
+  auto seat_at = [&](double rad, const std::vector<double>& psi,
+                     double kmax) -> void {
+    drive(rad, psi, kmax);
     leaf.evaluate_root_collar_psi(collar);
+  };
+  auto marginal_at = [&](double rad, const std::vector<double>& psi) -> double {
+    seat_at(rad, psi, kmax_value);
     return leaf.dprofit_droot_collar_psi(collar);
   };
 
@@ -1026,7 +1086,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   }
   // Put the leaf back where its own solve left it, so everything read after this
   // is the operating point the value came from.
-  drive(radiation_value, psi_value);
+  drive(radiation_value, psi_value, kmax_value);
   leaf.evaluate_root_collar_psi(collar);
 
   // The pair, from the two directions. Refuse a pairing that cannot separate
@@ -1053,12 +1113,152 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                " d2Eup_r=" + util::to_string(a22));
   }
 
+  // The maximum leaf-specific conductance is not in the span the pair above
+  // factors: it enters the marginal profit through the stem potential directly,
+  // not through total uptake. So it is read along its own direction, at the same
+  // step the pair was fitted at, and one pass gives all three of its partials.
+  const double h_kmax = std::abs(kmax_value) * fit_step;
+  std::vector<double> uptake_up(n_layer), uptake_dn(n_layer);
+  double profit_up = 0.0, profit_dn = 0.0, m_kmax_up = 0.0, m_kmax_dn = 0.0;
+  for (int side = 0; side < 2; ++side) {
+    seat_at(radiation_value, psi_value,
+            kmax_value + (side == 0 ? h_kmax : -h_kmax));
+    (side == 0 ? profit_up : profit_dn) = leaf.profit_;
+    (side == 0 ? m_kmax_up : m_kmax_dn) =
+        leaf.dprofit_droot_collar_psi(collar);
+    for (size_t i = 0; i < n_layer; ++i) {
+      (side == 0 ? uptake_up : uptake_dn)[i] = leaf.soil_consumption_[i];
+    }
+  }
+  seat_at(radiation_value, psi_value, kmax_value);
+  const double dprofit_dkmax = (profit_up - profit_dn) / (2.0 * h_kmax);
+  const double dR_dkmax = (m_kmax_up - m_kmax_dn) / (2.0 * h_kmax);
+  if (!util::is_finite(dprofit_dkmax) || !util::is_finite(dR_dkmax)) {
+    util::stop("TF24 gradient: the leaf's response to its maximum conductance "
+               "is not finite, so the stem channel has nothing to stand on");
+  }
+  const double dcollar_dkmax = -dR_dkmax / curvature;
+
+  // The root carbon each layer holds, read the same way. It reaches the leaf
+  // only by way of the resistances the architecture model builds from it, so the
+  // perturbation is applied to the carbon and the network rebuilt, never to the
+  // network directly: the two sides share a convention about what the carbon is
+  // per unit of, and only this side can see it.
+  std::vector<double> dprofit_drc(n_layer, 0.0), dcollar_drc(n_layer, 0.0);
+  std::vector<std::vector<double>> dE_drc_frozen(
+      n_layer, std::vector<double>(n_layer, 0.0));
+  for (size_t a = 0; a < n_layer; ++a) {
+    const double base_rc = root_carbon_value_[a];
+    if (!(base_rc > 0.0)) {
+      continue;   // a layer with no roots moves no water, and that zero is the model
+    }
+    const double h_rc = base_rc * fit_step;
+    double p_up = 0.0, p_dn = 0.0, m_up = 0.0, m_dn = 0.0;
+    std::vector<double> u_up(n_layer), u_dn(n_layer);
+    for (int side = 0; side < 2; ++side) {
+      root_carbon_value_[a] = base_rc + (side == 0 ? h_rc : -h_rc);
+      rebuild_roots();
+      seat_at(radiation_value, psi_value, kmax_value);
+      (side == 0 ? p_up : p_dn) = leaf.profit_;
+      (side == 0 ? m_up : m_dn) = leaf.dprofit_droot_collar_psi(collar);
+      for (size_t i = 0; i < n_layer; ++i) {
+        (side == 0 ? u_up : u_dn)[i] = leaf.soil_consumption_[i];
+      }
+    }
+    root_carbon_value_[a] = base_rc;
+    dprofit_drc[a] = (p_up - p_dn) / (2.0 * h_rc);
+    const double dR_drc = (m_up - m_dn) / (2.0 * h_rc);
+    if (!util::is_finite(dprofit_drc[a]) || !util::is_finite(dR_drc)) {
+      util::stop("TF24 gradient: layer " + util::to_string(static_cast<int>(a)) +
+                 "'s root carbon moves the leaf by an amount that is not finite");
+    }
+    dcollar_drc[a] = -dR_drc / curvature;
+    for (size_t i = 0; i < n_layer; ++i) {
+      dE_drc_frozen[i][a] = (u_up[i] - u_dn[i]) / (2.0 * h_rc);
+    }
+  }
+  // Put the network back to the one the value came from.
+  rebuild_roots();
+  seat_at(radiation_value, psi_value, kmax_value);
+
+  // The leaf's own traits. It holds them, so the only route to their rows is to
+  // move one and re-solve: two evaluations each, which is what phylloptim's own
+  // gradient module pays, and for its reason -- these have no closed form. The
+  // order is set_traits(); vcmax_25 and jmax_25 are held because the temperature
+  // cache keys their derived values on the drivers alone, so a moved value is
+  // reused rather than recomputed, and neither is a differentiation target.
+  const int n_leaf_trait = 13;
+  double lt[n_leaf_trait] = {
+      to_passive(pars.vcmax_25), to_passive(pars.c), to_passive(pars.b),
+      to_passive(pars.psi_crit), to_passive(pars.root_c),
+      to_passive(pars.root_b), to_passive(pars.root_psi_crit),
+      to_passive(pars.beta2), to_passive(pars.jmax_25), to_passive(pars.a),
+      to_passive(pars.curv_fact_elec_trans), to_passive(pars.curv_fact_colim),
+      to_passive(pars.g1_TF24)};
+  const S* lt_input[n_leaf_trait] = {
+      &pars.vcmax_25, &pars.c, &pars.b, &pars.psi_crit, &pars.root_c,
+      &pars.root_b, &pars.root_psi_crit, &pars.beta2, &pars.jmax_25, &pars.a,
+      &pars.curv_fact_elec_trans, &pars.curv_fact_colim, &pars.g1_TF24};
+  const bool lt_seeded[n_leaf_trait] = {false, true, true, true, true, true,
+                                        true, true, false, true, true, true,
+                                        true};
+  auto apply_leaf_traits = [&]() -> void {
+    leaf.set_traits(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5], lt[6], lt[7],
+                    lt[8], lt[9], lt[10], lt[11], lt[12]);
+  };
+  std::vector<double> dprofit_dlt(n_leaf_trait, 0.0),
+      dcollar_dlt(n_leaf_trait, 0.0);
+  std::vector<std::vector<double>> dE_dlt_frozen(
+      n_layer, std::vector<double>(n_leaf_trait, 0.0));
+  for (int k = 0; k < n_leaf_trait; ++k) {
+    if (!lt_seeded[k]) {
+      continue;
+    }
+    const double base_t = lt[k];
+    const double h_t = std::max(std::abs(base_t), 1.0) * fit_step;
+    double p_up = 0.0, p_dn = 0.0, m_up = 0.0, m_dn = 0.0;
+    std::vector<double> u_up(n_layer), u_dn(n_layer);
+    for (int side = 0; side < 2; ++side) {
+      lt[k] = base_t + (side == 0 ? h_t : -h_t);
+      apply_leaf_traits();
+      seat_at(radiation_value, psi_value, kmax_value);
+      (side == 0 ? p_up : p_dn) = leaf.profit_;
+      (side == 0 ? m_up : m_dn) = leaf.dprofit_droot_collar_psi(collar);
+      for (size_t i = 0; i < n_layer; ++i) {
+        (side == 0 ? u_up : u_dn)[i] = leaf.soil_consumption_[i];
+      }
+    }
+    lt[k] = base_t;
+    dprofit_dlt[k] = (p_up - p_dn) / (2.0 * h_t);
+    const double dR_dlt = (m_up - m_dn) / (2.0 * h_t);
+    if (!util::is_finite(dprofit_dlt[k]) || !util::is_finite(dR_dlt)) {
+      util::stop("TF24 gradient: leaf trait " + util::to_string(k) +
+                 " moves the leaf by an amount that is not finite");
+    }
+    dcollar_dlt[k] = -dR_dlt / curvature;
+    for (size_t i = 0; i < n_layer; ++i) {
+      dE_dlt_frozen[i][k] = (u_up[i] - u_dn[i]) / (2.0 * h_t);
+    }
+  }
+  // Put the leaf back to the traits the value came from.
+  apply_leaf_traits();
+  seat_at(radiation_value, psi_value, kmax_value);
+
   // Profit, carrying the envelope response, and the two channels stay apart
   // because they are different objects: a soil term is a price times a supply
   // derivative, and radiation moves no water at all.
   std::vector<input_and_derivative> against;
-  against.reserve(1 + n_layer);
+  against.reserve(2 + 2 * n_layer + n_leaf_trait);
   against.push_back({radiation, env.dprofit_dlight});
+  against.push_back({conductance_max, dprofit_dkmax});
+  for (size_t a = 0; a < n_layer; ++a) {
+    against.push_back({root_carbon_per_leaf_area_[a], dprofit_drc[a]});
+  }
+  for (int k = 0; k < n_leaf_trait; ++k) {
+    if (lt_seeded[k]) {
+      against.push_back({*lt_input[k], dprofit_dlt[k]});
+    }
+  }
   for (size_t j = 0; j < n_layer; ++j) {
     against.push_back({psi_soil[j], env.dprofit_dpsi_soil[j]});
   }
@@ -1071,7 +1271,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       (marginal_at(radiation_value * (1.0 + 1e-6), psi_value) -
        marginal_at(radiation_value * (1.0 - 1e-6), psi_value)) /
       (2.0 * radiation_value * 1e-6);
-  drive(radiation_value, psi_value);
+  drive(radiation_value, psi_value, kmax_value);
   leaf.evaluate_root_collar_psi(collar);
   static_cast<void>(marginal);
 
@@ -1088,12 +1288,36 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   }
 
   leaf_soil_consumption_.assign(psi_soil.size(), S(0.0));
+  // The value below is soil_consumption_, in mol; every partial above it is
+  // built from the leaf's kg-based flux accessors. The two are different units
+  // by design, so the rows carry the same conversion the value already did.
+  const double to_mol = 1.0 / phylloptim::kg_per_mol_h2o;
   for (size_t i = 0; i < n_layer; ++i) {
     against.clear();
-    against.push_back({radiation, dE_dcollar[i] * dcollar_dlight});
+    against.push_back({radiation, to_mol * dE_dcollar[i] * dcollar_dlight});
+    // soil_consumption_ is already the mol quantity, so its own difference needs
+    // no conversion; dE_dcollar is the kg one and does.
+    const double dE_dkmax_frozen =
+        (uptake_up[i] - uptake_dn[i]) / (2.0 * h_kmax);
+    against.push_back({conductance_max,
+                       dE_dkmax_frozen +
+                         to_mol * dE_dcollar[i] * dcollar_dkmax});
+    for (size_t a = 0; a < n_layer; ++a) {
+      against.push_back({root_carbon_per_leaf_area_[a],
+                         dE_drc_frozen[i][a] +
+                           to_mol * dE_dcollar[i] * dcollar_drc[a]});
+    }
+    for (int k = 0; k < n_leaf_trait; ++k) {
+      if (lt_seeded[k]) {
+        against.push_back({*lt_input[k],
+                           dE_dlt_frozen[i][k] +
+                             to_mol * dE_dcollar[i] * dcollar_dlt[k]});
+      }
+    }
     for (size_t j = 0; j < n_layer; ++j) {
       const double frozen = (i == j) ? dEup_dpsi[i] : 0.0;
-      against.push_back({psi_soil[j], frozen + dE_dcollar[i] * dcollar_dpsi[j]});
+      against.push_back({psi_soil[j],
+                         to_mol * (frozen + dE_dcollar[i] * dcollar_dpsi[j])});
     }
     // The leaf reports uptake in mol and E_up in kg; soil_consumption_ is the
     // mol one, which is what the patch water balance reads.
@@ -1659,15 +1883,23 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   if constexpr (!std::is_same_v<S, double>) {
     // Re-supplying the leaf is the caller's job, because the caller is what owns
     // these inputs; every one of them crosses as a value.
-    auto drive = [&](double rad, const std::vector<double>& psi) -> void {
-      leaf.set_physiology(root_network_, rad, psi, soil_depths_,
-                          odelia::util::to_passive(leaf_specific_conductance_max),
+    auto drive = [&](double rad, const std::vector<double>& psi,
+                     double kmax) -> void {
+      leaf.set_physiology(root_network_, rad, psi, soil_depths_, kmax,
                           environment.get_atm_vpd(), environment.get_ca(),
                           environment.get_leaf_temp(),
                           environment.get_atm_o2_kpa(),
                           environment.get_atm_kpa());
     };
-    record_leaf_outputs(radiation_used, psi_soil, drive);
+    // The architecture model is this strategy's, so the leaf boundary is handed
+    // a rebuild rather than the layer thickness and the two betas.
+    auto rebuild_roots = [&]() -> void {
+      phylloptim::root_network_from_carbon(
+          root_carbon_value_, phylloptim::layer_thickness(soil_depths_),
+          beta_R_H, beta_R_V, root_network_);
+    };
+    record_leaf_outputs(radiation_used, psi_soil,
+                        leaf_specific_conductance_max, drive, rebuild_roots);
     profit_ = leaf_profit_;
   }
   const S assimilation_ = profit_ * area_leaf_* 60*60*12*365/1e6;

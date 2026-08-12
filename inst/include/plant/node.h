@@ -10,11 +10,15 @@
 
 namespace plant {
 
-// One node's adjoints on the size variables the field reductions read.
+// One node's adjoints on the quantities the field reductions read: the three
+// size variables, and the extinction coefficient, which the competition kernel
+// scales by and no size variable carries. Its row is pulled back to the trait
+// accumulator beside the allometric constants leaf area reaches.
 struct node_size_adjoints {
   double area_leaf;
   double height;
   double log_density;
+  double extinction;
 };
 
 // One node's adjoints from the water aggregation: the individual's uptake, which
@@ -23,6 +27,23 @@ struct node_uptake_adjoints {
   double uptake;
   double height;
   double log_density;
+};
+
+// The inflow boundary node's own adjoints. It holds no ODE row, so each of these
+// is pulled back through the condition that sets it rather than written to a
+// state slot.
+//
+// The density has two slots because a stage evaluates the boundary condition
+// twice, in two different fields: the light field is built with the first and the
+// water aggregation runs after the second. They are sensitivities to different
+// quantities, so one accumulator would transpose one derivative through the
+// other's argument.
+struct boundary_node_adjoints {
+  double area_leaf;
+  double height;
+  double extinction;
+  double density_in_field;
+  double density_in_uptake;
 };
 
 template <typename T, typename E>
@@ -51,14 +72,16 @@ public:
   value_type fecundity() const {return offspring_produced_survival_weighted;}
 
   // Partials of compute_competition_and_slope's pair in the individual's leaf
-  // area, its height and this node's log density.
+  // area, its height, this node's log density, and the extinction coefficient.
   struct competition_partials {
     value_type value_darea_leaf;
     value_type value_dheight;
     value_type value_dlog_density;
+    value_type value_dk_I;
     value_type slope_darea_leaf;
     value_type slope_dheight;
     value_type slope_dlog_density;
+    value_type slope_dk_I;
   };
 
   competition_partials
@@ -70,9 +93,11 @@ public:
     return {density * p.value_darea_leaf,
             density * p.value_dheight,
             density * fs.first,
+            density * p.value_dk_I,
             density * p.slope_darea_leaf,
             density * p.slope_dheight,
-            density * fs.second};
+            density * fs.second,
+            density * p.slope_dk_I};
   }
 
   // The survival factor offspring_produced_survival_weighted_dt multiplies,
