@@ -4481,6 +4481,26 @@ ladder_trajectory_tangent_tf24 <- function(obj_, direction) {
     .Call('_plant_ladder_trajectory_tangent_tf24', PACKAGE = 'plant', obj_, direction)
 }
 
+ladder_boundary_density_tangent_tf24 <- function(obj_, index) {
+    .Call('_plant_ladder_boundary_density_tangent_tf24', PACKAGE = 'plant', obj_, index)
+}
+
+ladder_seed_geometry_tangent_tf24 <- function(obj_, index) {
+    .Call('_plant_ladder_seed_geometry_tangent_tf24', PACKAGE = 'plant', obj_, index)
+}
+
+ladder_census_initial_state_tangent_tf24 <- function(obj_, direction, segment) {
+    .Call('_plant_ladder_census_initial_state_tangent_tf24', PACKAGE = 'plant', obj_, direction, segment)
+}
+
+ladder_segment_base_state_tf24 <- function(obj_, segment) {
+    .Call('_plant_ladder_segment_base_state_tf24', PACKAGE = 'plant', obj_, segment)
+}
+
+ladder_census_initial_state_replay_tf24 <- function(obj_, state0, segment) {
+    .Call('_plant_ladder_census_initial_state_replay_tf24', PACKAGE = 'plant', obj_, state0, segment)
+}
+
 ladder_trait_names_tf24 <- function(obj_) {
     .Call('_plant_ladder_trait_names_tf24', PACKAGE = 'plant', obj_)
 }

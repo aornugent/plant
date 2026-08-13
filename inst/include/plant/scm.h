@@ -162,6 +162,56 @@ public:
   std::vector<double> census_trait_tangent(const std::vector<double>& direction,
                                            std::vector<double>& value);
 
+  // One exact directional derivative of the census with respect to the first
+  // recorded state, by a forward tangent stepped at the sizes the run recorded.
+  // `direction` carries one weight per component of that state.
+  //
+  // No trait, no derived quantity and no census direct term is on this path, so
+  // it isolates how the trajectory carries a perturbation to a state a cohort
+  // starts at, and census_initial_state_replay is what refereees it.
+  // `segment` picks where the seeding happens: 0 is the first recorded state,
+  // which on this coordinate holds the environment and no cohort, and `j` is the
+  // state the run reached just after the jth introduction. A cohort's own birth
+  // height is seedable only from `j >= 1`, because that is where it first exists.
+  template <class Metrics>
+  std::vector<double>
+  census_initial_state_tangent(const std::vector<double>& direction,
+                               std::vector<double>& value,
+                               size_t segment = 0);
+
+  // The census a plain-double replay of the recorded steps reaches from
+  // `state0`. Differencing it moves the state the tangent above seeds, through
+  // the same steps and the same introductions, so the two differentiate one
+  // function and a disagreement is the propagation's own.
+  template <class Metrics>
+  std::vector<double>
+  census_initial_state_replay(const std::vector<double>& state0,
+                              size_t segment = 0);
+
+  // The state a segment's first step ran from, which is what the two calls above
+  // index their arguments against.
+  std::vector<double> segment_base_state(size_t segment);
+
+  // The replay both entry points above run. `seed` fills the scalar state the
+  // replay starts from, given the recorded one.
+  //
+  // Storing a trajectory runs the model, so the seeding is handed in rather than
+  // applied by the caller: a caller reading the recorded state for itself would
+  // store twice and run twice.
+  template <class Metrics, class Scalar, class Seed>
+  std::vector<Scalar> replay_initial_state(size_t from_segment, Seed seed);
+
+  // The state and time a segment's first step ran from, with the solver's system
+  // left carrying that segment's width. Reached by replaying the introductions
+  // before it, since a widened state is not what any record holds.
+  double narrow_to_segment(const std::vector<std::vector<double>>& states,
+                           const std::vector<ode_step_record>& trajectory,
+                           const std::vector<size_t>& boundary,
+                           const std::vector<std::vector<size_t>>& introduced,
+                           size_t from_segment,
+                           std::vector<double>& base,
+                           size_t& start);
+
   // Where the recorded trajectory widens and which species widened it. Returns
   // with the solver's system narrowed to the first segment's width.
   void narrow_over_introductions(
@@ -1047,6 +1097,179 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
       },
       Metrics{});
   return ret;
+}
+
+template <typename T, typename E>
+double SCM<T, E>::narrow_to_segment(
+    const std::vector<std::vector<double>>& states,
+    const std::vector<ode_step_record>& trajectory,
+    const std::vector<size_t>& boundary,
+    const std::vector<std::vector<size_t>>& introduced,
+    size_t from_segment,
+    std::vector<double>& base,
+    size_t& start) {
+  patch_type& live = solver.get_system_ref();
+  live.set_ode_state_and_field(states[0].begin(), trajectory[0].time);
+  start = 0;
+  for (size_t j = 0; j < from_segment; ++j) {
+    const size_t b = boundary[j];
+    live.set_recorded_state(states[b].begin(), trajectory[b].time);
+    live.introduce_new_nodes(introduced[j]);
+    start = b;
+  }
+  base.assign(live.ode_size(), 0.0);
+  live.ode_state(base.begin());
+  return trajectory[start].time;
+}
+
+template <typename T, typename E>
+std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
+  const std::vector<ode_step_record> trajectory = store_trajectory();
+  std::vector<std::vector<double>> states;
+  states.reserve(trajectory.size());
+  for (const ode_step_record& record : trajectory) {
+    states.push_back(record.state);
+  }
+  std::vector<size_t> boundary;
+  std::vector<std::vector<size_t>> introduced;
+  narrow_over_introductions(states, trajectory, boundary, introduced);
+  if (segment > boundary.size()) {
+    util::stop("segment_base_state: the recording has no such segment");
+  }
+  std::vector<double> base;
+  size_t start = 0;
+  narrow_to_segment(states, trajectory, boundary, introduced, segment, base,
+                    start);
+  // narrow_to_segment introduced its way forward to that segment's width; undo
+  // exactly those introductions, because the restore below replays from the
+  // first boundary and starts at the narrowest width.
+  for (size_t j = segment; j-- > 0;) {
+    solver.get_system_ref().remove_new_nodes(introduced[j]);
+  }
+  std::vector<std::vector<double>> sweep_states = states;
+  widen_over_introductions(states, trajectory, boundary, introduced,
+                           sweep_states);
+  return base;
+}
+
+template <typename T, typename E>
+template <class Metrics, class Scalar, class Seed>
+std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
+                                                    Seed seed) {
+  const std::vector<ode_step_record> trajectory = store_trajectory();
+  std::vector<std::vector<double>> states;
+  states.reserve(trajectory.size());
+  for (const ode_step_record& record : trajectory) {
+    states.push_back(record.state);
+  }
+  std::vector<size_t> boundary;
+  std::vector<std::vector<size_t>> introduced;
+  narrow_over_introductions(states, trajectory, boundary, introduced);
+  if (from_segment > boundary.size()) {
+    util::stop("replay_initial_state: the recording has no such segment");
+  }
+
+  std::vector<double> base;
+  size_t start = 0;
+  const double t0 = narrow_to_segment(states, trajectory, boundary, introduced,
+                                      from_segment, base, start);
+
+  patch_type& live = solver.get_system_ref();
+  auto active = live.template rebind_from<Scalar>();
+
+  std::vector<Scalar> x0(base.size());
+  seed(x0, base);
+  active.set_ode_state_and_field(x0.begin(), t0);
+
+  odelia::ode::Solver<decltype(active)> forward(active, make_ode_control(control));
+  forward.set_collect(false);
+  forward.set_state_from_system();
+
+  size_t first = start;
+  for (size_t j = from_segment; j <= boundary.size(); ++j) {
+    const size_t last =
+      j < boundary.size() ? boundary[j] : states.size() - 1;
+    // The first entry is the size no step reached, which is how
+    // advance_fixed_steps reads a recorded run.
+    std::vector<double> sizes(1, std::numeric_limits<double>::quiet_NaN());
+    for (size_t k = first + 1; k <= last; ++k) {
+      sizes.push_back(trajectory[k].step_size);
+    }
+    if (sizes.size() > 1) {
+      forward.advance_fixed_steps(sizes);
+    }
+    if (j < boundary.size()) {
+      forward.get_system_ref().introduce_new_nodes(introduced[j]);
+      forward.set_state_from_system();
+      first = last;
+    }
+  }
+
+  // Leave the double system where the run left it, so this call is repeatable
+  // beside the sweep that shares its trajectory. narrow_to_segment left it at
+  // this segment's width and the restore replays from the first boundary, so it
+  // needs the narrowest width back first, so undo exactly the introductions
+  // narrow_to_segment made on the way forward.
+  for (size_t j = from_segment; j-- > 0;) {
+    live.remove_new_nodes(introduced[j]);
+  }
+  std::vector<std::vector<double>> sweep_states = states;
+  widen_over_introductions(states, trajectory, boundary, introduced,
+                           sweep_states);
+
+  std::vector<Scalar> out;
+  out.reserve(std::tuple_size<Metrics>::value);
+  const auto& reached = forward.get_system_ref();
+  std::apply(
+      [&](auto... psi) -> void {
+        ((out.push_back(census_over(reached, psi))), ...);
+      },
+      Metrics{});
+  return out;
+}
+
+template <typename T, typename E>
+template <class Metrics>
+std::vector<double>
+SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
+                                        std::vector<double>& value,
+                                        size_t segment) {
+  require_birth_date_coordinate("census_initial_state_tangent");
+  using tangent = xad::fwd<double>::active_type;
+
+  const std::vector<tangent> reached =
+    replay_initial_state<Metrics, tangent>(segment,
+      [&](std::vector<tangent>& x0,
+          const std::vector<double>& base) -> void {
+        util::check_length(direction.size(), base.size());
+        for (size_t i = 0; i < x0.size(); ++i) {
+          x0[i] = base[i];
+          xad::derivative(x0[i]) = direction[i];
+        }
+      });
+
+  std::vector<double> ret;
+  ret.reserve(reached.size());
+  value.clear();
+  value.reserve(reached.size());
+  for (const tangent& metric : reached) {
+    ret.push_back(xad::derivative(metric));
+    value.push_back(xad::value(metric));
+  }
+  return ret;
+}
+
+template <typename T, typename E>
+template <class Metrics>
+std::vector<double>
+SCM<T, E>::census_initial_state_replay(const std::vector<double>& state0,
+                                       size_t segment) {
+  require_birth_date_coordinate("census_initial_state_replay");
+  return replay_initial_state<Metrics, double>(segment,
+    [&](std::vector<double>& x0, const std::vector<double>& base) -> void {
+      util::check_length(state0.size(), base.size());
+      x0 = state0;
+    });
 }
 
 // Replay each introduction on the solver's system, which must be narrowed to the

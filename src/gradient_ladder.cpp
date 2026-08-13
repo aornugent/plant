@@ -423,6 +423,113 @@ Rcpp::List ladder_trajectory_tangent_tf24(plant::RcppR6::RcppR6<plant::SCM<plant
                             Rcpp::_["tangent"] = tangent);
 }
 
+// The inflow boundary's density at an active scalar, with its row in one
+// registered parameter, read where the condition forms it. `index` is a position
+// in ad_parameters(), counting from one.
+//
+// The boundary node is not ODE state, so nothing downstream reports what the
+// differentiated path made of this row; a caller comparing it against a rebuilt
+// difference of the same quantity is comparing the row against the condition.
+// [[Rcpp::export]]
+Rcpp::List ladder_boundary_density_tangent_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                                int index) {
+  using tangent = xad::fwd<double>::active_type;
+  const patch_type& source = *obj_;
+  auto active = source.template rebind_from<tangent>();
+  std::vector<tangent*> pars =
+    active.at_species(0).strategy_ptr()->ad_parameters();
+  if (index < 1 || static_cast<size_t>(index) > pars.size()) {
+    plant::util::stop("ladder_boundary_density_tangent: index out of range");
+  }
+  xad::derivative(*pars[static_cast<size_t>(index) - 1]) = 1.0;
+
+  // A rate evaluation owns the field build and the boundary condition, so this
+  // leaves the node where a step would have left it.
+  std::vector<tangent> dydt(active.ode_size());
+  active.r_compute_environment();
+  active.ode_rates(dydt.begin());
+
+  const auto& node = active.at_species(0).r_new_node();
+  const tangent ell = node.get_log_density();
+  const tangent h = node.height();
+  // The birth-size carbon the establishment probability divides by, read where
+  // the condition reads it.
+  const tangent carbon = node.individual.aux("net_mass_production_dt");
+  const tangent area = node.individual.aux("competition_effect");
+  return Rcpp::List::create(
+    Rcpp::_["log_density"] = xad::value(ell),
+    Rcpp::_["dlog_density"] = xad::derivative(ell),
+    Rcpp::_["height"] = xad::value(h),
+    Rcpp::_["dheight"] = xad::derivative(h),
+    Rcpp::_["carbon"] = xad::value(carbon),
+    Rcpp::_["dcarbon"] = xad::derivative(carbon),
+    Rcpp::_["area_leaf"] = xad::value(area),
+    Rcpp::_["darea_leaf"] = xad::derivative(area));
+}
+
+// The seed's height and leaf area at an active scalar, with their row in one
+// registered parameter, read where the graft forms it rather than inferred from a
+// census. `index` is a position in ad_parameters(), counting from one.
+//
+// The referee is a difference of the seed height over a rebuilt strategy: the graft
+// declares this row, so a caller comparing the two is comparing a declaration
+// against the condition it claims to solve.
+// [[Rcpp::export]]
+Rcpp::List ladder_seed_geometry_tangent_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                             int index) {
+  using tangent = xad::fwd<double>::active_type;
+  const patch_type& patch = *obj_;
+  const strategy_type& source = *patch.at_species(0).strategy_ptr();
+  auto active = source.template rebind_from<tangent>();
+  std::vector<tangent*> pars = active.ad_parameters();
+  if (index < 1 || static_cast<size_t>(index) > pars.size()) {
+    plant::util::stop("ladder_seed_geometry_tangent: index out of range");
+  }
+  xad::derivative(*pars[static_cast<size_t>(index) - 1]) = 1.0;
+  const auto seed = active.seed_geometry();
+  return Rcpp::List::create(
+    Rcpp::_["height"] = xad::value(seed.height),
+    Rcpp::_["dheight"] = xad::derivative(seed.height),
+    Rcpp::_["area_leaf"] = xad::value(seed.area_leaf),
+    Rcpp::_["darea_leaf"] = xad::derivative(seed.area_leaf));
+}
+
+// One exact directional derivative of the census with respect to the first
+// recorded state. `direction` carries one weight per component of that state, so a
+// coordinate direction gives the census's sensitivity to the value one cohort
+// starts at, with no trait and no derived quantity on the path.
+// [[Rcpp::export]]
+Rcpp::List ladder_census_initial_state_tangent_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                                    std::vector<double> direction,
+                                                    int segment) {
+  std::vector<double> value;
+  const std::vector<double> tangent =
+    obj_->census_initial_state_tangent<plant::tf24_census>(
+      direction, value, static_cast<size_t>(segment));
+  return Rcpp::List::create(Rcpp::_["value"] = value,
+                            Rcpp::_["tangent"] = tangent);
+}
+
+// The state a segment's first step ran from, which is what `direction` and
+// `state0` are indexed against. A widened state is not what any record holds, so
+// a caller cannot read it off the trajectory.
+// [[Rcpp::export]]
+std::vector<double> ladder_segment_base_state_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                                   int segment) {
+  return obj_->segment_base_state(static_cast<size_t>(segment));
+}
+
+// The census a plain-double replay of the recorded steps reaches from `state0`.
+// Differencing this is what referees the tangent above: the same steps, the same
+// introductions, one perturbed state.
+// [[Rcpp::export]]
+std::vector<double> ladder_census_initial_state_replay_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                                            std::vector<double> state0,
+                                                            int segment) {
+  return obj_->census_initial_state_replay<plant::tf24_census>(
+    state0, static_cast<size_t>(segment));
+}
+
 // The trait columns' names, species-major and each carrying its species index,
 // so a gradient's columns can be told apart when two species carry the same
 // parameter.
