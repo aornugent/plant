@@ -549,6 +549,53 @@ has been observed of one.
 
 ### Known issues
 
+* **A shaded stand makes the forward tangent of the right-hand side non-finite,
+  and nothing refuses.** Every gradient in this record was measured on an open
+  stand; report 06 §11 says so as a caveat. Driven into shade by raising the birth
+  rate, `ladder_rhs_state_jacobian_forward_tf24` returns `NaN` in 5670 of 11025
+  entries. The onset tracks light rather than the birth rate: clean at a minimum
+  light of 0.197 and 0.188, non-finite at 0.174 and below.
+
+  The pattern is whole rows, and it names the path. Height, fecundity, storage and
+  log density are non-finite for every column, together with six of the nine
+  environment rows; heartwood area, heartwood mass and mortality are clean. The
+  first four are exactly the rates that read `growth`, and the last three are the
+  ones that do not.
+
+  What it excludes. The values are unaffected -- the active path and the double
+  path agree to `1.2e-19` and both are finite -- so this is not the graft's
+  `NaN * 0` route, where a poisoned partial takes the value with it. Every
+  per-cohort block Jacobian is finite, and a block takes the field and the soil
+  potentials as inputs, so the cohort physiology is not where it enters. The light
+  reduction's adjoint is finite seeded on values and on slopes. The leaf's own
+  refusal never fires: every operating point classifies as interior, so the
+  classification is not missing it. Soil moisture is 0.148 to 0.217, far from the
+  residual floor.
+
+  What is left is the state to field forward tangent, which has no exposed
+  instrument, and it is not pinned to a line. The regime it sits in is named: net
+  production is negative at ten of twelve cohorts and the relative reserve reaches
+  exactly zero, which is the absorbing flat region where every derivative out of
+  the reserve vanishes.
+
+* **The sweep answers in that regime, and nothing can referee it.**
+  `stand_gradient` returns 132 finite entries on the stand above -- it does not
+  produce `NaN` and it does not refuse. The rebuilding reference has a spread of
+  `1e+00` across its step sizes there, so it cannot check them either. A finite,
+  plausible, unrefereeable number is this design's worst failure shape.
+
+  Two guards are defensible and they mean different things, and the choice is a
+  statement about what the gradient is for rather than a repair. Refusing wherever
+  net production is not positive uses machinery that already exists and matches
+  the boundary refusing anything that is not interior -- but it refuses a stratum
+  on which the within-stratum derivative is valid and merely the wrong instrument.
+  Refusing on non-finiteness as the rows are formed is an invariant worth having
+  regardless, but it would not fire here, because the sweep is finite.
+
+  Deferred deliberately: work continues in the regimes that are currently valid,
+  and broadening the scope is its own piece of work rather than a condition on
+  this one.
+
 * **The scientific-surface drift guard is dark by default, and it is red.** It
   skips on CRAN, so an ordinary run has no live gate on a default that changes a
   model's output. Run with `NOT_CRAN` set it fails for all four models, on three
