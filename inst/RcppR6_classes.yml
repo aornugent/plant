@@ -996,10 +996,7 @@ ResourceSpline:
   name_cpp: "plant::ResourceSpline<double>"
   constructor:
     args:
-      - tol: double
-      - nbase: double
-      - max_depth: double
-      - rescale_usually: bool
+      - knot_spacing: double
   methods:
     get_value_at_height:
       args: [height: double]

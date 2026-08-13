@@ -115,7 +115,11 @@ public:
   // the full-lifetime deep-crown anchor, offspring production moves
   // 16.884586 -> 17.172004, i.e. **+1.70%**; on the height coordinate it is
   // unchanged to the last bit.
-  static constexpr int scientific_version = 2;
+  // v3: the light field's knots sit at fixed heights rather than following the
+  // canopy top. Refining either placement converges on the same answer; this one
+  // is closer to it. On the full-lifetime deep-crown anchor, offspring production
+  // moves 16.884586 -> 16.893523 against a limit of 16.896056.
+  static constexpr int scientific_version = 3;
 
   // Fixed integer slots for the hot ODE rate path, used instead of
   // state_index.at("...") / aux_index.at("...") string-map lookups (those map

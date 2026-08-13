@@ -182,8 +182,12 @@ test_that("deep-crown reproduces the baseline SCM result", {
   env <- Environment("FF16")
   # shading_model defaults to "deep-crown"
   p1 <- add_strategies(p0, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar, birth_rate = list(20))
+  # Re-blessed with the light field's knot placement: 16.8846 was the value on
+  # knots tied to the canopy top. Refining either placement converges on 16.8961,
+  # and this number is four and a half times closer to it than the one it
+  # replaces, so the move is toward the limit rather than away from it.
   over_height <- run_scm(p1, env, Control(node_density_in_birth_date = FALSE))
-  expect_equal(over_height$offspring_production, 16.8846, tolerance = 1e-4)
+  expect_equal(over_height$offspring_production, 16.8935, tolerance = 1e-4)
   over_birth_date <- run_scm(p1, env, Control(node_density_in_birth_date = TRUE))
   expect_equal(over_birth_date$offspring_production, 17.1720, tolerance = 1e-4)
 })
@@ -336,10 +340,10 @@ test_that("TF24 shading models agree under uniform light", {
   }
 })
 
-test_that("the light interpolant's knot positions are run-constant", {
-  # The field is held on u = z / height_max at uniform fractions fixed for the
-  # run, so every build places its knots at u_k * height_max: the count is the
-  # same at every stage and the positions are a function of height_max alone.
+test_that("the light interpolant's knot positions are constants of the run", {
+  # Knot k sits at k * spacing whatever the stand is doing, so no cohort height
+  # reaches a position. That is what makes the passive treatment of positions
+  # cost nothing: there is no chain from the canopy top into the grid to drop.
   p0 <- scm_base_parameters("TF24", "TF24_Env")
   p0$max_patch_lifetime <- 8
   p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
@@ -347,12 +351,46 @@ test_that("the light interpolant's knot positions are run-constant", {
   scm$collect <- TRUE
   scm$run()
 
-  u <- seq(0, 1, length.out = 65)
+  spacing <- 0.1
   expect_gt(length(scm$history), 20)
+  seen <- 0
   for (h in scm$history) {
     x <- h$environment$light_availability$state[, "height"]
-    expect_identical(x, u * h$height_max)
+    expect_identical(x, seq(0, by = spacing, length.out = length(x)))
+    # Reaching one knot past the canopy, so a query at the canopy top is inside
+    # the grid rather than on its last node.
+    expect_gt(max(x), h$height_max)
+    seen <- max(seen, length(x))
   }
+
+  # The canopy grew over the run, so the grid had to be extended: this asserts
+  # the extension happened rather than the run staying inside its first grid.
+  expect_gt(seen, length(scm$history[[1]]$environment$light_availability$state[, "height"]))
+})
+
+test_that("extending the grid moves no value the canopy can read", {
+  # The count depends on the canopy, which would be a state-dependent structure
+  # if the knots an extension adds could change an answer. They cannot: above the
+  # canopy the crown shape's value and slope both vanish, so the added knots carry
+  # (1, 0) exactly and no query reaches the span they open.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 4
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  scm$run()
+  patch <- scm$patch
+  patch$compute_environment()
+
+  base <- patch$environment$light_availability$state
+  rates <- patch$ode_rates
+
+  # Extend the grid by hand, past anything the patch will read, and rebuild.
+  x <- seq(0, by = 0.1, length.out = nrow(base) + 40)
+  y <- c(base[, "light_availability"], rep(1, 40))
+  m <- c(base[, "slope"], rep(0, 40))
+  patch$environment$light_availability$init_interpolators(c(x, y, m))
+
+  expect_identical(patch$ode_rates, rates)
 })
 
 test_that("the light interpolant is a function of the state, not of the build before it", {
@@ -396,7 +434,11 @@ test_that("the light field carries Beer's law and its derivative at every knot",
 
   state <- patch$environment$light_availability$state
   expect_identical(colnames(state), c("height", "light_availability", "slope"))
-  expect_equal(nrow(state), 65)
+  # The count follows the canopy rather than being fixed, so it is derived here
+  # rather than named: knots at 0.1 m, reaching one past the tallest cohort.
+  expect_identical(state[, "height"],
+                   seq(0, by = 0.1, length.out = nrow(state)))
+  expect_gt(max(state[, "height"]), patch$height_max)
 
   as <- vapply(state[, "height"], patch$compute_competition_and_slope, c(0, 0))
   expect_equal(unname(state[, "light_availability"]), exp(-as[1, ]))

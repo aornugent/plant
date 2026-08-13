@@ -4507,8 +4507,8 @@ void StochasticPatchRunner___K93__K93_Env__node_schedule__set(plant::RcppR6::Rcp
 
 
 // [[Rcpp::export]]
-plant::ResourceSpline<double> ResourceSpline__ctor(double tol, double nbase, double max_depth, bool rescale_usually) {
-  return plant::ResourceSpline<double>(tol, nbase, max_depth, rescale_usually);
+plant::ResourceSpline<double> ResourceSpline__ctor(double knot_spacing) {
+  return plant::ResourceSpline<double>(knot_spacing);
 }
 // [[Rcpp::export]]
 double ResourceSpline__get_value_at_height(plant::RcppR6::RcppR6<plant::ResourceSpline<double> > obj_, double height) {

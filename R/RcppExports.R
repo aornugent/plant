@@ -3965,8 +3965,8 @@ StochasticPatchRunner___K93__K93_Env__node_schedule__set <- function(obj_, value
     invisible(.Call('_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__set', PACKAGE = 'plant', obj_, value))
 }
 
-ResourceSpline__ctor <- function(tol, nbase, max_depth, rescale_usually) {
-    .Call('_plant_ResourceSpline__ctor', PACKAGE = 'plant', tol, nbase, max_depth, rescale_usually)
+ResourceSpline__ctor <- function(knot_spacing) {
+    .Call('_plant_ResourceSpline__ctor', PACKAGE = 'plant', knot_spacing)
 }
 
 ResourceSpline__get_value_at_height <- function(obj_, height) {

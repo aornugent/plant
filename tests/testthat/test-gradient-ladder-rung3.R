@@ -550,29 +550,51 @@ test_that("the trait rows a difference can reach agree with one", {
     max(resid[refereeable]), 10 * floor)
 })
 
-test_that("the recording does not grow with the stand", {
+test_that("the recording does not grow with the cohort count", {
   # Peak is one cohort's rates at one stage, so it is flat in the cohort count
   # and in the number of differentiation targets: seeding more traits adds
-  # registered slots, not recorded operations. Either climbing with the cohort
-  # count is the tape leaking.
-  one <- ladder_patch_one()
-  four <- ladder_patch_two_by_two()
+  # registered slots, not recorded operations. Climbing with the cohort count is
+  # the tape leaking.
+  #
+  # The canopy top is held equal across the two stands, because the light field's
+  # knots sit at fixed heights and it reaches one past the canopy: a taller stand
+  # carries more knots, so a comparison that let the canopy move would measure
+  # the canopy rather than the cohort count. That dependence is real and is
+  # asserted on its own below.
+  one <- ladder_patch(species = "fast", heights = list(6.29),
+                      log_densities = list(-0.39))
+  four <- ladder_patch(species = "fast",
+                       heights = list(c(6.29, 4.73, 3.11, 1.94)),
+                       log_densities = list(c(-0.39, -1.67, -1.33, -2.71)))
   ladder_block_or_skip(one)
 
-  seed_one <- rep(1, one$ode_size)
-  seed_four <- rep(1, four$ode_size)
-  a <- ladder_rhs_adjoint_tf24(one, seed_one)
-  b <- ladder_rhs_adjoint_tf24(four, seed_four)
+  a <- ladder_rhs_adjoint_tf24(one, rep(1, one$ode_size))
+  b <- ladder_rhs_adjoint_tf24(four, rep(1, four$ode_size))
   message(sprintf("\n  recording size: %.0f at 1 cohort, %.0f at 4, %d sweeps",
                   a$block_recording_size, b$block_recording_size,
                   b$block_sweeps))
-  # The size reported is the last block's, and the two stands' last blocks belong
-  # to different species, so this is a bound rather than an equality: a recording
-  # that grew with the stand would exceed it by a factor, not by a few percent.
-  expect_lt(b$block_recording_size, 1.1 * a$block_recording_size)
+  # Same species, same canopy top, so this is an equality rather than a bound.
+  expect_identical(b$block_recording_size, a$block_recording_size)
+
+  # What the recording IS linear in, now that the field's knots sit at fixed
+  # heights: the canopy, through the knot count. Reported rather than bounded,
+  # because the slope is the price of the placement and a reader should see it.
+  sizes <- vapply(c(2, 5, 10, 20), function(h) {
+    q <- ladder_patch(species = "fast", heights = list(h),
+                      log_densities = list(-3.5))
+    c(knots = length(ladder_field_knots_tf24(q)$height),
+      size = ladder_rhs_adjoint_tf24(q, rep(1, q$ode_size))$block_recording_size)
+  }, c(0, 0))
+  slope <- diff(sizes["size", ]) / diff(sizes["knots", ])
+  message(sprintf("  recording per knot: %s", paste(sprintf("%.0f", slope), collapse = ", ")))
+  # Linear, so every gap gives the same slope. A recording that grew faster than
+  # the knot count would mean the field's inputs reach further than the graft.
+  expect_equal(slope, rep(slope[[1]], length(slope)))
 
   # One block per grid point of the reductions, which is one per cohort plus one
   # boundary node per species: the boundary node is the distribution's lower grid
-  # point and both reductions integrate from it.
-  expect_equal(b$block_sweeps, 6)
+  # point and both reductions integrate from it. Derived from the fixture so it
+  # follows a change of stand rather than having to be re-counted by hand.
+  n_node <- sum(vapply(four$species, function(s) length(s$nodes), 0L))
+  expect_equal(b$block_sweeps, n_node + length(four$species))
 })

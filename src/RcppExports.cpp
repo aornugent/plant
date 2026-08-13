@@ -11147,16 +11147,13 @@ BEGIN_RCPP
 END_RCPP
 }
 // ResourceSpline__ctor
-plant::ResourceSpline<double> ResourceSpline__ctor(double tol, double nbase, double max_depth, bool rescale_usually);
-RcppExport SEXP _plant_ResourceSpline__ctor(SEXP tolSEXP, SEXP nbaseSEXP, SEXP max_depthSEXP, SEXP rescale_usuallySEXP) {
+plant::ResourceSpline<double> ResourceSpline__ctor(double knot_spacing);
+RcppExport SEXP _plant_ResourceSpline__ctor(SEXP knot_spacingSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
-    Rcpp::traits::input_parameter< double >::type nbase(nbaseSEXP);
-    Rcpp::traits::input_parameter< double >::type max_depth(max_depthSEXP);
-    Rcpp::traits::input_parameter< bool >::type rescale_usually(rescale_usuallySEXP);
-    rcpp_result_gen = Rcpp::wrap(ResourceSpline__ctor(tol, nbase, max_depth, rescale_usually));
+    Rcpp::traits::input_parameter< double >::type knot_spacing(knot_spacingSEXP);
+    rcpp_result_gen = Rcpp::wrap(ResourceSpline__ctor(knot_spacing));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -13996,7 +13993,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_StochasticPatchRunner___K93__K93_Env__patch__get", (DL_FUNC) &_plant_StochasticPatchRunner___K93__K93_Env__patch__get, 1},
     {"_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__get", (DL_FUNC) &_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__get, 1},
     {"_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__set", (DL_FUNC) &_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__set, 2},
-    {"_plant_ResourceSpline__ctor", (DL_FUNC) &_plant_ResourceSpline__ctor, 4},
+    {"_plant_ResourceSpline__ctor", (DL_FUNC) &_plant_ResourceSpline__ctor, 1},
     {"_plant_ResourceSpline__get_value_at_height", (DL_FUNC) &_plant_ResourceSpline__get_value_at_height, 2},
     {"_plant_ResourceSpline__init_interpolators", (DL_FUNC) &_plant_ResourceSpline__init_interpolators, 2},
     {"_plant_ResourceSpline__clear", (DL_FUNC) &_plant_ResourceSpline__clear, 1},

@@ -13,17 +13,16 @@ class K93_Environment : public Environment {
 public:
   K93_Environment() {
     time = 0.0;
-    // Match FF16: loosen the light-availability spline tolerance from the
-    // ResourceSpline default (1e-6) to 1e-4 for speed. The spline is rebuilt
-    // every ODE step, so its construction dominates K93 runtime; 1e-6 was 100x
-    // tighter than FF16 for no comparable accuracy need.
-    light_availability = ResourceSpline<double>(
-        1e-4, // light_availability_spline_tol
-        17,   // light_availability_spline_nbase
-        16,   // light_availability_spline_max_depth
-        true  // light_availability_spline_rescale_usually
-    );
+    light_availability = ResourceSpline<double>(light_knot_spacing);
   };
+
+  // Metres between the light field's knots. Four times finer than FF16's and
+  // TF24's because K93's stand is four times shorter -- it starts at 2 m and
+  // reaches about 8.5, where theirs reach 18 -- and a grid of constants gives a
+  // stand resolution in proportion to its height. At 0.1 K93's offspring
+  // production sits 1.8e-03 from the refined answer; at 0.025 it sits 7.7e-05,
+  // which is where knots tied to the canopy top had it.
+  constexpr static double light_knot_spacing = 0.025;
 
   // Light interface
   ResourceSpline<double> light_availability;
@@ -53,7 +52,7 @@ public:
 
   // Core functions
   template <typename Function>
-  void compute_environment(Function f_compute_competition_and_slope, double height_max, bool rescale) {
+  void compute_environment(Function f_compute_competition_and_slope, double height_max) {
 
     // Beer's law on the competition profile A, whose extinction coefficient the
     // strategy has already applied: E = exp(-A) and dE/dz = -A' exp(-A).
@@ -64,7 +63,7 @@ public:
       return {E, -(as.second * E)};
     };
 
-    light_availability.compute_environment(f_light_availability, height_max, rescale);
+    light_availability.compute_environment(f_light_availability, height_max);
   }
 
   virtual void clear_environment() {

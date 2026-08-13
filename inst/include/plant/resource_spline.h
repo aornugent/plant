@@ -8,6 +8,7 @@
 #include <odelia/ode_interface.hpp>
 #include <plant/util.h>
 #include <algorithm> // std::max, for the resource-availability floor (#253)
+#include <cmath>     // std::ceil, for how far the grid has to reach
 #include <utility>   // std::pair, the value and slope a build supplies
 
 using namespace Rcpp;
@@ -21,22 +22,18 @@ class ResourceSpline {
 public:
   using value_type = S;
 
-  // Constructors. The refinement arguments no longer select anything: the knot
-  // positions are the fixed fractions times height_max. They are still taken
-  // because the R constructor and the model environments pass them.
-  ResourceSpline() {
-    setup(1e-6, 17, 16, false);
+  // The spacing is the only thing a caller chooses. Knots sit at k * spacing,
+  // which is a set of constants: no cohort height reaches a position, so the
+  // chain from the canopy top into every knot position does not exist.
+  explicit ResourceSpline(double knot_spacing = 0.1) {
+    setup(knot_spacing);
   }
 
-  ResourceSpline(double tol, size_t nbase, size_t max_depth, bool rescale_usually) {
-    setup(tol, nbase, max_depth, rescale_usually);
-  }
-
-  void setup(double, size_t, size_t, bool) {
-    // Uniform, and fixed for the run: every build places its knots at
-    // u_k * height_max, so the positions and the count depend on height_max and
-    // on nothing else in the state. 1/64 is exact, so u_k is too.
-    knot_fractions_ = util::seq_len(0.0, 1.0, knot_count_);
+  void setup(double knot_spacing) {
+    if (!(knot_spacing > 0.0)) {
+      util::stop("ResourceSpline: knot spacing must be positive");
+    }
+    knot_spacing_ = knot_spacing;
 
     // A field to answer queries with until the first build.
     set_fixed_value(S(1.0), S(1.0));
@@ -44,7 +41,7 @@ public:
 
   // f returns the field's value and its vertical derivative at a height.
   template <typename Function>
-  void compute_environment(Function f_value_and_slope, S height_max, bool) {
+  void compute_environment(Function f_value_and_slope, S height_max) {
     rebuild_spline(f_value_and_slope, height_max);
   };
 
@@ -108,8 +105,11 @@ public:
     knot_slopes_ = state_m;
   }
 
-  // Knots the run places, fixed by the fractions and not by any build.
-  size_t knot_count() const { return knot_fractions_.size(); }
+  // Read off the grid rather than stored beside it. set_cohort_reads() fills a
+  // vector of this length and hands it to set_data(), which length-checks
+  // against the grid, so a stored count that drifted from the grid would be a
+  // buffer overrun rather than an error.
+  size_t knot_count() const { return spline.size(); }
 
   // The data the field was last built from, held rather than read back out of
   // the interpolant: a knot slope recovered from a span is not bit-identical.
@@ -128,11 +128,6 @@ public:
   // every knot: what a caller reads as the slope is the derivative of what it
   // reads as the value.
   odelia::interpolator::hermite_interpolator<S> spline;
-
-  // Knot positions in units of the canopy top, u_k = x_k / height_max, uniform and
-  // fixed for the run. Nothing may reassign them: a rebuild places knots at
-  // u_k * height_max, and that is what makes the positions run-constant.
-  std::vector<double> knot_fractions_;
 
   // Mirrors of the interpolant's data, kept as the pack's source of truth.
   std::vector<S> knot_values_;
@@ -160,20 +155,28 @@ public:
 
 private:
 
-  // Refill at the held fractions. The first and last are exactly 0 and 1, so the
-  // domain is exactly [0, height_max]. The positions are u_k * height_max and
-  // nothing else, so they are laid out again only when the canopy top moves;
-  // every build refreshes the values and slopes.
+  // Reach the canopy, then refill. The canopy decides how many knots there are
+  // and nothing else about them: knot k sits at k * spacing whatever the stand
+  // is doing, so no cohort height reaches a position and there is no position
+  // derivative to drop.
+  //
+  // The grid only ever grows. Above the canopy the profile is exactly flat --
+  // the crown shape's value and slope both vanish at a cohort's own top -- so
+  // the knots an extension adds carry (1, 0) with a derivative that is exactly
+  // zero, and no query reaches the span they open. Extending is therefore
+  // bit-identical for every query at or below the canopy, which is what lets
+  // the count depend on the state without the count carrying a derivative.
   template <typename Function>
   void rebuild_spline(Function f_value_and_slope, S height_max) {
-    if (spline.size() != knot_fractions_.size() || spline.max() != height_max) {
-      // The grid stays double for the reason set_fixed_value() gives: a position
-      // built from an active canopy top is laid out at its value, and the
-      // field's dependence on the cohorts travels in the values and slopes.
-      const double top = odelia::util::to_passive(height_max);
-      std::vector<double> x(knot_fractions_.size());
-      for (size_t k = 0; k < x.size(); ++k) {
-        x[k] = knot_fractions_[k] * top;
+    const double top = odelia::util::to_passive(height_max);
+    // One knot clear of the canopy, so a query at exactly height_max is inside
+    // the grid rather than on its last node.
+    const size_t wanted =
+      static_cast<size_t>(std::ceil(top / knot_spacing_)) + 2;
+    if (spline.size() < wanted) {
+      std::vector<double> x(wanted);
+      for (size_t k = 0; k < wanted; ++k) {
+        x[k] = static_cast<double>(k) * knot_spacing_;
       }
       spline.set_nodes(x);
     }
@@ -189,10 +192,10 @@ private:
     knot_slopes_ = m;
   }
 
-  // Chosen from the re-blessing tolerance: the crown-mean light shift against an
-  // adaptive fit is 1.7e-03 at worst here, and halving the spacing divides it by
-  // about five.
-  static constexpr size_t knot_count_ = 65;
+  // Metres between knots. Chosen against the crown-mean light a cohort reads:
+  // 0.1 holds that to about 1e-6 at every canopy height from a seedling to 35 m,
+  // where knots tied to the canopy top run from 7e-8 to 6e-4 over the same range.
+  double knot_spacing_ = 0.1;
 
   };
 
