@@ -5402,8 +5402,8 @@ StochasticPatchRunner <- function(T, E) {
       }))
 
 
-`ResourceSpline` <- function(tol, nbase, max_depth, rescale_usually) {
-  ResourceSpline__ctor(tol, nbase, max_depth, rescale_usually)
+`ResourceSpline` <- function(knot_spacing) {
+  ResourceSpline__ctor(knot_spacing)
 }
 .R6_ResourceSpline <-
   R6::R6Class(

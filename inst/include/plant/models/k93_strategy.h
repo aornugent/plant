@@ -48,7 +48,12 @@ public:
   // v2: as FF16 v2 -- the reductions integrate over the coordinate the density
   // is carried in, so a birth-date run's output moves and a height run's does
   // not.
-  static constexpr int scientific_version = 2;
+  // v3: as FF16 v3 -- the light field's knots sit at fixed heights rather than
+  // following the canopy top. K93's spacing is set finer than the other models'
+  // because its stand is shorter, so its offspring production holds its blessed
+  // values within tolerance; the version still moves because the field a run
+  // reads is a different discretisation.
+  static constexpr int scientific_version = 3;
 
   // Direct aux indices for the hot path, avoiding aux_index.at("...") string-map
   // lookups (these showed up in profiling; see #466). MUST stay in sync with the

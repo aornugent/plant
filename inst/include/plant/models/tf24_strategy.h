@@ -291,7 +291,12 @@ public:
   // from the coordinate the density is carried in. TF24 defaults to the
   // birth-date coordinate, so this moves its output; the water reduction already
   // integrated over birth dates and is unchanged.
-  static constexpr int scientific_version = 9;
+  // v10: as FF16 v3 -- the light field's knots sit at fixed heights rather than
+  // following the canopy top. Measured on a leaf-area census the shift is about
+  // 1e-06; what it buys is that the tallest cohort's height no longer reaches a
+  // knot position, so the chain into the grid that the interpolant drops does
+  // not exist.
+  static constexpr int scientific_version = 10;
 
   S compute_average_light_environment(S z, S height,
                                       const TF24_Environment<S> &environment);

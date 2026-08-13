@@ -14,6 +14,41 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **`ResourceSpline()` takes one argument, `knot_spacing`, in place of `tol`,
+  `nbase`, `max_depth` and `rescale_usually`.** Migration:
+  `ResourceSpline(1e-4, 17, 16, TRUE)` -> `ResourceSpline(0.1)`. The four it
+  replaces had already stopped selecting anything; the one that survives places
+  knot `k` at `k * knot_spacing`.
+
+  The light field's knots no longer follow the canopy. They sit at fixed heights,
+  so no cohort height reaches a knot position and the chain from the tallest
+  cohort into every knot -- which the interpolant takes passively, and therefore
+  drops -- does not exist. Measured on a shaded stand, that chain was worth 2127x
+  the agreement of every other height column between a forward tangent and a
+  difference of the rates; it now reads 1.2x, which is the difference's own floor.
+  The grid reaches one knot past the canopy and is extended upward as the canopy
+  grows; an extension is bit-identical for every query at or below the canopy,
+  because above it the crown shape's value and slope both vanish.
+
+  `knot_spacing` is per model, because a grid of constants gives a stand
+  resolution in proportion to its height: 0.1 m for FF16 and TF24, whose stands
+  reach about 18 m, and 0.025 m for K93, whose stand runs from 2 m to 8.5 and so
+  needs the finer grid to hold its blessed values.
+
+  **Model results change**, by about 1e-06 on a leaf-area census and 2e-05 on
+  FF16 offspring production; K93's hold within their existing tolerance.
+  Refining either placement converges on the same answer and the new one is
+  closer to it: FF16 offspring production sits 1.1e-03 from that limit against
+  2.2e-03 before, and the full-lifetime deep-crown number 4.5x closer.
+  Re-blessed: `deep-crown reproduces the baseline SCM result` (16.8846 ->
+  16.8935) and `offspring arrival` in `test-strategy-ff16.R`.
+
+* **`Patch$compute_environment()` and `StochasticPatch$compute_environment()`
+  take no arguments.** The `rescale` flag selected a light-spline rebuild
+  strategy that no longer exists. Migration: drop the argument. `TF24_Environment`
+  likewise drops its unused leading `light_availability_spline_rescale_usually`
+  parameter; it is constructed from R with no arguments, so no R call changes.
+
 * **`Leaf$set_physiology()` takes `root_network`, not `root_carbon_per_leaf_area`,
   and `Leaf()` no longer takes `beta_R_H` or `beta_R_V`.** Requires
   phylloptim >= 0.2.0 (phylloptim #33). Migration:

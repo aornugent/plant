@@ -5,7 +5,6 @@
 #include <plant/parameters.h>
 #include <plant/species.h>
 #include <plant/util.h>
-#include <plant/adaptive_interpolator.h> // interpolator::refinement_failure
 #include <odelia/ode_interface.hpp>
 #include <odelia/gradient.hpp>
 
@@ -80,7 +79,6 @@ public:
   // Describe the size distribution around `height`, for error messages. The
   // light spline is built from the cohort heights, so when its refinement fails
   // the useful thing to report is what the cohorts are doing there.
-  std::string describe_nodes_near(double height) const;
 
   // * Lifetime fitness / offspring production
   // These are patch-level quantities: each integrates the per-node weighted
@@ -359,7 +357,7 @@ public:
     return species[species_index.check_bounds(size())];
   }
   // This is only here because it wraps a private function.
-  void r_compute_environment() {compute_environment(false);}
+  void r_compute_environment() {compute_environment();}
 
   // env. cache for assembly
   std::vector<double> step_history{0.0};  // always start at zero
@@ -409,9 +407,9 @@ private:
   mutable std::shared_ptr<void> block_workspace;
 
   int idx = 0; // used to access environment cache for mutant runs
-  void compute_environment(bool rescale);
+  void compute_environment();
   // One field build, with every species' inflow boundary interval included or not.
-  void compute_environment_once(bool rescale, bool include_boundary);
+  void compute_environment_once(bool include_boundary);
   // The competition profile with every species' boundary interval left off: a
   // function of the ODE state alone.
   value_type compute_competition_excl_boundary(double height) const;
@@ -571,7 +569,7 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
   out.environment.set_shading_model(control.shading_model,
                                     control.ppa_layer_optical_depth,
                                     control.ppa_layer_smoothing);
-  out.compute_environment(false);
+  out.compute_environment();
   // What a rebound patch owes its callers is the boundary node: each of them
   // reads r_new_node() before setting a state of its own, and none reads a
   // cohort's rates. Rating every cohort to reach the same new_node evaluates one
@@ -624,12 +622,12 @@ void Patch<T,E>::reset() {
 
   if (!parameters.initial_state.empty()) {
     // Seed the patch from an exported state / initial size distribution.
-    // set_initial_state() does its own compute_environment(false)/compute_rates
-    // (with the real node heights, no rescale), so skip the empty-patch path.
+    // set_initial_state() does its own compute_environment()/compute_rates
+    // with the real node heights, so skip the empty-patch path.
     set_initial_state();
     check_initial_density_rates();
   } else {
-    compute_environment(false);
+    compute_environment();
 
     // compute effects of resource consumption
     compute_rates();
@@ -647,10 +645,8 @@ void Patch<T,E>::reset() {
 // of nodes per species, loads the flat ODE state (nodes + environment) at the
 // resume time, restores per-node birth bookkeeping (not part of the ODE state
 // but feeds the rates and lifetime-fitness integrals), then computes the
-// environment and rates. We load the state directly (rather than via the
-// double-arg set_ode_state) so the first environment build is a full
-// compute_environment(false): a rescale of the not-yet-built light spline would
-// read uninitialised grid state.
+// environment and rates. We load the state directly rather than via the
+// double-arg set_ode_state.
 template <typename T, typename E>
 void Patch<T,E>::set_initial_state() {
   const size_t n_species = species.size();
@@ -696,7 +692,7 @@ void Patch<T,E>::set_initial_state() {
 
   // Build the environment from the real node heights (full recompute, no
   // rescale) and compute rates for the seeded population.
-  compute_environment(false);
+  compute_environment();
   compute_rates();
 }
 
@@ -1021,17 +1017,17 @@ void Patch<T,E>::compute_boundary_nodes() {
 // iteration instead only attenuates the carried dependence by the contraction
 // modulus, which is ~1e-3.
 template <typename T, typename E>
-void Patch<T,E>::compute_environment(bool rescale) {
+void Patch<T,E>::compute_environment() {
   if (!(size() > 0 && !is_mutant_run)) {
     return;
   }
-  compute_environment_once(rescale, false);
+  compute_environment_once(false);
   compute_boundary_nodes();
-  compute_environment_once(rescale, true);
+  compute_environment_once(true);
 }
 
 template <typename T, typename E>
-void Patch<T,E>::compute_environment_once(bool rescale, bool include_boundary) {
+void Patch<T,E>::compute_environment_once(bool include_boundary) {
 
   // The boundary node is one end of the birth-date quadrature and its birth date
   // is the current time, so refresh it before the profile is built. Its own
@@ -1060,115 +1056,9 @@ void Patch<T,E>::compute_environment_once(bool rescale, bool include_boundary) {
   };
 
   if (size() > 0 & !is_mutant_run) {
-    try {
-      environment.compute_environment(f, height_max(), rescale);
-    } catch (const interpolator::refinement_failure& e) {
-      // The refiner can only say that the profile has a feature it cannot
-      // resolve, at some height. We know what is at that height, and it is
-      // usually the actual problem: cohorts stacked at one size put a step in
-      // the competition profile (#571). Say so rather than making the reader
-      // reconstruct the patch state by hand.
-      util::stop(std::string(e.what()) + " " +
-                 describe_nodes_near(e.report.x_lo));
-    }
+    environment.compute_environment(f, height_max());
   }
 }
-
-// Report what the size distribution is doing around `height`: how many cohorts
-// sit within a narrow window of it, and -- the usual culprit -- whether the node
-// list is still ordered by decreasing height. Species::compute_competition() and
-// Species::height_max() both take that ordering as given (see the invariant noted
-// on both), so once it is violated the competition profile they build has
-// fictitious steps in it, and the refiner fails on one of them (#571).
-//
-// A window rather than a single point because the unresolved interval is ~1e-5 m
-// wide, while what matters is whether cohorts share effectively the same size.
-template <typename T, typename E>
-std::string Patch<T,E>::describe_nodes_near(double height) const {
-  const double window = 1e-3; // m
-
-  std::string ret = "Patch state at that height (time " +
-                    util::format_double(environment.time) + "):";
-
-  for (size_t i = 0; i < species.size(); ++i) {
-    size_t n_near = 0, n_inversions = 0, n_inversions_live = 0, n_zero_density = 0;
-    double h_near_min = std::numeric_limits<double>::infinity(),
-           h_near_max = -std::numeric_limits<double>::infinity(),
-           h_max = -std::numeric_limits<double>::infinity(),
-           h_front = NA_REAL, h_prev = NA_REAL;
-    bool prev_live = false;
-
-    for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it) {
-      // Everything in this scan is counted, compared or formatted into the
-      // message, so the height is read at its value.
-      const double h = odelia::util::to_passive(it->height());
-      const bool live = it->get_density() > 0.0;
-      if (!live) {
-        n_zero_density++;
-      }
-      if (!util::is_finite(h_front)) {
-        h_front = h;
-      } else if (h > h_prev) {
-        n_inversions++;
-        // Whether the *live* cohorts are still ordered is the question that
-        // matters: the method of characteristics guarantees it for them (growth
-        // trajectories sharing an environment cannot cross), so inversions among
-        // zero-density nodes are bookkeeping debris in the quadrature grid,
-        // whereas an inversion between two live cohorts would mean the
-        // characteristics themselves had crossed.
-        if (live && prev_live) {
-          n_inversions_live++;
-        }
-      }
-      h_prev = h;
-      prev_live = live;
-      h_max = std::max(h_max, h);
-      if (fabs(h - height) <= window) {
-        n_near++;
-        h_near_min = std::min(h_near_min, h);
-        h_near_max = std::max(h_near_max, h);
-      }
-    }
-
-    ret += " species " + util::to_string(i + 1) + ": " +
-           util::to_string(n_near) + " of " +
-           util::to_string(species[i].size()) + " cohorts within " +
-           util::format_double(window) + " m";
-    if (n_near > 0) {
-      ret += ", spanning [" + util::format_double(h_near_min) + ", " +
-             util::format_double(h_near_max) + "]";
-      // Several cohorts at one size means growth has stalled and the schedule is
-      // introducing new cohorts into a patch with nothing to separate them.
-      if (n_near > 1 && (h_near_max - h_near_min) < window / 100) {
-        ret += " -- effectively a single size, so the size distribution has"
-               " collapsed here";
-      }
-    }
-    if (n_inversions > 0) {
-      ret += "; node heights are NOT decreasing (" +
-             util::to_string(n_inversions) + " inversions, " +
-             util::to_string(n_inversions_live) +
-             " of them between two cohorts of non-zero density; " +
-             util::to_string(n_zero_density) + " of " +
-             util::to_string(species[i].size()) +
-             " nodes have zero density), which breaks the ordering that"
-             " Species::compute_competition() and height_max() assume: the"
-             " tallest cohort is " + util::format_double(h_max) +
-             " but height_max() reports " + util::format_double(h_front) +
-             " (the front node), so the competition profile is wrong and its"
-             " steps are an artefact rather than a feature of the model";
-      if (n_inversions_live == 0) {
-        ret += " (the live cohorts are still correctly ordered, so this is the"
-               " quadrature grid being scrambled by zero-density nodes rather"
-               " than growth trajectories crossing)";
-      }
-    }
-    ret += ";";
-  }
-
-  return ret;
-}
-
 
 template <typename T, typename E>
 void Patch<T,E>::compute_rates() {
@@ -1210,7 +1100,7 @@ void Patch<T,E>::introduce_new_node(size_t species_index) {
   
   species[species_index].introduce_new_node();
 
-  compute_environment(false);
+  compute_environment();
 }
 
 template <typename T, typename E>
@@ -1223,7 +1113,7 @@ void Patch<T,E>::introduce_new_nodes(const std::vector<size_t>& species_index) {
     species[i].introduce_new_node(t, patch_density);
   }
 
-  compute_environment(false);
+  compute_environment();
 
   // New nodes have just changed the state and the light field, so the stored
   // rates now describe neither. The solver reads them next without checking, so
@@ -1236,7 +1126,7 @@ void Patch<T,E>::remove_new_nodes(const std::vector<size_t>& species_index) {
   for (size_t i : species_index) {
     species[i].remove_newest_node();
   }
-  compute_environment(false);
+  compute_environment();
   compute_rates();
 }
 
@@ -1320,7 +1210,7 @@ It Patch<T,E>::set_ode_state_and_field(It it, double time) {
   check_finite_ode_state();
 
   // Pre-compute environment, as shaped by residents
-  compute_environment(true);
+  compute_environment();
 
   return it;
 }
@@ -2153,7 +2043,7 @@ ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y) {
   offspring_adjoint(lambda_in, lambda_state, seeds);
   // Rebuilt on the grid the blocks below index their knot adjoints against, so
   // restoring the first evaluation cannot move a knot.
-  compute_environment(false);
+  compute_environment();
   const std::vector<double> density_in_field = boundary_density();
 
   // Per cohort: record the block, seed it from `seeds`, sweep, and read the

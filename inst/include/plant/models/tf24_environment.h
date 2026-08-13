@@ -54,8 +54,7 @@ public:
   // except for soil_number_of_depths
   // which are only updated on construction
   
-  TF24_Environment(bool light_availability_spline_rescale_usually = true,
-                   int soil_number_of_depths = 5, 
+  TF24_Environment(int soil_number_of_depths = 5, 
                    double delta_z = 9999, // not using this
                    double soil_moist_sat = 0.428, // saturated soil moisture content (m3 water m^-3 soil) 
                    double K_sat = 163.0411, //saturated hydraulic conductivity of soil
@@ -77,13 +76,7 @@ public:
 
 
 
-    // Shading defaults have lower tolerance which are overwritten for speed
-    light_availability = ResourceSpline<S>(
-                   1e-4,  // light_availability_spline_tol,
-                   17,    // light_availability_spline_nbase,
-                   16,    // light_availability_spline_max_depth,
-                   true //light_availability_spline_rescale_usually)
-                  );
+    light_availability = ResourceSpline<S>(light_knot_spacing);
 
     ExtrinsicDrivers extrinsic_drivers;
 
@@ -116,6 +109,9 @@ public:
     set_soil_water_state(std::vector<double>(soil_number_of_depths, soil_moist_sat*0.5));
   };
   
+  // Metres between the light field's knots. See ResourceSpline for what it buys.
+  constexpr static double light_knot_spacing = 0.1;
+
   // Number of cumulative auxilliary variables to track in soil moisture model
   static constexpr size_t aux_num = 4;
   
@@ -315,7 +311,6 @@ public:
     out.z_mid = z_mid;
     out.dz = dz;
     out.initial_states = initial_states;
-    out.canopy_rescale_usually = canopy_rescale_usually;
     out.soil_number_of_depths = soil_number_of_depths;
     out.delta_z = delta_z;
     out.depth = depth;
@@ -380,7 +375,6 @@ public:
   ResourceSpline<S> light_availability;
 
   // Light interface
-  bool canopy_rescale_usually;
   //distance between layers
   int soil_number_of_depths;
   double delta_z;
@@ -703,7 +697,7 @@ public:
 
   // Pre-compute resources available in the environment, as a function of height
   template <typename Function>
-  void compute_environment(Function f_compute_competition_and_slope, S height_max, bool rescale) {
+  void compute_environment(Function f_compute_competition_and_slope, S height_max) {
 
     // Beer's law on the competition profile A, whose extinction coefficient the
     // strategy has already applied: E = exp(-A) and dE/dz = -A' exp(-A). The
@@ -715,7 +709,7 @@ public:
       return {E, -(as.second * E)};
     };
 
-    light_availability.compute_environment(f_light_availability, height_max, rescale);
+    light_availability.compute_environment(f_light_availability, height_max);
   }
 
 
