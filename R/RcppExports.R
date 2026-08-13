@@ -4525,6 +4525,14 @@ TF24f_oderunner_individual_internals <- function(obj) {
     .Call('_plant_TF24f_oderunner_individual_internals', PACKAGE = 'plant', obj)
 }
 
+interp_policy_set <- function(mode, delta, count, pad, ceiling = 0.0) {
+    invisible(.Call('_plant_interp_policy_set', PACKAGE = 'plant', mode, delta, count, pad, ceiling))
+}
+
+interp_policy_get <- function() {
+    .Call('_plant_interp_policy_get', PACKAGE = 'plant')
+}
+
 node_schedule_default__Parameters___K93__K93_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___K93__K93_Env', PACKAGE = 'plant', p)
 }

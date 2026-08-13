@@ -12739,6 +12739,30 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// interp_policy_set
+void interp_policy_set(std::string mode, double delta, int count, int pad, double ceiling);
+RcppExport SEXP _plant_interp_policy_set(SEXP modeSEXP, SEXP deltaSEXP, SEXP countSEXP, SEXP padSEXP, SEXP ceilingSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type mode(modeSEXP);
+    Rcpp::traits::input_parameter< double >::type delta(deltaSEXP);
+    Rcpp::traits::input_parameter< int >::type count(countSEXP);
+    Rcpp::traits::input_parameter< int >::type pad(padSEXP);
+    Rcpp::traits::input_parameter< double >::type ceiling(ceilingSEXP);
+    interp_policy_set(mode, delta, count, pad, ceiling);
+    return R_NilValue;
+END_RCPP
+}
+// interp_policy_get
+Rcpp::List interp_policy_get();
+RcppExport SEXP _plant_interp_policy_get() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(interp_policy_get());
+    return rcpp_result_gen;
+END_RCPP
+}
 // node_schedule_default__Parameters___K93__K93_Env
 plant::NodeSchedule node_schedule_default__Parameters___K93__K93_Env(const plant::Parameters<plant::K93_Strategy,plant::K93_Environment>& p);
 RcppExport SEXP _plant_node_schedule_default__Parameters___K93__K93_Env(SEXP pSEXP) {
@@ -14063,6 +14087,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_K93_oderunner_individual_internals", (DL_FUNC) &_plant_K93_oderunner_individual_internals, 1},
     {"_plant_TF24_oderunner_individual_internals", (DL_FUNC) &_plant_TF24_oderunner_individual_internals, 1},
     {"_plant_TF24f_oderunner_individual_internals", (DL_FUNC) &_plant_TF24f_oderunner_individual_internals, 1},
+    {"_plant_interp_policy_set", (DL_FUNC) &_plant_interp_policy_set, 5},
+    {"_plant_interp_policy_get", (DL_FUNC) &_plant_interp_policy_get, 0},
     {"_plant_node_schedule_default__Parameters___K93__K93_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___K93__K93_Env, 1},
     {"_plant_make_node_schedule__Parameters___K93__K93_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___K93__K93_Env, 1},
     {"_plant_node_schedule_times_default", (DL_FUNC) &_plant_node_schedule_times_default, 1},

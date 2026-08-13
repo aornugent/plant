@@ -8,11 +8,25 @@
 #include <odelia/ode_interface.hpp>
 #include <plant/util.h>
 #include <algorithm> // std::max, for the resource-availability floor (#253)
+#include <cmath>     // std::ceil, for the fixed grid's reach
 #include <utility>   // std::pair, the value and slope a build supplies
 
 using namespace Rcpp;
 
 namespace plant {
+
+// Selects the knot placement at run time so one build can time and referee
+// every candidate. Scaffolding for the placement study, not a shipped control.
+struct ResourceGridPolicy {
+  enum class Mode { CanopyUniform, FixedAbsolute };
+  inline static Mode mode = Mode::CanopyUniform;
+  inline static size_t count = 65;    // CanopyUniform: knots spanning the canopy
+  inline static double delta = 0.10;  // FixedAbsolute: spacing, in metres
+  inline static size_t pad = 2;       // knots held at or above the canopy
+  // Above zero, the grid spans [0, ceiling] whatever the canopy is doing, so the
+  // knot count is a constant of the run rather than growing with the canopy.
+  inline static double ceiling = 0.0;
+};
 
 // Templated on the scalar S the resource values carry; the knot positions stay
 // double. S = double is production.
@@ -36,7 +50,16 @@ public:
     // Uniform, and fixed for the run: every build places its knots at
     // u_k * height_max, so the positions and the count depend on height_max and
     // on nothing else in the state. 1/64 is exact, so u_k is too.
-    knot_fractions_ = util::seq_len(0.0, 1.0, knot_count_);
+    knot_fractions_ = util::seq_len(0.0, 1.0, ResourceGridPolicy::count);
+    // Under a ceiling the count is known here, which is what lets a caller size
+    // a buffer before any build. Append-only has no answer at this point, and
+    // that is the variant's cost rather than an oversight.
+    planned_count_ =
+      (ResourceGridPolicy::mode == ResourceGridPolicy::Mode::FixedAbsolute &&
+       ResourceGridPolicy::ceiling > 0.0)
+      ? static_cast<size_t>(std::ceil(ResourceGridPolicy::ceiling /
+                                      ResourceGridPolicy::delta)) + 1
+      : ResourceGridPolicy::count;
 
     // A field to answer queries with until the first build.
     set_fixed_value(S(1.0), S(1.0));
@@ -108,8 +131,10 @@ public:
     knot_slopes_ = state_m;
   }
 
-  // Knots the run places, fixed by the fractions and not by any build.
-  size_t knot_count() const { return knot_fractions_.size(); }
+  // Knots the run places. Callers size buffers from this before the first build
+  // (n_cohort_reads() is 2 * knot_count() + layers), so it has to be the count
+  // the run WILL carry, not the count a fallback field happens to hold.
+  size_t knot_count() const { return planned_count_; }
 
   // The data the field was last built from, held rather than read back out of
   // the interpolant: a knot slope recovered from a span is not bit-identical.
@@ -166,11 +191,28 @@ private:
   // every build refreshes the values and slopes.
   template <typename Function>
   void rebuild_spline(Function f_value_and_slope, S height_max) {
-    if (spline.size() != knot_fractions_.size() || spline.max() != height_max) {
+    const double top = odelia::util::to_passive(height_max);
+    if (ResourceGridPolicy::mode == ResourceGridPolicy::Mode::FixedAbsolute) {
+      // Positions are constants of the run, so nothing here reads height_max
+      // except to decide how far up the grid has to reach. Every knot sits at
+      // k * delta whatever the canopy is doing.
+      const double d = ResourceGridPolicy::delta;
+      const size_t n = ResourceGridPolicy::ceiling > 0.0
+        ? static_cast<size_t>(std::ceil(ResourceGridPolicy::ceiling / d))
+        : static_cast<size_t>(std::ceil(top / d)) + ResourceGridPolicy::pad;
+      if (spline.size() != n + 1) {
+        std::vector<double> x(n + 1);
+        for (size_t k = 0; k <= n; ++k) {
+          x[k] = static_cast<double>(k) * d;
+        }
+        spline.set_nodes(x);
+      }
+      planned_count_ = n + 1;
+    } else if (spline.size() != knot_fractions_.size() ||
+               spline.max() != top) {
       // The grid stays double for the reason set_fixed_value() gives: a position
       // built from an active canopy top is laid out at its value, and the
       // field's dependence on the cohorts travels in the values and slopes.
-      const double top = odelia::util::to_passive(height_max);
       std::vector<double> x(knot_fractions_.size());
       for (size_t k = 0; k < x.size(); ++k) {
         x[k] = knot_fractions_[k] * top;
@@ -193,6 +235,10 @@ private:
   // adaptive fit is 1.7e-03 at worst here, and halving the spacing divides it by
   // about five.
   static constexpr size_t knot_count_ = 65;
+
+  // The count knot_count() reports: what the run will carry, kept in step with
+  // the grid a build lays out.
+  size_t planned_count_ = knot_count_;
 
   };
 
