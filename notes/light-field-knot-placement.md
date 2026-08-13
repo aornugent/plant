@@ -105,7 +105,13 @@ only when `h_max` sits *exactly* on a knot. Off a knot:
 | 0.25 | 18.037 | 72.15 | no | **1.801e-06** | 8.032e-07 |
 
 **With the canopy off a knot the tallest cohort's column is indistinguishable from every other
-one.** The severed channel is not reduced, it is gone.
+one.** The severed channel is not reduced, it is gone. Stated as the ratio the first table used,
+confirmed from a clean process on a fixture whose `h_max` is not a multiple of Δ:
+
+| placement | tallest | median other | ratio |
+|---|---|---|---|
+| uniform × `h_max`, 65 | 2.578e-03 | 1.212e-06 | **2127×** |
+| fixed absolute, Δ=0.10 | 1.801e-06 | 1.507e-06 | **1.2×** |
 
 ### 2.2 What is left is a kink, and it is smaller than what it replaces
 
