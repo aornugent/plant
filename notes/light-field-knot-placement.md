@@ -279,8 +279,9 @@ Each of these was tried and measured, and each is worth recording so it is not r
 
 **A geometric grid, spacing proportional to height.** The argument for it is that each cohort's
 transition band is a fixed *fraction* of its own height, so the requirement is scale-invariant.
-Measured, it is 50× worse than uniform-absolute at matched count — `r=1.10` at 76 knots gives a
-consumer error of 5.94e-03 against 2.66e-05 for Δ=0.25 at 75. A fixed relative spacing spends
+Measured, it is **224× worse** than uniform-absolute at matched count — `r=1.10` at 76 knots
+gives a consumer error of 5.943e-03 against 2.658e-05 for Δ=0.25 at 75, and `r=1.20` at 42 knots
+gives 4.03e-02. A fixed relative spacing spends
 most of its knots in the flat sub-canopy and is left too coarse across the tallest cohort's
 band, which is both the widest feature and the one the crown integrals weight most.
 
