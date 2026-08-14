@@ -779,8 +779,15 @@ ladder_field_borne_parameters <- function() c("k_I")
 # rung 1 and is not built. Until it is, these columns are unrefereed by anything,
 # and that is a wider gap than the soil channel the tangent misses.
 ladder_leaf_own_traits <- function() {
+  # ⚠️ Maintained, not derived, and nothing structural keeps it current: a trait
+  # whose row becomes supplied joins the set this asserts and has to be added
+  # here. That has now happened three times -- dark respiration, then the two
+  # photosynthetic capacities -- and each time the failure was this assertion
+  # rather than anything about the gradient, which is the good case. Report 02
+  # §4 item 4 is the general form: a list read off a signature goes silently
+  # incomplete when the signature grows.
   c("c", "b", "beta2", "g1_TF24", "a", "curv_fact_elec_trans",
-    "curv_fact_colim", "R_d_25", "root_c", "root_b")
+    "curv_fact_colim", "vcmax_25", "jmax_25", "R_d_25", "root_c", "root_b")
 }
 
 # ---- the regime a fixture has to sit in --------------------------------------
