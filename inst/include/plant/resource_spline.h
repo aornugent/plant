@@ -175,36 +175,18 @@ private:
   template <typename Function>
   void rebuild_spline(Function f_value_and_slope, S height_max) {
     const double top = odelia::util::to_passive(height_max);
-    // The canopy sizes the grid, where a grid spanning the canopy's own height
-    // did not, so a runaway size-density equation now reaches the allocation
-    // rather than only making the field coarse. Refuse it here, naming the
-    // height, rather than reaching for the memory: nothing in this model grows a
-    // canopy of that size, so this is a runaway and not a forest.
+    // The interpolant owns where a lattice's nodes go and how one is extended;
+    // what belongs here is the refusal, because only this class can say what ran
+    // away. A canopy of that size is not a forest, so name the height rather than
+    // reaching for the memory.
     if (!(top >= 0.0) || top > knot_spacing_ * max_knots_) {
       util::stop("ResourceSpline: canopy height " + util::format_double(top) +
                  " m needs more than " + util::to_string(max_knots_) +
                  " knots at a spacing of " + util::format_double(knot_spacing_) +
                  " m; the size-density equation has run away");
     }
-    // One knot clear of the canopy, so a query at exactly height_max is inside
-    // the grid rather than on its last node.
-    const size_t wanted =
-      static_cast<size_t>(std::ceil(top / knot_spacing_)) + 2;
-    // Long enough is not the whole test: set_fixed_value() and a restored state
-    // both leave a grid this class did not lay out, and one of those can be long
-    // enough while sitting somewhere else entirely. Read whether the grid is the
-    // lattice off the grid rather than remembering it, so the two cannot drift.
-    const size_t held = spline.size();
-    const bool on_lattice =
-      held >= 2 && spline.knots()[1] == knot_spacing_ &&
-      spline.max() == static_cast<double>(held - 1) * knot_spacing_;
-    if (!on_lattice || held < wanted) {
-      std::vector<double> x(wanted);
-      for (size_t k = 0; k < wanted; ++k) {
-        x[k] = static_cast<double>(k) * knot_spacing_;
-      }
-      spline.set_nodes(x);
-    }
+    spline.ensure_lattice(knot_spacing_,
+                          spline.lattice_size(knot_spacing_, top));
     const std::vector<double>& x = spline.knots();
     std::vector<S> y(x.size()), m(x.size());
     f_value_and_slope(x, y, m);
