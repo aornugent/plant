@@ -4533,6 +4533,14 @@ ladder_rhs_trait_difference_tf24 <- function(obj_, rel) {
     .Call('_plant_ladder_rhs_trait_difference_tf24', PACKAGE = 'plant', obj_, rel)
 }
 
+ladder_rhs_adjoint_timing_tf24 <- function(obj_, lambda_dydt, reps) {
+    .Call('_plant_ladder_rhs_adjoint_timing_tf24', PACKAGE = 'plant', obj_, lambda_dydt, reps)
+}
+
+ladder_block_copy_cost_tf24 <- function(obj_, node, reps) {
+    .Call('_plant_ladder_block_copy_cost_tf24', PACKAGE = 'plant', obj_, node, reps)
+}
+
 FF16_oderunner_individual_internals <- function(obj) {
     .Call('_plant_FF16_oderunner_individual_internals', PACKAGE = 'plant', obj)
 }

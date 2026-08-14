@@ -1,5 +1,6 @@
 #include <plant.h>
 #include <XAD/XAD.hpp>
+#include <chrono>
 
 // The reference the reverse sweep is checked against, and the two objects it is
 // checked at.
@@ -771,3 +772,175 @@ Rcpp::NumericMatrix ladder_rhs_trait_difference_tf24(plant::RcppR6::RcppR6<plant
   rates_at(up);
   return out;
 }
+
+// Where one whole right-hand-side adjoint spends its time, by component.
+//
+// The per-cohort blocks are one of eight steps and four of the others are
+// hand-written transposes, so a per-block cost obtained by dividing the total is
+// attributed by construction rather than measured. Each entry below is one
+// component of ode_rates_adjoint, timed in the order that function runs them and
+// with the same arguments, so the parts sum to the whole.
+// [[Rcpp::export]]
+Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                          std::vector<double> lambda_dydt,
+                                          int reps) {
+  using clock = std::chrono::steady_clock;
+  patch_type& patch = *obj_;
+  plant::util::check_length(lambda_dydt.size(), patch.ode_size());
+
+  const size_t n = patch.ode_size();
+  const size_t n_resource = patch.r_environment().n_resources();
+  const size_t n_state = strategy_type::state_size();
+  const size_t n_slot = patch.reduction_node_count();
+  const size_t stride = patch_type::node_type::ode_size();
+
+  double t_boundary = 0, t_soil = 0, t_offspring = 0, t_env = 0,
+         t_blocks = 0, t_knot = 0, t_allometry = 0, t_bc = 0, t_total = 0;
+  double slots = 0, sweeps = 0;
+
+  for (int rep = 0; rep < reps; ++rep) {
+    const auto t_start = clock::now();
+    std::vector<double> lambda_state(n, 0.0);
+    patch_type::block_seeds seeds{
+      std::vector<double>(n_slot * n_state, 0.0),
+      std::vector<double>(n_slot, 0.0),
+      std::vector<double>(n_slot * n_resource, 0.0)};
+    size_t slot = 0, state_at = 0;
+    for (size_t i = 0; i < patch.size(); ++i) {
+      for (size_t j = 0; j <= patch.at_species(i).size(); ++j, ++slot) {
+        if (j == patch.at_species(i).size()) continue;
+        for (size_t s = 0; s < n_state; ++s) {
+          seeds.rate[slot * n_state + s] = lambda_dydt[state_at * stride + s];
+        }
+        seeds.transport[slot] = lambda_dydt[state_at * stride + n_state + 1];
+        ++state_at;
+      }
+    }
+
+    auto t0 = clock::now();
+    patch.compute_boundary_nodes();
+    const std::vector<double> density_in_uptake = patch.boundary_density();
+    auto t1 = clock::now(); t_boundary += std::chrono::duration<double>(t1 - t0).count();
+
+    t0 = clock::now();
+    patch.soil_adjoint(lambda_dydt, lambda_state, seeds);
+    t1 = clock::now(); t_soil += std::chrono::duration<double>(t1 - t0).count();
+
+    t0 = clock::now();
+    patch.offspring_adjoint(lambda_dydt, lambda_state, seeds);
+    t1 = clock::now(); t_offspring += std::chrono::duration<double>(t1 - t0).count();
+
+    t0 = clock::now();
+    patch.r_compute_environment();
+    const std::vector<double> density_in_field = patch.boundary_density();
+    t1 = clock::now(); t_env += std::chrono::duration<double>(t1 - t0).count();
+
+    const size_t n_knot = patch.r_environment().light_availability.spline.knots().size();
+    patch_type::light_knot_adjoints lambda_knot{
+      std::vector<double>(n_knot, 0.0), std::vector<double>(n_knot, 0.0)};
+
+    t0 = clock::now();
+    patch.cohort_block_adjoint(seeds, lambda_state, lambda_knot);
+    t1 = clock::now(); t_blocks += std::chrono::duration<double>(t1 - t0).count();
+    slots = static_cast<double>(patch.block_recording_size);
+    sweeps = static_cast<double>(patch.block_sweeps);
+
+    std::vector<plant::node_size_adjoints> sizes(
+      n_slot, plant::node_size_adjoints{0, 0, 0, 0});
+
+    t0 = clock::now();
+    patch.light_knot_adjoint(lambda_knot, sizes);
+    t1 = clock::now(); t_knot += std::chrono::duration<double>(t1 - t0).count();
+
+    t0 = clock::now();
+    patch.allometry_adjoint(sizes, lambda_state);
+    t1 = clock::now(); t_allometry += std::chrono::duration<double>(t1 - t0).count();
+
+    t0 = clock::now();
+    patch.boundary_condition_adjoint(density_in_field, density_in_uptake, lambda_state);
+    t1 = clock::now(); t_bc += std::chrono::duration<double>(t1 - t0).count();
+
+    t_total += std::chrono::duration<double>(clock::now() - t_start).count();
+  }
+
+  const double r = static_cast<double>(reps);
+  return Rcpp::List::create(
+    Rcpp::_["boundary_nodes"] = t_boundary / r,
+    Rcpp::_["soil_adjoint"] = t_soil / r,
+    Rcpp::_["offspring_adjoint"] = t_offspring / r,
+    Rcpp::_["compute_environment"] = t_env / r,
+    Rcpp::_["cohort_blocks"] = t_blocks / r,
+    Rcpp::_["light_knot_adjoint"] = t_knot / r,
+    Rcpp::_["allometry_adjoint"] = t_allometry / r,
+    Rcpp::_["boundary_condition_adjoint"] = t_bc / r,
+    Rcpp::_["total"] = t_total / r,
+    Rcpp::_["block_recording_size"] = slots,
+    Rcpp::_["block_sweeps"] = sweeps);
+}
+
+// What one recorded block pays before it records anything.
+//
+// cohort_block_adjoint builds a fresh active strategy and a fresh active
+// environment per cohort per stage, then registers 185 inputs and clears the
+// tape. None of that scales with the recorded operation count, so a block cost
+// that does not move with the quadrature rule is this rather than the tape. The
+// two are timed apart here because the fix differs: one is amortisable across a
+// stage, the other is not.
+// [[Rcpp::export]]
+Rcpp::List ladder_block_copy_cost_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                       int node, int reps) {
+  using clock = std::chrono::steady_clock;
+  using ad_scalar = odelia::ode::active_scalar<double>;
+  using ad_strategy = strategy_type::rebind<ad_scalar>;
+  using ad_environment = environment_type::rebind<ad_scalar>;
+
+  patch_type& patch = *obj_;
+  const node_address at = locate(patch, static_cast<size_t>(node - 1));
+
+  const ad_strategy strategy_template =
+    patch.at_species(at.species).strategy_ptr()->template rebind_from<ad_scalar>();
+  const ad_environment environment_template =
+    patch.r_environment().template rebind_from<ad_scalar>();
+
+  double sink = 0.0;
+
+  // The strategy copy alone.
+  auto t0 = clock::now();
+  for (int i = 0; i < reps; ++i) {
+    auto s = std::make_shared<ad_strategy>(strategy_template);
+    sink += odelia::util::to_passive(s->pars.lma);
+  }
+  const double t_strategy =
+    std::chrono::duration<double>(clock::now() - t0).count() / reps;
+
+  // The environment copy alone.
+  t0 = clock::now();
+  for (int i = 0; i < reps; ++i) {
+    ad_environment e = environment_template;
+    sink += static_cast<double>(e.light_availability.spline.knots().size());
+  }
+  const double t_environment =
+    std::chrono::duration<double>(clock::now() - t0).count() / reps;
+
+  // A bare tape cycle over the same input count, recording nothing.
+  const size_t n_in = 185;
+  std::vector<double> in(n_in, 1.0), out_adjoint(12, 1.0), in_adjoint;
+  typename ad_scalar::tape_type tape(false);
+  auto nothing = [&](const std::vector<ad_scalar>& x,
+                     std::vector<ad_scalar>& y) -> void {
+    for (size_t j = 0; j < y.size(); ++j) y[j] = x[j];
+  };
+  t0 = clock::now();
+  for (int i = 0; i < reps; ++i) {
+    odelia::ode::vector_jacobian_product(tape, in, out_adjoint, nothing, in_adjoint);
+  }
+  const double t_tape =
+    std::chrono::duration<double>(clock::now() - t0).count() / reps;
+
+  return Rcpp::List::create(
+    Rcpp::_["strategy_copy"] = t_strategy,
+    Rcpp::_["environment_copy"] = t_environment,
+    Rcpp::_["empty_tape_cycle"] = t_tape,
+    Rcpp::_["sink"] = sink);
+}
+
