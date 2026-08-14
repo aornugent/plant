@@ -443,6 +443,20 @@ Rcpp::List ladder_boundary_density_tangent_tf24(plant::RcppR6::RcppR6<plant::Pat
   }
   xad::derivative(*pars[static_cast<size_t>(index) - 1]) = 1.0;
 
+  // Seeded before the state is applied, because a twin derives the aux a state
+  // determines as it is built, which is before this seed exists. Leaf area at
+  // fixed height would then carry no row, and neither would the field the
+  // reduction builds from it -- so the two constants that set leaf area come back
+  // short by their whole field channel while every other parameter is exact.
+  const size_t n = source.ode_size();
+  std::vector<double> x0(n);
+  source.ode_state(x0.begin());
+  std::vector<tangent> x(n);
+  for (size_t i = 0; i < n; ++i) {
+    x[i] = x0[i];
+  }
+  active.set_ode_state(x.begin(), source.ode_time());
+
   // A rate evaluation owns the field build and the boundary condition, so this
   // leaves the node where a step would have left it.
   std::vector<tangent> dydt(active.ode_size());
@@ -528,6 +542,29 @@ std::vector<double> ladder_census_initial_state_replay_tf24(plant::RcppR6::RcppR
                                                             int segment) {
   return obj_->census_initial_state_replay<plant::tf24_census>(
     state0, static_cast<size_t>(segment));
+}
+
+// How many times the inflow boundary's own term entered the trait adjoint over one
+// sweep, beside the number of metrics that sweep produced.
+//
+// The boundary node stands at the seed's height for the whole run and its condition
+// is re-evaluated at every stage of every step, so this row is multiplied by a
+// count no other check reads. A row correct per evaluation and wrong in what it is
+// multiplied by is a different failure from a wrong row, and neither a forward
+// tangent nor a sweep can see it, because both apply the same multiplier.
+//
+// `asked` counts every call and `carried` the calls that recorded something; they
+// differ exactly on the sweeps where no boundary adjoint was seeded.
+// [[Rcpp::export]]
+Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  obj_->clear_boundary_condition_evaluations();
+  const std::vector<std::vector<double>> gradient =
+    obj_->census_trait_gradient<plant::tf24_census>();
+  const std::vector<size_t> counts = obj_->boundary_condition_evaluations();
+  return Rcpp::List::create(
+    Rcpp::_["asked"] = static_cast<double>(counts[0]),
+    Rcpp::_["carried"] = static_cast<double>(counts[1]),
+    Rcpp::_["metrics"] = static_cast<int>(gradient.size()));
 }
 
 // The trait columns' names, species-major and each carrying its species index,

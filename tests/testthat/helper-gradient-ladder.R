@@ -66,10 +66,95 @@ ladder_control <- function(...) {
 # reduction transposes, the retention factor and the field's slope channel are
 # live here. Two cohorts buy accumulation, not feedback, and keeping them apart
 # is what makes a failure at four nodes localisable.
-ladder_patch_one <- function() {
+ladder_patch_one <- function(parameters = NULL) {
   ladder_patch(species = "fast",
                heights = list(4.73),
-               log_densities = list(-0.39))
+               log_densities = list(-0.39),
+               parameters = parameters)
+}
+
+# The one-cohort patch dried until its leaf stops having an interior optimum.
+#
+# No injection machinery: at half this fixture's moisture the operating point is a
+# genuine hydraulic shutdown, which is one of report 05's five kinds and one the
+# boundary refuses by name. That makes a refusal reachable from a constructed patch
+# in about a second, where a refusing RUN is not available at all -- the trajectory
+# rungs' stands stay interior by construction, which is what their regime asserts.
+#
+# `factor` is how far down; the default is the first value at which the refusal
+# fires, so a check on it is measuring the branch and not a deep extrapolation.
+ladder_patch_shutdown <- function(factor = 0.5) {
+  heights <- list(4.73)
+  densities <- list(-0.39)
+  ladder_condition(
+    ladder_patch(species = "fast", heights = heights, log_densities = densities),
+    heights, densities,
+    moisture = c(0.192, 0.271, 0.233, 0.317, 0.208) * factor)
+}
+
+# Three cohorts of one species, with the birth dates chosen so that the first and
+# third grid points carry EQUAL trapezium weights.
+#
+# That equality is what makes a permutation available. The reductions are
+# quadratures over the birth-date abscissa, so exchanging the states of two grid
+# points changes the sum unless their weights agree -- and with weights
+# (x2-x1)/2, (x3-x1)/2, (x4-x2)/2, (x4-x3)/2 over the ascending grid the first and
+# third agree exactly when x2-x1 = x4-x2. The boundary node is the fourth point,
+# born at the clock, so x4 is the fixture's own time and x2 is its midpoint with
+# x1.
+#
+# `swap` exchanges the two states. Every shared object then sees the same two
+# plants in the opposite order, with the same field and the same soil, which is the
+# one thing a re-run cannot vary.
+ladder_patch_permutable <- function(swap = FALSE, time = 1.37) {
+  births <- c(0.17, (0.17 + time) / 2, 1.03)
+  stopifnot(births[[2]] < births[[3]], births[[3]] < time)
+  heights <- c(4.73, 6.29, 3.11)
+  densities <- c(-0.39, -1.67, -2.71)
+  order <- if (swap) c(3L, 2L, 1L) else c(1L, 2L, 3L)
+  ladder_patch(species = "fast",
+               heights = list(heights[order]),
+               log_densities = list(densities[order]),
+               birth_dates = list(births),
+               time = time)
+}
+
+# Each node's own rates, keyed by the height it carries rather than by where it
+# sits. A permutation moves a state to a different position, so a reader indexing
+# by position could not tell the two runs apart.
+ladder_node_rate_table <- function(x) {
+  patch <- ladder_as_patch(x)
+  invisible(patch$ode_rates)
+  out <- list()
+  for (i in seq_len(length(patch$species))) {
+    sp <- patch$species[[i]]
+    for (j in seq_along(sp$nodes)) {
+      node <- sp$nodes[[j]]
+      out[[length(out) + 1L]] <- list(species = i, position = j,
+                                      height = node$height,
+                                      rates = node$individual$ode_rates)
+    }
+  }
+  out
+}
+
+# How far apart a permutation leaves the shared field, which is this fixture's own
+# floor rather than a tolerance anyone chose.
+#
+# Exchanging two grid points of equal weight leaves the reduction's SUM invariant
+# and its summation ORDER reversed, so the knot values move in their last bits and
+# bit-identity is not available at this level. Measured on the permutable fixture
+# the values agree to 6e-10 and the knot heights exactly; the slopes carry a larger
+# relative figure only where the slope is near zero, so the value channel is what a
+# floor is taken from.
+#
+# Anything a carried quantity would do is orders above this.
+ladder_permutation_floor <- function(a, b) {
+  ka <- ladder_field_knots_tf24(ladder_as_patch(a))
+  kb <- ladder_field_knots_tf24(ladder_as_patch(b))
+  stopifnot(identical(ka$height, kb$height))
+  scale <- max(abs(ka$value), .Machine$double.xmin)
+  max(max(abs(ka$value - kb$value)) / scale, 4 * .Machine$double.eps)
 }
 
 # Two species, two cohorts each. Two species catch a reduction sum that collapses
@@ -195,8 +280,27 @@ ladder_stand_introductions <- function() {
 # At the shipped constant the fixture's recruits sit at ratio 36 and 21, which is
 # the flat region where the check would prove nothing; the scale is what moves
 # them onto the peak.
-ladder_stand_marginal_recruit <- function(scale = 30) {
-  p <- ladder_parameters(c("fast", "slow"))
+# The same widenings over a quarter of the run, for the checks whose assertion is
+# an exact identity rather than a measured margin.
+#
+# Composition over steps is associative or it is not; a sweep is repeatable or it is
+# not; a permutation of the metric order changes the numbers or it does not. None of
+# those is a statement about run length, and all three are asserted with
+# expect_identical at tolerance zero -- so a shorter fixture tests the same claim and
+# re-blesses nothing. What it must keep is the SHAPE: five introductions in the same
+# order, so the node stride is still exercised in both directions and the split still
+# has interior steps either side of a widening to cut at.
+#
+# The schedule is compressed rather than truncated for that reason, and the dates
+# stay mutually non-commensurate.
+ladder_stand_introductions_short <- function() {
+  p <- ladder_parameters(c("fast", "slow"), lifetime = 0.45)
+  p$node_schedule_times <- list(c(0, 0.13, 0.31), c(0, 0.22))
+  ladder_run(p)
+}
+
+ladder_stand_marginal_recruit <- function(scale = 30, lifetime = 0.45) {
+  p <- ladder_parameters(c("fast", "slow"), lifetime = lifetime)
   strategies <- p$strategies
   for (i in seq_along(strategies)) {
     pars <- strategies[[i]]$pars
@@ -204,7 +308,7 @@ ladder_stand_marginal_recruit <- function(scale = 30) {
     strategies[[i]]$pars <- pars
   }
   p$strategies <- strategies
-  p$node_schedule_times <- list(c(0, 0.29, 0.94), c(0, 0.57))
+  p$node_schedule_times <- list(c(0, 0.13, 0.31), c(0, 0.22))
   ladder_run(p)
 }
 
@@ -243,6 +347,16 @@ ladder_recruit_establishment <- function(x) {
 ladder_stand_allometric_probe <- function(two_cohorts = TRUE) {
   p <- ladder_parameters("fast", lifetime = 0.4)
   p$node_schedule_times <- list(if (two_cohorts) c(0, 0.29) else 0)
+  ladder_run(p)
+}
+
+# One species introduced once, at t = 0, so the recorded trajectory never widens
+# and every state it holds can be loaded back into one patch. That is what lets a
+# per-stage check run at the states a run actually visited rather than only at a
+# state written by hand.
+ladder_stand_trajectory <- function(lifetime = 2) {
+  p <- ladder_parameters("fast", lifetime = lifetime)
+  p$node_schedule_times <- list(0)
   ladder_run(p)
 }
 
@@ -486,15 +600,41 @@ ladder_light_at_reads <- function(x) {
 # supplied row in it. Where a row IS supplied -- the leaf's -- a difference of the
 # step that consumes it returns zero whether the row is right, wrong or absent,
 # which is why the block's rows are refereed by the tangent instead.
-ladder_rhs_state_difference <- function(x, rel = 1e-6) {
+# `relative` chooses which step, and the choice is a statement about the fixture
+# rather than a preference.
+#
+# The default sizes the step max(|state|, 1) * rel, which is relative for a
+# component of order one and absolute below it. On a CONSTRUCTED patch every
+# component is either of order one or exactly zero, so that is the derivative at
+# the value in question and the figures every blessed tolerance here was measured
+# against.
+#
+# Along a TRAJECTORY it is not. The reserve and both heartwood accumulators run
+# from 1e-11 down to 1e-25 at early states, so an absolute step of 1e-6 moves them
+# by many orders and the column it returns is a difference over a range the model
+# is not locally linear on. Those columns read as enormous Jacobian errors and the
+# instrument is what produced them. `relative = TRUE` is the form to use there, at
+# the price of a smaller step -- and therefore more round-off -- on every component
+# below order one.
+#
+# `refereeable` marks the columns that carry a relative step under either setting.
+# A component that is exactly zero has none, and a caller forming this matrix along
+# a trajectory reports which columns those were rather than quoting a residual over
+# all of them.
+ladder_rhs_state_difference <- function(x, rel = 1e-6, relative = FALSE) {
   patch <- ladder_as_patch(x)
   n <- patch$ode_size
   state <- patch$ode_state
   time <- patch$ode_time
   at <- function(v) { patch$set_ode_state(v, time); patch$ode_rates }
   out <- matrix(0, n, n)
+  refereeable <- rep(TRUE, n)
   for (j in seq_len(n)) {
-    h <- max(abs(state[[j]]), 1) * rel
+    h <- if (relative) abs(state[[j]]) * rel else max(abs(state[[j]]), 1) * rel
+    if (!(abs(state[[j]]) > 0) || state[[j]] + h == state[[j]]) {
+      refereeable[[j]] <- FALSE
+      if (!(h > 0)) h <- rel
+    }
     up <- state; up[[j]] <- state[[j]] + h
     dn <- state; dn[[j]] <- state[[j]] - h
     out[, j] <- (at(up) - at(dn)) / (2 * h)
@@ -502,6 +642,7 @@ ladder_rhs_state_difference <- function(x, rel = 1e-6) {
   # Leave the fixture where it was found, and rebuild the auxiliaries a regime
   # report is read off.
   invisible(at(state))
+  attr(out, "refereeable") <- refereeable
   out
 }
 
@@ -563,6 +704,50 @@ ladder_rate_difference_rebuilt <- function(base, index, name, rel = 1e-6) {
   }
   (at(value + h) - at(value - h)) / (2 * h)
 }
+
+# The inflow boundary's own quantities and their row in one registered parameter,
+# with the parameter named rather than counted.
+ladder_boundary_tangent <- function(patch, name, species = 1L) {
+  at <- match(paste0(species, ".", name), ladder_trait_names_tf24(patch))
+  stopifnot(!is.na(at))
+  ladder_boundary_density_tangent_tf24(patch, at)
+}
+
+# The same quantities from a strategy REBUILT at a perturbed parameter, at the
+# state the patch holds, differenced. The patch is the one-cohort fixture, which
+# is what the rebuild reconstructs.
+#
+# Rebuilding runs preparation, so the seed's size moves as it does on the
+# differentiated path, and the state is imposed rather than reconditioned, so both
+# sides are partial derivatives at one state. The free check that they are is that
+# they agree on the value, and every caller asserts it before reading a row.
+ladder_boundary_difference <- function(patch, name, species = 1L, rel = 1e-4) {
+  state <- patch$ode_state
+  time <- patch$ode_time
+  value <- ladder_strategy_parameter(patch, species, name)
+  h <- abs(value) * rel
+  at <- function(v) {
+    built <- ladder_patch_one(
+      ladder_perturbed_parameters("fast", species, name, v))
+    built$set_ode_state(state, time)
+    built$compute_environment()
+    invisible(built$ode_rates)
+    node <- built$species[[species]]$new_node
+    c(log_density = node$log_density, height = node$height,
+      carbon = node$individual$aux("net_mass_production_dt"),
+      area_leaf = node$individual$aux("competition_effect"))
+  }
+  up <- at(value + h)
+  dn <- at(value - h)
+  list(value = at(value), row = (up - dn) / (2 * h))
+}
+
+# Which registered parameters reach the light field only through a cohort's cached
+# leaf area, and which reach it as parameters of the reduction itself. The two
+# groups fail differently when an auxiliary is derived at the wrong scalar, and
+# telling them apart is what localises such a failure to the auxiliary.
+ladder_field_through_leaf_area <- function() c("a_l1", "a_l2")
+ladder_field_borne_parameters <- function() c("k_I")
 
 # The leaf's own traits, which no difference of the rates can referee.
 #
@@ -774,6 +959,34 @@ ladder_margin <- function(observed, tolerance) {
 # Compare and report how much room the check had. A fault caught at three times
 # the tolerance is a check about to stop working, so the number is recorded and
 # not only compared.
+# The statistic the entry-by-entry Jacobian checks compare, in one place, so a
+# corruption injected into one side is measured by the same number the real check
+# uses rather than by a second one written to resemble it.
+#
+# Each cell is scaled by the larger of its two rows. A cell whose true value is
+# orders below its row carries no information about the row, and a per-cell measure
+# would make the tolerance a statement about that cell's round-off; taking the
+# larger of the two rows keeps a row that is near zero on one side only from
+# reporting a ratio of round-offs.
+ladder_matrix_residual <- function(observed, reference) {
+  stopifnot(identical(dim(observed), dim(reference)))
+  row_scale <- pmax(apply(abs(reference), 1, max), apply(abs(observed), 1, max),
+                    .Machine$double.xmin)
+  max(abs(observed - reference) / row_scale)
+}
+
+# The other direction of ladder_report_margin: a corruption the check is supposed
+# to catch has to be caught, and by how much is the evidence the check works.
+#
+# A fault detected at three times the tolerance is a check about to stop working,
+# so the factor is reported and not only the verdict.
+ladder_report_detection <- function(label, observed, tolerance) {
+  message(sprintf("  %-52s %9.2e / %9.2e  detected at %8.1fx",
+                  label, observed, tolerance,
+                  observed / max(tolerance, .Machine$double.xmin)))
+  testthat::expect_gt(observed, tolerance)
+}
+
 ladder_report_margin <- function(label, observed, tolerance) {
   message(sprintf("  %-52s %9.2e / %9.2e  uses %6.3f of budget",
                   label, observed, tolerance,
@@ -820,6 +1033,47 @@ ladder_block_or_skip <- function(patch, node = 1L) {
                          conditionMessage(out)))
   }
   out
+}
+
+# One sweep per fixture, for the checks that only read the gradient back.
+#
+# A sweep of the four-node stand is 43.6 s and building the stand is 0.13 s, so the
+# sweep is the whole cost of a trajectory check; twenty of them pay one purely to
+# read a column out of it. The sweep is deterministic -- the floor asserts two
+# consecutive sweeps of one recording are bit-identical -- so a shared one carries
+# the same numbers as a private one.
+#
+# What a check may NOT take from here is a sweep when the sweep IS its subject.
+# Repeatability, the metric permutation, the interior split and
+# record-once-sweep-many each have to drive stand_gradient themselves, and they do.
+#
+# Keyed by fixture name rather than by the object, because two calls to a
+# constructor return two objects carrying the same trajectory. Under testthat's
+# parallel runner every file is its own process, so the cache never spans files and
+# a stand cannot arrive at a check carrying another file's history.
+ladder_shared_cache <- new.env(parent = emptyenv())
+
+ladder_shared <- function(key) {
+  if (!exists(key, envir = ladder_shared_cache, inherits = FALSE)) {
+    stand <- switch(
+      key,
+      two_by_two = ladder_stand_two_by_two(),
+      introductions = ladder_stand_introductions(),
+      marginal_recruit = ladder_stand_marginal_recruit(),
+      allometric_probe = ladder_stand_allometric_probe(TRUE),
+      stop("ladder_shared: no such fixture: ", key, call. = FALSE))
+    assign(key,
+           list(stand = stand,
+                gradient = tryCatch(stand_gradient(stand),
+                                    error = function(e) e)),
+           envir = ladder_shared_cache)
+  }
+  got <- get(key, envir = ladder_shared_cache, inherits = FALSE)
+  if (inherits(got$gradient, "error")) {
+    testthat::skip(paste("the sweep does not run on this stand:",
+                         conditionMessage(got$gradient)))
+  }
+  got
 }
 
 ladder_gradient_or_skip <- function(stand, ...) {
@@ -955,13 +1209,41 @@ ladder_trajectory_tangent <- function(stand, direction) {
 # is a near-cancellation of the two terms -- which it is for the allometric
 # constants -- the relative error against the total is an amplified view of the
 # error in the trajectory term, and the second number is the unamplified one.
+# The floor under the per-row scale, as a fraction of the column's own peak.
+#
+# Normalising each metric by itself is what keeps a stem-area row from hiding: it
+# runs four orders below leaf area, so a stem-area row wrong by three per cent reads
+# as 1e-06 of the column's peak and a column-wide measure loses it. Dividing a cell
+# by ITSELF all the way down does the opposite, and the two failure modes need
+# separating rather than trading.
+#
+# Measured on the introductions fixture over the eighteen shortlisted columns: every
+# stem-area cell sits between 7e-07 and 1.1 of its column's peak except one, the
+# second species' root constant, whose stem-area entry is 8.4e-09 against a peak of
+# 3.2e-01 -- 2.6e-08 of it. The sweep and the tangent carry about 1e-10 of absolute
+# disagreement on that row whatever the column, so dividing by 8.4e-09 reports 9e-03
+# where the same disagreement reports 5e-06 two rows up.
+#
+# 1e-5 is the largest fraction at which every other cell in that table is still
+# refereed against its own value, and it keeps the case the per-row rule exists for:
+# a three per cent error on a stem-area cell of ordinary size is 3e-02 of its own
+# scale, a hundred times the bound it is held to.
+ladder_column_floor <- function() 1e-5
+
 ladder_column_residual <- function(got, reference, trajectory = NULL) {
-  scale <- pmax(abs(reference), max(abs(reference)) * 1e-12)
-  out <- list(per_row = max(abs(got - reference) / scale))
+  floor <- ladder_column_floor()
+  scale <- pmax(abs(reference), max(abs(reference)) * floor)
+  out <- list(per_row = max(abs(got - reference) / scale),
+              # Which row set the figure, and how far below its column that row
+              # sits. A cell the floor had to rescue is one this column does not
+              # carry, and saying so is what stops the number reading as a defect.
+              at = which.max(abs(got - reference) / scale),
+              share = min(abs(reference) / max(max(abs(reference)),
+                                               .Machine$double.xmin)))
   if (!is.null(trajectory)) {
     out$per_row_trajectory <-
       max(abs(got - reference) / pmax(abs(trajectory),
-                                      max(abs(trajectory)) * 1e-12))
+                                      max(abs(trajectory)) * floor))
     out$amplification <- max(abs(trajectory) / scale)
   }
   out
@@ -1038,6 +1320,23 @@ ladder_run_difference <- function(traits, name, rel = 1e-5, lifetime = 0.4,
        seed_height_slope = (a$seed_height - b$seed_height) / (2 * h))
 }
 
+ladder_shortlist <- function() {
+  # Two classes, and the second was unrefereed until a defect in it was found from
+  # outside this ladder.
+  #
+  # Reduction-borne: each reaches a census through a reduction as well as through a
+  # plant, so each can read zero for a structural reason rather than an ecological
+  # one.
+  #
+  # Birth-size: each reaches a census through the seed's own size, so each carries
+  # the one channel whose row is written where a newborn's state is. They move
+  # together as a class -- a row missing there moved all eight while every other
+  # channel held -- so the class is the unit, not the two of it that happened to be
+  # listed here.
+  unique(c("k_I", "eta", "a_l1", "a_l2", "a_st3", "recruitment_decay",
+           ladder_birth_size_parameters()))
+}
+
 # The parameters that reach the census through birth size, where both
 # differentiated paths impose the seed height's derivative to zero. They are the
 # ones a whole-run difference is for, and they are named here rather than derived
@@ -1071,16 +1370,43 @@ ladder_trait_fanout <- function(traits, name, rel = 1e-6) {
 # assumed. A re-run difference is unusable at production -- a relative step of two
 # parts in ten million in leaf mass per area moves a mature stand between alive and
 # identically zero -- so the check on the check is that the answer holds its figures
-# across steps spanning two orders. Where it does not, the run is invalid rather
-# than failing, as a violated regime assertion is.
+# across steps. Where it does not, the run is invalid rather than failing, as a
+# violated regime assertion is.
+#
+# Four steps over three orders, and the value taken where they agree rather than at
+# the finest. Truncation falls with the step and round-off rises, so the two ends
+# fail in opposite directions and a series that reports the finest reports the
+# round-off end: on a three-year run this reference reads 1.026 of its own plateau
+# at a relative step of 1e-6. Three steps over two orders cannot say which end it is
+# holding, and a spread taken over the whole series then reads round-off as drift.
+#
+# `plateau_at` is which end the agreement is at, and it belongs beside any figure
+# taken from here.
 ladder_run_difference_stable <- function(traits, name, ...,
-                                         steps = c(1e-5, 1e-4, 1e-3)) {
+                                         steps = c(1e-6, 1e-5, 1e-4, 1e-3)) {
   got <- lapply(steps, function(r) ladder_run_difference(traits, name, rel = r, ...))
   g <- vapply(got, function(x) x$gradient, numeric(length(got[[1]]$gradient)))
   scale <- max(abs(g))
-  list(gradient = got[[1]]$gradient,
-       seed_height_slope = got[[1]]$seed_height_slope,
-       spread = if (scale > 0) max(apply(g, 1, function(r) diff(range(r)))) / scale else 0)
+  n <- length(steps)
+  adjacent <- if (scale > 0) {
+    vapply(seq_len(n - 1L),
+           function(i) max(abs(g[, i] - g[, i + 1L])) / scale, numeric(1))
+  } else rep(0, n - 1L)
+  # The most-agreeing adjacent pair brackets the crossing of the two error terms;
+  # take its coarser member, which carries the less round-off of the two.
+  at <- which.min(adjacent)
+  list(gradient = got[[at + 1L]]$gradient,
+       seed_height_slope = got[[at + 1L]]$seed_height_slope,
+       step = steps[[at + 1L]],
+       steps = steps,
+       values = g,
+       adjacent = adjacent,
+       plateau_at = if (at == 1L) "the small-step end"
+                    else if (at == n - 1L) "the large-step end" else "the middle",
+       spread = adjacent[[at]],
+       spread_all = if (scale > 0) {
+         max(apply(g, 1, function(r) diff(range(r)))) / scale
+       } else 0)
 }
 
 # A unit direction in trait space, named as the gradient's columns are.
@@ -1100,150 +1426,28 @@ ladder_replay_floor <- function(stand, value) {
   max(abs(reached - value) / abs(value))
 }
 
-# What the trajectory sweep and the trajectory tangent agree to, for a column
-# whose route to the census does not run through the newcomer's own leaf area.
+# What the trajectory sweep and the trajectory tangent agree to. Every column is
+# held here; there is no second, looser bound, and the history of the one there was
+# is the argument for not having it.
+#
 # Measured worst 6.0e-05 over all 88 columns of a stand carrying one cohort per
-# species, and 3.4e-05 over the four-node stand's columns outside the class below.
+# species. On the introductions fixture the largest is now recruitment_decay at
+# 4.4e-05, with the two constants of the inflow condition next to it -- they sat at
+# 1.9e-02 and 2.0e-03 while the boundary node's density adjoint was accumulated and
+# never transposed through the condition that sets it.
 #
-# The two parameters of the inflow condition itself are held here, and were not
-# before: recruitment_decay sat at 1.9e-02 and a_d0 at 2.0e-03 while the boundary
-# node's density adjoint was accumulated and never transposed through the condition
-# that sets it. They now measure 2.9e-12 and 2.1e-05.
+# The two allometric constants were held to a separate bound of 4e-03 while a species
+# carrying more than one cohort disagreed by 3.4e-03. That was a real defect and it is
+# closed: the seed's dependent auxiliaries were not re-derived where its grafted height
+# is written, so the leaf area every rate at birth size is scaled by carried no
+# derivative. They now read 2.2e-09 and 1.1e-08 on the same fixture.
+#
+# Two things that bound cost, and they are why one bound is safer than two. It was the
+# eight-parameter birth-size CLASS that was wrong, not the pair -- the other six were
+# compared nowhere, so the bound named the symptom's two loudest columns and left the
+# rest unrefereed. And a bound widened around a live disagreement cannot fail when that
+# disagreement grows.
 ladder_trajectory_agreement <- function() 3e-04
-
-# And what they agree to for the two allometric constants once a species carries
-# more than one cohort. Measured worst 3.4e-03, and it is an open defect rather
-# than a floor.
-#
-# What is known about it, because each step was measured rather than argued:
-#
-#   It is per species and it switches on with that species' SECOND cohort. With
-#   one cohort each, a_l2 measures 6.0e-05 and 1.4e-06; introduce a second cohort
-#   of species 1 only and species 1 jumps to 3.4e-03 while species 2 stays at
-#   1.6e-06; introduce a second of species 2 and species 2 jumps to 2.8e-03.
-#   Further cohorts do not add to it -- 3.4e-03, 1.8e-03, 2.2e-03 -- so it appears
-#   once and saturates.
-#
-#   It is not the inflow condition. Closing that transpose moved recruitment_decay
-#   by ten orders and a_d0 by two, and left this unchanged at 3.05e-03 against
-#   3.06e-03.
-#
-#   It is not the state a rebuild linearises at. Loading a recorded state without
-#   re-evaluating the condition in the field the nodes were rated in was a second
-#   defect, worth 1.2 per cent in the boundary density by the end of a run; fixing
-#   it improved these columns tenfold on a one-cohort stand and did not move them
-#   here.
-#
-#   It is not k_I, which shares the field reduction and measures 3.3e-07.
-#
-#   It is not the census's own reading of the traits. That term is now reported on
-#   its own and refereed against a plain-double difference of the census: they
-#   agree to 5.1e-09 over the matrix, which is the difference's round-off. So the
-#   whole of the disagreement is in the trajectory term.
-#
-#   It is not the reduction's own parameter rows. Rung 3 forms them entry by entry
-#   on a two-cohort fixture, against a forward Jacobian, and takes a_l1 and a_l2 by
-#   name among the reduction-borne columns.
-#
-#   It is not the rows an introduction carries through untouched. Contracting the
-#   whole widened state rather than copying those rows and contracting the
-#   newcomer's leaves every figure here bit-identical, so they are the exact
-#   identity the copy assumed.
-#
-#   It is not the introduction boundary at all, which is the result that cost the
-#   most to get and is worth stating plainly. Three checks now cover it and all
-#   three are clean: the introduction map's whole Jacobian agrees forward against
-#   reverse to 7.5e-16 over every cell at both widenings, the rows an introduction
-#   carries through are bit-identical to the recorded state, and the rows it writes
-#   are bit-identical to the boundary node the patch held. The newcomer's own
-#   sensitivity to these two traits is 4.0e-07 and 1.9e-05, because the seed height
-#   is imposed passive and only the seed's physiology is left.
-#
-# So what remains is a species carrying two cohorts rather than one, with the
-# introduction that necessarily accompanies it excluded. Rung 3 forms the per-stage
-# Jacobian entry by entry on a two-cohort patch and finds it correct, so the
-# remaining difference between the two is the TIME dimension.
-#
-# It has a per-step character and is not a clean lost term. Tightening the ODE
-# tolerance from 1e-04 to 1e-10 takes the run from 98 steps to 635 and the residual
-# from 3.3e-02 to 1.3e-02 -- six and a half times the steps for two and a half
-# times the residual, near h^0.6. The sweep and the tangent replay the SAME
-# recorded step sizes, so a truncation error would cancel between them exactly;
-# what does not cancel is a linearisation taken at a point the two do not share.
-# k_I moves over the same range from 8.8e-08 to 9.3e-09, so the effect is not
-# uniform across traits either.
-#
-#   It is not the stage recursion, and that one was settled by injection rather
-#   than by reading. Replacing the sweep's scatter over every earlier stage with
-#   the immediate predecessor alone -- report 08 §7's named fault, built into
-#   odelia and measured against this pair -- moves the ONE-cohort control from
-#   2.2e-07 to 7.0e-03, a margin of thirty-one thousand, and saturates the longer
-#   fixtures at 1.0. So the check is live and enormously sensitive to a lost stage
-#   term, and the real defect is not one: a lost term raises the one-cohort control
-#   to the same order as the two-cohort case, while the defect leaves it at 2.2e-07.
-#   The recursion is correct by inspection too -- it scatters h * a_im over every
-#   m < i on the dense Cash-Karp rows, accumulates the state channel at every stage,
-#   and seeds the rate accumulators from the output weights, leaving the two whose
-#   weights vanish empty.
-#
-#   It is not the size-distribution quadrature's interior interval either, which is
-#   the first thing a second cohort creates that a single one does not. Moving the
-#   second introduction from 0.02 to 0.38 of a four-tenths run widens that interval
-#   from 0.02 to 0.38 and the residual FALLS, 7.6e-03 to 4.7e-04. It does not track
-#   the interval.
-#
-#   It is not the stage state and aux restore, which is the one per-step path rung 3
-#   does not exercise. Instrumenting that boundary -- recomputing the rates after
-#   the restore and comparing against the stage the forward pass computed -- gives a
-#   worst relative difference of ZERO over every stage of every step, on one cohort
-#   and on two. The restore is faithful.
-#
-#   It is not the light field's discretisation, and this one is worth its own line
-#   because report 03 §3.3 asks for the measurement and nobody had taken it. Built
-#   at 33, 65 and 129 knots, a_l2's residual is 1.4371e-03 at all three -- identical
-#   to five figures, while the forward model itself moves. k_I's, by contrast, falls
-#   from 2.22e-10 to 4.58e-11 over the same range. So the passive knot-position
-#   treatment DOES converge with knot density for a field-borne trait, which is
-#   report 03's own falsifier answered in its favour, and a_l2's residual is not a
-#   field quantity at all.
-#
-# What it tracks is the time the stand spends carrying two cohorts, linearly and at
-# about 0.02 per unit time: 7.6e-03 over 0.38, 4.0e-03 over 0.20, 4.7e-04 over 0.02.
-# Three cohorts land where two of the same duration would, so it turns on at the
-# second cohort and does not scale with the count. So it is accumulated per step
-# while a species carries more than one cohort -- which is what makes the remaining
-# suspects the per-step work that rung 3 does NOT exercise, the stage state and aux
-# restore in particular: step_adjoint reloads each stage with
-# set_ode_state_and_field and then set_ode_aux from the values captured on the
-# forward pass, and both vectors are wider with two cohorts than with one. Rung 3
-# takes its Jacobian on a patch whose aux are current, so nothing in this ladder
-# covers that restore.
-#
-# Two things about how it is measured, both of which were wrong before and are
-# worth keeping right. A column is normalised PER ROW, because leaf area and
-# above-ground mass are of order one while stem area is of order 1e-4 and a
-# stem-area row wrong by three per cent reads as 1e-06 of the column's peak. And
-# where the total is a near-cancellation of the direct and trajectory terms -- on a
-# stand whose species carries two cohorts the ratio reaches -16.8 on stem area --
-# the relative error against the total is an amplified view of the trajectory
-# term's, so ladder_column_residual() reports both and the amplification beside
-# them.
-#
-# On this coordinate a second cohort cannot exist without an introduction after
-# t = 0, because tied birth dates are refused, so "per introduction" and "per
-# interior trapezium of the reduction" are not separable by scheduling alone.
-# Seeding the cohorts instead does not separate them either: a run resumed from a
-# populated state lands far outside this ladder's declared regime -- relative
-# reserve 0.44 to 0.73 against the band 0.02 to 0.30, gate slope 0.010 against the
-# floor 0.4 -- so such a run is invalid as an instrument rather than failing, and
-# its own disagreements are larger again. The check that would separate them is the
-# introduction map's own Jacobian, formed entry by entry against a tangent, which
-# is the one unit-level object rung 5 does not yet have.
-ladder_introduction_residual <- function() 4e-03
-
-# Which shortlisted parameters are held to the looser bound above: the two
-# constants that set leaf area from height, and no others.
-ladder_introduction_borne_traits <- function() c("a_l1", "a_l2")
 
 # What the transpose and the two references agree to on the soil rows, which is
 # the tightest the leaf's supplied rows allow: a difference of the block re-solves

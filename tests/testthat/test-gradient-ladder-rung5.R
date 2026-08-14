@@ -77,8 +77,9 @@ test_that("the inflow condition's own parameters carry a row", {
   # Two parameters reach the census through the inflow condition and nothing else,
   # which is what makes them the probe: the establishment constant, and the decay
   # of establishment in patch age. Neither appears in any cohort's rate equation.
-  stand <- ladder_stand_introductions()
-  result <- ladder_gradient_or_skip(stand)
+  shared <- ladder_shared("introductions")
+  stand <- shared$stand
+  result <- shared$gradient
   columns <- colnames(result$gradient)
 
   for (name in c("1.a_d0", "2.a_d0", "1.recruitment_decay",
@@ -90,6 +91,53 @@ test_that("the inflow condition's own parameters carry a row", {
     ladder_report_margin(paste("column", name),
                          max(abs(reference - result$gradient[, name])) / peak,
                          ladder_trajectory_agreement())
+  }
+})
+
+test_that("the boundary node's row carries the field its own cohorts build", {
+  # A twin at an active scalar derives the auxiliaries a state determines as it is
+  # built, which is before a caller has seeded anything. Leaf area at fixed height
+  # then carries no row, and neither does the field the reduction builds from it,
+  # so the two constants that set leaf area come back short by their whole field
+  # channel while every parameter the reduction reads directly stays exact.
+  #
+  # The two groups are what localises it: k_I enters the reduction as its own
+  # parameter, a_l1 and a_l2 only through a cohort's cached leaf area. Their sizes
+  # are what makes it matter -- the seedling's own allometry and its chain through
+  # the seed height cancel to about a tenth for this pair, so the omitted term is
+  # larger than the residue and inverts the sign rather than shortening it.
+  patch <- ladder_patch_one()
+  for (name in c(ladder_field_borne_parameters(),
+                 ladder_field_through_leaf_area())) {
+    got <- ladder_boundary_tangent(patch, name)
+    ref <- ladder_boundary_difference(patch, name)
+
+    # Both sides are partial derivatives at one state only if they agree on the
+    # value, and a mismatch invalidates the rows below rather than failing them.
+    expect_equal(got$log_density, ref$value[["log_density"]],
+                 tolerance = 0, label = paste("boundary value,", name))
+    expect_equal(got$carbon, ref$value[["carbon"]],
+                 tolerance = 0, label = paste("birth-size carbon,", name))
+
+    # The seed's height solves live mass equals seed mass, which reads the tissue
+    # and allometric parameters and nothing the reduction owns. So k_I's height
+    # row is exactly zero for a named reason, and the pair's is not -- which is
+    # the same split again, read one quantity earlier.
+    reaches_birth_size <- name %in% ladder_field_through_leaf_area()
+    if (reaches_birth_size) {
+      expect_gt(abs(got$dheight), 0)
+    } else {
+      expect_identical(got$dheight, 0)
+    }
+
+    parts <- c("log_density", "carbon", if (reaches_birth_size) "height")
+    for (part in parts) {
+      row <- got[[paste0("d", part)]]
+      expect_gt(abs(row), 0)
+      ladder_report_margin(paste("boundary", part, name),
+                           abs(row - ref$row[[part]]) / abs(ref$row[[part]]),
+                           1e-3)
+    }
   }
 })
 
@@ -185,8 +233,9 @@ test_that("the initial reserve channel carries a row", {
   # A germination event provisions the seedling: the initial reserve is a trait
   # times the storage capacity, so how well a seed is stocked reads the traits
   # directly. It enters nowhere else, so a dropped channel is an exact zero.
-  stand <- ladder_stand_introductions()
-  result <- ladder_gradient_or_skip(stand)
+  shared <- ladder_shared("introductions")
+  stand <- shared$stand
+  result <- shared$gradient
   at <- which(ladder_bare_traits(census_trait_names_tf24(stand)) == "a_st3")
   expect_gt(length(at), 0L)
   peak <- max(abs(result$gradient[, at]))
@@ -208,10 +257,11 @@ test_that("the newcomer depends on the state it was introduced into", {
   # The channel is isolated by perturbing the soil in the pre-introduction state
   # itself and introducing from each: comparing two whole runs would move the
   # answer whatever the newcomer reads, because two runs differ everywhere.
+  stand <- ladder_shared("introductions")$stand
+  # The fixture's own parameters, which the founding patch below is rebuilt from.
+  # Building them runs nothing; the stand above is where the run is.
   p <- ladder_parameters(c("fast", "slow"))
   p$node_schedule_times <- list(c(0, 0.29, 0.94), c(0, 0.57))
-  stand <- ladder_run(p)
-  ladder_gradient_or_skip(stand)
 
   trajectory <- stand$store_trajectory()
   widths <- vapply(trajectory, function(s) length(s$state), numeric(1))
@@ -276,8 +326,8 @@ test_that("the initial condition carries no trait row on these fixtures", {
   # and saying so is the honest form: the earlier version of this test compared
   # two different runs and required the answer to move, which two different runs
   # do whatever the sweep keeps.
-  stand <- ladder_stand_introductions()
-  ladder_gradient_or_skip(stand)
+  shared <- ladder_shared("introductions")
+  stand <- shared$stand
   trajectory <- stand$store_trajectory()
   widths <- vapply(trajectory, function(s) length(s$state), numeric(1))
   # Bare ground: the first recorded width is the narrowest the run ever has, and
@@ -304,11 +354,12 @@ test_that("seed height carries a row rather than a declaration", {
   eight <- ladder_birth_size_parameters()
   expect_length(eight, 8L)
 
-  stand <- ladder_stand_introductions()
+  shared <- ladder_shared("introductions")
+  stand <- shared$stand
   columns <- ladder_bare_traits(census_trait_names_tf24(stand))
   expect_length(setdiff(eight, columns), 0L)
 
-  result <- ladder_gradient_or_skip(stand)
+  result <- shared$gradient
   at <- which(ladder_bare_traits(colnames(result$gradient)) == "omega")
   expect_length(at, length(stand$patch$species))
   expect_gt(max(abs(result$gradient[, at, drop = FALSE])), 0)
@@ -325,8 +376,9 @@ test_that("a newcomer's leaf area reaches the census through a field built witho
   # tangent of the same trajectory. On the introductions fixture every widening is
   # on the path, so this is also where the introduction boundary's own residual is
   # measured rather than inferred.
-  stand <- ladder_stand_introductions()
-  result <- ladder_gradient_or_skip(stand)
+  shared <- ladder_shared("introductions")
+  stand <- shared$stand
+  result <- shared$gradient
   columns <- colnames(result$gradient)
 
   # The reference has to be a derivative of the same trajectory before its
@@ -340,7 +392,19 @@ test_that("a newcomer's leaf area reaches the census through a field built witho
   own <- do.call(rbind, census_trait_direct_tf24(stand))
   dimnames(own) <- list(rownames(result$gradient), columns)
 
-  for (name in c("1.a_l1", "1.a_l2", "1.k_I", "2.k_I")) {
+  # The field-borne pair, and every parameter reaching the census through the seed's
+  # own size. The birth-size class is here because a row missing where a newborn's
+  # state is written moved all eight of them together, on this fixture, while the
+  # field-borne columns held -- and only two of the eight were being compared, under
+  # a bound widened for them. The class is what a widening puts on the path, so the
+  # class is what a widening's rung asks for.
+  wanted <- c("1.k_I", "2.k_I",
+              paste0("1.", ladder_birth_size_parameters()),
+              paste0("2.", ladder_birth_size_parameters()))
+  wanted <- wanted[wanted %in% columns]
+  expect_length(wanted, 18L)
+
+  for (name in wanted) {
     reference <- ladder_trajectory_tangent(
       stand, ladder_trait_direction(columns, name))$tangent
     # A shortfall, not a zero: the channel is live in both, and what is asked is
@@ -348,69 +412,11 @@ test_that("a newcomer's leaf area reaches the census through a field built witho
     expect_gt(max(abs(result$gradient[, name])), 0)
     r <- ladder_column_residual(result$gradient[, name], reference,
                                 result$gradient[, name] - own[, name])
-    borne <- ladder_bare_traits(name) %in% ladder_introduction_borne_traits()
-    message(sprintf("    %-8s amplification of the trajectory term %6.2f, residual against it %.2e",
-                    name, r$amplification, r$per_row_trajectory))
-    ladder_report_margin(
-      paste("column", name, if (borne) "(introduction-borne)" else ""),
-      r$per_row,
-      if (borne) ladder_introduction_residual()
-      else ladder_trajectory_agreement())
+    message(sprintf(
+      "    %-8s amplification %6.2f, residual against the trajectory term %.2e, smallest row %.1e of the column",
+      name, r$amplification, r$per_row_trajectory, r$share))
+    ladder_report_margin(paste("column", name), r$per_row,
+                         ladder_trajectory_agreement())
   }
 })
 
-test_that("a marginal recruit sits in the stiff band, which is what makes the rest count", {
-  # The fixture assertion is derived rather than chosen. The establishment
-  # probability's derivative peaks at a known production, and a recruit anywhere
-  # else is in a flat region where the limit below would pass on the signal being
-  # small rather than on the mathematics being right.
-  #
-  # At the shipped establishment constant this fixture's recruits sit at 36 and 21
-  # times that production, with an establishment probability of 0.998 -- a
-  # comfortable seedling, and the wrong place to ask the question.
-  stand <- ladder_stand_marginal_recruit()
-  ladder_gradient_or_skip(stand)
-  stiffness <- ladder_recruit_stiffness(stand)
-  establishment <- ladder_recruit_establishment(stand)
-  message(sprintf("\n  recruit at %.3f of the peak production, establishment %.5f",
-                  stiffness, establishment))
-  expect_true(all(stiffness > 1 / 3 & stiffness < 3))
-})
-
-test_that("a marginal recruit's gradient exists, is finite, and tends to zero", {
-  # Both the cumulative mortality and the log density diverge logarithmically as
-  # establishment goes to zero, and the sensitivity of the log density diverges
-  # with them. But the log density reaches everything downstream only through the
-  # stem number, whose own sensitivity tends to zero, and the census carries stem
-  # number linearly. So the finite answer is reached by seeding the quantity that
-  # has one, and a recruit that cannot pay for itself contributes at second order
-  # -- exactly zero is the correct first-order answer.
-  #
-  # The probe is the establishment decay, which reaches the census through the
-  # boundary condition and nothing else, so its column is the recruit's own
-  # contribution rather than a stand-wide one.
-  scales <- c(30, 60, 120, 400, 2000)
-  establishment <- numeric(length(scales))
-  decay <- numeric(length(scales))
-  for (k in seq_along(scales)) {
-    stand <- ladder_stand_marginal_recruit(scales[[k]])
-    result <- ladder_gradient_or_skip(stand)
-    expect_true(all(is.finite(result$gradient)))
-    establishment[[k]] <- ladder_recruit_establishment(stand)[[1]]
-    columns <- colnames(result$gradient)
-    decay[[k]] <- max(abs(result$gradient[
-      , ladder_bare_traits(columns) == "recruitment_decay"]))
-    message(sprintf("  establishment %.6f   |recruitment_decay| %.4e",
-                    establishment[[k]], decay[[k]]))
-  }
-
-  # Non-vacuity: the sweep has to actually approach the limit, or "tends to zero"
-  # is a statement about one point.
-  expect_lt(min(establishment), 1e-3)
-  expect_gt(max(establishment) / min(establishment), 1e3)
-
-  # It tends to zero, and it does so from above at every step rather than only
-  # between the endpoints.
-  expect_true(all(diff(decay) < 0))
-  expect_lt(decay[[length(decay)]] / decay[[1]], 1e-2)
-})

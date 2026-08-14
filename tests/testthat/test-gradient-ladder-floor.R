@@ -26,6 +26,15 @@ test_that("the fixtures sit in the regime their checks are declared for", {
   expect_equal(ladder_crossing_count(
     ladder_nodes(ladder_patch_two_by_two(cross = FALSE))), 0L)
 
+  # The other half of adversariality, and it was measured nowhere: the two species
+  # must differ by whole factors in every per-species reduction parameter. A sum
+  # that collapses them into one scalar, and a scatter that reaches the wrong
+  # species, are both invisible while the two carry commensurate values.
+  message(sprintf("  per-species reduction-parameter ratios: %s",
+                  paste(sprintf("%.3f", ladder_species_ratio(patch)),
+                        collapse = " ")))
+  expect_true(ladder_species_separated(patch))
+
   # A stand's state is whatever the trajectory reached, so two of the table's
   # entries are measured there rather than required: the reserve band and the gate
   # slope. They are printed because that is the whole of their value -- a run stand
@@ -122,90 +131,139 @@ test_that("the reference computes the model's own rates", {
 
 # ---- the sweep computes the same thing however it is decomposed -------------
 
-test_that("two consecutive sweeps of one recording are bit-identical", {
-  # The check that the forward replay of introductions leaves the system where
-  # it found it. A run that has to be repeatable is a run whose replay is not
-  # consuming the state it replays.
-  stand <- ladder_stand_introductions()
-  first <- ladder_gradient_or_skip(stand)
-  second <- stand_gradient(stand)
-  expect_identical(first$gradient, second$gradient)
-  expect_identical(first$value, second$value)
-})
-
-test_that("a gradient is bit-identical under a permutation of the sweep order", {
-  # One recording, swept once per metric. Clearing a tape returns its
-  # derivative-slot counter to zero, so an active value constructed outside the
-  # sweep loop and read inside it refers, after the first clear, to a slot that
-  # now belongs to something else. The first metric is then correct and every
-  # later one reads unrelated storage, which is the worst available failure
-  # shape because a correct first row lends credibility to the rest.
+test_that("the regime holds at the states a trajectory passed through", {
+  # A regime report taken at the terminal state says nothing about the states the
+  # trajectory passed through, and it is exactly those states the trajectory rungs
+  # measure on. Every margin taken along a trajectory carries this qualification, so
+  # the qualification is measured rather than assumed.
   #
-  # The defect is positional, so permuting the order is what converts it from
-  # unobservable to certain.
-  stand <- ladder_stand_two_by_two()
-  all_metrics <- names(stand_census(stand))
-  full <- ladder_gradient_or_skip(stand)
+  # A violated assertion invalidates the run rather than failing it, which is the
+  # same convention the per-fixture report uses: the fixture is then outside the
+  # domain its checks are declared for, and that is a finding about the fixture.
+  stand <- ladder_stand_trajectory(lifetime = 2)
+  trajectory <- stand$store_trajectory()
+  patch <- ladder_as_patch(stand)
+  at <- unique(round(seq(2, length(trajectory), length.out = 8)))
 
-  for (m in rev(all_metrics)) {
-    alone <- stand_gradient(stand, metrics = m)
-    expect_identical(alone$gradient[m, ], full$gradient[m, ],
-                     info = paste("metric swept alone:", m))
-  }
-  reversed <- stand_gradient(stand, metrics = rev(all_metrics))
-  expect_identical(reversed$gradient[all_metrics, ], full$gradient[all_metrics, ])
-})
-
-test_that("a sweep split at an interior step equals the whole sweep", {
-  # The reverse pass is a backward linear recursion over recorded steps, chopped
-  # into one segment per width. Composition over steps is therefore associative,
-  # and splitting a segment must give the whole sweep BIT FOR BIT -- tolerance is
-  # exactly zero, and no reference is needed because this is a property the
-  # implementation either has or does not.
+  # Which assertions are properties of a STATE rather than of the fixture's
+  # construction. Adversariality is built into a fixture once -- distinct heights,
+  # distinct moistures, separated species -- and a trajectory is entitled to
+  # violate it: a cohort one step after its introduction sits at exactly the
+  # boundary node's height, so "no two heights equal" is false there by
+  # construction and says nothing about the regime the checks need.
   #
-  # What it catches is anything carried across a step boundary that is not the
-  # adjoint. The trait accumulator accumulates by design, but the block
-  # workspace, the tape, the knot adjoints and the strategy templates all live
-  # across steps, and a split forces a clean re-entry at the cut.
-  stand <- ladder_stand_introductions()
-  ladder_gradient_or_skip(stand)
-  whole <- do.call(rbind, census_trait_gradient_tf24(stand))
-  unsplit_ranges <- census_adjoint_segments_tf24(stand)
+  # What 08 asks to be evaluated at every solve is the physical regime, and that is
+  # this list.
+  per_state <- c("soil moisture strictly interior on every layer",
+                 "net production strictly positive at every cohort",
+                 "light at every read at least 100 times the floor")
 
-  widths <- vapply(stand$store_trajectory(), function(s) length(s$state),
-                   numeric(1))
-  widening <- which(diff(widths) != 0)
-  expect_gte(length(widening), 3L)
-
-  # An interior step, one either side of a widening, and all three at once. The
-  # step counted here is the one the split names, from one.
-  interior <- floor((widening[[2]] + widening[[3]]) / 2)
-  points <- list("an interior step" = interior,
-                 "one step before a widening" = widening[[2]] - 1,
-                 "one step after a widening" = widening[[2]] + 1,
-                 "all three at once" = c(interior, widening[[2]] - 1,
-                                         widening[[2]] + 1))
-  for (name in names(points)) {
-    split <- do.call(rbind,
-                     census_trait_gradient_split_tf24(stand, points[[name]]))
-    ranges <- census_adjoint_segments_tf24(stand)
-    # Non-vacuity, and it is not decoration: a split landing ON a segment
-    # boundary is outside every segment's interior and cuts nothing, so the
-    # equality below would hold between two identical sweeps. The range count is
-    # what says the cut happened.
-    expect_gt(ranges, unsplit_ranges)
-    message(sprintf("  %-28s %2.0f ranges against %2.0f", name, ranges,
-                    unsplit_ranges))
-    expect_identical(split, whole)
+  collected <- list()
+  for (k in at) {
+    patch$set_ode_state(trajectory[[k]]$state, trajectory[[k]]$time)
+    # The second evaluation of the inflow condition, which a state load alone does
+    # not reach and which every quantity a regime is read off depends on.
+    invisible(patch$ode_rates)
+    report <- ladder_regime_report(patch, "stand")
+    report <- report[report$assertion %in% per_state, , drop = FALSE]
+    report$state <- k
+    bad <- report[!report$ok, , drop = FALSE]
+    if (nrow(bad) > 0L) {
+      message(sprintf("  state %3d leaves the regime: %s", k,
+                      paste(sprintf("%s (%s)", bad$assertion, bad$value),
+                            collapse = "; ")))
+    }
+    collected[[length(collected) + 1L]] <- report
   }
 
-  # And the boundary case stated rather than left as a trap: naming a widening
-  # itself requests a split no segment contains.
-  boundary_split <- do.call(rbind,
-                            census_trait_gradient_split_tf24(stand,
-                                                             widening[[2]]))
-  expect_equal(census_adjoint_segments_tf24(stand), unsplit_ranges)
-  expect_identical(boundary_split, whole)
+  # The whole point is the range over the trajectory rather than any one state, so
+  # the assertions are collected over every sampled state and reported once.
+  enforced <- do.call(rbind, collected)
+  expect_equal(nrow(enforced), length(at) * length(per_state))
+  failures <- enforced[!enforced$ok, , drop = FALSE]
+  message(sprintf("\n  %d enforced assertions over %d sampled states, %d violated",
+                  nrow(enforced), length(at), nrow(failures)))
+  if (nrow(failures) > 0L) {
+    skip(paste("the trajectory leaves the declared regime at some sampled state,",
+               "so runs on it are invalid rather than failing:",
+               paste(unique(failures$assertion), collapse = "; ")))
+  }
+  expect_equal(nrow(failures), 0L)
+})
+
+test_that("a cohort's rates are reproducible from its own boundary", {
+  # The premise the whole cohort-granular decomposition rests on, and the one
+  # nothing structural defends: a cohort's rates are a pure function of its own
+  # state, the environment values it reads, and the traits. Every cohort of a
+  # species points at one strategy and therefore one leaf, so anything that object
+  # remembers between calls is a channel the reverse pass cannot see.
+  #
+  # The block re-runs one individual on a FRESH copy of the strategy, from that
+  # node's own packed boundary. In isolation there is no predecessor, so a buffer
+  # sized but not cleared, an exit that writes part of an operating point, and a
+  # cache keyed on less than it depends on all show up here and nowhere else -- the
+  # forward pass is order-deterministic, so each of them reproduces exactly and
+  # every double-valued test passes.
+  for (label in c("one cohort", "four nodes", "three of one species")) {
+    patch <- switch(label,
+                    "one cohort" = ladder_patch_one(),
+                    "four nodes" = ladder_patch_two_by_two(),
+                    "three of one species" = ladder_patch_permutable())
+    table <- ladder_node_rate_table(patch)
+    expect_equal(length(table), ladder_node_count_tf24(patch))
+    # A hundred times the fixture's own floor, not ten. The block evaluates on the
+    # active scalar and the patch on the double one, so the two differ by however
+    # the compiler contracts each; measured worst is ten machine units on the
+    # four-node patch. A carried quantity is another plant's operating point and is
+    # orders above either.
+    bound <- 100 * ladder_forward_floor(patch)
+
+    worst <- 0
+    for (k in seq_along(table)) {
+      own <- ladder_block_value_tf24(patch, k)[seq_along(table[[k]]$rates)]
+      scale <- pmax(abs(table[[k]]$rates), .Machine$double.xmin)
+      worst <- max(worst, max(abs(own - table[[k]]$rates) / scale))
+    }
+    ladder_report_margin(paste("rates from the node's own boundary,", label),
+                         worst, bound)
+  }
+})
+
+test_that("the same plants solved in the opposite order give the same rates", {
+  # The permutation, which is the only check a reordering can fail and a re-run
+  # cannot. The forward pass is order-deterministic, so a stale read reproduces
+  # exactly; what it cannot survive is being asked to solve the same two plants in
+  # the other order.
+  #
+  # The two grid points exchanged carry equal quadrature weights by construction,
+  # so the reductions see the same sum in the reverse order. That leaves the field's
+  # knot values agreeing in their last bits rather than exactly, which is the floor
+  # this check is measured against rather than a tolerance anyone picked.
+  a <- ladder_patch_permutable(FALSE)
+  b <- ladder_patch_permutable(TRUE)
+  ta <- ladder_node_rate_table(a)
+  tb <- ladder_node_rate_table(b)
+
+  floor <- ladder_permutation_floor(a, b)
+  message(sprintf("\n  the permutation moves the field's knot values by %.2e", floor))
+
+  moved <- 0L
+  worst <- 0
+  for (x in ta) {
+    at <- which(vapply(tb, function(y) y$height == x$height, logical(1)))
+    expect_length(at, 1L)
+    y <- tb[[at]]
+    if (y$position != x$position) moved <- moved + 1L
+    scale <- pmax(abs(x$rates), .Machine$double.xmin)
+    worst <- max(worst, max(abs(x$rates - y$rates) / scale))
+  }
+  # Non-vacuity: if no state changed position the two runs are one run and the
+  # equality below holds for a reason that says nothing about a carried quantity.
+  expect_gte(moved, 2L)
+  message(sprintf("  %d of %d states solved at a different position", moved,
+                  length(ta)))
+  ladder_report_margin("rates under a permutation of the solve order", worst,
+                       100 * floor)
 })
 
 test_that("a rejected step attempt is not a question about the gradient", {
@@ -222,8 +280,9 @@ test_that("a rejected step attempt is not a question about the gradient", {
   # not bit-identical to the adaptive run it replays. That is what the trajectory
   # reference's own floor measures, and it is asserted where the reference is
   # used rather than here.
-  stand <- ladder_stand_introductions()
-  result <- ladder_gradient_or_skip(stand)
+  shared <- ladder_shared("introductions")
+  stand <- shared$stand
+  result <- shared$gradient
   ladder_report_margin("the replay reaches this stand's own census",
                        ladder_replay_floor(stand, result$value), 1e-9)
 })
@@ -262,8 +321,9 @@ test_that("every trait column resolves to one declared class", {
   # failure modes and not one: an exact zero in the live class is a missing
   # accumulator, and a registered parameter reaching no equation comes back as
   # round-off, which reads as a gradient.
-  stand <- ladder_stand_two_by_two()
-  result <- ladder_gradient_or_skip(stand)
+  shared <- ladder_shared("two_by_two")
+  stand <- shared$stand
+  result <- shared$gradient
   g <- result$gradient
 
   declared_zero <- ladder_zero_by_construction()

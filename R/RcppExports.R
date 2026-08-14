@@ -4501,6 +4501,10 @@ ladder_census_initial_state_replay_tf24 <- function(obj_, state0, segment) {
     .Call('_plant_ladder_census_initial_state_replay_tf24', PACKAGE = 'plant', obj_, state0, segment)
 }
 
+ladder_boundary_evaluations_tf24 <- function(obj_) {
+    .Call('_plant_ladder_boundary_evaluations_tf24', PACKAGE = 'plant', obj_)
+}
+
 ladder_trait_names_tf24 <- function(obj_) {
     .Call('_plant_ladder_trait_names_tf24', PACKAGE = 'plant', obj_)
 }

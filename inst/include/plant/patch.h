@@ -185,6 +185,19 @@ public:
   // than terminating.
   std::vector<boundary_node_adjoints> boundary_node_adjoint;
 
+  // How often the boundary's own term was asked for, and how often it carried
+  // anything. The boundary node stands at the seed's height for a whole run while
+  // its condition is re-evaluated at every stage of every step, so this row acts
+  // once per step where the quantity it belongs to changes once per plant. Its
+  // value being right is therefore not the same claim as its being multiplied by
+  // the right number of evaluations, and only the second is a count.
+  //
+  // `asked` counts every call and `carried` only the calls that recorded, which
+  // differ whenever no boundary adjoint was seeded. A caller resets both and reads
+  // them back around one sweep.
+  size_t boundary_condition_asked = 0;
+  size_t boundary_condition_carried = 0;
+
   // The trait adjoints, species-major in each strategy's ad_parameters() order.
   // One trait is one input every cohort at every step reads, so this accumulates.
   std::vector<double> trait_adjoint;
@@ -2003,9 +2016,11 @@ void Patch<T,E>::boundary_condition_adjoint(
     seeded = seeded || b.density_in_field != 0.0 || b.density_in_uptake != 0.0 ||
              b.height != 0.0 || b.area_leaf != 0.0;
   }
+  ++boundary_condition_asked;
   if (!seeded) {
     return;
   }
+  ++boundary_condition_carried;
 
   std::vector<value_type> current(n_state);
   ode_state(current.begin());

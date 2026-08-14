@@ -54,14 +54,18 @@ test_that("the block's forward and reverse Jacobians agree entry by entry", {
   # itself. A cell whose true value is a hundred orders below its row carries no
   # information about the row, and a per-cell relative measure would make the
   # tolerance a statement about that cell's round-off rather than about the
-  # Jacobian.
-  row_scale <- pmax(apply(abs(forward), 1, max), .Machine$double.xmin)
+  # Jacobian. The scale is the larger of the two rows, which is the one statistic
+  # ladder_matrix_residual carries, so the corruption tests measure this comparison
+  # rather than a second one written to resemble it.
+  row_scale <- pmax(apply(abs(forward), 1, max), apply(abs(reverse), 1, max),
+                    .Machine$double.xmin)
   residual <- abs(forward - reverse) / row_scale
   worst <- which(residual == max(residual), arr.ind = TRUE)[1, ]
   message(sprintf("  worst cell: %s / %s  forward %.6e  reverse %.6e",
                   outputs[[worst[[1]]]], inputs[[worst[[2]]]],
                   forward[worst[[1]], worst[[2]]],
                   reverse[worst[[1]], worst[[2]]]))
+  expect_equal(max(residual), ladder_matrix_residual(reverse, forward))
 
   ladder_report_margin("block Jacobian, forward against reverse",
                        max(residual), 10 * ladder_forward_floor(patch))
@@ -338,6 +342,89 @@ test_that("one right-hand-side evaluation transposes to a difference of itself",
 
   ladder_report_margin("right-hand-side transpose, against a difference",
                        residual, 10 * floor)
+})
+
+test_that("the state Jacobian holds at the states a trajectory reached", {
+  # Every check above forms its Jacobian on a patch whose state was written by
+  # hand and conditioned into the declared regime. A trajectory's state is
+  # wherever the run went, and "correct at one state" and "correct at every state
+  # the trajectory visits" are different claims. This is the second.
+  #
+  # Forward against reverse, and not against a difference. A difference of the
+  # right-hand side re-solves the leaf while both differentiated paths consume its
+  # supplied rows, so a difference here prices the factorisation's own fit rather
+  # than the transpose: measured flat in the step and landing on the uptake
+  # accumulator, which is the documented soil-row gap. Two exact paths cannot hide a
+  # supplied row behind each other, so the whole matrix is comparable at the
+  # arithmetic floor.
+  stand <- ladder_stand_trajectory(lifetime = 2)
+  trajectory <- stand$store_trajectory()
+  widths <- vapply(trajectory, function(s) length(s$state), numeric(1))
+  # The first recorded state is the one no step reached, and on this coordinate it
+  # holds the environment and no cohort. From the introduction onward the width is
+  # fixed, which is what lets one patch load every state.
+  expect_equal(length(unique(widths[-1])), 1L)
+
+  patch <- ladder_as_patch(stand)
+  names_state <- ladder_rate_names(patch)
+  n <- patch$ode_size
+  at <- unique(round(seq(2, length(trajectory), length.out = 6)))
+  heights <- numeric(0)
+  worst_overall <- 0
+  worst_label <- ""
+
+  for (k in at) {
+    patch$set_ode_state(trajectory[[k]]$state, trajectory[[k]]$time)
+    # A state load leaves the inflow condition at its FIRST evaluation, taken with
+    # every species' boundary interval left off; a run carries the second, taken in
+    # the field rebuilt to include it. Asking for the rates is what advances it from
+    # R, where set_recorded_state is not reachable.
+    #
+    # Without this the two paths linearise at different boundary nodes and disagree
+    # by their own whole magnitude -- 1.0 at every loaded state, against 3e-16 with
+    # it. That is an instrument reading, and it is the reason this line exists
+    # rather than a tolerance being widened to cover it.
+    invisible(patch$ode_rates)
+
+    forward <- ladder_rhs_state_jacobian_forward_tf24(patch)
+    # One unit output adjoint per rate gives one row of the transpose, so the whole
+    # object is formed rather than contracted: a contraction against one direction
+    # lets a wrong cell hide behind a small seed component and localises to nothing.
+    reverse <- t(vapply(seq_len(n), function(i) {
+      ladder_rhs_adjoint_tf24(patch, replace(numeric(n), i, 1))$state
+    }, numeric(n)))
+
+    # Scaled by the larger of the two rows. Where a row is near zero on one path and
+    # not on the other, dividing by the small one reports a ratio of two round-offs
+    # rather than a disagreement.
+    row_scale <- pmax(apply(abs(forward), 1, max), apply(abs(reverse), 1, max),
+                      .Machine$double.xmin)
+    resid <- abs(forward - reverse) / row_scale
+    cell <- which(resid == max(resid), arr.ind = TRUE)[1, ]
+    height <- patch$species[[1]]$nodes[[1]]$height
+    heights <- c(heights, height)
+    message(sprintf("    state %3d  h %6.3f  worst %.2e at %s by %s", k, height,
+                    max(resid), names_state[[cell[[1]]]],
+                    names_state[[cell[[2]]]]))
+    if (max(resid) > worst_overall) {
+      worst_overall <- max(resid)
+      worst_label <- sprintf("state %d, h %.3f, %s by %s", k, height,
+                             names_state[[cell[[1]]]], names_state[[cell[[2]]]])
+    }
+  }
+
+  # Non-vacuity, twice over: the sampled states have to be different states, and
+  # the matrix has to have entries.
+  expect_gt(diff(range(heights)), 1)
+  expect_gt(sum(forward != 0), n)
+  message(sprintf("  worst over the trajectory: %.2e at %s", worst_overall,
+                  worst_label))
+  # A hundred times the fixture's floor rather than ten. These states are loaded
+  # rather than constructed and the field is rebuilt from a recorded vector, so a
+  # few extra machine units are the cost of the load; measured worst is 7.6e-15
+  # against a floor of 8.9e-16.
+  ladder_report_margin("state Jacobian along a trajectory, forward against reverse",
+                       worst_overall, 100 * ladder_forward_floor(patch))
 })
 
 test_that("the trait rows that arise inside a reduction arrive", {

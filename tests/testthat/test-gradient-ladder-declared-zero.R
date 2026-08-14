@@ -47,8 +47,10 @@ test_that("the whole-run difference is in its own domain on this fixture", {
   traits <- ladder_traits()$fast
   for (name in ladder_birth_size_parameters()) {
     got <- ladder_run_difference_stable(traits, name)
-    message(sprintf("\n  %-5s spread over three steps: %.2e   seed-height slope %+.4e",
-                    name, got$spread, got$seed_height_slope))
+    message(sprintf(
+      "\n  %-5s plateau at %s (step %.0e), spread %.2e over the pair and %.2e over all four; seed-height slope %+.4e",
+      name, got$plateau_at, got$step, got$spread, got$spread_all,
+      got$seed_height_slope))
     if (got$spread > 1e-3) {
       skip(paste("the whole-run difference does not hold its figures on this",
                  "fixture, so it is out of its domain here rather than failing:",
@@ -80,8 +82,9 @@ test_that("the birth-size channel is priced rather than asserted", {
   for (name in ladder_birth_size_parameters()) {
     got <- ladder_run_difference_stable(traits, name)
     if (got$spread > 1e-3) {
-      message(sprintf("    %-5s difference out of its own domain here (spread %.1e)",
-                      name, got$spread))
+      message(sprintf(
+        "    %-5s difference out of its own domain here (spread %.1e, plateau at %s)",
+        name, got$spread, got$plateau_at))
       next
     }
     sweep <- gradient$gradient[1, paste0("1.", name)]

@@ -242,6 +242,20 @@ public:
   parameters_type r_parameters() const { return parameters; }
   const patch_type &r_patch() const { return patch; }
   const std::vector<patch_type> &r_history() const { return history; }
+
+  // How many times the inflow boundary's own term entered the trait adjoint over
+  // one sweep, read from the system the sweep runs on rather than from the copy
+  // r_patch() hands out. A row that acts once per step is multiplied by that
+  // count, so the count is part of the row and belongs beside its value.
+  std::vector<size_t> boundary_condition_evaluations() {
+    const patch_type& live = solver.get_system_ref();
+    return {live.boundary_condition_asked, live.boundary_condition_carried};
+  }
+  void clear_boundary_condition_evaluations() {
+    patch_type& live = solver.get_system_ref();
+    live.boundary_condition_asked = 0;
+    live.boundary_condition_carried = 0;
+  }
   Rcpp::List r_get_state() const { return patch.r_get_state(); };
 
   // Fitness / reproduction
