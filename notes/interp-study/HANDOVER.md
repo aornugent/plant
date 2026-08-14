@@ -138,15 +138,18 @@ the one test that catches an unbumped `scientific_version`.
 **Landed and verified.** Knots at `k * spacing`, spacing 0.05 m for FF16/TF24 and
 0.025 m for K93 (≈ the canopy a run reaches / 350). The dropped position channel
 is exactly zero; the tallest cohort's height column went from 2127x the other
-height columns to 1.2x. Full suite **3625 pass / 5 fail** at the previous spacing,
-with all 5 pre-existing (`test-mutant.R` 2, `test-stochastic-patch.R` 3 — they
-fail identically on the shipped placement, verified).
+height columns to 1.2x.
 
-**Unfinished at session end:** the confirmatory full suite at the corrected
-spacing (0.05) had not completed. The affected files were re-run clean
-individually — canopy-methods 282, ff16 55, k93 21, environment 33, scm 140,
-patch 167, ladder rung3 41 — but **the whole-suite number at 0.05 is not in
-hand.** Run `run-all.R` first thing.
+**Full suite at the landed spacing: 3626 pass, 5 fail, over 64 files.** All five
+are pre-existing and placement-independent — `test-mutant.R` (2) and
+`test-stochastic-patch.R` (3) fail identically on the shipped placement, which
+was checked rather than assumed. **Nothing this branch touches fails.**
+
+Not run: the suite under `NOT_CRAN=true` end to end. It exceeded a 50-minute cap
+inside the completeness sweep, which is slow by construction (two model runs per
+column). The one `skip_on_cran` test that matters here — the `model-version`
+drift guard — was run individually with `NOT_CRAN=true` and passes after the
+snapshot was accepted.
 
 **Re-blessed:** `deep-crown reproduces the baseline SCM result` 16.8846 ->
 16.8954 (limit 16.8961), `offspring arrival` in `test-strategy-ff16.R`.
