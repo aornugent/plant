@@ -1,296 +1,295 @@
-# The light field's cost, and why the knot count stopped being the question
+# Building the light field in one pass
 
-The knot placement is settled: knots at fixed heights, positions constants of
-the run, dropped position channel exactly zero. What was not settled is what
-that costs, and the answer given so far — 1.52 times develop's run time — was
-treated as the price of correctness.
+The field is built by evaluating, at every knot, a sum over every cohort. That
+product is 62 to 88 percent of an FF16 right-hand side and it does not have to
+be a product: the crown profile is a polynomial in `u^eta`, so three running
+sums over cohorts ordered by height give every knot at once.
 
-It is not. It is the price of a reduction that costs knots times cohorts, and
-that reduction does not have to cost that.
-
----
-
-## Triage: 3
-
-Expensive to reverse. It changes every number the model produces, so it lands
-with a `scientific_version` bump and a re-blessing, and the requirement arrived
-as a solution-verb — "resolve the dyadic lattice's discontinuities" — which is a
-mechanism, not an outcome.
+This is the implementation. The alternatives it was chosen over, and the
+measurements that eliminated them, are in the closing section.
 
 ---
 
-## Requirements ledger
+## What is being claimed, and what it rests on
 
-Every quantity below is measured on this branch or on `develop`, on real FF16
-stands taken from runs rather than constructed. The scripts are named against
-each line.
-
-**R1 — the adjoint differentiates the function the forward model computes.**
-The channel a passive knot position drops, as a fraction of the field's range,
-against the field's own error (`d8-anatomy.R`):
-
-| knots | dropped channel | field error | ratio |
-|---|---|---|---|
-| 33 | 2.489e-01 | 2.198e-03 | 113x |
-| 129 | 5.811e-02 | 1.331e-04 | 437x |
-| 1025 | 7.626e-03 | 1.623e-06 | 4698x |
-
-The channel falls as 1/K and the error as K^-2.2, so **refinement makes the
-channel relatively worse** and no knot count rescues a canopy-tied grid. On a
-lattice of constants the same measurement is `0.000e+00` at every spacing.
-
-**R2 — crown-mean light, per cohort, at every stage: 1e-6 relative.**
-develop's adaptive placement delivers 2.25e-06 to 8.66e-05 depending on the
-stand, and at one stand leaves a cohort with no knot at all inside its own crown
-(`d9-pareto.R`). The landed lattice at 0.05 delivers 1.01e-05 to 1.58e-05, and
-its worst cohort is always the shortest.
-
-**R3 — run time no worse than develop's.** The landed lattice is 1.52x.
-
-**R4 — the field is continuous in the state, and the recorded computation's
-shape does not depend on an active value.**
-
-**R5 — the recorded block's input width is 2K + layers, at 480 slots per knot.**
-Linear in the knot count, so knots are not free to the reverse pass even when
-they are free to the forward one.
-
-**Scarce resource.** Kernel evaluations in the field reduction: the build
-evaluates every cohort's crown at every knot, so it costs `N x K` per stage, and
-that is **62% to 88% of an FF16 right-hand side, rising with stand size**
-(`d15-buildshare.R`). Everything else in this ledger is downstream of whether
-that product stays a product.
-
----
-
-## The floor
-
-Keep the landed uniform lattice and accept the cost. It meets R1 exactly and R4
-by construction.
-
-It fails **R2** at the shortest cohort — 1.55e-05 against 1e-6 at lifetime 10,
-because a 0.05 lattice puts three knots inside a recruit's crown where it puts
-fifty inside the canopy's — and it fails **R3** at 1.52x against 1.0.
-
-Those two failures are the same failure. The lattice cannot be refined to fix
-the recruit because refinement is what costs 1.52x.
-
----
-
-## Candidates
-
-**A [first thought] — grade the lattice, spacing proportional to height.**
-Move: re-shape the scarce resource. Commitment: constant *relative* resolution,
-positions still constants. Pays for R2 at the recruit by moving knots down from
-the canopy, where they were over-spent.
-
-*Refuted by measurement.* At matched count it fails at the other end: at
-lifetime 10, 176 knots graded gives the tallest cohort 4.16e-05 where 179 knots
-uniform gives it 1.26e-07. The canopy top needs fine *absolute* resolution
-because half the cohort tops are piled within a metre of it, so the field's
-structure there is set by the spacing between cohort tops and not by any one
-cohort's height. Eliminated on R2.
-
-**B — dyadic lattice, level change smoothed by a blend.**
-Move: make a discrete change continuous. Commitment: positions drawn from one
-fixed lattice, resolution following the canopy by level.
-
-*Refuted before the blend was designed.* A dyadic lattice **is** a uniform
-lattice at whatever spacing its level picked, and its accuracy is uniform's to
-three digits (lifetime 40: dyadic 175 knots 2.24e-04, uniform 0.100 176 knots
-2.24e-04). It buys a bounded count and nothing else, and pays four field
-discontinuities for it. There is nothing to blend *for*. Eliminated on R2.
-
-**C — leave the placement alone and make a knot cheap.**
-Move: attack the unit cost rather than the count. Commitment: the field's build
-does not cost knots times cohorts.
-
-The crown kernel expands:
+The reduction is a trapezium integral over the size distribution of one
+quantity per cohort:
 
 ```
-(1 - (z/h)^eta)^2  =  1 - 2 (z/h)^eta + (z/h)^(2 eta)
+A(z) = sum_k w_k d_k k_I a_k Q(z / h_k)          Q(u) = (1 - u^eta)^2, u <= 1
 ```
 
-so every z-dependence is `z^eta` or `z^(2 eta)` and every cohort-dependence is
-`c_j`, `c_j h_j^-eta`, `c_j h_j^-2eta`. Three running sums over cohorts ordered
-by height give every knot at once. Pays for R3 directly and for R2 by making
-refinement affordable.
+`w_k` are the quadrature weights, `d_k` the node's density, `a_k` its
+competition effect and `h_k` its height. **The only `z`-dependence is `Q`**, so
+writing `c_k = w_k d_k k_I a_k` the field is `sum_k c_k Q(z/h_k)` with `c_k`
+independent of the height it is read at. That is the whole basis of the sweep,
+and it holds in both coordinates the forward model supports, because the
+abscissa only ever enters `w_k`.
 
-**Winner: C.** A and B are eliminated on R2 by measurement, not by taste. C is
-the only candidate that touches the ledger line the other two are downstream of.
+Expanding,
 
----
+```
+Q(u)     = 1 - 2 u^eta + u^(2 eta)
+dQ/dz    = (-2 eta u^eta + 2 eta u^(2 eta)) / z
+```
 
-## The commitment
+so with `S = sum c_k`, `T1 = sum c_k u_k^eta` and `T2 = sum c_k u_k^(2 eta)`,
+each over the cohorts whose crowns reach `z`,
 
-**The field's build cost is the number of knots plus the number of cohorts, not
-their product.**
+```
+A(z)  = S - 2 T1 + T2
+A'(z) = 2 eta (T2 - T1) / z
+```
 
-*Kept true by:* the build takes the whole knot vector and the whole cohort list
-and returns the whole field, in one pass. There is no per-knot entry point on
-the build path for a caller to put in a loop, so the quadratic form is not
-expressible without reintroducing a function that no longer exists.
-`compute_competition_and_slope(z)` stays for consumers that genuinely want one
-height — the tests referee against it — but the environment no longer calls it.
+**The sums must be carried already scaled by the height they were last read
+at.** Written as `z^eta sum c_k h_k^-eta`, the factor `h^-eta` at `eta = 12`
+spans 1e19 over one stand's heights and the sum loses its own small terms.
+Carried scaled, every term is at most `c_k`, because the sums run only over
+cohorts with `h_k >= z`. Measured against the per-cohort sum's own rounding on
+a real 93-cohort stand: value agrees to 4.4e-16 where `eps * A(0)` is 7.5e-16,
+slope to 3.6e-15 on a range of 17.5.
 
----
-
-## Kill question
-
-*The assumption whose falsity makes this unnecessary:* that the reduction is a
-large share of the work. If the leaf solve dominated, a faster field build would
-buy a few percent and the 1.52x would have to come out of the knot count
-instead.
-
-*Verdict: survives, and only one of the two models needs it to.*
-
-| | build, share of one right-hand side | swept, right-hand side becomes |
-|---|---|---|
-| FF16, lifetime 4 / 10 / 40 | 62% / 77% / 88% | 0.39 / 0.24 / 0.13 |
-| TF24, lifetime 4 / 10 | 13% / 16% | 0.88 / 0.84 |
-
-On FF16 the share **rises** with stand size, because the leaf work is linear in
-cohorts and the build is quadratic; swept, the right-hand side is 2.6x to 7.7x
-faster. On TF24 the leaf solve is 1.8 ms against the build's 0.26 ms, so the
-same change buys 1.19x.
-
-**That asymmetry is the answer to R3 rather than a weakness in it.** The 1.52x
-this design exists to remove was measured on FF16, which is exactly where the
-build dominates. On TF24 the knot count was never the cost: going from 166 to
-315 knots moves the right-hand side by about 5%, so the lattice was close to
-free there already. The two models fail R3 for different reasons and the same
-change answers both.
+Two facts about the model make the truncation free rather than a special case.
+`Q` and `q` both vanish at `u = 1`, so a cohort admitted at the first knot below
+its own crown top contributes nothing at the knot above it, and the join is C1 —
+which is why the branch carries no derivative. And a cohort admitted once stays
+admitted, because every knot below is also below its crown.
 
 ---
 
-## What survives deletion
+## What the model actually does today, which the sweep has to reproduce
 
-- **The three running sums** — R3. Remove any one and the kernel no longer
-  expands.
-- **The downward sweep, carrying sums already scaled by the current height** —
-  R3 and the arithmetic. Written with unscaled suffix sums the design is
-  numerically dead: `h^-eta` at eta = 12 spans 1e19 over a real stand's heights,
-  so the sums annihilate their own small terms. Scaled, every term is at most
-  `c_j` because the sum runs only over cohorts with `h_j >= z`.
-- **The general per-height reduction** — it is the referee, and the fallback for
-  the shading models that do not expand.
+Read from the forward model rather than assumed; two of these were wrong on a
+first reading and are the reason the sweep is specified this precisely.
 
-Nothing else is added. No new type, no new control, no new configuration.
+**The abscissa is not the birth date by default.** `abscissa_of` returns the
+introduction time in the birth-date coordinate and **minus the height**
+otherwise, and the shipped SCM default is the height coordinate. The reverse
+sweep refuses any other, so both are live: the weights differ between them and
+nothing else does.
 
----
+**The trapezium is accumulated as a running sum**, `(x0 - x1)(f1 + f0)` over
+consecutive nodes, halved once at the end, with the inflow boundary node
+appended as a closing interval. Re-associating that as `sum_k w_k f_k` is the
+same number in exact arithmetic and a different one in floating point, so the
+sweep moves the model's numbers and needs a re-blessing.
 
-## What this settles
+**The early exit is not a truncation of the sum.** The loop stops at the first
+node below the query height; every node past it contributes `f = 0` at both ends
+of its interval, so including them adds exact zeros. The sweep may therefore
+admit every cohort without changing the value.
 
-- Knot count stops being a design variable in the forward model. The build for a
-  108-cohort, 348-knot stand goes from 37,584 kernel evaluations to 456.
-- The accuracy requirement can be met by refining, because refining is nearly
-  free. `d11-required.R` gives the requirement directly: about 0.022 near the
-  seed height, which is fixed, and 0.006 to 0.015 of the canopy at the top.
-- The dyadic lattice is not built, and the blend it needed is not designed.
-- The knots-on-breaks placement is not built: at matched count it is *worse*
-  than uniform for the consumer metric (0.4x to 0.9x), because the crown
-  integral averages the localised break error away.
-- Holding optical depth instead of light is not built: measured at 1.00x on
-  every stand, because the stand's optical depth is only about 1.5 and Beer's
-  law is not a strong enough nonlinearity to matter at that depth.
+**The field is stored in double and the reduction is not, and conflating those
+deletes a channel.** The knots are a `ResourceSpline<double>` and the
+environments are not templated, so what the field *stores* is plain double.
+But `Individual` holds `Internals<value_type>`, and the strategy evaluates the
+profile at those internals — so the reduction reads the cohort's **active**
+height through the cached `height_inverse`, and a tangent seeded on a height
+propagates into the field through it.
 
----
+Taking the height passively in the sweep is therefore not a free simplification:
+it severs every cohort's height channel out of the field. It is also invisible
+in the value, which agrees to rounding either way, and invisible to every check
+that does not differentiate — measured, the whole non-gradient suite passes with
+the channel gone, and the ladder's tangent-against-difference margin moves from
+1.0e-08 to 2.9e-04.
 
-## What this makes hard
+So the height is active where the profile consumes it, and passive only where
+the model already reads it passively: the quadrature abscissa, the descent's
+knot-over-knot ratio, and the comparison deciding which knot a cohort enters at.
+On the height coordinate the abscissa and the height are the same quantity read
+two ways, which looks wrong and is what the per-height reduction does.
 
-**The fast path is kernel-specific.** It expands the smooth Yokozawa profile and
-nothing else. `FlatTopSoftBox` carries its own smoothstep and would need either
-its own expansion or the general reduction; `FlatTopBox` already refuses to
-build a light field at all. If a fourth profile arrives, it arrives with a
-decision to make rather than a free ride.
-
-**One digit of arithmetic.** The expansion computes `1 - 2u + u^2` where the
-direct form computes `(1 - u)^2`, so it cancels where `u` approaches 1. Measured
-against the direct sum's own rounding floor, the absolute error in A is 3.6e-16
-to 7.5e-14 where `eps * A(0)` is 1.4e-16 to 6.3e-15 — within about one digit,
-across stands from 8 to 300 cohorts. Absolute error in A is what matters,
-because it is relative error in `exp(-A)`; the relative error in A itself is
-large only at the canopy top, where A goes to zero and no consumer reads it.
-
-**R5 is untouched.** The recorded block still declares `2K + layers` inputs at
-480 slots per knot, so knots stay linear in the reverse pass even once they are
-nearly free in the forward one. A crown integral under a fixed rule touches at
-most `n+1` values and `n+1` slopes whatever the canopy does, so the width is
-available; taking it is separate work and this design does not do it.
-
----
-
-## Kill condition
-
-**A production model whose competition profile does not expand**, or a
-configuration where the leaf solve is so dominant that the build is a few
-percent. The first hands off to the general reduction, which is kept for exactly
-that reason. The second hands off to candidate A — if a knot must be paid for
-after all, then where it goes matters again, and `d11-required.R` is the curve
-to place against.
+**The amplitude is already on the node.** `k_I * aux(COMPETITION_EFFECT)` is the
+scale and `aux(HEIGHT_INVERSE)` the reciprocal crown top, both cached, so the
+sweep needs no allometry.
 
 ---
 
 ## The design
 
-One reduction, evaluated as a sweep from the canopy down.
+**Commitment: the field's build cost is knots plus cohorts, not their product.**
 
-Let `T1(z) = sum_j c_j (z/h_j)^eta` and `T2(z)` the same at `2 eta`, both over
-cohorts with `h_j >= z`, and `S0(z)` the plain sum of `c_j` over the same set.
-Then
+*Kept true by:* the build takes the whole knot vector and returns the whole
+field. There is no per-knot entry point on the build path to put in a loop, so
+the quadratic form is not expressible without reintroducing a function that the
+environment no longer calls.
+
+### Where each piece goes
+
+**`CanopyShape` owns the expansion**, beside `Q_and_q`, because it owns `Q`. A
+sum built from a second, separately written copy of the profile would agree with
+the first nowhere except by accident, and the value would not show it. It gains
+the three running sums and the two operations on them, and a predicate saying
+whether its profile is a polynomial in `u^eta` — the box profiles are not, and
+one of them cannot build a light field at all.
+
+**`Species` owns the sweep**, because it owns the nodes, the quadrature weights
+and the strategy. It gains one entry point that fills value and slope at every
+knot, and keeps the per-height reduction for the transpose, for R, and as the
+fallback when the profile does not expand.
+
+**`Patch` hands the whole grid down** instead of a per-height callback, and
+**`ResourceSpline` asks once** instead of per knot. The environments apply
+Beer's law over the filled vectors rather than inside a per-height lambda.
+
+### The sweep
+
+Knots descend; cohorts are admitted in decreasing height order; the weights come
+from the abscissa in whichever coordinate is in force.
 
 ```
-A(z)  = S0 - 2 T1 + T2
-A'(z) = 2 eta (T2 - T1) / z
+for each knot z, from the top down:
+    descend the sums to z            T1 *= r ; T2 *= r * r,  r = (z/z_prev)^eta
+    admit every cohort with h_k >= z not yet admitted:
+        u = (z / h_k)^eta
+        S += c_k ; T1 += c_k u ; T2 += c_k u * u
+    value = S - 2 T1 + T2
+    slope = 2 eta (T2 - T1) / z
 ```
 
-and moving from a knot to the next one below, at `z' < z`:
+Each cohort is admitted once and each knot visited once: two powers per knot,
+one per cohort.
 
-```
-T1 <- T1 (z'/z)^eta                      rescale what is already in
-T2 <- T2 (z'/z)^(2 eta)
-for each cohort with z' <= h_j < z:      admit the ones now in range
-    u  <- (z'/h_j)^eta
-    S0 <- S0 + c_j ;  T1 <- T1 + c_j u ;  T2 <- T2 + c_j u^2
-```
+### Four things that lose it
 
-Every term is at most `c_j`, because the sums run over `h_j >= z`. Each cohort
-is admitted once and each knot is visited once, so the pass is `O(N + K)` with
-two powers per knot and one per cohort.
-
-Three things the implementation has to hold, each of which is a way to lose it:
+**The ground knot has no ratio.** `A'` divides by `z`, which is zero at the
+lowest knot, and the limit there is not reachable from the sums at `eta = 1`.
+That knot is evaluated by the per-height path — one knot out of hundreds — which
+is also what the existing code does for its own limit.
 
 **The cohort order is a sorted view, not the storage order.** Heights invert on
-this coordinate — a younger cohort can overtake an older one — so a sweep that
-walks cohorts in storage order admits them at the wrong knots. The census
-already needs a sorted view for the same reason.
+the birth-date coordinate, so a sweep walking nodes as stored admits them at the
+wrong knots. The height coordinate keeps a sorted view for the same reason.
 
-**One set of sums per species.** `eta` is a strategy parameter, so cohorts of one
-species share it and cohorts of different species do not. The pass is
-`O(N + K x species)`.
+**One set of sums per species.** `eta` is a strategy parameter, so the pass is
+knots plus cohorts per species, not across them.
 
-**The slope comes from the same sums as the value.** `A'` is formed from the
-`T1` and `T2` that produced `A`, in the same pass, so value and slope cannot
-come from two merges that differ in their last bits.
+**Value and slope come from the same sums in the same pass**, so they cannot be
+two merges differing in their last bits.
 
-The transpose is the same shape. `T1` and `T2` are linear recurrences in the
-knot index, so their adjoint is one reverse pass; the cohort rows factor as
-`(z_i/h_j)^eta = z_i^eta h_j^-eta`, so each cohort's height adjoint reads a
-prefix sum over knots that is formed once. `O(N + K)` both ways, with the same
-rescaling for the same reason.
+---
+
+## What this costs
+
+**A re-blessing.** The re-association moves every number the model produces.
+That is a `scientific_version` bump and a snapshot pass, not a silent change.
+
+**The fast path is profile-specific.** It expands the smooth Yokozawa profile.
+The soft box carries its own smoothstep and takes the fallback; the hard box
+already refuses to build a light field.
+
+**One digit of arithmetic**, from `1 - 2u + u^2` cancelling where `(1 - u)^2`
+does not, and from the descent compounding over the knots. Measured within a
+digit of the direct sum's own rounding on stands from 8 to 300 cohorts.
+
+**The transpose is untouched and stays a product.** It is written per height,
+so it remains correct — it transposes the same function — but the reverse pass
+keeps its knots-times-cohorts cost. The rows factor the same way and a reverse
+pass over the same recurrence would collapse it; that is separate work.
+
+**The recorded block still declares `2K + layers` inputs**, at 480 slots per
+knot. Knots are nearly free forward and still linear backward.
+
+---
+
+## What it delivers, measured
+
+FF16, the same probe run against the same stands before and after:
+
+| lifetime | cohorts | knots | build share | right-hand side | speed-up |
+|---|---|---|---|---|---|
+| 4 | 86 | 87 | 62% -> 16% | 2.40e-4 -> 9.5e-5 s | 2.5x |
+| 10 | 93 | 178 | 77% -> 19% | 3.55e-4 -> 1.05e-4 s | 3.4x |
+| 40 | 108 | 348 | 88% -> 24% | 7.95e-4 -> 1.25e-4 s | 6.4x |
+
+A 40-year run goes from 0.60 s to 0.16 s. TF24's leaf solve is 1.8 ms against the
+build's 0.26 ms, so the same change buys about 1.19x there — which is the point
+rather than a weakness in it: the knot count was only ever expensive where the
+build dominates, and on TF24 going from 166 to 315 knots already moves the
+right-hand side by about 5 percent.
+
+Agreement with the per-height reduction, on a field rebuilt at the state it is
+read at:
+
+| | value | slope | eps * A(0) |
+|---|---|---|---|
+| FF16, three stands | 2.8e-16 to 7.8e-16 | 6.7e-16 to 1.0e-15 | 3.2e-16 to 3.8e-16 |
+| TF24 | 9.4e-16 | 1.8e-15 | 4.5e-16 |
+
+And the ladder, against the branch this was cut from: tangent against a
+difference 1.02e-08 on both, the transpose off the soil rates 5.97e-16 on both,
+the transpose on the soil rates 3.35e-16 before and 4.23e-14 after, which is the
+re-association and uses none of its budget.
+
+## Three ways this went wrong, and what each needed to be seen
+
+Recorded because the arithmetic was right from the first compile and every defect
+was in the seam around it. Each was invisible to every check cheaper than the one
+that caught it.
+
+**The inflow boundary node was admitted unconditionally.** The per-height
+reduction declines the closing interval when the node it would close from
+contributes nothing, which happens when the newest cohorts carry no density yet.
+Seeing it needs a stand in that state; on any other it is a fixed point of the
+mistake.
+
+**The reduction was not divided by patch area.** The per-height entry points
+divide at the patch level, and filling the grid from the species directly walks
+around that. Seeing it needs a patch whose area is not one — every other test
+runs at the default, where dividing by one hides it.
+
+**The cohort height was taken passively.** That deletes the field's height
+channel. Seeing it needs a differentiated path: the value is identical, so the
+non-gradient suite passes in full.
+
+---
+
+## The alternatives, and what eliminated them
+
+Each was measured, not argued.
+
+**Grade the lattice, spacing proportional to height.** At matched count it
+starves the canopy top exactly as a uniform lattice starves the recruit — at
+lifetime 10, 176 graded knots give the tallest cohort 4.16e-05 where 179 uniform
+knots give it 1.26e-07. Half the cohort tops sit within a metre of the canopy,
+so the structure there is set by the spacing between cohort tops and not by any
+one cohort's height.
+
+**A dyadic lattice, its level change smoothed by a blend.** A dyadic lattice is
+a uniform lattice at whatever spacing its level picked, and matches one to three
+digits (lifetime 40: dyadic 175 knots 2.24e-04, uniform 0.100 176 knots
+2.24e-04). It buys a bounded count and pays field discontinuities for it. There
+is nothing to blend for.
+
+**Knots on the curvature breaks.** The breaks dominate the pointwise error — at
+spacing 0.05 the spans holding a cohort top carry 2.2e-05 against 5.1e-07
+elsewhere — but the crown integral averages that away, and at matched count the
+placement is 0.4x to 0.9x, which is worse. It would also have required knot
+positions to be a function of the state.
+
+**Hold optical depth instead of light at the knots.** Measured at 1.00x on every
+stand. The stand's optical depth is about 1.5, so Beer's law is not a strong
+enough nonlinearity for the choice to matter.
+
+**Store the grid from an earlier pass and reuse it.** This makes the
+discretisation independent of the state by construction rather than by
+`to_passive`, which is the right idea. The landed lattice already achieves it
+and more cheaply: its positions are `k * spacing`, constants of every run rather
+than of one, so they do not move under a trait perturbation either, and nothing
+has to be stored per step.
 
 ---
 
 ## What would falsify this
 
-- **The build is not the share it is measured to be on a production
-  configuration.** The number here is FF16 at three stand sizes; a configuration
-  whose leaf work dominates moves the whole argument.
-- **The sweep and the direct sum disagree by more than the direct sum's own
-  rounding**, on a stand the model reaches. The check needs no reference: build
-  the field both ways and compare, and the scale to beat is `eps * A(0)`.
-- **The transpose's adjoint does not match a forward tangent of the sweep.**
-  That is the same identity the reduction transposes already answer to, and it
-  needs no gradient reference.
-- **A stand exists where the requirement curve is not two-humped** — where the
-  spacing a cohort needs is not set by the seed height at the bottom and the
-  canopy at the top. Then the placement question reopens on a different shape.
+- **The sweep and the per-height reduction disagree by more than the per-height
+  reduction's own rounding**, on a stand the model reaches. The scale to beat is
+  `eps * A(0)`; the check needs no reference.
+- **The build is not the share it is measured to be** on a production
+  configuration. The numbers here are FF16 and TF24 at three stand sizes.
+- **A profile arrives that is neither a polynomial in `u^eta` nor a box.** Then
+  the fallback is the production path and the sweep is dead weight.
+- **The re-blessed numbers move by more than the re-association can explain.**
+  A re-association moves the last bits; anything larger is a different change
+  wearing its clothes.
