@@ -287,7 +287,7 @@ test_that("offspring arrival", {
                        hyperpar = TF24_hyperpar, birth_rate = list(20))
 
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 38.49407746, tolerance = 2e-2)
+  expect_equal(out$offspring_production, 30.22207354, tolerance = 2e-2)
 
   # two species: the second strategy has a moderately higher lma (0.10 vs
   # 0.0825), so it grows more slowly and is more heavily shaded. In the height
@@ -304,7 +304,7 @@ test_that("offspring arrival", {
                        hyperpar = TF24_hyperpar, birth_rate = list(20, 20))
 
   out <- run_scm(p2, env, ctrl)
-  expect_equal(out$offspring_production[[1]], 31.29383830, tolerance = 2e-2)
+  expect_equal(out$offspring_production[[1]], 23.20349831, tolerance = 2e-2)
   expect_lt(out$offspring_production[[2]], 0.5)
 
   # Same two species, integrated in birth date (#590). They coexist at
@@ -329,14 +329,19 @@ test_that("offspring arrival", {
   #
   # Bounding the storage pool by the shape of its flow (#609) moved all four
   # numbers here, and moved them by very different amounts: the height answers
-  # fall by a factor of about 2.1 (82.09 -> 38.49, 67.54 -> 31.29) and the
-  # birth-date ones by 5.7 and 7.6 per cent. That gap is the same probe again --
+  # fall by a factor of about 2.7 (82.09 -> 30.22, 67.54 -> 23.20) and the
+  # birth-date ones by 19 and 27 per cent. That gap is the same probe again --
   # the height coordinate differences growth against height at fixed absolute
   # carbon, so it reads the reserve fraction moving and amplifies any change to
   # the pool, while the birth-date density rate never asks.
+  #
+  # Most of the movement is the *fill* limiter rather than the drain: the pool
+  # previously had no upper bound and the median cohort of a mature stand sat at
+  # a reserve fraction of exactly 1 with the read clipped there, where it now
+  # sits at 0.62 with nothing on the clip.
   out_bd <- run_scm(p2, env, Control(node_density_in_birth_date = TRUE))
-  expect_equal(out_bd$offspring_production[[1]], 270.87983977, tolerance = 2e-2)
-  expect_equal(out_bd$offspring_production[[2]], 55.02022906, tolerance = 2e-2)
+  expect_equal(out_bd$offspring_production[[1]], 233.05915606, tolerance = 2e-2)
+  expect_equal(out_bd$offspring_production[[2]], 43.63800899, tolerance = 2e-2)
 })
 
 # Water mass-balance: transpiration integrated up the stem side of every
@@ -495,30 +500,69 @@ test_that("the storage rate has no kink where the net flux changes sign", {
   Lstar <- uniroot(function(L) net_flux_of(tf24_storage_at(S0, height, L)$P),
                    c(1e-4, 1), tol = 1e-14)$root
 
-  d <- 1e-5
-  lo <- tf24_storage_at(S0, height, Lstar * (1 - d))
+  # Asserted by convergence rather than at one step width, because at a single
+  # width the two answers are not separable: the smoothed positive part of
+  # production has a curvature of order 1/eps here, so a one-sided difference
+  # carries an O(d) error of its own -- measured 1.0785, 1.0076, 1.00076 and
+  # 1.000076 at d = 1e-5 to 1e-8. The rate this replaced reads 1.972 at *every*
+  # width, so what separates a kink from a stencil is that only one of them
+  # shrinks.
   mid <- tf24_storage_at(S0, height, Lstar)
-  hi <- tf24_storage_at(S0, height, Lstar * (1 + d))
-  below <- (mid$dS - lo$dS) / (mid$P - lo$P)
-  above <- (hi$dS - mid$dS) / (hi$P - mid$P)
-  # The tolerance is the one-sided difference's own error, not a margin around
-  # the claim: the rate this replaced reads 1.972 here, so anything near 1
-  # separates the two by a factor of twenty.
-  expect_equal(above / below, 1, tolerance = 0.05)
+  ds <- c(1e-5, 1e-6, 1e-7, 1e-8)
+  ratio <- vapply(ds, function(d) {
+    lo <- tf24_storage_at(S0, height, Lstar * (1 - d))
+    hi <- tf24_storage_at(S0, height, Lstar * (1 + d))
+    ((hi$dS - mid$dS) / (hi$P - mid$P)) / ((mid$dS - lo$dS) / (mid$P - lo$P))
+  }, numeric(1))
+
+  expect_lt(abs(ratio[length(ratio)] - 1), 1e-3)
+  # Each decade of step width removes about a decade of the excess, which is
+  # first order; a kink's excess is flat in the width.
+  excess <- abs(ratio - 1)
+  expect_lt(max(excess[-1] / excess[-length(excess)]), 0.3)
 })
 
-test_that("a run keeps every storage state within capacity, and overshoots zero", {
+test_that("the storage rate relaxes on the pool's own timescale near empty", {
+  # The drain limiter's shape decides how fast the rate relaxes just above the
+  # empty boundary, and that is what the solver has to resolve. Limited by r the
+  # eigenvalue is (charge + drain)/S_max, the pool's own depletion rate. Limited
+  # by r/(r + D) it is drain * D/(r + D)^2 / S_max, which at r = D is 250 times
+  # larger for D = 1e-3 -- an attracting fixed point with a sub-hour time
+  # constant for a seedling, against a solver stepping in days, measured at 26
+  # times the accepted steps and 38 times the wall clock.
+  #
+  # Asserted as a ratio against the pool's own rate rather than as a step count,
+  # so it is a property of the form and not a benchmark.
+  height <- 5
+  cap <- tf24_storage_capacity_r(height)
+  light <- 0.05                        # deep shade, so the drain is what acts
+  r0 <- 1e-3                           # where a narrow limiter's knee would sit
+  S0 <- r0 * cap
+
+  s <- TF24_Strategy()
+  P <- tf24_storage_at(S0, height, light)$P
+  expect_lt(P, 0)                      # non-vacuity: the pool is draining here
+  Ppos <- 0.5 * (P + sqrt(P * P + 1e-4 * 1e-4))
+  G <- 1 / (1 + exp(-(r0 - s$pars$a_st2) / 0.1))
+  own_rate <- (Ppos * (1 - G) + (Ppos - P)) / cap
+
+  h <- 1e-6 * cap
+  lambda <- (tf24_storage_at(S0 + h, height, light)$dS -
+             tf24_storage_at(S0 - h, height, light)$dS) / (2 * h)
+  expect_lt(lambda, 0)                 # the boundary attracts, as it must
+  expect_lt(abs(lambda) / own_rate, 10)
+})
+
+test_that("a run keeps every storage state inside [0, capacity]", {
   # Asserted on the state rather than on the read, which is the distinction
   # #609 is about: before this the state reached 1.035 of capacity while every
   # read of it said 1.
   #
-  # The two bounds do not come out the same way, and that is the finding. The
-  # upper one holds: nothing reaches capacity, let alone passes it. The lower
-  # one is crossed, because the flow cannot cross it but a finite Runge-Kutta
-  # step can -- which is what #609's own step 2 asks to be measured, and the
-  # answer is that it happens on about 3 per cent of records and reaches 4.5
-  # per cent of capacity. The read-clamp on storage is what absorbs it, and is
-  # why that clamp is kept rather than removed with the branch.
+  # Both bounds hold, and by different mechanisms. Above, the fill limiter goes
+  # negative past capacity and pushes back, so nothing reaches it -- capping the
+  # ratio would have removed that term. Below, the rate refuses a negative pool
+  # and the solver rejects the step, so what used to be 3 per cent of records at
+  # 4.5 per cent of capacity is now none.
   p <- scm_base_parameters("TF24")
   p$max_patch_lifetime <- 10
   p <- add_strategies(p, trait_matrix(0.0825, "lma"), hyperpar = TF24_hyperpar,
@@ -533,7 +577,25 @@ test_that("a run keeps every storage state within capacity, and overshoots zero"
 
   expect_gt(sum(ok), 500L)                     # non-vacuity: a populated run
   expect_lte(max(r), 1)
-  # Twice the worst undershoot measured here, so this fails if a step ever lands
-  # far enough below zero to matter rather than at the size it currently does.
-  expect_gt(min(r), -0.1)
+  expect_gte(min(r), 0)
+})
+
+test_that("a negative storage state is refused by name, not floored", {
+  # The refusal is what replaces the read-clamp: the solver catches it, shrinks
+  # and retries, so a step that would leave the pool negative is never accepted.
+  # Posed directly here, because on a run it is unreachable -- which is the
+  # point, and is why the check needs an out-of-domain state written by hand.
+  s <- TF24_Strategy()
+  env <- Environment("TF24")
+  env$set_fixed_environment(1, height_max = 150)
+  env$set_soil_water_state(rep(0.4, env$get_soil_number_of_depths()))
+  ind <- Individual("TF24", "TF24_Env")(s)
+  ind$set_state("height", 5)
+  ind$set_state("storage", -1e-4)
+  expect_error(ind$compute_rates(env), "storage is negative")
+
+  # A positive pool is untouched by the refusal, so the check above is about the
+  # domain and not about compute_rates refusing generally.
+  ind$set_state("storage", 1e-4)
+  expect_no_error(ind$compute_rates(env))
 })

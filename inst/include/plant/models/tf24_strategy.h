@@ -4,6 +4,7 @@
 #define PLANT_PLANT_TF24_STRATEGY_H_
 
 #include <plant/strategy.h>
+#include <odelia/ode_util.hpp>
 #include <plant/models/tf24_environment.h>
 #include <plant/qag.h>
 #include <plant/leaf_model.h>
@@ -262,6 +263,11 @@ public:
       });
   }
 
+  // The storage pool. Its rate holds the exact flow inside [0, S_max], so a
+  // negative value is a step that overshot rather than a state the model has,
+  // and the solver rejects it and retries smaller.
+  static std::vector<std::string> non_negative_states() { return {"storage"}; }
+
   std::vector<std::string> aux_names() {
     std::vector<std::string> ret({
       "competition_effect",
@@ -514,6 +520,10 @@ public:
   // (replacing the old hard net>0 growth cutoff) for AD-readiness.
   double storage_gate_width = 0.1;
   double storage_prod_eps   = 1e-4;
+  // How far below empty the storage pool may sit before the solver is told the
+  // step is invalid, as a fraction of capacity. A draining cohort approaches the
+  // boundary, so this separates round-off there from a real excursion.
+  double storage_domain_tol = 1e-8;
 
   // Solver tolerances and other constants not currently exposed to R
   double newton_tol_abs = 0.001;
