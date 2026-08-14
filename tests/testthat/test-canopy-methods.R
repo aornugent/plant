@@ -351,6 +351,9 @@ test_that("the light interpolant's knot positions are constants of the run", {
   scm$collect <- TRUE
   scm$run()
 
+  # Patch::reset() clears the field before building it, and a cleared field is
+  # three knots that are NOT on this lattice -- so every step below also asserts
+  # that a build lays the lattice down over one that was not.
   spacing <- 0.1
   expect_gt(length(scm$history), 20)
   seen <- 0
