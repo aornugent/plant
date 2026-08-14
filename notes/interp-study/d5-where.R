@@ -2,7 +2,10 @@
 ## build is O(knots x cohorts) and the reduction has structure worth using. If it
 ## is elsewhere, a grid change cannot recover it.
 Sys.setenv(PLANT_BUILD = "/home/a/dev/plant-dev/plant/.claude/worktrees/interp-design")
-source("/home/a/.claude/jobs/e02c60e6/tmp/d1-lib.R")
+## Resolve siblings relative to this file, so the study runs from the repo.
+STUDY <- tryCatch(dirname(normalizePath(sys.frame(1)$ofile)), error = function(e) ".")
+if (!file.exists(file.path(STUDY, "lib-field.R"))) STUDY <- "notes/interp-study"
+source(file.path(STUDY, "d1-lib.R"))
 
 bench <- function(f, reps) { f(); system.time(for (i in seq_len(reps)) f())[["elapsed"]] / reps }
 

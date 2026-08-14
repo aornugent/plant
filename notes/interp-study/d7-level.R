@@ -1,4 +1,7 @@
-source("/home/a/.claude/jobs/e02c60e6/tmp/lib-field.R")
+## Resolve siblings relative to this file, so the study runs from the repo.
+STUDY <- tryCatch(dirname(normalizePath(sys.frame(1)$ofile)), error = function(e) ".")
+if (!file.exists(file.path(STUDY, "lib-field.R"))) STUDY <- "notes/interp-study"
+source(file.path(STUDY, "lib-field.R"))
 gl <- gl_nodes(220)
 stand <- function(top, floor_h, ldens = -1.6, n = 8) {
   hs <- seq(top, floor_h, length.out = n)

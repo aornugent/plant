@@ -1,0 +1,4 @@
+CXX20FLAGS = -O2 -DNDEBUG -g0
+CXXFLAGS = -O2 -DNDEBUG -g0
+CC = gcc
+CXX = g++

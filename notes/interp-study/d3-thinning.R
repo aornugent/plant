@@ -2,7 +2,10 @@
 ## Reports light-field error through early stand development, and the thinning
 ## trajectory's deviation from a converged reference.
 Sys.setenv(PLANT_BUILD = "/home/a/dev/plant-dev/plant/.claude/worktrees/interp-design")
-source("/home/a/.claude/jobs/e02c60e6/tmp/d1-lib.R")
+## Resolve siblings relative to this file, so the study runs from the repo.
+STUDY <- tryCatch(dirname(normalizePath(sys.frame(1)$ofile)), error = function(e) ".")
+if (!file.exists(file.path(STUDY, "lib-field.R"))) STUDY <- "notes/interp-study"
+source(file.path(STUDY, "d1-lib.R"))
 
 eta <- FF16_Strategy()$pars$eta
 ages <- c(0.5, 1, 2, 3, 4, 5, 6, 8, 12, 20, 40)

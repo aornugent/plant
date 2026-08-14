@@ -1,7 +1,10 @@
 ## Light-field accuracy through EARLY stand development, and the stand it
 ## produces. Run once per build; every number is self-refereed against that
 ## build's own competition reduction, so no state crosses between versions.
-source("/home/a/.claude/jobs/e02c60e6/tmp/d1-lib.R")
+## Resolve siblings relative to this file, so the study runs from the repo.
+STUDY <- tryCatch(dirname(normalizePath(sys.frame(1)$ofile)), error = function(e) ".")
+if (!file.exists(file.path(STUDY, "lib-field.R"))) STUDY <- "notes/interp-study"
+source(file.path(STUDY, "d1-lib.R"))
 
 ## The branch build carries a run-time placement switch; develop and the landed
 ## branch do not.

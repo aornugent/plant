@@ -10,7 +10,10 @@
 ## The cost is that a level change is a discrete event that is NOT inert: it
 ## coarsens spans a query reads. That is the thing to measure, against the
 ## dropped channel a canopy-following grid carries at every stage.
-source("/home/a/.claude/jobs/e02c60e6/tmp/lib-field.R")
+## Resolve siblings relative to this file, so the study runs from the repo.
+STUDY <- tryCatch(dirname(normalizePath(sys.frame(1)$ofile)), error = function(e) ".")
+if (!file.exists(file.path(STUDY, "lib-field.R"))) STUDY <- "notes/interp-study"
+source(file.path(STUDY, "lib-field.R"))
 
 gl <- gl_nodes(220)
 

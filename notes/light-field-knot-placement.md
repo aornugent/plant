@@ -1,5 +1,7 @@
 # The light field's knot placement: a grid of constants
 
+*Resuming this work: [`interp-study/HANDOVER.md`](interp-study/HANDOVER.md) says what is landed, what is open, and what has to be rebuilt.*
+
 Two decisions arrived together and only one was argued for. The interpolant changed from a
 value-only cubic with solved slopes to a Hermite carrying a value and a slope at every knot;
 and the placement changed from adaptive refinement on value error to `u_k · h_max` with 65
