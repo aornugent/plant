@@ -229,7 +229,12 @@ public:
   // Gamma*/Kc/Ko/Km and conductance side, which is the whole point of item 10c. Set
   // `atm_kpa` per site if you mean altitude; it just no longer defaults to an
   // altitude nobody chose.
-  static constexpr int scientific_version = 8;
+  // v9: the storage pool's rate is a charge and a drain limited separately, so
+  // the pool stays within capacity by the shape of its own flow. Storage
+  // previously had no upper bound at all -- the read was clipped at capacity
+  // while the state ran to 1.035 of it, with half a full-lifetime stand sitting
+  // at or above the clip -- and that surplus now stays in production instead.
+  static constexpr int scientific_version = 9;
 
   double compute_average_light_environment(double z, double height,
                                            const TF24_Environment &environment);

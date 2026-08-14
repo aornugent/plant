@@ -324,6 +324,70 @@ were not previously recorded here:
 
 ### New features
 
+* **The NSC storage pool is bounded by the shape of its own flow (`TF24@v9`,
+  `TF24f@v9.1`).** `dS/dt` was `net_flux > 0 ? net_flux : floor_gate * net_flux`
+  -- one signed flux with a gate applied in one direction. It is now a charge and
+  a drain that are each non-negative without a test, each limited on its own
+  (#609):
+
+  ```
+  charge = Ppos * (1 - G)          drain = Ppos - P
+  dS/dt  = charge * (1 - r)  -  drain * r / (r + 1e-3)
+  ```
+
+  The split is exact -- `charge - drain = P - Ppos*G` is the old net flux -- so
+  what changes is where the limits sit. Both bounds now follow from the form: at
+  `r = 0` the drain limiter is zero so `dS/dt >= 0`, at `r = 1` the fill limiter
+  is zero so `dS/dt <= 0`. Storage previously had no upper bound at all; `r =
+  min(S/S_max, 1)` clipped the *read* while the state ran past capacity. Measured
+  on a one-species stand at the full 105.32-year lifetime: the state reached
+  **1.035** of capacity and **52.7 per cent** of cohorts sat at or above it, so
+  for half the stand `dr/dS` was exactly zero and the mortality that reads `r`
+  could not respond.
+
+  **The derivative was discontinuous where the net flux changed sign**, which is
+  what motivated the change. `d(dS/dt)/dP` stepped by `1/floor_gate =
+  (r + 1e-3)/r` across that point -- measured 1.972 against a predicted 2.000 at
+  a reserve fraction of 1e-3, and unbounded as the pool empties. The new rate is
+  smooth there.
+
+  **The two read-limits are kept, and #609's own step 2 is why.** That issue
+  expects `max(S, 0)` and `min(r, 1)` to fall away once the flow cannot cross
+  either boundary, and asks for the finite-step question to be measured before
+  concluding it. Measured, on the birth-date coordinate: the exact flow does stay
+  inside, and a step still lands below zero on about 3 per cent of records at the
+  default height at maturity, deepest at 4.5 per cent of capacity. It is the
+  integrator, not the model -- tightening `ode_tol` from 1e-4 to 1e-8 takes the
+  deepest crossing from **-7.1e-2 to -9.9e-8** -- and it is size-driven, absent
+  entirely at `hmat = 5.13` and rising to 3.0 per cent at the default 16.6. The
+  plants that do it are large and starving, not seedlings: the throttle engages
+  within 0.1 per cent of capacity, a band such a plant crosses in hours while the
+  solver steps in days.
+
+  So the bound is a property of the form, as intended, and what is left is solver
+  accuracy -- #610's rung 2 (a basis in which a negative pool is unrepresentable)
+  or rung 3 (reject the step). Neither is taken here, so the two limits still
+  hold the reserve fraction in `[0,1]` in the meantime. The *height* coordinate
+  needs them for a second reason: its compression term differences growth against
+  height at fixed absolute carbon, so the probe moves `S_max` and therefore `r`,
+  and without the upper limit it reads a reserve fraction this block never holds
+  and the size-density equation diverges.
+
+  **Carbon is no longer conserved across the block.** The pool is capped by
+  withholding the surplus rather than by spending it, so at capacity the charge
+  the gate withheld -- `Ppos * (1 - G)`, about 1.2e-4 of production -- leaves the
+  budget instead of charging the pool. Redirecting it into growth would conserve,
+  and is a larger modelling change than #609 proposes.
+
+  **Not addressed here: `storage_prod_eps` is an absolute rate at a seedling's
+  scale.** It is 1e-4 kg/yr against a seed storage capacity of **4.80e-7 kg**, so
+  the smoothing constant is 208 times a seedling's whole pool per year and 0.32
+  of its actual net production; every plant below 1.20 m has a capacity smaller
+  than `eps * 1 yr`. #609 predicted this and asked for it to be checked against a
+  real germination state before acting -- it now has been, and it is about twenty
+  times worse than that estimate. Making it relative to a production or capacity
+  scale changes establishment and wants its own re-blessing.
+
 * **`Control$node_density_in_birth_date`** (default `FALSE`) carries the SCM's
   size distribution as a density in birth date instead of in height.
 

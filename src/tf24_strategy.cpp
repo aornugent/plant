@@ -197,6 +197,21 @@ void TF24_Strategy::compute_rates(const TF24_Environment& environment,  Internal
   // relative reserves rather than instantaneous net production -- so a trough
   // draws reserves down and death is gradual, instead of the growth cutoff and
   // ~1e32 mortality spike that caused the #550 blow-up.
+  // One reserve fraction, read by the growth gate, the storage rate and the
+  // mortality alike. The rate below holds the *exact* flow inside [0, S_max],
+  // so neither limit is reachable by the model; a finite step is another
+  // matter, and one still crosses zero on about 3 per cent of records, deepest
+  // at 4.5 per cent of capacity. The plants that do it are large and starving
+  // rather than small: the outflow throttle only engages within 0.1 per cent of
+  // capacity, which such a plant crosses in hours while the solver steps in
+  // days. Tightening the ODE tolerance from 1e-4 to 1e-8 takes the deepest
+  // crossing from -7.1e-2 to -9.9e-8, so it is the integrator's local error and
+  // not the model. Making the pool non-negative by its representation instead
+  // is the next step and is not taken here (#609, #610), so until it is these
+  // two limits are what keeps a reserve fraction inside [0,1] -- and the height
+  // coordinate needs them for a second reason, since its compression term
+  // differences growth against height at fixed absolute carbon and so reads a
+  // reserve fraction this block never holds.
   const double S     = std::max(vars.state(state_idx_storage), 0.0);
   const double S_max = storage_capacity(area_leaf_, height);
   const double r     = S_max > 0.0 ? std::min(S / S_max, 1.0) : 0.0;
@@ -239,20 +254,28 @@ void TF24_Strategy::compute_rates(const TF24_Environment& environment,  Internal
     vars.set_aux(aux_idx_area_sapwood, area_sapwood_);
   }
 
-  // Storage dynamics: dS/dt = net production - carbon spent on growth. When
-  // production exceeds what the reserve gate lets through to growth, the surplus
-  // charges storage; when it falls short (or net production is negative) storage
-  // is drawn down. The net outflow is gated to vanish as S -> 0, flooring
-  // storage at zero so relative reserves r stay in [0,1] and the storage-based
-  // mortality stays bounded (the structural fix for #550). At the S~0 starvation
-  // boundary the ungated part of the deficit is untracked (no worse than the
-  // original model, which retained structure under net<0); by then the plant is
-  // dying at the bounded maximum mortality anyway.
-  const double net_flux = P - growth_flux;
-  const double gate_ref = 1e-3 * S_max;                 // ~0.1% of capacity
-  const double floor_gate = (S + gate_ref) > 0.0 ? S / (S + gate_ref) : 0.0;
+  // Storage dynamics, as a charge and a drain that are each non-negative
+  // without a test: sqrt(P^2 + eps^2) >= |P| makes Ppos and Pneg both >= 0, and
+  // G is a logistic so 1 - G >= 0. Their difference is the net flux exactly,
+  // Ppos(1 - G) - (Ppos - P) = P - growth_flux, so the split itself moves
+  // nothing; what it buys is somewhere to limit each direction on its own
+  // (#609).
+  const double charge = Ppos * (1.0 - G);      // surplus the gate withheld
+  const double drain  = Ppos - P;              // shortfall met from reserves
+  // Each direction is limited on its own, and both limiters are functions of
+  // the same reserve fraction: the outflow gate S/(S + 1e-3*S_max) is
+  // r/(r + drain_ref) exactly. That is what makes both bounds properties of the
+  // flow -- at r = 0 the drain limiter is zero so dS/dt = charge >= 0, at r = 1
+  // the fill limiter is zero so dS/dt = -drain <= 0 -- and it leaves the rate
+  // smooth where the net flux changes sign, where the old branch stepped the
+  // slope by (r + drain_ref)/r, unbounded as the reserves empty.
+  //
+  // The pool is capped by withholding the surplus rather than by spending it,
+  // so production and the two flows no longer balance: at capacity the charge
+  // the gate withheld, Ppos(1 - G) ~ 1.2e-4 of production, leaves the budget.
+  const double drain_ref = 1e-3;               // ~0.1% of capacity
   vars.set_rate(state_idx_storage,
-                net_flux > 0.0 ? net_flux : floor_gate * net_flux);
+                charge * (1.0 - r) - drain * r / (r + drain_ref));
 
   // [eqn 21] - Instantaneous mortality rate, now driven by relative reserves r.
   vars.set_rate(MORTALITY_INDEX,

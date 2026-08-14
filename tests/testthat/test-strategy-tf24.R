@@ -287,7 +287,7 @@ test_that("offspring arrival", {
                        hyperpar = TF24_hyperpar, birth_rate = list(20))
 
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 82.09077702, tolerance = 2e-2)
+  expect_equal(out$offspring_production, 38.49407746, tolerance = 2e-2)
 
   # two species: the second strategy has a moderately higher lma (0.10 vs
   # 0.0825), so it grows more slowly and is more heavily shaded. In the height
@@ -304,7 +304,7 @@ test_that("offspring arrival", {
                        hyperpar = TF24_hyperpar, birth_rate = list(20, 20))
 
   out <- run_scm(p2, env, ctrl)
-  expect_equal(out$offspring_production[[1]], 67.54060383, tolerance = 2e-2)
+  expect_equal(out$offspring_production[[1]], 31.29383830, tolerance = 2e-2)
   expect_lt(out$offspring_production[[2]], 0.5)
 
   # Same two species, integrated in birth date (#590). They coexist at
@@ -326,9 +326,17 @@ test_that("offspring arrival", {
   # 67.32/73.18/74.98) and the exclusion ratio does not shrink toward the
   # birth-date one, it grows: 2.43e5/2.49e5/2.51e5. Quadrature error would
   # close; a different derivative does not.
+  #
+  # Bounding the storage pool by the shape of its flow (#609) moved all four
+  # numbers here, and moved them by very different amounts: the height answers
+  # fall by a factor of about 2.1 (82.09 -> 38.49, 67.54 -> 31.29) and the
+  # birth-date ones by 5.7 and 7.6 per cent. That gap is the same probe again --
+  # the height coordinate differences growth against height at fixed absolute
+  # carbon, so it reads the reserve fraction moving and amplifies any change to
+  # the pool, while the birth-date density rate never asks.
   out_bd <- run_scm(p2, env, Control(node_density_in_birth_date = TRUE))
-  expect_equal(out_bd$offspring_production[[1]], 287.16043704, tolerance = 2e-2)
-  expect_equal(out_bd$offspring_production[[2]], 59.53195639, tolerance = 2e-2)
+  expect_equal(out_bd$offspring_production[[1]], 270.87983977, tolerance = 2e-2)
+  expect_equal(out_bd$offspring_production[[2]], 55.02022906, tolerance = 2e-2)
 })
 
 # Water mass-balance: transpiration integrated up the stem side of every
@@ -404,3 +412,128 @@ test_that("SCM completes under extreme seasonal drought (#517, #550)", {
   expect_gte(out$offspring_production, 0)
 })
 
+
+# --- NSC storage bounds (#609) -----------------------------------------------
+#
+# dS/dt is a charge minus a drain, each non-negative without a test and each
+# limited by the same reserve fraction, so [0, S_max] is a property of the flow
+# rather than of a clamp on either consumer. A clamp would satisfy the bound
+# assertions while leaving the rate kinked, so the smoothness check is what
+# distinguishes the two.
+
+# Capacity from the model's own allometry rather than a second copy of it.
+tf24_storage_capacity_r <- function(height, s = TF24_Strategy()) {
+  z <- rep(0, length(height))
+  s$pars$a_st1 * TF24_strategy_expand_allometry(s, height, z, z)$mass_sapwood
+}
+
+tf24_storage_at <- function(storage, height = 5, light = 1, theta = 0.4,
+                            s = TF24_Strategy()) {
+  env <- Environment("TF24")
+  env$set_fixed_environment(light, height_max = 150)
+  env$set_soil_water_state(rep(theta, env$get_soil_number_of_depths()))
+  env$time <- 5
+  ind <- Individual("TF24", "TF24_Env")(s)
+  ind$set_state("height", height)
+  ind$set_state("storage", storage)
+  ind$compute_rates(env)
+  list(dS = ind$internals$rates[[match("storage", ind$ode_names)]],
+       P = ind$aux("net_mass_production_dt"))
+}
+
+test_that("the capacity a test computes is the capacity the model uses", {
+  # A newborn is seeded at a_st3 of its own capacity, so the model states the
+  # quantity once and this recovers it -- without which the bounds below would
+  # be asserted against a second implementation of the allometry.
+  s <- TF24_Strategy()
+  env <- Environment("TF24")
+  env$set_fixed_environment(1, height_max = 150)
+  env$set_soil_water_state(rep(0.4, env$get_soil_number_of_depths()))
+  born <- Individual("TF24", "TF24_Env")(s)
+  born$set_initial_states(env)
+  st <- born$internals$states
+  h0 <- st[[match("height", born$ode_names)]]
+  S0 <- st[[match("storage", born$ode_names)]]
+  expect_equal(S0 / s$pars$a_st3, tf24_storage_capacity_r(h0), tolerance = 1e-12)
+})
+
+test_that("storage cannot leave [0, S_max] under the exact flow", {
+  height <- 5
+  cap <- tf24_storage_capacity_r(height)
+
+  # A light range carrying net production from clearly positive to clearly
+  # negative, so the charge and the drain are each live somewhere in it.
+  lights <- c(1, 0.3, 0.2122, 0.15, 0.05)
+  production <- vapply(lights, function(L) tf24_storage_at(cap / 2, height, L)$P,
+                       numeric(1))
+  expect_gt(max(production), 0)
+  expect_lt(min(production), 0)
+
+  for (L in lights) {
+    expect_gte(tf24_storage_at(0, height, L)$dS, 0)
+    expect_lte(tf24_storage_at(cap, height, L)$dS, 0)
+  }
+
+  # Strict at each bound in the regime that drives it, so neither is held by a
+  # rate that merely happens to be zero there.
+  expect_gt(tf24_storage_at(0, height, 1)$dS, 0)
+  expect_lt(tf24_storage_at(cap, height, 0.05)$dS, 0)
+})
+
+test_that("the storage rate has no kink where the net flux changes sign", {
+  # The rate this replaced was net_flux > 0 ? net_flux : floor_gate * net_flux,
+  # so d(dS/dt)/dP stepped by 1/floor_gate = (r + 1e-3)/r across the crossing --
+  # a factor of two at r = 1e-3 and unbounded as the pool empties. Measured on
+  # that rate: 1.972 against the 2.000 predicted.
+  height <- 5
+  r_target <- 1e-3
+  S0 <- r_target * tf24_storage_capacity_r(height)
+
+  G <- 1 / (1 + exp(-(r_target - TF24_Strategy()$pars$a_st2) / 0.1))
+  eps <- 1e-4
+  net_flux_of <- function(P) P - 0.5 * (P + sqrt(P * P + eps * eps)) * G
+  Lstar <- uniroot(function(L) net_flux_of(tf24_storage_at(S0, height, L)$P),
+                   c(1e-4, 1), tol = 1e-14)$root
+
+  d <- 1e-5
+  lo <- tf24_storage_at(S0, height, Lstar * (1 - d))
+  mid <- tf24_storage_at(S0, height, Lstar)
+  hi <- tf24_storage_at(S0, height, Lstar * (1 + d))
+  below <- (mid$dS - lo$dS) / (mid$P - lo$P)
+  above <- (hi$dS - mid$dS) / (hi$P - mid$P)
+  # The tolerance is the one-sided difference's own error, not a margin around
+  # the claim: the rate this replaced reads 1.972 here, so anything near 1
+  # separates the two by a factor of twenty.
+  expect_equal(above / below, 1, tolerance = 0.05)
+})
+
+test_that("a run keeps every storage state within capacity, and overshoots zero", {
+  # Asserted on the state rather than on the read, which is the distinction
+  # #609 is about: before this the state reached 1.035 of capacity while every
+  # read of it said 1.
+  #
+  # The two bounds do not come out the same way, and that is the finding. The
+  # upper one holds: nothing reaches capacity, let alone passes it. The lower
+  # one is crossed, because the flow cannot cross it but a finite Runge-Kutta
+  # step can -- which is what #609's own step 2 asks to be measured, and the
+  # answer is that it happens on about 3 per cent of records and reaches 4.5
+  # per cent of capacity. The read-clamp on storage is what absorbs it, and is
+  # why that clamp is kept rather than removed with the branch.
+  p <- scm_base_parameters("TF24")
+  p$max_patch_lifetime <- 10
+  p <- add_strategies(p, trait_matrix(0.0825, "lma"), hyperpar = TF24_hyperpar,
+                      birth_rate = list(1.10))
+  out <- run_scm(p, ctrl = Control(node_density_in_birth_date = TRUE),
+                 collect = TRUE)
+
+  d <- out$species
+  cap <- tf24_storage_capacity_r(d$height)
+  ok <- is.finite(d$storage) & is.finite(cap) & cap > 0
+  r <- d$storage[ok] / cap[ok]
+
+  expect_gt(sum(ok), 500L)                     # non-vacuity: a populated run
+  expect_lte(max(r), 1)
+  # Twice the worst undershoot measured here, so this fails if a step ever lands
+  # far enough below zero to matter rather than at the size it currently does.
+  expect_gt(min(r), -0.1)
+})
