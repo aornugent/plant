@@ -1045,14 +1045,29 @@ void Patch<T,E>::compute_environment_once(bool include_boundary) {
     s.set_new_node_birth_date(environment.time);
   }
 
-  // The competition profile and its vertical derivative at x. The field carries a
-  // slope at every knot, so the build asks for the pair.
-  // Written as std::pair<double, double> this still compiles, taking the value
-  // of an active profile, and every knot value and slope in the field would then
-  // be a constant with nothing raised to say the cohorts had stopped reaching it.
-  auto f = [&](double x) -> std::pair<value_type, value_type> {
-    return include_boundary ? compute_competition_and_slope(x)
-                            : compute_competition_and_slope_excl_boundary(x);
+  // The competition profile and its vertical derivative at every knot. The field
+  // carries a slope at every knot, so the build asks for both.
+  //
+  // Written to fill std::vector<double> this still compiles, taking the value of
+  // an active profile, and every knot value and slope in the field would then be
+  // a constant with nothing raised to say the cohorts had stopped reaching it.
+  auto f = [&](const std::vector<double>& x, std::vector<value_type>& value,
+               std::vector<value_type>& slope) -> void {
+    std::fill(value.begin(), value.end(), value_type(0.0));
+    std::fill(slope.begin(), slope.end(), value_type(0.0));
+    for (size_t i = 0; i < species.size(); ++i) {
+      species[i].add_competition_and_slope_grid(x, value, slope,
+                                                include_boundary);
+    }
+    // Densities are per patch, and the profile a plant reads is per unit area,
+    // so the reduction is divided once here exactly as the per-height entry
+    // points divide it. Without this the field stops depending on patch area at
+    // all, and every check on it still passes because one patch size is a fixed
+    // point of the mistake.
+    for (size_t k = 0; k < x.size(); ++k) {
+      value[k] /= area;
+      slope[k] /= area;
+    }
   };
 
   if (size() > 0 & !is_mutant_run) {
