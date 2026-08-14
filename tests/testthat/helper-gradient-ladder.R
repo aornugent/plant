@@ -371,6 +371,24 @@ ladder_run <- function(p, ctrl = NULL) {
   run_scm(p, Environment("TF24"), ctrl, collect = FALSE)
 }
 
+# The lifetime a scale fixture runs, in years, or NA for none. Off unless asked
+# for: one costs minutes to build and hours to differentiate, so it belongs in a
+# job rather than in the loop.
+ladder_scale_lifetime <- function() {
+  set <- Sys.getenv("PLANT_LADDER_SCALE", unset = "")
+  if (!nzchar(set)) NA_real_ else as.numeric(set)
+}
+
+# One species at the length a user runs, on the schedule the refiner chooses.
+# This is the only fixture that refines: every other one writes its introduction
+# times, and a gradient is taken on a fixed schedule in both cases.
+ladder_stand_scale <- function(lifetime = ladder_scale_lifetime()) {
+  testthat::skip_if(is.na(lifetime),
+                    "no scale fixture: set PLANT_LADDER_SCALE to a lifetime")
+  run_scm(ladder_parameters("fast", lifetime = lifetime), Environment("TF24"),
+          ladder_control(), refine_schedule = TRUE, collect = FALSE)
+}
+
 # ---- reading a stand --------------------------------------------------------
 
 # A stand hands out a snapshot of its patch; a patch is itself. Reading through
@@ -776,7 +794,13 @@ ladder_leaf_own_traits <- function() {
 # have its reserves placed, so those two are not asked of it -- and that gap is
 # itself worth knowing, because it is the part of the regime the trajectory rungs
 # do not exercise.
-ladder_regime_report <- function(x, level = c("patch", "stand")) {
+#
+# At `scale` nothing is enforced. A production-length stand sits where its own
+# dynamics put it -- heights pile up at the canopy and reserves saturate -- so
+# every assertion here is a reading rather than a condition, and a violated one
+# is what the next regime has to cover. Enforcing them would skip the run, which
+# turns scaling into a suite that passes by not testing.
+ladder_regime_report <- function(x, level = c("patch", "stand", "scale")) {
   level <- match.arg(level)
   patch <- ladder_as_patch(x)
   env <- patch$environment
@@ -807,7 +831,7 @@ ladder_regime_report <- function(x, level = c("patch", "stand")) {
     entry("no two heights equal or in a small-integer ratio",
           ladder_non_commensurate(nodes$height), length(nodes$height)),
     entry("no two layers at the same moisture",
-          level == "stand" || ladder_non_commensurate(moisture), moisture),
+          level != "patch" || ladder_non_commensurate(moisture), moisture),
     entry("both species separated in every reduction parameter",
           ladder_species_separated(patch), ladder_species_ratio(patch)))
 
@@ -827,7 +851,7 @@ ladder_regime_report <- function(x, level = c("patch", "stand")) {
           range(reserve)),
     entry("reserve gate slope above its floor",
           length(gate) > 0 && all(gate > 0.4), min(gate)))
-  report$enforced <- TRUE
+  report$enforced <- level != "scale"
   if (level == "stand") {
     at <- report$assertion %in%
       c("relative reserve inside the gate's transition band",
@@ -839,7 +863,7 @@ ladder_regime_report <- function(x, level = c("patch", "stand")) {
   report
 }
 
-ladder_require_regime <- function(x, level = c("patch", "stand")) {
+ladder_require_regime <- function(x, level = c("patch", "stand", "scale")) {
   report <- ladder_regime_report(x, level)
   unmet <- report[!report$ok & !report$enforced, , drop = FALSE]
   if (nrow(unmet) > 0L) {
