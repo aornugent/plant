@@ -578,3 +578,41 @@ test_that("the vertical slope is refused for the hard-step shading model", {
     expect_error(patch$introduce_new_node(1), "no vertical slope")
   }
 })
+
+test_that("the field the build descends is the field the reduction defines", {
+  # The build fills every knot in one descent; compute_competition_and_slope
+  # answers one height at a time and is what the transpose and R still read. The
+  # two are the same function written two ways, so a disagreement is arithmetic
+  # and nothing else.
+  #
+  # The scale to beat is eps * A(0) rather than eps: the profile is a sum of that
+  # size, so that is what the per-height sum's own rounding costs. Both
+  # coordinates are covered, because the quadrature is ordered on the abscissa
+  # and the descent is ordered on height, and those differ between them.
+  for (model in c("FF16", "TF24")) {
+    p0 <- scm_base_parameters(model, paste0(model, "_Env"))
+    p0$max_patch_lifetime <- 6
+    p <- add_strategies(p0, trait_matrix(0.0825, "lma"))
+    scm <- SCM(model, paste0(model, "_Env"))(p, Environment(model), Control())
+    scm$collect <- FALSE
+    scm$run()
+    patch <- scm$patch
+    # The inflow boundary node is not ODE state and advances after the last
+    # field build, so the field a run leaves is not the one the reduction
+    # answers for now. Rebuild, so both are read at one state.
+    patch$compute_environment()
+
+    state <- patch$environment$light_availability$state
+    z <- state[, "height"]
+    expect_gt(length(z), 20)
+
+    at <- vapply(z, function(q) patch$compute_competition_and_slope(q), numeric(2))
+    reference_value <- exp(-at[1, ])
+    reference_slope <- -(at[2, ] * reference_value)
+    floor_ <- .Machine$double.eps * at[1, 1]
+
+    expect_lt(max(abs(state[, "light_availability"] - reference_value)), 32 * floor_)
+    expect_lt(max(abs(state[, "slope"] - reference_slope)),
+              32 * floor_ * max(1, diff(range(reference_slope))))
+  }
+})

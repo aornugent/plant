@@ -704,11 +704,16 @@ public:
     // Beer's law on the competition profile A, whose extinction coefficient the
     // strategy has already applied: E = exp(-A) and dE/dz = -A' exp(-A). The
     // field carries both, so the pair comes from one competition pass.
-    auto f_light_availability = [&](double height) -> std::pair<S, S>
+    auto f_light_availability = [&](const std::vector<double>& z,
+                                    std::vector<S>& value,
+                                    std::vector<S>& slope) -> void
     {
-      const std::pair<S, S> as = f_compute_competition_and_slope(height);
-      const S E = exp(-as.first);
-      return {E, -(as.second * E)};
+      f_compute_competition_and_slope(z, value, slope);
+      for (size_t k = 0; k < z.size(); ++k) {
+        const S E = exp(-value[k]);
+        value[k] = E;
+        slope[k] = -(slope[k] * E);
+      }
     };
 
     light_availability.compute_environment(f_light_availability, height_max);

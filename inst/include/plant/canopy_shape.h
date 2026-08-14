@@ -156,6 +156,57 @@ public:
     return q(z / height, z);
   }
 
+  // Q(u) = 1 - 2 u^eta + u^(2 eta), so a reduction over cohorts at many heights
+  // needs three running sums rather than one Q per cohort per height. These
+  // carry that sum for the cohorts whose crowns reach the height last descended
+  // to, scaled by that height: written unscaled, h^-eta at eta 12 spans nineteen
+  // orders over one stand's heights and the sum loses its own small terms.
+  // Templated on the accumulator rather than on S: the profile is evaluated in
+  // plain double, and only the amplitude a cohort scales it by carries a
+  // derivative.
+  template <typename A>
+  struct ProfileSums {
+    A flat{0.0};
+    A first{0.0};
+    A second{0.0};
+  };
+
+  // Whether Q is a polynomial in u^eta, which is what the sums above rest on.
+  // The box profiles are not, and the hard box has no vertical slope at all.
+  bool profile_expands_in_u_eta() const {
+    return shading_model_ != ShadingModel::FlatTopBox &&
+           shading_model_ != ShadingModel::FlatTopSoftBox;
+  }
+
+  // Move the sums from the height they hold to a lower one, given the ratio of
+  // the two. Every admitted cohort's u falls by exactly this ratio.
+  template <typename A>
+  void descend_sums(ProfileSums<A>& s, S height_ratio) const {
+    const S r = pow_eta(height_ratio);
+    s.first *= r;
+    s.second *= r * r;
+  }
+
+  // Add one cohort of amplitude `scale` whose crown reaches the height the sums
+  // now hold, at u = z / H there. Every term is at most `scale`, because a
+  // cohort is only ever admitted once z has fallen to its own crown top.
+  template <typename A>
+  void admit_to_sums(ProfileSums<A>& s, const A& scale, S z_over_height) const {
+    const S u_eta = pow_eta(z_over_height);
+    s.flat += scale;
+    s.first += scale * u_eta;
+    s.second += scale * u_eta * u_eta;
+  }
+
+  // The same pair Q_and_q returns, summed over everything admitted. Undefined
+  // at z = 0 for the same reason q is, so the caller takes that height by the
+  // per-height path.
+  template <typename A>
+  std::pair<A, A> Q_and_q_from_sums(const ProfileSums<A>& s, S z) const {
+    const S gain = 2.0 * eta_ / z;
+    return {s.flat - 2.0 * s.first + s.second, (s.first - s.second) * gain};
+  }
+
   // Q(u) and q(z, H) from the single u^eta both need, where u = z / H and
   // height_inverse = 1 / H. q is exactly -dQ/dz, so the second entry is the
   // negative vertical derivative of the first. The Q returned is bit-for-bit the

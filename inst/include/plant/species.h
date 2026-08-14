@@ -7,6 +7,7 @@
 #include <limits>
 #include <tuple>
 #include <utility>
+#include <type_traits>
 #include <plant/util.h>
 #include <plant/environment.h>
 #include <odelia/ode_interface.hpp>
@@ -136,6 +137,16 @@ public:
   // compute_competition_and_slope() with that same interval left off.
   std::pair<value_type, value_type>
   compute_competition_and_slope_excl_boundary(double height) const;
+
+  // Add this species' value and slope at every knot of `z`, which must ascend.
+  // The reduction is a sum over cohorts of one amplitude times the crown
+  // profile, and the profile is a polynomial in u^eta, so three running sums
+  // carried down the grid give every knot at once rather than every cohort
+  // being evaluated at every knot. Accumulates, so a patch calls it per species.
+  void add_competition_and_slope_grid(const std::vector<double>& z,
+                                      std::vector<value_type>& value,
+                                      std::vector<value_type>& slope,
+                                      bool include_boundary) const;
 
   // Transpose of compute_competition_and_slope at `height`, closing boundary
   // trapezium and all. `out` points at this species' first node.
@@ -664,6 +675,151 @@ Species<T,E>::compute_competition_and_slope_impl(double height,
   }
 
   return {tot / 2, tot_slope / 2};
+}
+
+// Every knot of one grid in a single descent, rather than the whole species at
+// each knot in turn.
+//
+// The trapezium is re-associated here: the per-height path accumulates
+// (x0 - x1)(f1 + f0) over consecutive nodes, this collects each node's weight
+// first and sums weight times profile. The two agree in exact arithmetic and
+// differ in their last bits, so this path moves the model's numbers.
+//
+// The inflow boundary node joins as the last abscissa rather than as a
+// conditional closing interval. Cohorts are never shorter than the seed, so
+// above the seed height the boundary contributes zero and below it no early
+// exit can fire -- which is what makes the unconditional form agree with the
+// guarded one.
+template <typename T, typename E>
+void Species<T,E>::add_competition_and_slope_grid(
+    const std::vector<double>& z,
+    std::vector<value_type>& value,
+    std::vector<value_type>& slope,
+    bool include_boundary) const {
+  if (size() == 0) {
+    return;
+  }
+  const bool birth_date = control().node_density_in_birth_date;
+
+  // A profile that is not a polynomial in u^eta reaches the field the only way
+  // it can, and a broken height ordering has its own reduction, so both take
+  // the path they already had.
+  //
+  // The third case is the boundary node standing ABOVE the shortest node, which
+  // no run reaches -- a cohort starts at the seed's height and grows -- and a
+  // patch written by hand can. The closing interval is then admitted at heights
+  // where the per-height reduction declines it and the boundary's own profile is
+  // not yet zero, so the two answers part company. Cheaper to hand those to the
+  // path that defines the answer than to carry the per-height test down the grid.
+  const HeightScan scan = scan_heights();
+  const bool boundary_above_shortest =
+    include_boundary && !birth_date && !nodes.empty() &&
+    odelia::util::to_passive(new_node.height()) >
+      odelia::util::to_passive(nodes.back().height());
+  if (!strategy->canopy_shape.profile_expands_in_u_eta() ||
+      (!birth_date && !scan.decreasing) || boundary_above_shortest) {
+    for (size_t i = 0; i < z.size(); ++i) {
+      const std::pair<value_type, value_type> fs =
+        compute_competition_and_slope_impl(z[i], include_boundary);
+      value[i] += fs.first;
+      slope[i] += fs.second;
+    }
+    return;
+  }
+
+  // One entry per quadrature point. Q(0) is exactly 1, so the reduction read at
+  // the ground is the amplitude its profile is scaled by.
+  //
+  // The height carries a derivative and the abscissa does not, which looks
+  // inconsistent where they are the same quantity, and is what the per-height
+  // reduction does: the profile is evaluated at the individual's own active
+  // internals, while a quadrature position is read passively. Taking the height
+  // passively here as well drops every cohort's height channel out of the field
+  // and leaves the value identical, so nothing undifferentiated can see it.
+  struct point { double abscissa; value_type height; value_type amplitude; };
+  // Held per call and not reused across calls. A container of active values that
+  // outlives the tape they were built on holds slot indices that the next tape
+  // has given to something else, and reusing it is a read of freed storage
+  // rather than a stale number.
+  std::vector<point> pts;
+  pts.reserve(size() + 1);
+  for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+    pts.push_back({abscissa_of(*it, birth_date), it->height(),
+                   it->compute_competition(value_type(0.0))});
+  }
+  // The per-height reduction declines the closing interval when the node it
+  // would close from contributes nothing, which is a stand whose newest cohorts
+  // carry no density yet. Its test is that node's value at the query height, and
+  // the amplitude decides it at every height that can read the boundary: higher
+  // up the boundary's own profile is already zero.
+  if (include_boundary &&
+      (size() == 1 || birth_date ||
+       odelia::util::to_passive(pts.back().amplitude) > 0.0)) {
+    pts.push_back({abscissa_of(new_node, birth_date), new_node.height(),
+                   new_node.compute_competition(value_type(0.0))});
+  }
+  if (pts.size() < 2) {
+    return;
+  }
+
+  std::sort(pts.begin(), pts.end(),
+            [](const point& a, const point& b) { return a.abscissa < b.abscissa; });
+  const size_t n = pts.size();
+  std::vector<value_type> scale(n, value_type(0.0));
+  for (size_t k = 0; k < n; ++k) {
+    const double lo = pts[k == 0 ? 0 : k - 1].abscissa;
+    const double hi = pts[k + 1 == n ? k : k + 1].abscissa;
+    scale[k] = pts[k].amplitude * ((hi - lo) / 2.0);
+  }
+
+  // Descending height, so the sums only ever hold cohorts whose crowns reach the
+  // current knot, which is what keeps every term bounded by its own amplitude.
+  std::vector<size_t> by_height(n);
+  for (size_t k = 0; k < n; ++k) {
+    by_height[k] = k;
+  }
+  // Decided on the value: which knot a cohort enters at is structure.
+  std::sort(by_height.begin(), by_height.end(), [&](size_t a, size_t b) {
+    return odelia::util::to_passive(pts[a].height) >
+           odelia::util::to_passive(pts[b].height);
+  });
+
+  // The profile's own scalar is the strategy's business -- one model carries it
+  // active and two carry it double -- so the sums take their type from the
+  // shape rather than naming one.
+  const auto& shape = strategy->canopy_shape;
+  typename std::decay<decltype(shape)>::type::template ProfileSums<value_type>
+    sums;
+  size_t next = 0;
+  double held = 0.0;
+  for (size_t i = z.size(); i-- > 0;) {
+    const double zi = z[i];
+    if (zi <= 0.0) {
+      // 1 / z has no value here and the sums carry no height to take its limit
+      // with, so the ground knot is the one the per-height path still answers.
+      const std::pair<value_type, value_type> fs =
+        compute_competition_and_slope_impl(zi, include_boundary);
+      value[i] += fs.first;
+      slope[i] += fs.second;
+      continue;
+    }
+    if (held > 0.0) {
+      shape.descend_sums(sums, zi / held);
+    }
+    held = zi;
+    while (next < n &&
+           odelia::util::to_passive(pts[by_height[next]].height) >= zi) {
+      const point& p = pts[by_height[next]];
+      shape.admit_to_sums(sums, scale[by_height[next]], zi / p.height);
+      ++next;
+    }
+    // q is the negative vertical derivative, and the reduction reports the
+    // derivative itself, which is the sign the per-height path also applies.
+    const std::pair<value_type, value_type> fs =
+      shape.Q_and_q_from_sums(sums, zi);
+    value[i] += fs.first;
+    slope[i] -= fs.second;
+  }
 }
 
 // The same trapezium integral as compute_competition(), but over a height-sorted

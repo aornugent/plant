@@ -43,7 +43,9 @@ public:
     set_fixed_value(S(1.0), S(1.0));
   };
 
-  // f returns the field's value and its vertical derivative at a height.
+  // f fills the field's value and its vertical derivative at every knot of the
+  // grid it is handed. Whole-grid rather than per height, because the reduction
+  // behind it costs cohorts once for the grid and cohorts per height otherwise.
   template <typename Function>
   void compute_environment(Function f_value_and_slope, S height_max) {
     rebuild_spline(f_value_and_slope, height_max);
@@ -205,11 +207,7 @@ private:
     }
     const std::vector<double>& x = spline.knots();
     std::vector<S> y(x.size()), m(x.size());
-    for (size_t k = 0; k < x.size(); ++k) {
-      const std::pair<S, S> vs = f_value_and_slope(x[k]);
-      y[k] = vs.first;
-      m[k] = vs.second;
-    }
+    f_value_and_slope(x, y, m);
     spline.set_data(y, m);
     knot_values_ = y;
     knot_slopes_ = m;
