@@ -146,13 +146,15 @@ double FF16_Strategy::assimilation_deep_crown(const FF16_Environment& environmen
   // Keep the lambda's own closure type (do not wrap in std::function) so the
   // templated QK::integrate inlines the integrand at each quadrature point
   // instead of making a type-erased indirect call.
-  // Hoist the light-spline upper bound (canopy top) out of the integrand: it
-  // is invariant across the quadrature, so fetch it once and pass it into the
-  // capped get_environment_at_height() overload rather than re-reading
-  // spline.max() at every quadrature point.
-  const double canopy_top = environment.max_environment_height();
+  // Hoist the light field's upper bound out of the integrand: it is invariant
+  // across the quadrature, so fetch it once and pass it into the capped
+  // get_environment_at_height() overload rather than re-reading spline.max() at
+  // every quadrature point. It sits ABOVE the canopy -- the field's knots reach
+  // one past the tallest cohort -- so it is a bound on the field and not a
+  // height any plant has.
+  const double field_top = environment.max_environment_height();
   auto f = [&](double z) -> double {
-    return assimilation_leaf(environment.get_environment_at_height(z, canopy_top)) *
+    return assimilation_leaf(environment.get_environment_at_height(z, field_top)) *
       canopy_shape.q(z * height_inverse, z);
   };
 
@@ -176,9 +178,9 @@ double FF16_Strategy::assimilation_average_light(const FF16_Environment& environ
                                                  double height,
                                                  double area_leaf,
                                                  double height_inverse) {
-  const double canopy_top = environment.max_environment_height();
+  const double field_top = environment.max_environment_height();
   auto f = [&](double z) -> double {
-    return environment.get_environment_at_height(z, canopy_top) *
+    return environment.get_environment_at_height(z, field_top) *
       canopy_shape.q(z * height_inverse, z);
   };
   const double mean_light = function_integrator.integrate(f, 0.0, height);

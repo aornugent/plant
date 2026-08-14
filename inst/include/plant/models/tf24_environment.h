@@ -76,7 +76,6 @@ public:
 
 
 
-    light_availability = ResourceSpline<S>(light_knot_spacing);
 
     ExtrinsicDrivers extrinsic_drivers;
 
@@ -372,7 +371,7 @@ public:
   std::vector<double> initial_states;
 
   // A ResourceSpline used for storing light availbility (0-1)
-  ResourceSpline<S> light_availability;
+  ResourceSpline<S> light_availability{light_knot_spacing};
 
   // Light interface
   //distance between layers

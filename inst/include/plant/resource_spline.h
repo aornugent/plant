@@ -25,7 +25,11 @@ public:
   // The spacing is the only thing a caller chooses. Knots sit at k * spacing,
   // which is a set of constants: no cohort height reaches a position, so the
   // chain from the canopy top into every knot position does not exist.
-  explicit ResourceSpline(double knot_spacing = 0.1) {
+  //
+  // No default. A spacing sized to the wrong model is silent -- K93's stand is
+  // a quarter the height of the others and reads 1.8e-03 off the refined answer
+  // at theirs, with nothing raised -- so every environment states its own.
+  explicit ResourceSpline(double knot_spacing) {
     setup(knot_spacing);
   }
 
@@ -160,7 +164,7 @@ private:
   // is doing, so no cohort height reaches a position and there is no position
   // derivative to drop.
   //
-  // The grid only ever grows. Above the canopy the profile is exactly flat --
+  // The lattice only ever grows. Above the canopy the profile is exactly flat --
   // the crown shape's value and slope both vanish at a cohort's own top -- so
   // the knots an extension adds carry (1, 0) with a derivative that is exactly
   // zero, and no query reaches the span they open. Extending is therefore

@@ -17,14 +17,13 @@ public:
   FF16_Environment() {
     time = 0.0;
 
-    light_availability = ResourceSpline<double>(light_knot_spacing);
   };
 
   // Metres between the light field's knots. See ResourceSpline for what it buys.
   constexpr static double light_knot_spacing = 0.1;
 
   // A ResourceSpline used for storing light availbility (0-1)
-  ResourceSpline<double> light_availability;
+  ResourceSpline<double> light_availability{light_knot_spacing};
 
   // PPA: when true, the light a plant experiences is the stepped (layered)
   // profile rather than the smooth one stored in light_availability. The
