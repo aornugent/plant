@@ -422,6 +422,7 @@ test_that("gradient columns are named per species", {
   # single-species suite never detects this.
   stand <- ladder_stand_two_by_two()
   columns <- census_trait_names_tf24(stand)
-  expect_length(columns, 88L)
+  expect_equal(length(columns),
+               2L * length(unique(sub("^[0-9]+[.]", "", columns))))
   expect_false(any(duplicated(columns)))
 })

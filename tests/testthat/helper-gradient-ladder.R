@@ -780,7 +780,7 @@ ladder_field_borne_parameters <- function() c("k_I")
 # and that is a wider gap than the soil channel the tangent misses.
 ladder_leaf_own_traits <- function() {
   c("c", "b", "beta2", "g1_TF24", "a", "curv_fact_elec_trans",
-    "curv_fact_colim", "root_c", "root_b")
+    "curv_fact_colim", "R_d_25", "root_c", "root_b")
 }
 
 # ---- the regime a fixture has to sit in --------------------------------------

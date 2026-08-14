@@ -22,16 +22,22 @@ test_that("the recorded block has the shape the design is costed on", {
   # Six own states, the field's knot values and slopes, the soil potentials and
   # the traits in; six rates, the density rate and one draw per layer out. Both
   # counts move with the configuration and neither is a property of the model;
-  # the shape is.
-  n_knot <- (length(inputs) - 6L - 5L - 44L) / 2L
-  expect_equal(length(inputs), 6L + 2L * n_knot + 5L + 44L)
-  expect_equal(length(outputs), 6L + 1L + 5L)
+  # the shape is. Every count is read off the names for that reason: a parameter
+  # added to the strategy moves them together, where a restated total fails here
+  # and says nothing about the shape.
+  n_knot <- sum(grepl("^light_value_", inputs))
+  n_layer <- sum(grepl("^psi_soil_", inputs))
+  n_par <- length(inputs) - 6L - 2L * n_knot - n_layer
+  expect_equal(sum(grepl("^light_slope_", inputs)), n_knot)
+  expect_gt(n_par, 0L)
+  expect_equal(length(outputs), 6L + 1L + n_layer)
   expect_equal(head(inputs, 6L),
                c("height", "mortality", "fecundity", "area_heartwood",
                  "mass_heartwood", "storage"))
   expect_equal(tail(outputs, 5L), paste0("uptake_", 1:5))
-  message(sprintf("\n  block shape: %d inputs (%d knots) by %d outputs",
-                  length(inputs), n_knot, length(outputs)))
+  message(sprintf(
+      "\n  block shape: %d inputs (%d knots, %d layers, %d traits) by %d outputs",
+      length(inputs), n_knot, n_layer, n_par, length(outputs)))
 })
 
 test_that("the block's forward and reverse Jacobians agree entry by entry", {

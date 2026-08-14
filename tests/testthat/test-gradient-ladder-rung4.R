@@ -23,14 +23,18 @@ test_that("the structural checks hold before any reference is consulted", {
   ladder_require_regime(stand, "stand")
   result <- shared$gradient
 
-  expect_equal(dim(result$gradient), c(3L, 88L))
+  expect_equal(dim(result$gradient),
+               c(3L, length(census_trait_names_tf24(stand))))
   expect_true(all(is.finite(result$gradient)))
 
   # The trait adjoint accumulates over every cohort, every stage and every step,
   # so a trait treated as one input per cohort returns a fixed fraction of the
   # right answer with the correct sign and no error raised. Two species with two
   # cohorts each is the smallest stand where that fraction is not one.
-  expect_length(census_trait_names_tf24(stand), 88L)
+  # Two species, each carrying the whole registered set under its own prefix.
+  columns <- census_trait_names_tf24(stand)
+  expect_equal(length(columns),
+               2L * length(unique(sub("^[0-9]+[.]", "", columns))))
 })
 
 test_that("no shortlisted trait reads exactly zero", {
@@ -102,7 +106,7 @@ test_that("the two species do not collapse into one scalar", {
     expect_false(isTRUE(all.equal(first, second)),
                  label = paste("the two species' rows for", name, "are equal"))
   }
-  expect_equal(half, 44L)
+  expect_equal(half, length(unique(sub("^[0-9]+[.]", "", columns))))
 })
 
 test_that("record once and sweep many gives each metric its own recording", {

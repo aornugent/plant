@@ -360,7 +360,8 @@ public:
       &pars.k_I,
       &pars.K_s, &pars.c, &pars.b, &pars.psi_crit,
       &pars.beta2, &pars.g1_TF24, &pars.a,
-      &pars.curv_fact_elec_trans, &pars.curv_fact_colim, &pars.R_d_25,
+      &pars.curv_fact_elec_trans, &pars.curv_fact_colim,
+      &pars.vcmax_25, &pars.jmax_25, &pars.R_d_25,
       &pars.root_c, &pars.root_b, &pars.root_psi_crit,
       &pars.rooting_depth_max, &pars.recruitment_decay
     };
@@ -369,10 +370,7 @@ public:
   // The TF24_Pars members ad_parameters() addresses, in the same order. Absent
   // from both: eta and root_depth_shape_eta, whose exponents reach a base of 0
   // in CanopyShape::Qp and the soil retention curves, where the recorded
-  // derivative u^k * log(u) is a NaN; vcmax_25 and jmax_25, which nothing here
-  // drives yet -- the leaf's temperature cache now keys on every input of the
-  // block it holds, these two among them, so a moved value is recomputed and
-  // the obstacle that kept them out has gone; and
+  // derivative u^k * log(u) is a NaN; and
   // eleven that no equation on this path reads. Two shapes, both giving a gradient
   // row that is exactly zero for a reason no measurement reveals. a_p1 and a_p2
   // belong to the light-response curve the Farquhar leaf replaced; beta1, S_D,
@@ -394,7 +392,8 @@ public:
       "k_I",
       "K_s", "c", "b", "psi_crit",
       "beta2", "g1_TF24", "a",
-      "curv_fact_elec_trans", "curv_fact_colim", "R_d_25",
+      "curv_fact_elec_trans", "curv_fact_colim",
+      "vcmax_25", "jmax_25", "R_d_25",
       "root_c", "root_b", "root_psi_crit",
       "rooting_depth_max", "recruitment_decay"
     };
@@ -1209,12 +1208,14 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   rebuild_roots();
   seat_at(radiation_value, psi_value, kmax_value);
 
-  // The leaf's own traits. It holds them, so the only route to their rows is to
-  // move one and re-solve: two evaluations each, which is what phylloptim's own
-  // gradient module pays, and for its reason -- these have no closed form. The
-  // order is set_traits(); vcmax_25 and jmax_25 are held because the temperature
-  // cache keys their derived values on the drivers alone, so a moved value is
-  // reused rather than recomputed, and neither is a differentiation target.
+  // The leaf's own traits. It holds them, so the route to most of their rows is
+  // to move one and re-solve: two evaluations each, which is what phylloptim's
+  // own gradient module pays, and for its reason -- these have no closed form.
+  // The order is set_traits(), and every trait goes through it -- including the
+  // curve's position, which an identity could move without a rebuild. Measured
+  // against a reference that rebuilds the strategy, the identity's row is 1.9e-04
+  // off where the rebuild's is 2e-06: the grid is a function of the trait, so a
+  // held grid differentiates a different model.
   const int n_leaf_trait = 14;
   double lt[n_leaf_trait] = {
       to_passive(pars.vcmax_25), to_passive(pars.c), to_passive(pars.b),
@@ -1228,9 +1229,9 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       &pars.root_b, &pars.root_psi_crit, &pars.beta2, &pars.jmax_25, &pars.a,
       &pars.curv_fact_elec_trans, &pars.curv_fact_colim, &pars.g1_TF24,
       &pars.R_d_25};
-  const bool lt_seeded[n_leaf_trait] = {false, true, true, true, true, true,
-                                        true, true, false, true, true, true,
-                                        true, true};
+  const bool lt_seeded[n_leaf_trait] = {true,  true, true, true, true, true,
+                                        true,  true, true, true, true, true,
+                                        true,  true};
   // psi_crit and root_psi_crit set the dry bound of an interval the operating
   // point is strictly inside, so complementary slackness makes their rows zero
   // at an interior optimum -- which is the only kind of point this boundary
