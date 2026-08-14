@@ -245,6 +245,46 @@ non-gradient suite passes in full.
 
 ---
 
+## What the case rests on, after two measurements that narrowed it
+
+Written after the design, because two claims it leaned on did not survive being
+checked and the shape of the argument changed.
+
+**The forward model's case is speed and locality. Not accuracy, and not slope.**
+The field is read for its value; nothing on the physiology path asks it for a
+slope. Measured at matched knots against a solved-slope cubic, the value-and-slope
+scheme buys 1.3x to 2.6x in the value and **nothing consistent** in the crown-mean
+a cohort actually consumes -- at spacing 0.1 on a mature stand the solved cubic is
+better. So the interpolant is a prerequisite for the sweep rather than a benefit in
+its own right, and no accuracy case should be made for it forward.
+
+**Locality is the forward property, and it is large.** Move one knot value and ask
+how far the field responds: two spans for a value-and-slope scheme, **41.4** for a
+solved-slope one, which is half a young stand's column and the same figure at
+maturity. That is why a build can hand a whole grid over at once, which is what the
+sweep needs -- a solved scheme has to be given every value before it can answer
+anywhere.
+
+**Neither slope converges, and that does not matter here.** Over an eightfold
+refinement the observed order is 0.7 to 1.6 against the 3 a smooth span gives,
+for both schemes, because a hundred cohorts across three hundred spans put a
+curvature break in about a third of them. It is a statement about the interpolated
+slope as a function of height. The transpose reads the slope **at the knots**,
+which comes from the reduction and is exact, so nothing this design needs depends
+on that rate.
+
+**Two forward-correctness claims were dropped.** Bounds: both schemes dip a hair
+below the exact minimum and overshoot 1 by about 1e-5, so the field's zero-clamp is
+not there because of the solved scheme. Refinement failure: an adaptive refiner
+converged on both stands at depth 4 and 7 of 16, so the failure the stochastic
+patch warns about did not reproduce on a deterministic run. Neither is evidence
+against this design; both were arguments for it that turned out not to hold.
+
+**And the gradient case is unchanged and is secondary.** The slopes make the
+transpose local and exact; the fixed positions make the dropped position channel
+identically zero where a state-tied grid's runs to 113x-4698x the field's own
+error. Favourable, and not a forward-model argument.
+
 ## The alternatives, and what eliminated them
 
 Each was measured, not argued.
