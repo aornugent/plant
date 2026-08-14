@@ -108,8 +108,11 @@ public:
     set_soil_water_state(std::vector<double>(soil_number_of_depths, soil_moist_sat*0.5));
   };
   
-  // Metres between the light field's knots. See ResourceSpline for what it buys.
-  constexpr static double light_knot_spacing = 0.1;
+  // Metres between the light field's knots. Sized against the stand this model
+  // grows: about the canopy a run reaches over 350, which is what holds the
+  // self-thinning window -- where a closing canopy makes the light field decide
+  // mortality -- at or below the error knots tied to the canopy top gave there.
+  constexpr static double light_knot_spacing = 0.05;
 
   // Number of cumulative auxilliary variables to track in soil moisture model
   static constexpr size_t aux_num = 4;

@@ -19,8 +19,11 @@ public:
 
   };
 
-  // Metres between the light field's knots. See ResourceSpline for what it buys.
-  constexpr static double light_knot_spacing = 0.1;
+  // Metres between the light field's knots. Sized against the stand this model
+  // grows: about the canopy a run reaches over 350, which is what holds the
+  // self-thinning window -- where a closing canopy makes the light field decide
+  // mortality -- at or below the error knots tied to the canopy top gave there.
+  constexpr static double light_knot_spacing = 0.05;
 
   // A ResourceSpline used for storing light availbility (0-1)
   ResourceSpline<double> light_availability{light_knot_spacing};

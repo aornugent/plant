@@ -15,12 +15,10 @@ public:
     time = 0.0;
   };
 
-  // Metres between the light field's knots. Four times finer than FF16's and
-  // TF24's because K93's stand is four times shorter -- it starts at 2 m and
-  // reaches about 8.5, where theirs reach 18 -- and a grid of constants gives a
-  // stand resolution in proportion to its height. At 0.1 K93's offspring
-  // production sits 1.8e-03 from the refined answer; at 0.025 it sits 7.7e-05,
-  // which is where knots tied to the canopy top had it.
+  // Metres between the light field's knots. Half FF16's and TF24's because K93's
+  // stand is half the height -- it starts at 2 m and reaches about 8.5, where
+  // theirs reach 17 -- and a grid of constants gives a stand resolution in
+  // proportion to its height. Both are about the canopy a run reaches over 350.
   constexpr static double light_knot_spacing = 0.025;
 
   // Light interface
