@@ -1314,6 +1314,7 @@ template <> inline SEXP wrap(const plant::TF24_Pars<double>& x) {
   ret["a"] = Rcpp::wrap(x.a);
   ret["curv_fact_elec_trans"] = Rcpp::wrap(x.curv_fact_elec_trans);
   ret["curv_fact_colim"] = Rcpp::wrap(x.curv_fact_colim);
+  ret["R_d_25"] = Rcpp::wrap(x.R_d_25);
   ret["var_sapwood_volume_cost"] = Rcpp::wrap(x.var_sapwood_volume_cost);
   ret["nmass_l"] = Rcpp::wrap(x.nmass_l);
   ret["nmass_s"] = Rcpp::wrap(x.nmass_s);
@@ -1434,6 +1435,8 @@ template <> inline plant::TF24_Pars<double> as(SEXP x) {
   ret.curv_fact_elec_trans = Rcpp::as<double >(xl["curv_fact_elec_trans"]);
   // ret.curv_fact_colim = Rcpp::as<decltype(retcurv_fact_colim) >(xl["curv_fact_colim"]);
   ret.curv_fact_colim = Rcpp::as<double >(xl["curv_fact_colim"]);
+  // ret.R_d_25 = Rcpp::as<decltype(retR_d_25) >(xl["R_d_25"]);
+  ret.R_d_25 = Rcpp::as<double >(xl["R_d_25"]);
   // ret.var_sapwood_volume_cost = Rcpp::as<decltype(retvar_sapwood_volume_cost) >(xl["var_sapwood_volume_cost"]);
   ret.var_sapwood_volume_cost = Rcpp::as<double >(xl["var_sapwood_volume_cost"]);
   // ret.nmass_l = Rcpp::as<decltype(retnmass_l) >(xl["nmass_l"]);

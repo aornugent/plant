@@ -1325,6 +1325,7 @@ TF24_Pars:
     - a: double
     - curv_fact_elec_trans: double
     - curv_fact_colim: double
+    - R_d_25: double
     - var_sapwood_volume_cost: double
     - nmass_l: double
     - nmass_s: double

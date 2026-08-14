@@ -96,6 +96,11 @@ struct TF24_Pars {
   S a = 0.30; // effective quantum yield of electron transport
   S curv_fact_elec_trans = 0.7;
   S curv_fact_colim = 0.99;
+  // Dark respiration at 25 C, the term net assimilation subtracts. The Leaf
+  // constructor does not take it, so until this member existed the leaf ran at
+  // its own default and no parameter could move it; the value here is that
+  // default, which is what keeps the forward model unchanged.
+  S R_d_25 = 1.44;
   S var_sapwood_volume_cost = 1;
   // nitrogen allocation traits (parameterised from Austraits 4.1.0)
   S nmass_l = 13e-3; // kg N kg^-1 mass
@@ -151,13 +156,14 @@ struct TF24_Pars {
       &a_p1, &a_p2, &a_f3, &a_f1, &a_f2, &S_D, &a_d0, &d_I, &a_dG1, &a_dG2,
       &a_st1, &a_st2, &a_st3, &k_I, &vcmax_25, &p_50, &K_s, &c, &b, &psi_crit,
       &beta1, &beta2, &g1_TF24, &jmax_25, &a, &curv_fact_elec_trans,
-      &curv_fact_colim, &var_sapwood_volume_cost, &nmass_l, &nmass_s, &nmass_b,
+      &curv_fact_colim, &R_d_25,
+      &var_sapwood_volume_cost, &nmass_l, &nmass_s, &nmass_b,
       &nmass_r, &dmass_dN, &root_depth_shape_eta, &root_c, &root_b,
       &root_psi_crit, &rooting_depth_max, &recruitment_decay,
       &use_energy_balance, &d
     };
   }
-  static constexpr size_t field_count = 61;
+  static constexpr size_t field_count = 62;
 };
 
 // Every member of TF24_Pars is an S, so one added without extending
@@ -354,7 +360,7 @@ public:
       &pars.k_I,
       &pars.K_s, &pars.c, &pars.b, &pars.psi_crit,
       &pars.beta2, &pars.g1_TF24, &pars.a,
-      &pars.curv_fact_elec_trans, &pars.curv_fact_colim,
+      &pars.curv_fact_elec_trans, &pars.curv_fact_colim, &pars.R_d_25,
       &pars.root_c, &pars.root_b, &pars.root_psi_crit,
       &pars.rooting_depth_max, &pars.recruitment_decay
     };
@@ -363,9 +369,10 @@ public:
   // The TF24_Pars members ad_parameters() addresses, in the same order. Absent
   // from both: eta and root_depth_shape_eta, whose exponents reach a base of 0
   // in CanopyShape::Qp and the soil retention curves, where the recorded
-  // derivative u^k * log(u) is a NaN; vcmax_25 and jmax_25, whose derived
-  // vcmax_ and jmax_ Leaf::photo_temp_cached_ holds under a key of only
-  // (leaf_temp_, atm_o2_kpa_), so a changed value is reused, not recomputed; and
+  // derivative u^k * log(u) is a NaN; vcmax_25 and jmax_25, which nothing here
+  // drives yet -- the leaf's temperature cache now keys on every input of the
+  // block it holds, these two among them, so a moved value is recomputed and
+  // the obstacle that kept them out has gone; and
   // eleven that no equation on this path reads. Two shapes, both giving a gradient
   // row that is exactly zero for a reason no measurement reveals. a_p1 and a_p2
   // belong to the light-response curve the Farquhar leaf replaced; beta1, S_D,
@@ -387,7 +394,7 @@ public:
       "k_I",
       "K_s", "c", "b", "psi_crit",
       "beta2", "g1_TF24", "a",
-      "curv_fact_elec_trans", "curv_fact_colim",
+      "curv_fact_elec_trans", "curv_fact_colim", "R_d_25",
       "root_c", "root_b", "root_psi_crit",
       "rooting_depth_max", "recruitment_decay"
     };
@@ -1208,21 +1215,22 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // order is set_traits(); vcmax_25 and jmax_25 are held because the temperature
   // cache keys their derived values on the drivers alone, so a moved value is
   // reused rather than recomputed, and neither is a differentiation target.
-  const int n_leaf_trait = 13;
+  const int n_leaf_trait = 14;
   double lt[n_leaf_trait] = {
       to_passive(pars.vcmax_25), to_passive(pars.c), to_passive(pars.b),
       to_passive(pars.psi_crit), to_passive(pars.root_c),
       to_passive(pars.root_b), to_passive(pars.root_psi_crit),
       to_passive(pars.beta2), to_passive(pars.jmax_25), to_passive(pars.a),
       to_passive(pars.curv_fact_elec_trans), to_passive(pars.curv_fact_colim),
-      to_passive(pars.g1_TF24)};
+      to_passive(pars.g1_TF24), to_passive(pars.R_d_25)};
   const S* lt_input[n_leaf_trait] = {
       &pars.vcmax_25, &pars.c, &pars.b, &pars.psi_crit, &pars.root_c,
       &pars.root_b, &pars.root_psi_crit, &pars.beta2, &pars.jmax_25, &pars.a,
-      &pars.curv_fact_elec_trans, &pars.curv_fact_colim, &pars.g1_TF24};
+      &pars.curv_fact_elec_trans, &pars.curv_fact_colim, &pars.g1_TF24,
+      &pars.R_d_25};
   const bool lt_seeded[n_leaf_trait] = {false, true, true, true, true, true,
                                         true, true, false, true, true, true,
-                                        true};
+                                        true, true};
   // psi_crit and root_psi_crit set the dry bound of an interval the operating
   // point is strictly inside, so complementary slackness makes their rows zero
   // at an interior optimum -- which is the only kind of point this boundary
@@ -1230,16 +1238,10 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // pinned points has to drive them again rather than read this list.
   const bool lt_zero_at_interior[n_leaf_trait] = {
       false, false, false, true,  false, false, true,
-      false, false, false, false, false, false};
-  // Dark respiration at 25 C is the leaf's own trait and no strategy parameter
-  // sets it, so the value the leaf was built with is read back and handed
-  // straight in. set_traits writes every trait it is given: passing anything
-  // else here would move respiration inside this loop and nowhere else, so the
-  // rows would be taken on a leaf the forward pass never ran.
-  const double R_d_25 = leaf.R_d_25;
+      false, false, false, false, false, false, false};
   auto apply_leaf_traits = [&]() -> void {
     leaf.set_traits(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5], lt[6], lt[7],
-                    lt[8], lt[9], lt[10], lt[11], lt[12], R_d_25);
+                    lt[8], lt[9], lt[10], lt[11], lt[12], lt[13]);
   };
   std::vector<double> dprofit_dlt(n_leaf_trait, 0.0),
       dcollar_dlt(n_leaf_trait, 0.0);
@@ -2308,6 +2310,9 @@ void TF24_Strategy<S>::prepare_strategy() {
                 this->control.GSS_tol_abs, this->control.vulnerability_curve_ncontrol,
                 this->control.ci_abs_tol, this->control.ci_niter,
                 pars.g1_TF24);
+    // Not a constructor argument, and written before any physiology is set, so
+    // the temperature block derives R_d_ from it on the first call.
+    leaf.R_d_25 = pars.R_d_25;
   } else {
     static_assert(std::is_same_v<S, double>,
                   "Leaf carries double; an active strategy must supply the leaf's "
