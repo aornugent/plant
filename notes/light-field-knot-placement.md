@@ -241,17 +241,20 @@ leans on.
 
 ## 5. The design
 
-**A grid of constants, uniform in absolute height, spanning `[0, ceiling]`.**
+**A grid of constants, uniform in absolute height, extended upward as the canopy grows.**
 
 ```
-x_k = k · Δ,   k = 0 … ⌈ceiling / Δ⌉
+x_k = k · Δ,   k = 0 … ⌈h_max / Δ⌉ + 1
 ```
 
 - **Positions are constants of the run.** `∂x_k/∂(state) ≡ 0` is a fact, not a treatment, so
   there is no term to drop and report 03 §3.3's channel does not exist.
-- **The count is a constant of the run**, which is what report 05 §5 relies on when it says K
-  does not vary within a run, and what `n_cohort_reads()` needs in order to be answerable before
-  the first build (§7).
+- **The count follows the canopy, and that is safe because nothing stores it.** `knot_count()`
+  reads `spline.size()`, so the width `n_cohort_reads()` reports and the grid `set_data()`
+  length-checks against are one number rather than two that can disagree. Report 05 §5 says K
+  does not vary within a run; on this design it does, and what the surrounding code actually
+  requires is the weaker `knot_count() == spline.size()`, which is now structural. §7 records how
+  that was found.
 - **The spacing stays equal**, so `hermite_interpolator`'s arithmetic index survives intact —
   the property the current placement was chosen for.
 - **Knots above the canopy are exactly inert.** `Q̃` and `Q̃'` both vanish at `ν = 1`, so above
@@ -277,7 +280,17 @@ blessed values need no re-blessing at all. Read the rule as Δ ≈ (the canopy a
 04 just recovered. The old `tol`/`nbase`/`max_depth` slots are the natural place for Δ, and
 taking them for it retires three arguments that are currently accepted and ignored.
 
-**The ceiling is preferred over append-only**, on §7's evidence rather than on taste.
+**A ceiling was preferred over extension until `knot_count()` stopped being stored**, and then
+the reason for it went away. §7 has the evidence: a ceiling exists to make K a constant of the
+run, and the only thing that needed K constant was a stored count that could disagree with the
+grid. Reading the count off the grid settles that, and extension then costs no knob, no
+"canopy exceeded" refusal, and no knots the stand never reaches. The two are measured
+bit-identical, so nothing is given up.
+
+**And a bound is still needed, which the incumbent gave for free.** A grid spanning the canopy's
+own height was 65 knots whatever the canopy was; this one sizes the allocation from it, so
+`max_knots_` refuses a runaway rather than reaching for the memory. It is the one noun here that
+the design did not start with.
 
 ---
 

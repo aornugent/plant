@@ -13,7 +13,6 @@ class K93_Environment : public Environment {
 public:
   K93_Environment() {
     time = 0.0;
-    light_availability = ResourceSpline<double>(light_knot_spacing);
   };
 
   // Metres between the light field's knots. Four times finer than FF16's and
@@ -25,7 +24,7 @@ public:
   constexpr static double light_knot_spacing = 0.025;
 
   // Light interface
-  ResourceSpline<double> light_availability;
+  ResourceSpline<double> light_availability{light_knot_spacing};
 
   void set_fixed_environment(double value, double height_max) {
     light_availability.set_fixed_value(value, height_max);
