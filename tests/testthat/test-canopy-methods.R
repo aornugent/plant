@@ -368,6 +368,22 @@ test_that("the light interpolant's knot positions are constants of the run", {
   expect_gt(seen, length(scm$history[[1]]$environment$light_availability$state[, "height"]))
 })
 
+test_that("a runaway canopy is refused rather than allocated for", {
+  # The canopy sizes the grid, so a size-density equation that runs away reaches
+  # the allocation. A grid spanning the canopy's own height could not: it was 65
+  # knots whatever the height was. The guard restores what that bounded shape
+  # gave for free.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  patch$introduce_new_node(1)
+
+  state <- patch$ode_state
+  i <- match("height", patch$species[[1]]$nodes[[1]]$ode_names)
+  state[[i]] <- 1e6
+  expect_error(patch$set_ode_state(state, 0), "run away")
+})
+
 test_that("extending the grid moves no value the canopy can read", {
   # The count depends on the canopy, which would be a state-dependent structure
   # if the knots an extension adds could change an answer. They cannot: above the
