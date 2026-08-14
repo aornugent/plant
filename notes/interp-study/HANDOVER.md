@@ -12,7 +12,7 @@ scratch directory that does not survive the session.
    refuted and why, **§8.5 is the `develop` comparison and the frontier
    argument**, §9 is what would falsify it.
 2. `NEWS.md`, top two entries — the R-facing change and the migration.
-3. `git log --oneline ec8e59f1..ad/light-field-fixed-grid` — six commits, each
+3. `git log --oneline ec8e59f1..ad/light-field-fixed-grid` — eight commits, each
    message states what it changed and why.
 
 The corpus reports this rests on: **03 §3.1** (why the interpolant is Hermite),
@@ -27,10 +27,10 @@ mechanism that hid the defect).
 
 | what | where | state |
 |---|---|---|
-| the change | `plant` branch `ad/light-field-fixed-grid` | **2 commits unpushed** at time of writing |
+| the change | `plant` branch `ad/light-field-fixed-grid` | pushed, 8 commits |
 | its worktree | `plant/.claude/worktrees/fixed-grid` | built at `-O2` |
 | odelia's test | `odelia` branch `ad/hermite-multiplied-grid` | pushed, 1 commit |
-| the measurement scaffolding | `plant` branch `ad/interp-design` | **unpushed**, worktree `plant/.claude/worktrees/interp-design` |
+| the measurement scaffolding | `plant` branch `ad/interp-design` | pushed, worktree `plant/.claude/worktrees/interp-design` |
 | `develop`, for comparison | worktree `plant/.claude/worktrees/develop` | built, needs odelia v0.2.1 (§4) |
 
 `ad/interp-design` is worth keeping: it carries `ResourceGridPolicy`, which
