@@ -16,7 +16,7 @@ products using plant.
 
 * **`ResourceSpline()` takes one argument, `knot_spacing`, in place of `tol`,
   `nbase`, `max_depth` and `rescale_usually`.** Migration:
-  `ResourceSpline(1e-4, 17, 16, TRUE)` -> `ResourceSpline(0.1)`. The four it
+  `ResourceSpline(1e-4, 17, 16, TRUE)` -> `ResourceSpline(0.05)`. The four it
   replaces had already stopped selecting anything; the one that survives places
   knot `k` at `k * knot_spacing`.
 
@@ -31,17 +31,20 @@ products using plant.
   because above it the crown shape's value and slope both vanish.
 
   `knot_spacing` is per model, because a grid of constants gives a stand
-  resolution in proportion to its height: 0.1 m for FF16 and TF24, whose stands
-  reach about 18 m, and 0.025 m for K93, whose stand runs from 2 m to 8.5 and so
-  needs the finer grid to hold its blessed values.
+  resolution in proportion to its height: about the canopy a run reaches over
+  350, so 0.05 m for FF16 and TF24 and 0.025 m for K93. It is sized against the
+  **self-thinning window** rather than against a field norm: as the canopy
+  closes, the light field decides mortality, and a coarser lattice is measurably
+  worse there than knots tied to the canopy top even where its field error looks
+  acceptable.
 
   **Model results change**, by about 1e-06 on a leaf-area census and 2e-05 on
   FF16 offspring production; K93's hold within their existing tolerance.
   Refining either placement converges on the same answer and the new one is
   closer to it: FF16 offspring production sits 1.1e-03 from that limit against
-  2.2e-03 before, and the full-lifetime deep-crown number 4.5x closer.
+  2.2e-03 before, and the full-lifetime deep-crown number 16x closer.
   Re-blessed: `deep-crown reproduces the baseline SCM result` (16.8846 ->
-  16.8935) and `offspring arrival` in `test-strategy-ff16.R`.
+  16.8954) and `offspring arrival` in `test-strategy-ff16.R`.
 
 * **`Patch$compute_environment()` and `StochasticPatch$compute_environment()`
   take no arguments.** The `rescale` flag selected a light-spline rebuild

@@ -226,14 +226,14 @@ test_that("offspring arrival", {
   # the field, so the light field's knot placement moves them: these were
   # 4.223149 and 276 on knots tied to the canopy top. The offspring production
   # they integrate to moves by 2e-05, which is why it keeps its own tolerance.
-  expect_equal(out$ode_times[c(10, 100)], c(0.000070, 4.223628), tolerance=1e-5)
+  expect_equal(out$ode_times[c(10, 100)], c(0.000070, 4.223575), tolerance=1e-5)
 
   # two species
   p2 <- add_strategies(p0, trait_matrix(c(0.0825, 0.2625), "lma"), hyperpar = FF16_hyperpar, birth_rate = list(11.99177, 16.51006))
 
   out <- run_scm(p2, env, ctrl)
   expect_equal(out$offspring_production, c(12.04815, 16.59365), tolerance=1e-5)
-  expect_equal(length(out$ode_times), 268)
+  expect_equal(length(out$ode_times), 267)
 
   # Non-vacuity for the coordinate claim: the other coordinate has to give a
   # different answer, or naming this one would be decoration. The magnitude is

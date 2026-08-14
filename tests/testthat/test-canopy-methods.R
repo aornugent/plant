@@ -184,10 +184,10 @@ test_that("deep-crown reproduces the baseline SCM result", {
   p1 <- add_strategies(p0, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar, birth_rate = list(20))
   # Re-blessed with the light field's knot placement: 16.8846 was the value on
   # knots tied to the canopy top. Refining either placement converges on 16.8961,
-  # and this number is four and a half times closer to it than the one it
-  # replaces, so the move is toward the limit rather than away from it.
+  # and this number is sixteen times closer to it than the one it replaces, so
+  # the move is toward the limit rather than away from it.
   over_height <- run_scm(p1, env, Control(node_density_in_birth_date = FALSE))
-  expect_equal(over_height$offspring_production, 16.8935, tolerance = 1e-4)
+  expect_equal(over_height$offspring_production, 16.8954, tolerance = 1e-4)
   over_birth_date <- run_scm(p1, env, Control(node_density_in_birth_date = TRUE))
   expect_equal(over_birth_date$offspring_production, 17.1720, tolerance = 1e-4)
 })
@@ -354,7 +354,13 @@ test_that("the light interpolant's knot positions are constants of the run", {
   # Patch::reset() clears the field before building it, and a cleared field is
   # three knots that are NOT on this lattice -- so every step below also asserts
   # that a build lays the lattice down over one that was not.
-  spacing <- 0.1
+  #
+  # The spacing is read off the first gap rather than named, so this asserts the
+  # SHAPE -- equally spaced, starting at zero -- and does not have to be edited
+  # when the constant a model carries changes.
+  first <- scm$history[[1]]$environment$light_availability$state[, "height"]
+  spacing <- first[[2]] - first[[1]]
+  expect_gt(spacing, 0)
   expect_gt(length(scm$history), 20)
   seen <- 0
   for (h in scm$history) {
@@ -404,7 +410,8 @@ test_that("extending the grid moves no value the canopy can read", {
   rates <- patch$ode_rates
 
   # Extend the grid by hand, past anything the patch will read, and rebuild.
-  x <- seq(0, by = 0.1, length.out = nrow(base) + 40)
+  step <- base[2, "height"] - base[1, "height"]
+  x <- seq(0, by = step, length.out = nrow(base) + 40)
   y <- c(base[, "light_availability"], rep(1, 40))
   m <- c(base[, "slope"], rep(0, 40))
   patch$environment$light_availability$init_interpolators(c(x, y, m))
@@ -453,10 +460,12 @@ test_that("the light field carries Beer's law and its derivative at every knot",
 
   state <- patch$environment$light_availability$state
   expect_identical(colnames(state), c("height", "light_availability", "slope"))
-  # The count follows the canopy rather than being fixed, so it is derived here
-  # rather than named: knots at 0.1 m, reaching one past the tallest cohort.
+  # The count follows the canopy rather than being fixed, and so does the spacing
+  # a model chooses, so both are read off the grid: equally spaced from zero,
+  # reaching one knot past the tallest cohort.
+  spacing <- state[2, "height"] - state[1, "height"]
   expect_identical(state[, "height"],
-                   seq(0, by = 0.1, length.out = nrow(state)))
+                   seq(0, by = spacing, length.out = nrow(state)))
   expect_gt(max(state[, "height"]), patch$height_max)
 
   as <- vapply(state[, "height"], patch$compute_competition_and_slope, c(0, 0))
