@@ -572,7 +572,11 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
                                     control.ppa_layer_optical_depth,
                                     control.ppa_layer_smoothing);
   out.compute_environment(false);
-  out.compute_rates();
+  // What a rebound patch owes its callers is the boundary node: each of them
+  // reads r_new_node() before setting a state of its own, and none reads a
+  // cohort's rates. Rating every cohort to reach the same new_node evaluates one
+  // leaf per node, and this runs once per adjoint of the right-hand side.
+  out.compute_boundary_nodes();
   return out;
 }
 
