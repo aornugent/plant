@@ -399,6 +399,68 @@ a derivative of anything.
 
 ---
 
+## 8.5 The frontier, measured against develop -- and what it costs
+
+The comparison this note originally made was against knots tied to the canopy top on this
+branch. `develop` is a different construct again -- a value-only cubic whose slopes are solved,
+placed by adaptive refinement on value error, and rebuilt by RESCALING the previous build's knot
+set. Built against the odelia it pins, and run on FF16 through a stand's development, its
+crown-mean light error runs 3.3e-07 at a 0.7 m canopy to 1.2e-03 at 17 m -- the same shape as
+the canopy-following grid, because it is the same idea.
+
+**The honest summary is that a grid of constants rotates the frontier rather than pushing it
+out.** At matched *cost* -- which is what matters, and the field build is linear in the knot
+count, so cost tracks knots:
+
+| | run cost | age 2 | age 4 (thinning) | age 20 | age 40 |
+|---|---|---|---|---|---|
+| canopy x h_max, 257 | 2.38x | **1.6e-07** | **2.3e-05** | **6.4e-05** | 1.3e-03 |
+| fixed lattice, 0.025 | 2.28x | 5.2e-06 | 5.0e-05 | 1.3e-04 | **6.4e-05** |
+
+Relative error in stem density against a converged reference. Canopy-tied knots win early and
+lose late; a lattice does the reverse. What a lattice buys is not accuracy per unit cost -- it is
+that the adjoint differentiates the function the forward model computes, which no amount of
+refinement gives the other family.
+
+**Two attempts to recover the cost, one refuted and one measured.**
+
+*Band-limiting the reduction.* A cohort's crown shape is 1 to within 1e-8 below a fifth of its own
+height and 0 above it, so only knots inside `[0.2 h, h]` need the full evaluation. Measured on a
+mature stand this saves **1.5x**, not the several-fold it promises, because cohorts pile up near
+the canopy top -- their mean height is 83 percent of the maximum -- so most knots are below most
+cohorts and see them all.
+
+*A dyadic lattice.* Take one fixed lattice `z = j * d_min` and use every `2^m`-th point of it,
+with `m` chosen from the canopy. Every position is still a constant -- a member of one fixed set
+-- so the position channel is still **exactly zero**, measured. But the spacing now follows the
+canopy, so the resolution is relative and the count is bounded:
+
+| canopy | canopy x h_max, 65 | fixed 0.05 | dyadic, <= 200 |
+|---|---|---|---|
+| 0.7 m | 1.31e-07 (65) | 2.40e-06 (17) | 4.27e-07 (58) |
+| 1.5 m | 4.03e-08 (65) | 1.31e-07 (33) | **3.77e-09** (122) |
+| 6 m | 1.09e-06 (65) | 2.58e-07 (123) | **2.58e-07** (122) |
+| 18 m | 3.97e-05 (65) | 1.18e-07 (363) | **1.42e-06** (182) |
+| 35 m | 6.25e-04 (65) | 1.18e-07 (703) | **2.33e-05** (177) |
+
+So a dyadic lattice beats the canopy-following grid at every canopy above 1.5 m, on a knot count
+that never exceeds 182 -- about the cost of the uniform lattice at 0.1, which measured 1.03x.
+**It recovers the performance without giving up the gradient.**
+
+**What it costs, and why it is recorded rather than built.** Coarsening drops half the knots, and
+that is not inert the way an upward extension is: it changes spans a query reads. Measured, the
+field jumps by **1.5e-05 to 3.8e-04 of its range** at each of the four canopy heights where the
+spacing doubles over a run. That is a *discontinuity* in the field as a function of the tallest
+cohort's height, where a uniform lattice has only a kink, and an adaptive stepper's error control
+assumes neither. Trading a persistent first-order bias for four jumps may well be right; it is
+not obviously right, and it is a different design rather than a tuning of this one.
+
+**The trigger to build it is the cost becoming binding** -- a production run length or stand width
+at which 1.55x is refused. The measurement above is what it would be built against, and the jump
+is the number a blend across the level change would have to remove.
+
+---
+
 ## 9. What would falsify this
 
 - **The consumer metric is the wrong one.** Everything above ranks placements on crown-mean
