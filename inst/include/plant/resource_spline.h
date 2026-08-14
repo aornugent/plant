@@ -169,6 +169,17 @@ private:
   template <typename Function>
   void rebuild_spline(Function f_value_and_slope, S height_max) {
     const double top = odelia::util::to_passive(height_max);
+    // The canopy sizes the grid, where a grid spanning the canopy's own height
+    // did not, so a runaway size-density equation now reaches the allocation
+    // rather than only making the field coarse. Refuse it here, naming the
+    // height, rather than reaching for the memory: nothing in this model grows a
+    // canopy of that size, so this is a runaway and not a forest.
+    if (!(top >= 0.0) || top > knot_spacing_ * max_knots_) {
+      util::stop("ResourceSpline: canopy height " + util::format_double(top) +
+                 " m needs more than " + util::to_string(max_knots_) +
+                 " knots at a spacing of " + util::format_double(knot_spacing_) +
+                 " m; the size-density equation has run away");
+    }
     // One knot clear of the canopy, so a query at exactly height_max is inside
     // the grid rather than on its last node.
     const size_t wanted =
@@ -196,6 +207,11 @@ private:
   // 0.1 holds that to about 1e-6 at every canopy height from a seedling to 35 m,
   // where knots tied to the canopy top run from 7e-8 to 6e-4 over the same range.
   double knot_spacing_ = 0.1;
+
+  // Far above any canopy this model grows -- 2.5 km at the coarsest spacing in
+  // use, against a tallest-tree record near 130 m -- so it bounds a runaway
+  // without being reachable by a stand.
+  static constexpr size_t max_knots_ = 25000;
 
   };
 
