@@ -1344,6 +1344,67 @@ ladder_run_difference <- function(traits, name, rel = 1e-5, lifetime = 0.4,
        seed_height_slope = (a$seed_height - b$seed_height) / (2 * h))
 }
 
+# The same rebuilding difference on a stand where the species COMPETE.
+#
+# ladder_run_difference builds one species, and a one-species stand cannot see a
+# whole class of defect: with no competition every cohort sits close to the state
+# the leaf's own coefficients were read at, so a row that is only wrong far from
+# there reads as correct. Measured -- the root-carbon rows agreed with a
+# single-species reference to 1e-06 for both trait sets while the slow species'
+# root allometry sat at 0.80 of this one.
+#
+# `species` picks which of the two the parameter is moved in, and the assertion
+# that exactly one carried parameter moved is per species, so a hyperparameter
+# reaching both is refused here as it is there.
+ladder_run_difference_pair <- function(name, species = 2L,
+                                       steps = c(1e-6, 1e-5, 1e-4, 1e-3),
+                                       times = list(c(0, 0.63), c(0, 0.41))) {
+  build <- function() {
+    p <- ladder_parameters(c("fast", "slow"))
+    p$node_schedule_times <- times
+    p
+  }
+  census_at <- function(value) {
+    p <- build()
+    strategies <- p$strategies
+    before <- unlist(strategies[[species]]$pars)
+    pars <- strategies[[species]]$pars
+    pars[[name]] <- value
+    strategies[[species]]$pars <- pars
+    p$strategies <- strategies
+    ladder_assert_one_parameter(before, unlist(p$strategies[[species]]$pars), name)
+    stand_census(ladder_run(p))
+  }
+  value <- unlist(build()$strategies[[species]]$pars)[[name]]
+  at <- function(r) {
+    h <- abs(value) * r
+    (census_at(value + h) - census_at(value - h)) / (2 * h)
+  }
+  # ⚠️ The step-stability guard is not optional here, and skipping it once
+  # produced a reading that reversed a decision. A column whose sensitivity is
+  # an order below its neighbour's -- which competition produces, because the
+  # suppressed species contributes less -- sits closer to this difference's own
+  # floor, and the answer then moves with the step instead of holding. Measured
+  # on the slow species' root allometry: 0.275, 0.131, 0.122, 0.126 across four
+  # steps, so a single reading at 1e-05 is off by a factor of two from the
+  # converged one.
+  g <- vapply(steps, at, numeric(length(at(steps[[1]]))))
+  scale <- max(abs(g))
+  adjacent <- if (scale > 0) {
+    vapply(seq_len(length(steps) - 1L),
+           function(i) max(abs(g[, i] - g[, i + 1L])) / scale, numeric(1))
+  } else rep(0, length(steps) - 1L)
+  # The most-agreeing adjacent pair brackets where truncation crosses round-off;
+  # its coarser member carries the less round-off of the two.
+  best <- which.min(adjacent)
+  list(gradient = g[, best + 1L],
+       column = paste0(species, ".", name),
+       step = steps[[best + 1L]],
+       values = g,
+       adjacent = adjacent,
+       spread = adjacent[[best]])
+}
+
 ladder_shortlist <- function() {
   # Two classes, and the second was unrefereed until a defect in it was found from
   # outside this ladder.
