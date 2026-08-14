@@ -1048,96 +1048,83 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     return leaf.dprofit_droot_collar_psi(collar);
   };
 
-  // Direction one: a soil potential. Direction two: the deepest layer's vertical
-  // resistance, which reaches uptake by a different route and so is not
-  // collinear with the first.
-  size_t wettest = n_layer;
-  for (size_t j = 0; j < n_layer; ++j) {
-    if (dEup_dpsi[j] != 0.0) { wettest = j; break; }
-  }
-  if (wettest == n_layer) {
-    util::stop("TF24 gradient: no layer's potential reaches uptake, so the "
-               "water response has no first direction to be read along");
-  }
+  // The two coefficients the state directions are read through. Both are
+  // definite numbers -- the marginal profit's partials in total uptake and in
+  // its collar slope -- so any two independent directions recover them in exact
+  // arithmetic. Which directions are used decides only where the arithmetic's
+  // error lands, and that is not a free choice: the soil potentials are
+  // collinear with each other to about one part in 10^4, so a pair fitted from
+  // them reproduces their own span and nothing outside it. Root carbon is
+  // outside it, and its rows carried the whole of the compensation.
+  //
+  // So the second is read in closed form and the first is solved along a CARBON
+  // direction, which is the family most exposed to the split. The potentials
+  // then take whatever error is left, and they are the family that cannot see it.
   // A relative step of 1e-6 does not move total uptake above the solve's own
-  // floor, so the pair comes back as zeros and the two directions cannot be told
-  // apart. Measured over three decades, the residual of the two-scalar fit
-  // scales as 1/step -- round-off, not truncation -- so the largest step that is
-  // still local is the best-conditioned one.
+  // floor, so the largest step that is still local is the best-conditioned one.
   const double fit_step = 1e-3;
-  const double h_psi = std::max(std::abs(psi_value[wettest]), 1.0) * fit_step;
-  std::vector<double> psi_up = psi_value, psi_dn = psi_value;
-  psi_up[wettest] += h_psi;
-  psi_dn[wettest] -= h_psi;
-  const double m_psi_up = marginal_at(radiation_value, psi_up);
-  const double m_psi_dn = marginal_at(radiation_value, psi_dn);
-  const double dR_dpsi0 = (m_psi_up - m_psi_dn) / (2.0 * h_psi);
+  // The leaf reports per-layer uptake in mol and every flux derivative in kg.
+  const double to_mol_flux = 1.0 / phylloptim::kg_per_mol_h2o;
 
-  // The deepest layer that actually carries roots. A rooting depth shallower
-  // than the soil column leaves the bottom layers with no resistance at all, and
-  // perturbing one of those moves nothing -- the pair of directions would then
-  // be one direction twice, which is the collinearity the determinant refuses.
-  size_t deepest = n_layer;
-  for (size_t j = n_layer; j-- > 0;) {
-    if (root_network_.r_R_V_sum[j] > 0.0 && dE_dcollar[j] != 0.0) {
-      deepest = j;
-      break;
+  const double b = leaf.dmarginal_profit_duptake_slope();
+  if (!util::is_finite(b)) {
+    util::stop("TF24 gradient: the stem's marginal profit per unit of collar "
+               "conductance is not finite, so the water response has no second "
+               "coefficient");
+  }
+
+  // The supply side answers every carbon direction analytically, so the only
+  // thing this direction costs is the marginal profit either side of it.
+  std::vector<std::vector<double>> dE_drc, dD_drc;
+  leaf.roots_.duptake_droot_carbon(collar, psi_value, dE_drc, dD_drc);
+  std::vector<double> dEup_drc(n_layer, 0.0), d2Eup_drc(n_layer, 0.0);
+  for (size_t k = 0; k < n_layer; ++k) {
+    if (!(root_carbon_value_[k] > 0.0)) { continue; }
+    for (size_t i = 0; i < n_layer; ++i) {
+      if (!util::is_finite(dE_drc[i][k]) || !util::is_finite(dD_drc[i][k])) {
+        util::stop("TF24 gradient: layer " + util::to_string(static_cast<int>(i)) +
+                   " sits on a branch kink, so the root carbon's route into its "
+                   "flux does not exist");
+      }
+      dEup_drc[k] += dE_drc[i][k];
+      d2Eup_drc[k] += dD_drc[i][k];
     }
   }
-  if (deepest == n_layer) {
-    util::stop("TF24 gradient: no layer both carries roots and moves water, so "
-               "the water response has no second direction to be read along");
+  // Whichever layer's carbon reaches total uptake hardest: the best-conditioned
+  // direction of the family it is meant to serve.
+  size_t anchor = n_layer;
+  double anchor_reach = 0.0;
+  for (size_t k = 0; k < n_layer; ++k) {
+    if (root_carbon_value_[k] > 0.0 && std::abs(dEup_drc[k]) > anchor_reach) {
+      anchor_reach = std::abs(dEup_drc[k]);
+      anchor = k;
+    }
   }
-  const double r_base = root_network_.r_R_V_sum[deepest];
-  const double h_r = std::abs(r_base) * fit_step;
-  std::vector<double> dEup_dr(n_layer, 0.0), d2Eup_dcollar_dr(n_layer, 0.0);
-  double dR_dr = 0.0;
-  {
-    const double restore = root_network_.r_R_V_sum[deepest];
-    root_network_.r_R_V_sum[deepest] = restore + h_r;
-    const double m_up = marginal_at(radiation_value, psi_value);
-    std::vector<double> e_up, de_up;
-    leaf.dE_from_soil_dpsi_collar_by_layer(collar, psi_value, de_up);
-    const double eup_up = leaf.E_up_;
-    root_network_.r_R_V_sum[deepest] = restore - h_r;
-    const double m_dn = marginal_at(radiation_value, psi_value);
-    std::vector<double> de_dn;
-    leaf.dE_from_soil_dpsi_collar_by_layer(collar, psi_value, de_dn);
-    const double eup_dn = leaf.E_up_;
-    root_network_.r_R_V_sum[deepest] = restore;
-    dR_dr = (m_up - m_dn) / (2.0 * h_r);
-    double sum_up = 0.0, sum_dn = 0.0;
-    for (size_t j = 0; j < n_layer; ++j) { sum_up += de_up[j]; sum_dn += de_dn[j]; }
-    dEup_dr[deepest] = (eup_up - eup_dn) / (2.0 * h_r);
-    d2Eup_dcollar_dr[deepest] = (sum_up - sum_dn) / (2.0 * h_r);
+  if (anchor == n_layer) {
+    util::stop("TF24 gradient: no layer's root carbon reaches total uptake, so "
+               "the water response has no direction to be read along");
   }
-  // Put the leaf back where its own solve left it, so everything read after this
-  // is the operating point the value came from.
-  drive(radiation_value, psi_value, kmax_value);
-  leaf.evaluate_root_collar_psi(collar);
 
-  // The pair, from the two directions. Refuse a pairing that cannot separate
-  // them rather than absorbing one into the other.
-  const double a11 = dEup_dpsi[wettest], a12 = d2Eup_dcollar_dpsi[wettest];
-  const double a21 = dEup_dr[deepest], a22 = d2Eup_dcollar_dr[deepest];
-  const double det = a11 * a22 - a12 * a21;
-  const double scale = (std::abs(a11) + std::abs(a12)) *
-                       (std::abs(a21) + std::abs(a22));
-  if (!util::is_finite(det) || std::abs(det) < 1e-6 * scale) {
-    util::stop("TF24 gradient: the two directions the leaf's water response is "
-               "read along cannot be told apart here, so the pair of scalars "
-               "they fix is not determined");
+  const double base_rc = root_carbon_value_[anchor];
+  const double h_rc = base_rc * fit_step;
+  double m_rc_up = 0.0, m_rc_dn = 0.0;
+  for (int side = 0; side < 2; ++side) {
+    root_carbon_value_[anchor] = base_rc + (side == 0 ? h_rc : -h_rc);
+    rebuild_roots();
+    seat_at(radiation_value, psi_value, kmax_value);
+    (side == 0 ? m_rc_up : m_rc_dn) = leaf.dprofit_droot_collar_psi(collar);
   }
-  const double a = (dR_dpsi0 * a22 - dR_dr * a12) / det;
-  const double b = (a11 * dR_dr - a21 * dR_dpsi0) / det;
-  if (!util::is_finite(a) || !util::is_finite(b)) {
-    util::stop("TF24 gradient: the two scalars the water response is built from "
-               "are not finite -- dR/dpsi=" + util::to_string(dR_dpsi0) +
-               " dR/dr=" + util::to_string(dR_dr) +
-               " dEup/dpsi=" + util::to_string(a11) +
-               " d2Eup=" + util::to_string(a12) +
-               " dEup/dr=" + util::to_string(a21) +
-               " d2Eup_r=" + util::to_string(a22));
+  root_carbon_value_[anchor] = base_rc;
+  rebuild_roots();
+  seat_at(radiation_value, psi_value, kmax_value);
+  const double dR_drc_anchor = (m_rc_up - m_rc_dn) / (2.0 * h_rc);
+
+  const double a = (dR_drc_anchor - b * d2Eup_drc[anchor]) / dEup_drc[anchor];
+  if (!util::is_finite(a)) {
+    util::stop("TF24 gradient: the first coefficient of the water response is "
+               "not finite -- dR/drc=" + util::to_string(dR_drc_anchor) +
+               " b=" + util::to_string(b) +
+               " dEup/drc=" + util::to_string(dEup_drc[anchor]));
   }
 
   // The maximum leaf-specific conductance is not in the span the pair above
@@ -1166,47 +1153,28 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   }
   const double dcollar_dkmax = -dR_dkmax / curvature;
 
-  // The root carbon each layer holds, read the same way. It reaches the leaf
-  // only by way of the resistances the architecture model builds from it, so the
-  // perturbation is applied to the carbon and the network rebuilt, never to the
-  // network directly: the two sides share a convention about what the carbon is
-  // per unit of, and only this side can see it.
+  // The root carbon each layer holds. Every quantity below is analytic: the
+  // per-layer supply comes from the map the architecture model defines, which is
+  // plain arithmetic with no interpolant in it, and the collar's own response
+  // from the two coefficients above.
   std::vector<double> dprofit_drc(n_layer, 0.0), dcollar_drc(n_layer, 0.0);
   std::vector<std::vector<double>> dE_drc_frozen(
       n_layer, std::vector<double>(n_layer, 0.0));
-  for (size_t a = 0; a < n_layer; ++a) {
-    const double base_rc = root_carbon_value_[a];
-    if (!(base_rc > 0.0)) {
+  for (size_t k = 0; k < n_layer; ++k) {
+    if (!(root_carbon_value_[k] > 0.0)) {
       continue;   // a layer with no roots moves no water, and that zero is the model
     }
-    const double h_rc = base_rc * fit_step;
-    double p_up = 0.0, p_dn = 0.0, m_up = 0.0, m_dn = 0.0;
-    std::vector<double> u_up(n_layer), u_dn(n_layer);
-    for (int side = 0; side < 2; ++side) {
-      root_carbon_value_[a] = base_rc + (side == 0 ? h_rc : -h_rc);
-      rebuild_roots();
-      seat_at(radiation_value, psi_value, kmax_value);
-      (side == 0 ? p_up : p_dn) = leaf.profit_;
-      (side == 0 ? m_up : m_dn) = leaf.dprofit_droot_collar_psi(collar);
-      for (size_t i = 0; i < n_layer; ++i) {
-        (side == 0 ? u_up : u_dn)[i] = leaf.soil_consumption_[i];
-      }
-    }
-    root_carbon_value_[a] = base_rc;
-    dprofit_drc[a] = (p_up - p_dn) / (2.0 * h_rc);
-    const double dR_drc = (m_up - m_dn) / (2.0 * h_rc);
-    if (!util::is_finite(dprofit_drc[a]) || !util::is_finite(dR_drc)) {
-      util::stop("TF24 gradient: layer " + util::to_string(static_cast<int>(a)) +
-                 "'s root carbon moves the leaf by an amount that is not finite");
-    }
-    dcollar_drc[a] = -dR_drc / curvature;
     for (size_t i = 0; i < n_layer; ++i) {
-      dE_drc_frozen[i][a] = (u_up[i] - u_dn[i]) / (2.0 * h_rc);
+      // soil_consumption_ is in mol and these are the kg quantities, so the
+      // frozen row carries the same conversion the collar's does.
+      dE_drc_frozen[i][k] = to_mol_flux * dE_drc[i][k];
     }
+    const double dR_drc = a * dEup_drc[k] + b * d2Eup_drc[k];
+    dcollar_drc[k] = -dR_drc / curvature;
+    // At a frozen collar profit sees the carbon only through total uptake and
+    // thence the stem potential, and that chain is the second coefficient.
+    dprofit_drc[k] = b * dEup_drc[k];
   }
-  // Put the network back to the one the value came from.
-  rebuild_roots();
-  seat_at(radiation_value, psi_value, kmax_value);
 
   // The leaf's own traits. It holds them, so the route to most of their rows is
   // to move one and re-solve: two evaluations each, which is what phylloptim's
@@ -1329,7 +1297,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // The value below is soil_consumption_, in mol; every partial above it is
   // built from the leaf's kg-based flux accessors. The two are different units
   // by design, so the rows carry the same conversion the value already did.
-  const double to_mol = 1.0 / phylloptim::kg_per_mol_h2o;
+  const double to_mol = to_mol_flux;
   for (size_t i = 0; i < n_layer; ++i) {
     against.clear();
     against.push_back({radiation, to_mol * dE_dcollar[i] * dcollar_dlight});
