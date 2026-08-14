@@ -184,7 +184,15 @@ private:
     // the grid rather than on its last node.
     const size_t wanted =
       static_cast<size_t>(std::ceil(top / knot_spacing_)) + 2;
-    if (spline.size() < wanted) {
+    // Long enough is not the whole test: set_fixed_value() and a restored state
+    // both leave a grid this class did not lay out, and one of those can be long
+    // enough while sitting somewhere else entirely. Read whether the grid is the
+    // lattice off the grid rather than remembering it, so the two cannot drift.
+    const size_t held = spline.size();
+    const bool on_lattice =
+      held >= 2 && spline.knots()[1] == knot_spacing_ &&
+      spline.max() == static_cast<double>(held - 1) * knot_spacing_;
+    if (!on_lattice || held < wanted) {
       std::vector<double> x(wanted);
       for (size_t k = 0; k < wanted; ++k) {
         x[k] = static_cast<double>(k) * knot_spacing_;
