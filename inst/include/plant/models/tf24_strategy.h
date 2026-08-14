@@ -509,9 +509,10 @@ public:
   // handed to it, leaving the operating point unsolved. It is the caller's,
   // because the caller is what owns those inputs; the leaf never sees an active
   // value and this function never solves.
-  template <typename Drive>
+  template <typename Drive, typename Rebuild>
   void record_leaf_outputs(const S& radiation, const std::vector<S>& psi_soil,
-                           const S& conductance_max, Drive drive);
+                           const S& conductance_max,
+                           Drive drive, Rebuild rebuild_roots);
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
@@ -980,11 +981,11 @@ S TF24_Strategy<S>::record_with_derivatives(
 // part in 10^4, and the condition number below is what refuses that rather than
 // absorbing it.
 template <typename S>
-template <typename Drive>
+template <typename Drive, typename Rebuild>
 void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                                            const std::vector<S>& psi_soil,
                                            const S& conductance_max,
-                                           Drive drive) {
+                                           Drive drive, Rebuild rebuild_roots) {
   using odelia::util::to_passive;
   namespace grad = phylloptim::gradient;
 
@@ -1004,8 +1005,6 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   }
 
   const double collar = leaf.opt_root_psi_;
-  // The leaf reports per-layer uptake in mol and every flux derivative in kg.
-  const double to_mol_flux = 1.0 / phylloptim::kg_per_mol_h2o;
   const double radiation_value = to_passive(radiation);
   const std::vector<double>& psi_value = psi_soil_value_;
 
@@ -1131,7 +1130,6 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   }
   const double a = (dR_dpsi0 * a22 - dR_dr * a12) / det;
   const double b = (a11 * dR_dr - a21 * dR_dpsi0) / det;
-  const double a_scalar = a, b_scalar = b;
   if (!util::is_finite(a) || !util::is_finite(b)) {
     util::stop("TF24 gradient: the two scalars the water response is built from "
                "are not finite -- dR/dpsi=" + util::to_string(dR_dpsi0) +
@@ -1168,54 +1166,47 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   }
   const double dcollar_dkmax = -dR_dkmax / curvature;
 
-  // The root carbon each layer holds. It reaches the leaf only through the two
-  // resistances the architecture model builds from it, and that map is plain
-  // arithmetic -- no interpolant, no grid -- so the supply side differentiates
-  // it exactly and this family needs no re-solve at all.
-  //
-  // The blocks are lower-triangular: the horizontal resistance is the layer's
-  // own, the vertical one is cumulative, so layer a's carbon reaches every layer
-  // at or below it. The collar column cannot supply this, because the cumulative
-  // term has no collar dependence and drops out of it.
+  // The root carbon each layer holds, read the same way. It reaches the leaf
+  // only by way of the resistances the architecture model builds from it, so the
+  // perturbation is applied to the carbon and the network rebuilt, never to the
+  // network directly: the two sides share a convention about what the carbon is
+  // per unit of, and only this side can see it.
   std::vector<double> dprofit_drc(n_layer, 0.0), dcollar_drc(n_layer, 0.0);
   std::vector<std::vector<double>> dE_drc_frozen(
       n_layer, std::vector<double>(n_layer, 0.0));
-  {
-    std::vector<std::vector<double>> dE_drc, dD_drc;
-    leaf.roots_.duptake_droot_carbon(collar, psi_value, dE_drc, dD_drc);
-    for (size_t a = 0; a < n_layer; ++a) {
-      if (!(root_carbon_value_[a] > 0.0)) {
-        continue;   // a layer with no roots moves no water, and that zero is the model
-      }
-      double dEup_drc = 0.0, d2Eup_dcollar_drc = 0.0;
+  for (size_t a = 0; a < n_layer; ++a) {
+    const double base_rc = root_carbon_value_[a];
+    if (!(base_rc > 0.0)) {
+      continue;   // a layer with no roots moves no water, and that zero is the model
+    }
+    const double h_rc = base_rc * fit_step;
+    double p_up = 0.0, p_dn = 0.0, m_up = 0.0, m_dn = 0.0;
+    std::vector<double> u_up(n_layer), u_dn(n_layer);
+    for (int side = 0; side < 2; ++side) {
+      root_carbon_value_[a] = base_rc + (side == 0 ? h_rc : -h_rc);
+      rebuild_roots();
+      seat_at(radiation_value, psi_value, kmax_value);
+      (side == 0 ? p_up : p_dn) = leaf.profit_;
+      (side == 0 ? m_up : m_dn) = leaf.dprofit_droot_collar_psi(collar);
       for (size_t i = 0; i < n_layer; ++i) {
-        if (!util::is_finite(dE_drc[i][a]) || !util::is_finite(dD_drc[i][a])) {
-          util::stop("TF24 gradient: layer " +
-                     util::to_string(static_cast<int>(i)) +
-                     " sits on a branch kink, so the root carbon's route into "
-                     "its flux does not exist");
-        }
-        dEup_drc += dE_drc[i][a];
-        d2Eup_dcollar_drc += dD_drc[i][a];
-        // soil_consumption_ is in mol and these are the kg quantities, so the
-        // frozen row carries the same conversion the collar's does.
-        dE_drc_frozen[i][a] = to_mol_flux * dE_drc[i][a];
+        (side == 0 ? u_up : u_dn)[i] = leaf.soil_consumption_[i];
       }
-      // The same two scalars the potentials are read through: the carbon
-      // directions are inside the span they factor, which is what report 05's
-      // rank-two result says and what report 08 checks out of sample.
-      const double dR_drc = a_scalar * dEup_drc + b_scalar * d2Eup_dcollar_drc;
-      dcollar_drc[a] = -dR_drc / curvature;
-      // At a frozen collar profit sees the carbon only through total uptake and
-      // thence the stem potential, and that chain is the second scalar itself:
-      // b is dR/d(dEup/dp), which is the stem's marginal profit times the
-      // transport slope over the conductance -- the same product this row wants.
-      // Measured against a difference of the profit at wet, dry and shaded
-      // states, this sign is the one that holds; the opposite reads as a clean
-      // factor of -1.
-      dprofit_drc[a] = b_scalar * dEup_drc;
+    }
+    root_carbon_value_[a] = base_rc;
+    dprofit_drc[a] = (p_up - p_dn) / (2.0 * h_rc);
+    const double dR_drc = (m_up - m_dn) / (2.0 * h_rc);
+    if (!util::is_finite(dprofit_drc[a]) || !util::is_finite(dR_drc)) {
+      util::stop("TF24 gradient: layer " + util::to_string(static_cast<int>(a)) +
+                 "'s root carbon moves the leaf by an amount that is not finite");
+    }
+    dcollar_drc[a] = -dR_drc / curvature;
+    for (size_t i = 0; i < n_layer; ++i) {
+      dE_drc_frozen[i][a] = (u_up[i] - u_dn[i]) / (2.0 * h_rc);
     }
   }
+  // Put the network back to the one the value came from.
+  rebuild_roots();
+  seat_at(radiation_value, psi_value, kmax_value);
 
   // The leaf's own traits. It holds them, so the route to most of their rows is
   // to move one and re-solve: two evaluations each, which is what phylloptim's
@@ -1338,7 +1329,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // The value below is soil_consumption_, in mol; every partial above it is
   // built from the leaf's kg-based flux accessors. The two are different units
   // by design, so the rows carry the same conversion the value already did.
-  const double to_mol = to_mol_flux;
+  const double to_mol = 1.0 / phylloptim::kg_per_mol_h2o;
   for (size_t i = 0; i < n_layer; ++i) {
     against.clear();
     against.push_back({radiation, to_mol * dE_dcollar[i] * dcollar_dlight});
@@ -1938,8 +1929,15 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
                           environment.get_atm_o2_kpa(),
                           environment.get_atm_kpa());
     };
+    // The architecture model is this strategy's, so the leaf boundary is handed
+    // a rebuild rather than the layer thickness and the two betas.
+    auto rebuild_roots = [&]() -> void {
+      phylloptim::root_network_from_carbon(
+          root_carbon_value_, phylloptim::layer_thickness(soil_depths_),
+          beta_R_H, beta_R_V, root_network_);
+    };
     record_leaf_outputs(radiation_used, psi_soil,
-                        leaf_specific_conductance_max, drive);
+                        leaf_specific_conductance_max, drive, rebuild_roots);
     profit_ = leaf_profit_;
   }
   const S assimilation_ = profit_ * area_leaf_* 60*60*12*365/1e6;
