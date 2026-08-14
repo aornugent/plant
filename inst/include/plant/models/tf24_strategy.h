@@ -1223,16 +1223,30 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   const bool lt_seeded[n_leaf_trait] = {false, true, true, true, true, true,
                                         true, true, false, true, true, true,
                                         true};
+  // psi_crit and root_psi_crit set the dry bound of an interval the operating
+  // point is strictly inside, so complementary slackness makes their rows zero
+  // at an interior optimum -- which is the only kind of point this boundary
+  // answers for. They are live at a pin, so a branch that begins answering
+  // pinned points has to drive them again rather than read this list.
+  const bool lt_zero_at_interior[n_leaf_trait] = {
+      false, false, false, true,  false, false, true,
+      false, false, false, false, false, false};
+  // Dark respiration at 25 C is the leaf's own trait and no strategy parameter
+  // sets it, so the value the leaf was built with is read back and handed
+  // straight in. set_traits writes every trait it is given: passing anything
+  // else here would move respiration inside this loop and nowhere else, so the
+  // rows would be taken on a leaf the forward pass never ran.
+  const double R_d_25 = leaf.R_d_25;
   auto apply_leaf_traits = [&]() -> void {
     leaf.set_traits(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5], lt[6], lt[7],
-                    lt[8], lt[9], lt[10], lt[11], lt[12]);
+                    lt[8], lt[9], lt[10], lt[11], lt[12], R_d_25);
   };
   std::vector<double> dprofit_dlt(n_leaf_trait, 0.0),
       dcollar_dlt(n_leaf_trait, 0.0);
   std::vector<std::vector<double>> dE_dlt_frozen(
       n_layer, std::vector<double>(n_leaf_trait, 0.0));
   for (int k = 0; k < n_leaf_trait; ++k) {
-    if (!lt_seeded[k]) {
+    if (!lt_seeded[k] || lt_zero_at_interior[k]) {
       continue;
     }
     const double base_t = lt[k];
