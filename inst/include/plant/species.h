@@ -323,15 +323,10 @@ public:
   strategy_type_ptr strategy_ptr() const {return this->strategy;}
 
 private:
-  // compute_competition() for the case where the node heights are no longer
-  // ordered, so the node list cannot be used directly as the quadrature grid.
-  // Height coordinate only -- it integrates in height, and the birth-date
-  // abscissa cannot invert (see compute_competition).
-  value_type compute_competition_unordered(double height,
-                                           bool include_boundary) const;
-
-  // compute_competition_and_slope() over a height-sorted view, for the same
-  // broken-ordering case compute_competition_unordered() handles.
+  // The fused reduction over a height-sorted view, for the case where the node
+  // heights are no longer ordered and the node list cannot be used directly as
+  // the quadrature grid. Height coordinate only -- it integrates in height, and
+  // the birth-date abscissa cannot invert (see compute_competition).
   std::pair<value_type, value_type>
   compute_competition_and_slope_unordered(double height,
                                           bool include_boundary) const;
@@ -539,75 +534,18 @@ template <typename T, typename E>
 typename Species<T,E>::value_type
 Species<T,E>::compute_competition_impl(double height,
                                        bool include_boundary) const {
-  if (size() == 0) {
-    return value_type(0.0);
-  }
-  const HeightScan scan = scan_heights();
-  if (scan.h_max < height) {
-    return value_type(0.0);
-  }
-  // Read the coordinate once: this is the hottest loop in the solver (one pass
-  // per spline knot per Runge-Kutta stage), so the control lookup does not
-  // belong inside it.
-  const bool birth_date = control().node_density_in_birth_date;
-  // The loop below uses the node list itself as the quadrature grid, and the
-  // early exit is valid only if that grid is monotone. When it is not, the exit
-  // fires at the first node below `height` and silently drops every node beyond
-  // it -- including, in #571, the only cohort with non-zero density, which put a
-  // fictitious step in the competition profile. Take the ordered path instead.
-  // Heights only, so the usual (ordered) case keeps this loop and its results
-  // exactly.
+  // The value is the fused reduction's first entry, and taking it from there is
+  // what makes them equal rather than a test's business. The two walked the same
+  // grid with the same early exit and the same closing trapezium, and a value
+  // and a slope from sums that associate differently disagree in their last
+  // bits, so the agreement had to be asserted over a grid of heights and crown
+  // shapes. One walk cannot disagree with itself.
   //
-  // Only the height abscissa can invert. Introduction times are fixed at birth
-  // and nodes are appended in that order, so the birth-date grid is monotone
-  // whatever the heights do -- and compute_competition_unordered integrates in
-  // height, so sending the birth-date coordinate down it would silently swap
-  // coordinates mid-run.
-  if (!birth_date && !scan.decreasing) {
-    return compute_competition_unordered(height, include_boundary);
-  }
-  value_type tot = 0.0;
-  nodes_const_iterator it = nodes.begin();
-  // x1/f1 are the taller end of the interval and its contribution, x0/f0 the
-  // lower end and its; each pair comes from one node, and the width multiplies
-  // the sum of the two contributions.
-  value_type x1 = abscissa_of(*it, birth_date),
-             f1 = it->compute_competition(height);
-
-  // Loop over nodes
-  for (++it; it != nodes.end(); ++it) {
-    const value_type x0 = abscissa_of(*it, birth_date), h0 = it->height(),
-                     f0 = it->compute_competition(height);
-    if (!util::is_finite(f0)) {
-      util::stop("Detected non-finite contribution");
-    }
-    // Integration
-    tot += (x0 - x1) * (f1 + f0);
-    // Upper point moves for next time:
-    x1 = x0;
-    f1 = f0;
-    // It is the decreasing height ordering, not the abscissa, that licenses
-    // stopping here: every later node is then shorter than `height` and
-    // contributes nothing. On the birth-date axis that ordering can break while
-    // the abscissa stays monotone, and a node below `height` may be followed by
-    // a taller one, so walk the whole list instead. Always true on the height
-    // path, which returned above otherwise.
-    if (scan.decreasing && h0 < height) {
-      break;
-    }
-  }
-
-  // On the birth-date axis this segment is zero-width at the moment of
-  // introduction and contributes nothing once the boundary node is below
-  // `height`, so it is always safe to include; f1 can legitimately be zero here
-  // when the walk ran to the end.
-  if (include_boundary && (size() == 1 || birth_date || f1 > 0)) {
-    const value_type x0 = abscissa_of(new_node, birth_date),
-                     f0 = new_node.compute_competition(height);
-    tot += (x0 - x1) * (f1 + f0);
-  }
-
-  return tot / 2;
+  // The slope costs an extra evaluation per node. Nothing on the field build's
+  // path arrives here -- it takes compute_competition_and_slope_split() and
+  // closes it -- so this serves the accessors, where the pair was already being
+  // computed one call away.
+  return compute_competition_and_slope_impl(height, include_boundary).first;
 }
 
 // The same trapezium integral as compute_competition(), and alongside it the
@@ -723,10 +661,10 @@ Species<T,E>::close_competition_and_slope(const competition_split& c,
   return {tot / 2, tot_slope / 2};
 }
 
-// The same trapezium integral as compute_competition(), but over a height-sorted
-// view of the nodes rather than the node list in place. Used only when the
-// ordering has broken (#571): it agrees with the in-place version whenever the
-// ordering holds, so this is a fallback rather than a change of method.
+// The trapezium integral and its vertical derivative over a height-sorted view
+// of the nodes rather than the node list in place. Used only when the ordering
+// has broken (#571): it agrees with the in-place version whenever the ordering
+// holds, so this is a fallback rather than a change of method.
 //
 // Dropping the zero-density nodes instead would be wrong. A node whose density
 // has collapsed to exactly zero contributes f = 0, and that zero is meaningful --
@@ -738,51 +676,6 @@ Species<T,E>::close_competition_and_slope(const competition_split& c,
 // below `height` contribute f = 0 at both ends, so including them costs time but
 // changes nothing. The scratch buffer is thread_local and reused, so the repeated
 // calls that build one spline do not each allocate.
-template <typename T, typename E>
-typename Species<T,E>::value_type
-Species<T,E>::compute_competition_unordered(double height,
-                                            bool include_boundary) const {
-  // Cleared on entry, so no element outlives the call that made it.
-  thread_local std::vector<std::pair<value_type, value_type>> hf;
-  hf.clear();
-  hf.reserve(size());
-
-  for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
-    const value_type f = it->compute_competition(height);
-    if (!util::is_finite(f)) {
-      util::stop("Detected non-finite contribution");
-    }
-    hf.push_back({it->height(), f});
-  }
-  // Ordering the quadrature grid is structural, so the key is compared and
-  // nothing here is differentiated.
-  std::sort(hf.begin(), hf.end(),
-            [](std::pair<value_type, value_type> const& a,
-               std::pair<value_type, value_type> const& b) {
-              return a.first > b.first;
-            });
-
-  value_type tot = 0.0;
-  value_type h1 = hf.front().first, f_h1 = hf.front().second;
-  for (size_t j = 1; j < hf.size(); ++j) {
-    const value_type h0 = hf[j].first, f_h0 = hf[j].second;
-    tot += (h1 - h0) * (f_h1 + f_h0);
-    h1   = h0;
-    f_h1 = f_h0;
-  }
-
-  if (include_boundary && (size() == 1 || f_h1 > 0)) {
-    const value_type h0 = new_node.height(),
-                     f_h0 = new_node.compute_competition(height);
-    tot += (h1 - h0) * (f_h1 + f_h0);
-  }
-
-  return tot / 2;
-}
-
-// compute_competition_unordered() with the vertical derivative alongside it. The
-// sort key and its tie-break are the same, so the two sums here also visit the
-// same nodes in the same order.
 template <typename T, typename E>
 std::pair<typename Species<T,E>::value_type,
           typename Species<T,E>::value_type>
@@ -974,7 +867,7 @@ Species<T,E>::consumption_rate(int i) const {
   // The node list is the quadrature grid here as it is in compute_competition,
   // so an inverted grid (#571) makes neighbouring trapezia cancel rather than
   // accumulate. Sort the pairs when the ordering has broken, as
-  // compute_competition_unordered does; an already-ascending grid is untouched.
+  // the sorted fallback does; an already-ascending grid is untouched.
   // The order is decided on the passive value: an ordering chosen on an active
   // key would make the recorded computation depend on the state.
   auto below = [](const value_type& a, const value_type& b) -> bool {
