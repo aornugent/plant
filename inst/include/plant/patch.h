@@ -165,10 +165,33 @@ public:
     std::vector<double> slope;
   };
 
+  // Everything one census metric's sweep accumulates. Several ride through the
+  // transpose together so that a block is RECORDED once and swept once per
+  // metric: the recording is a model evaluation and the sweep is arithmetic, so
+  // where a metric costs a recording it costs a hundred times what it needs to.
+  //
+  // It exists as a bundle rather than four parallel arguments because the
+  // batched forms would otherwise carry four vectors that must stay the same
+  // length and in the same order, and a transposed pair there is silent.
+  struct sweep_adjoints {
+    std::vector<double> state;
+    light_knot_adjoints knot;
+    std::vector<boundary_node_adjoints> boundary_node;
+  };
+
   // The mirror of ode_rates: the adjoints of dydt in, the adjoints of the state
   // out through the iterator ode_state would write to.
   template <class ItIn, class ItOut>
   ItOut ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y);
+
+  // The same transpose over several metrics at once. Everything that depends on
+  // the STATE -- the two boundary evaluations, the field rebuild, and every
+  // block recording -- runs once; only the seeding, the sweeps and the linear
+  // maps run per metric. That is report 05's record-once-sweep-many, and here
+  // the record is 99 per cent of the call.
+  void ode_rates_adjoint_batched(
+      const std::vector<std::vector<double>>& lambda_dydt,
+      std::vector<std::vector<double>>& lambda_y);
 
   size_t node_count() const;
 
@@ -200,7 +223,12 @@ public:
 
   // The trait adjoints, species-major in each strategy's ad_parameters() order.
   // One trait is one input every cohort at every step reads, so this accumulates.
-  std::vector<double> trait_adjoint;
+  //
+  // One ROW per census metric being swept. A sweep records a block once and
+  // sweeps it per metric, so the rows fill together and the accumulator has to
+  // be as wide as the batch; a single-metric caller reads row zero and is
+  // otherwise unaffected.
+  std::vector<std::vector<double>> trait_adjoint;
 
   // The knot adjoints the cohort blocks produced on the last sweep, kept so a
   // trait row can be read back as its block half and its reduction half rather
@@ -212,15 +240,22 @@ public:
   // species and character indexing then resolves each to species one's column,
   // which an unknown-name check cannot see.
   std::vector<std::string> trait_adjoint_names() const;
-  void clear_trait_adjoint();
+  void clear_trait_adjoint(size_t n_metrics = 1);
 
   // How large the recording grew on the last block, and how many blocks the one
   // tape has carried. Either climbing with the cohort count is the tape leaking.
   size_t block_recording_size = 0;
   size_t block_sweeps = 0;
 
-  // One recording and one sweep per cohort, on a tape held across the loop,
-  // seeded from the block output adjoints the closed-form steps left in `seeds`.
+  // One recording per cohort, on a tape held across the loop, swept once per
+  // seed set. `seeds[m]` and `out[m]` are one census metric's, and the cost of a
+  // metric past the first is its sweeps alone.
+  void cohort_block_adjoint(const std::vector<block_seeds>& seeds,
+                            std::vector<sweep_adjoints>& out);
+
+  // The same for one metric, accumulating into this patch's own trait and
+  // boundary-node adjoints. Every caller that is not the batched transpose takes
+  // this form.
   void cohort_block_adjoint(const block_seeds& seeds,
                             std::vector<double>& lambda_state,
                             light_knot_adjoints& lambda_knot);
@@ -236,17 +271,24 @@ public:
   // seedling's physiology reads and every other cohort's state through the
   // field. Dropping them narrows the width just as well and returns a gradient
   // that is finite, correctly signed and wrong.
+  // `metric` selects the row of trait_adjoint the newcomer's trait rows land
+  // in, for allometry_adjoint's reason.
   void introduction_adjoint(const std::vector<size_t>& species_index,
                             const std::vector<double>& state_before,
                             double time_before,
                             const std::vector<double>& lambda_after,
-                            std::vector<double>& lambda_before);
+                            std::vector<double>& lambda_before,
+                            size_t metric = 0);
 
   // The soil drainage cascade and the water aggregation above it, which
   // between them write the soil state adjoints and the per-cohort uptake.
+  // `boundary_out` takes the boundary node's own rows, which no ODE row holds.
+  // It is a parameter rather than this patch's member because a batched sweep
+  // fills one set per census metric.
   void soil_adjoint(const std::vector<double>& lambda_dydt,
                     std::vector<double>& lambda_state,
-                    block_seeds& seeds);
+                    block_seeds& seeds,
+                    std::vector<boundary_node_adjoints>& boundary_out);
 
   // offspring_produced_survival_weighted_dt, which reaches the fecundity rate
   // and, through exp(-mortality), the mortality state directly.
@@ -261,8 +303,12 @@ public:
 
   // The leaf-area adjoints folded onto height, and the whole of `sizes`
   // scattered into the state adjoints.
+  // `metric` selects which row of trait_adjoint the reduction's own trait rows
+  // accumulate into, because a batched sweep fills one per census metric.
   void allometry_adjoint(const std::vector<node_size_adjoints>& sizes,
-                         std::vector<double>& lambda_state);
+                         std::vector<double>& lambda_state,
+                         std::vector<boundary_node_adjoints>& boundary_out,
+                         size_t metric = 0);
 
   // The boundary node's density adjoints pulled back through the condition that
   // sets it, which is the whole of the inflow boundary's contribution: the adjoint
@@ -276,9 +322,13 @@ public:
   //
   // The two densities are the ones the accumulators were taken at, read at the
   // points the stage's own two evaluations were restored.
+  //
+  // Batched over metrics for cohort_block_adjoint's reason: the condition is a
+  // physiology evaluation at the seed's size, so recording it once and sweeping
+  // it per metric is what keeps a metric past the first cheap.
   void boundary_condition_adjoint(const std::vector<double>& density_in_field,
                                   const std::vector<double>& density_in_uptake,
-                                  std::vector<double>& lambda_state);
+                                  std::vector<sweep_adjoints>& out);
 
   // Each species' inflow boundary density, as the patch now holds it.
   std::vector<double> boundary_density() const;
@@ -1496,7 +1546,8 @@ size_t Patch<T,E>::reduction_node_count() const {
 template <typename T, typename E>
 void Patch<T,E>::soil_adjoint(const std::vector<double>& lambda_dydt,
                               std::vector<double>& lambda_state,
-                              block_seeds& seeds) {
+                              block_seeds& seeds,
+                              std::vector<boundary_node_adjoints>& boundary_out) {
   const size_t n_env = environment.ode_size();
   const size_t env_offset = ode_size() - n_env;
   const size_t n_resource = environment.n_resources();
@@ -1542,9 +1593,8 @@ void Patch<T,E>::soil_adjoint(const std::vector<double>& lambda_dydt,
       for (size_t j = 0; j <= species[i].size(); ++j, ++slot) {
         seeds.uptake[slot * n_resource + r] += per_node[slot].uptake;
         if (j == species[i].size()) {
-          boundary_node_adjoint[i].height += per_node[slot].height;
-          boundary_node_adjoint[i].density_in_uptake +=
-            per_node[slot].log_density;
+          boundary_out[i].height += per_node[slot].height;
+          boundary_out[i].density_in_uptake += per_node[slot].log_density;
           continue;
         }
         lambda_state[state_at * node_stride + HEIGHT_INDEX] +=
@@ -1617,16 +1667,18 @@ std::vector<std::string> Patch<T,E>::trait_adjoint_names() const {
 }
 
 template <typename T, typename E>
-void Patch<T,E>::clear_trait_adjoint() {
-  trait_adjoint.assign(trait_adjoint_size(), 0.0);
+void Patch<T,E>::clear_trait_adjoint(size_t n_metrics) {
+  if (n_metrics == 0) {
+    util::stop("clear_trait_adjoint: a sweep accumulates for at least one metric");
+  }
+  trait_adjoint.assign(n_metrics, std::vector<double>(trait_adjoint_size(), 0.0));
 }
 
 // The block: Individual::compute_rates at the active scalar, recorded once per
 // cohort and swept once, with the leaf held constant at its declared boundary.
 template <typename T, typename E>
-void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
-                                      std::vector<double>& lambda_state,
-                                      light_knot_adjoints& lambda_knot) {
+void Patch<T,E>::cohort_block_adjoint(const std::vector<block_seeds>& seeds,
+                                      std::vector<sweep_adjoints>& out) {
   using scalar = odelia::ode::active_scalar<double>;
   using active_strategy = typename at_scalar<scalar>::template apply<T>;
   using active_environment = typename at_scalar<scalar>::template apply<E>;
@@ -1639,7 +1691,8 @@ void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
   // from doubles with no tape active, and are only ever copied from.
   struct block_state {
     typename scalar::tape_type tape{false};
-    std::vector<double> in, out_adjoint, in_adjoint;
+    std::vector<double> in;
+    std::vector<std::vector<double>> out_adjoint, in_adjoint;
     std::vector<active_strategy> strategy_template;
     active_environment environment_template;
   };
@@ -1650,18 +1703,22 @@ void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
   const size_t n_layer = static_cast<size_t>(environment.get_soil_number_of_depths());
   const size_t node_stride = node_type::ode_size();
   const size_t env_offset = ode_size() - environment.ode_size();
-  util::check_length(lambda_state.size(), ode_size());
-  util::check_length(seeds.rate.size(), reduction_node_count() * n_state);
-  util::check_length(seeds.transport.size(), reduction_node_count());
-  util::check_length(seeds.uptake.size(), reduction_node_count() * n_resource);
-  util::check_length(lambda_knot.value.size(), n_knot);
-  util::check_length(lambda_knot.slope.size(), n_knot);
-  if (trait_adjoint.size() != trait_adjoint_size()) {
-    clear_trait_adjoint();
+  const size_t n_seed = seeds.size();
+  if (n_seed == 0) {
+    util::stop("cohort_block_adjoint: needs at least one seed set");
   }
-  if (boundary_node_adjoint.size() != species.size()) {
-    boundary_node_adjoint.assign(species.size(),
-                                 boundary_node_adjoints{0, 0, 0, 0, 0});
+  util::check_length(out.size(), n_seed);
+  for (size_t m = 0; m < n_seed; ++m) {
+    util::check_length(out[m].state.size(), ode_size());
+    util::check_length(seeds[m].rate.size(), reduction_node_count() * n_state);
+    util::check_length(seeds[m].transport.size(), reduction_node_count());
+    util::check_length(seeds[m].uptake.size(), reduction_node_count() * n_resource);
+    util::check_length(out[m].knot.value.size(), n_knot);
+    util::check_length(out[m].knot.slope.size(), n_knot);
+    if (out[m].boundary_node.size() != species.size()) {
+      out[m].boundary_node.assign(species.size(),
+                                  boundary_node_adjoints{0, 0, 0, 0, 0});
+    }
   }
 
   if (!block_workspace) {
@@ -1700,13 +1757,16 @@ void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
       ws.in.resize(individual.block_input_size(block_environment));
       node.individual.block_inputs(ws.in.begin(), environment);
 
-      ws.out_adjoint.assign(n_state + 1 + n_resource, 0.0);
-      for (size_t s = 0; s < n_state; ++s) {
-        ws.out_adjoint[s] = seeds.rate[k * n_state + s];
-      }
-      ws.out_adjoint[n_state] = seeds.transport[k];
-      for (size_t r = 0; r < n_resource; ++r) {
-        ws.out_adjoint[n_state + 1 + r] = seeds.uptake[k * n_resource + r];
+      ws.out_adjoint.assign(n_seed,
+                            std::vector<double>(n_state + 1 + n_resource, 0.0));
+      for (size_t m = 0; m < n_seed; ++m) {
+        for (size_t s = 0; s < n_state; ++s) {
+          ws.out_adjoint[m][s] = seeds[m].rate[k * n_state + s];
+        }
+        ws.out_adjoint[m][n_state] = seeds[m].transport[k];
+        for (size_t r = 0; r < n_resource; ++r) {
+          ws.out_adjoint[m][n_state + 1 + r] = seeds[m].uptake[k * n_resource + r];
+        }
       }
 
       // The transport term inside block_outputs evaluates the cohort a second
@@ -1718,45 +1778,76 @@ void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
         individual.compute_rates(block_environment);
         individual.block_outputs(y.begin(), block_environment);
       };
-      block_recording_size = odelia::ode::vector_jacobian_product(
+      // ONE recording of the block, swept once per metric. The block is a model
+      // evaluation and a sweep is arithmetic, so a metric past the first is
+      // nearly free -- which is the whole of this function's economy.
+      block_recording_size = odelia::ode::vector_jacobian_products(
         ws.tape, ws.in, ws.out_adjoint, block, ws.in_adjoint);
       ++block_sweeps;
 
-      size_t at = 0;
-      for (size_t s = 0; s < n_state; ++s) {
-        const double row = ws.in_adjoint[at++];
-        if (boundary) {
-          // No ODE row holds the boundary node's states: its height solves the
-          // seed's own condition and the rest are the inflow condition's.
-          if (s == HEIGHT_INDEX) {
-            boundary_node_adjoint[i].height += row;
+      for (size_t m = 0; m < n_seed; ++m) {
+        const std::vector<double>& row_in = ws.in_adjoint[m];
+        size_t at = 0;
+        for (size_t s = 0; s < n_state; ++s) {
+          const double row = row_in[at++];
+          if (boundary) {
+            // No ODE row holds the boundary node's states: its height solves the
+            // seed's own condition and the rest are the inflow condition's.
+            if (s == HEIGHT_INDEX) {
+              out[m].boundary_node[i].height += row;
+            }
+            continue;
           }
-          continue;
+          out[m].state[state_at * node_stride + s] += row;
         }
-        lambda_state[state_at * node_stride + s] += row;
+        for (size_t c = 0; c < n_knot; ++c) {
+          out[m].knot.value[c] += row_in[at++];
+        }
+        for (size_t c = 0; c < n_knot; ++c) {
+          out[m].knot.slope[c] += row_in[at++];
+        }
+        for (size_t layer = 0; layer < n_layer; ++layer) {
+          out[m].state[env_offset + layer] +=
+            row_in[at++] *
+            environment.dpsi_from_soil_moist_dtheta(
+              odelia::util::to_passive(environment.vars.state(layer)), layer);
+        }
+        for (size_t p = 0; p < n_trait; ++p) {
+          trait_adjoint[m][trait_at + p] += row_in[at++];
+        }
+        util::check_length(at, ws.in.size());
       }
-      for (size_t c = 0; c < n_knot; ++c) {
-        lambda_knot.value[c] += ws.in_adjoint[at++];
-      }
-      for (size_t c = 0; c < n_knot; ++c) {
-        lambda_knot.slope[c] += ws.in_adjoint[at++];
-      }
-      for (size_t layer = 0; layer < n_layer; ++layer) {
-        lambda_state[env_offset + layer] +=
-          ws.in_adjoint[at++] *
-          environment.dpsi_from_soil_moist_dtheta(
-            odelia::util::to_passive(environment.vars.state(layer)), layer);
-      }
-      for (size_t p = 0; p < n_trait; ++p) {
-        trait_adjoint[trait_at + p] += ws.in_adjoint[at++];
-      }
-      util::check_length(at, ws.in.size());
       if (!boundary) {
         ++state_at;
       }
     }
     trait_at += n_trait;
   }
+}
+
+// One metric's sweep, accumulating into this patch's own trait and boundary-node
+// adjoints. The batched form is the real one; this packs the members into a single
+// seed set and unpacks them again, so a caller outside the transpose is unchanged.
+template <typename T, typename E>
+void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
+                                      std::vector<double>& lambda_state,
+                                      light_knot_adjoints& lambda_knot) {
+  if (trait_adjoint.size() != 1 ||
+      trait_adjoint[0].size() != trait_adjoint_size()) {
+    clear_trait_adjoint();
+  }
+  if (boundary_node_adjoint.size() != species.size()) {
+    boundary_node_adjoint.assign(species.size(),
+                                 boundary_node_adjoints{0, 0, 0, 0, 0});
+  }
+  std::vector<sweep_adjoints> out(1);
+  out[0].state = std::move(lambda_state);
+  out[0].knot = std::move(lambda_knot);
+  out[0].boundary_node = std::move(boundary_node_adjoint);
+  cohort_block_adjoint(std::vector<block_seeds>{seeds}, out);
+  lambda_state = std::move(out[0].state);
+  lambda_knot = std::move(out[0].knot);
+  boundary_node_adjoint = std::move(out[0].boundary_node);
 }
 
 // The traits go in before the state: area_leaf(height) reads lma, so a state set
@@ -1832,13 +1923,15 @@ void Patch<T,E>::introduction_adjoint(const std::vector<size_t>& species_index,
                                       const std::vector<double>& state_before,
                                       double time_before,
                                       const std::vector<double>& lambda_after,
-                                      std::vector<double>& lambda_before) {
+                                      std::vector<double>& lambda_before,
+                                      size_t metric) {
   using scalar = odelia::ode::active_scalar<double>;
   using active_strategy = typename at_scalar<scalar>::template apply<T>;
   const size_t n_trait = trait_adjoint_size();
   util::check_length(state_before.size(), ode_size());
-  if (trait_adjoint.size() != n_trait) {
-    clear_trait_adjoint();
+  if (trait_adjoint.size() <= metric ||
+      trait_adjoint[metric].size() != n_trait) {
+    clear_trait_adjoint(metric + 1);
   }
 
   // The recording below emits the WHOLE widened state, so which widened row each
@@ -1880,7 +1973,7 @@ void Patch<T,E>::introduction_adjoint(const std::vector<size_t>& species_index,
     lambda_before[j] = in_adjoint[j];
   }
   for (size_t p = 0; p < n_trait; ++p) {
-    trait_adjoint[p] += in_adjoint[n_state + p];
+    trait_adjoint[metric][p] += in_adjoint[n_state + p];
   }
 }
 
@@ -1927,11 +2020,14 @@ void Patch<T,E>::light_knot_adjoint(const light_knot_adjoints& lambda_knot,
 // input read by every node of its species, so its row is a sum over them.
 template <typename T, typename E>
 void Patch<T,E>::allometry_adjoint(const std::vector<node_size_adjoints>& sizes,
-                                   std::vector<double>& lambda_state) {
+                                   std::vector<double>& lambda_state,
+                                   std::vector<boundary_node_adjoints>& boundary_out,
+                                   size_t metric) {
   util::check_length(sizes.size(), reduction_node_count());
   util::check_length(lambda_state.size(), ode_size());
-  if (trait_adjoint.size() != trait_adjoint_size()) {
-    clear_trait_adjoint();
+  if (trait_adjoint.size() <= metric ||
+      trait_adjoint[metric].size() != trait_adjoint_size()) {
+    clear_trait_adjoint(metric + 1);
   }
   if (boundary_node_adjoint.size() != species.size()) {
     boundary_node_adjoint.assign(species.size(),
@@ -1954,12 +2050,12 @@ void Patch<T,E>::allometry_adjoint(const std::vector<node_size_adjoints>& sizes,
       // read by every node of its species and the boundary node is one of them.
       strategy->light_reduction_trait_adjoint(
         slots, individual.area_leaf(), sizes[k].area_leaf,
-        sizes[k].extinction, trait_adjoint.data() + trait_at);
+        sizes[k].extinction, trait_adjoint[metric].data() + trait_at);
       if (boundary) {
-        boundary_node_adjoint[i].area_leaf += sizes[k].area_leaf;
-        boundary_node_adjoint[i].height += sizes[k].height;
-        boundary_node_adjoint[i].density_in_field += sizes[k].log_density;
-        boundary_node_adjoint[i].extinction += sizes[k].extinction;
+        boundary_out[i].area_leaf += sizes[k].area_leaf;
+        boundary_out[i].height += sizes[k].height;
+        boundary_out[i].density_in_field += sizes[k].log_density;
+        boundary_out[i].extinction += sizes[k].extinction;
         continue;
       }
       const double darea_leaf_dheight =
@@ -2001,30 +2097,45 @@ template <typename T, typename E>
 void Patch<T,E>::boundary_condition_adjoint(
     const std::vector<double>& density_in_field,
     const std::vector<double>& density_in_uptake,
-    std::vector<double>& lambda_state) {
+    std::vector<sweep_adjoints>& out) {
   using scalar = odelia::ode::active_scalar<double>;
   using active_strategy = typename at_scalar<scalar>::template apply<T>;
   const size_t n_state = ode_size();
   const size_t n_trait = trait_adjoint_size();
   const size_t n_species = species.size();
-  util::check_length(lambda_state.size(), n_state);
-  if (trait_adjoint.size() != n_trait) {
-    clear_trait_adjoint();
+  const size_t n_seed = out.size();
+  if (n_seed == 0) {
+    util::stop("boundary_condition_adjoint: needs at least one seed set");
   }
-  util::check_length(boundary_node_adjoint.size(), n_species);
+  for (size_t m = 0; m < n_seed; ++m) {
+    util::check_length(out[m].state.size(), n_state);
+    util::check_length(out[m].boundary_node.size(), n_species);
+  }
   // The recording is the expensive part and a seed of zeros buys nothing. Every
   // channel the product carries has to be tested here, or a stand whose only
   // boundary sensitivity is the seed's size returns before recording anything.
+  //
+  // Batched, the test is over ALL the metrics: one recording serves them, so it
+  // is worth making if any of them is seeded, and a metric that is not seeded
+  // still gets its sweep -- a row of zeros, which is what its accumulator
+  // expects. Testing per metric and recording per metric would give back the
+  // cost this batching exists to remove.
   bool seeded = false;
-  for (const boundary_node_adjoints& b : boundary_node_adjoint) {
-    seeded = seeded || b.density_in_field != 0.0 || b.density_in_uptake != 0.0 ||
-             b.height != 0.0 || b.area_leaf != 0.0;
+  for (size_t m = 0; m < n_seed && !seeded; ++m) {
+    for (const boundary_node_adjoints& b : out[m].boundary_node) {
+      seeded = seeded || b.density_in_field != 0.0 || b.density_in_uptake != 0.0 ||
+               b.height != 0.0 || b.area_leaf != 0.0;
+    }
   }
-  ++boundary_condition_asked;
+  // Counted per METRIC, not per recording. One recording now serves every
+  // metric, but the term still enters each metric's adjoint once per stage per
+  // step, and it is that count a row is multiplied by -- which is what these
+  // exist to assert (report 08 s4.8).
+  boundary_condition_asked += n_seed;
   if (!seeded) {
     return;
   }
-  ++boundary_condition_carried;
+  boundary_condition_carried += n_seed;
 
   std::vector<value_type> current(n_state);
   ode_state(current.begin());
@@ -2074,15 +2185,17 @@ void Patch<T,E>::boundary_condition_adjoint(
   // carries a zero adjoint with it, and the quotient is the contribution's limit.
   util::check_length(density_in_field.size(), n_species);
   util::check_length(density_in_uptake.size(), n_species);
-  std::vector<double> out_adjoint(3 * n_species, 0.0);
+  std::vector<std::vector<double>> out_adjoint(
+    n_seed, std::vector<double>(3 * n_species, 0.0));
+  for (size_t m = 0; m < n_seed; ++m) {
   for (size_t i = 0; i < n_species; ++i) {
     if (density_in_field[i] > 0.0) {
-      out_adjoint[i] =
-        boundary_node_adjoint[i].density_in_field / density_in_field[i];
+      out_adjoint[m][i] =
+        out[m].boundary_node[i].density_in_field / density_in_field[i];
     }
     if (density_in_uptake[i] > 0.0) {
-      out_adjoint[n_species + i] =
-        boundary_node_adjoint[i].density_in_uptake / density_in_uptake[i];
+      out_adjoint[m][n_species + i] =
+        out[m].boundary_node[i].density_in_uptake / density_in_uptake[i];
     }
     // The leaf-area adjoint is converted to a height one and summed with it,
     // exactly as an interior node's is, because the seed's leaf area is the
@@ -2091,55 +2204,71 @@ void Patch<T,E>::boundary_condition_adjoint(
     // reduction has already taken those.
     const double darea_leaf_dheight = odelia::util::to_passive(
       species[i].r_new_node().individual.darea_leaf_dheight());
-    out_adjoint[2 * n_species + i] =
-      boundary_node_adjoint[i].height +
-      boundary_node_adjoint[i].area_leaf * darea_leaf_dheight;
+    out_adjoint[m][2 * n_species + i] =
+      out[m].boundary_node[i].height +
+      out[m].boundary_node[i].area_leaf * darea_leaf_dheight;
   }
-  std::vector<double> in_adjoint;
+  }
+  std::vector<std::vector<double>> in_adjoint;
   typename scalar::tape_type tape(false);
-  odelia::ode::vector_jacobian_product(tape, in, out_adjoint, condition,
-                                       in_adjoint);
+  odelia::ode::vector_jacobian_products(tape, in, out_adjoint, condition,
+                                        in_adjoint);
 
-  for (size_t j = 0; j < n_state; ++j) {
-    lambda_state[j] += in_adjoint[j];
-  }
-  for (size_t p = 0; p < n_trait; ++p) {
-    trait_adjoint[p] += in_adjoint[n_state + p];
+  for (size_t m = 0; m < n_seed; ++m) {
+    for (size_t j = 0; j < n_state; ++j) {
+      out[m].state[j] += in_adjoint[m][j];
+    }
+    for (size_t p = 0; p < n_trait; ++p) {
+      trait_adjoint[m][p] += in_adjoint[m][n_state + p];
+    }
   }
 }
 
 template <typename T, typename E>
-template <class ItIn, class ItOut>
-ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y) {
+void Patch<T,E>::ode_rates_adjoint_batched(
+    const std::vector<std::vector<double>>& lambda_dydt,
+    std::vector<std::vector<double>>& lambda_y) {
   const size_t n = ode_size();
   const size_t n_resource = environment.n_resources();
-  std::vector<double> lambda_in(n);
-  for (size_t i = 0; i < n; ++i) {
-    lambda_in[i] = *lambda_dydt++;
+  const size_t n_seed = lambda_dydt.size();
+  if (n_seed == 0) {
+    util::stop("ode_rates_adjoint: needs at least one rate adjoint");
   }
-  std::vector<double> lambda_state(n, 0.0);
+  std::vector<sweep_adjoints> out(n_seed);
   const size_t n_slot = reduction_node_count();
-  block_seeds seeds{std::vector<double>(n_slot * T::state_size(), 0.0),
-                    std::vector<double>(n_slot, 0.0),
-                    std::vector<double>(n_slot * n_resource, 0.0)};
-  boundary_node_adjoint.assign(species.size(),
-                               boundary_node_adjoints{0, 0, 0, 0, 0});
+  const size_t n_knot = environment.light_availability.spline.knots().size();
+
+  std::vector<block_seeds> seeds(
+    n_seed, block_seeds{std::vector<double>(n_slot * T::state_size(), 0.0),
+                        std::vector<double>(n_slot, 0.0),
+                        std::vector<double>(n_slot * n_resource, 0.0)});
+  for (size_t m = 0; m < n_seed; ++m) {
+    util::check_length(lambda_dydt[m].size(), n);
+    out[m].state.assign(n, 0.0);
+    out[m].knot.value.assign(n_knot, 0.0);
+    out[m].knot.slope.assign(n_knot, 0.0);
+    out[m].boundary_node.assign(species.size(),
+                                boundary_node_adjoints{0, 0, 0, 0, 0});
+  }
+
   // The strategy rate adjoints the stage recursion supplies, and beside them the
   // transport term's, which is a block output rather than a closed-form seed.
   // A boundary node's slot takes none of them: its rates are not ODE rates.
-  size_t slot = 0, state_at = 0;
-  for (size_t i = 0; i < species.size(); ++i) {
-    for (size_t j = 0; j <= species[i].size(); ++j, ++slot) {
-      if (j == species[i].size()) {
-        continue;
+  for (size_t m = 0; m < n_seed; ++m) {
+    size_t slot = 0, state_at = 0;
+    for (size_t i = 0; i < species.size(); ++i) {
+      for (size_t j = 0; j <= species[i].size(); ++j, ++slot) {
+        if (j == species[i].size()) {
+          continue;
+        }
+        for (size_t s = 0; s < T::state_size(); ++s) {
+          seeds[m].rate[slot * T::state_size() + s] =
+            lambda_dydt[m][state_at * node_type::ode_size() + s];
+        }
+        seeds[m].transport[slot] =
+          lambda_dydt[m][state_at * node_type::ode_size() + T::state_size() + 1];
+        ++state_at;
       }
-      for (size_t s = 0; s < T::state_size(); ++s) {
-        seeds.rate[slot * T::state_size() + s] =
-          lambda_in[state_at * node_type::ode_size() + s];
-      }
-      seeds.transport[slot] =
-        lambda_in[state_at * node_type::ode_size() + T::state_size() + 1];
-      ++state_at;
     }
   }
 
@@ -2147,31 +2276,58 @@ ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y) {
   // different ones: the field was built with the first, and the water aggregation
   // ran after the second. So each transpose is linearised at the boundary node its
   // own forward pass saw -- the second here, the first restored below.
+  //
+  // Both of these are the STATE's, not a metric's, so they run once however many
+  // metrics ride along.
   compute_boundary_nodes();
   const std::vector<double> density_in_uptake = boundary_density();
-  soil_adjoint(lambda_in, lambda_state, seeds);
-  offspring_adjoint(lambda_in, lambda_state, seeds);
+  for (size_t m = 0; m < n_seed; ++m) {
+    soil_adjoint(lambda_dydt[m], out[m].state, seeds[m], out[m].boundary_node);
+    offspring_adjoint(lambda_dydt[m], out[m].state, seeds[m]);
+  }
   // Rebuilt on the grid the blocks below index their knot adjoints against, so
   // restoring the first evaluation cannot move a knot.
   compute_environment(false);
   const std::vector<double> density_in_field = boundary_density();
 
-  // Per cohort: record the block, seed it from `seeds`, sweep, and read the
-  // state, knot and trait adjoints back.
-  light_knot_adjoints lambda_knot{
-    std::vector<double>(environment.light_availability.spline.knots().size(), 0.0),
-    std::vector<double>(environment.light_availability.spline.knots().size(), 0.0)};
-  cohort_block_adjoint(seeds, lambda_state, lambda_knot);
-  last_knot_adjoint = lambda_knot;
+  cohort_block_adjoint(seeds, out);
+  last_knot_adjoint = out.front().knot;
 
-  std::vector<node_size_adjoints> sizes(reduction_node_count(),
-                                        node_size_adjoints{0, 0, 0, 0});
-  light_knot_adjoint(lambda_knot, sizes);
-  allometry_adjoint(sizes, lambda_state);
-  boundary_condition_adjoint(density_in_field, density_in_uptake, lambda_state);
+  for (size_t m = 0; m < n_seed; ++m) {
+    std::vector<node_size_adjoints> sizes(reduction_node_count(),
+                                          node_size_adjoints{0, 0, 0, 0});
+    light_knot_adjoint(out[m].knot, sizes);
+    allometry_adjoint(sizes, out[m].state, out[m].boundary_node, m);
+  }
+  boundary_condition_adjoint(density_in_field, density_in_uptake, out);
 
+  lambda_y.resize(n_seed);
+  for (size_t m = 0; m < n_seed; ++m) {
+    lambda_y[m] = std::move(out[m].state);
+  }
+  // Kept so the single-seed entry point can hand this patch's own accumulator
+  // back to a caller that reads it between steps.
+  boundary_node_adjoint = std::move(out.front().boundary_node);
+}
+
+// One metric's transpose, accumulating into this patch's own trait adjoint. The
+// batched form is the real one; every caller outside the sweep takes this.
+template <typename T, typename E>
+template <class ItIn, class ItOut>
+ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y) {
+  const size_t n = ode_size();
+  std::vector<std::vector<double>> lambda_in(1, std::vector<double>(n));
   for (size_t i = 0; i < n; ++i) {
-    *lambda_y++ = lambda_state[i];
+    lambda_in[0][i] = *lambda_dydt++;
+  }
+  if (trait_adjoint.size() != 1 ||
+      trait_adjoint[0].size() != trait_adjoint_size()) {
+    clear_trait_adjoint();
+  }
+  std::vector<std::vector<double>> out;
+  ode_rates_adjoint_batched(lambda_in, out);
+  for (size_t i = 0; i < n; ++i) {
+    *lambda_y++ = out[0][i];
   }
   return lambda_y;
 }

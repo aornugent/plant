@@ -12376,13 +12376,14 @@ BEGIN_RCPP
 END_RCPP
 }
 // census_trait_gradient_tf24
-std::vector<std::vector<double>> census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
-RcppExport SEXP _plant_census_trait_gradient_tf24(SEXP obj_SEXP) {
+std::vector<std::vector<double>> census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, Rcpp::Nullable<Rcpp::IntegerVector> which_metrics);
+RcppExport SEXP _plant_census_trait_gradient_tf24(SEXP obj_SEXP, SEXP which_metricsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
-    rcpp_result_gen = Rcpp::wrap(census_trait_gradient_tf24(obj_));
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::IntegerVector> >::type which_metrics(which_metricsSEXP);
+    rcpp_result_gen = Rcpp::wrap(census_trait_gradient_tf24(obj_, which_metrics));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -14131,7 +14132,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_census_tf24", (DL_FUNC) &_plant_census_tf24, 1},
     {"_plant_census_state_adjoint_tf24", (DL_FUNC) &_plant_census_state_adjoint_tf24, 1},
     {"_plant_census_trait_names_tf24", (DL_FUNC) &_plant_census_trait_names_tf24, 1},
-    {"_plant_census_trait_gradient_tf24", (DL_FUNC) &_plant_census_trait_gradient_tf24, 1},
+    {"_plant_census_trait_gradient_tf24", (DL_FUNC) &_plant_census_trait_gradient_tf24, 2},
     {"_plant_census_trait_direct_tf24", (DL_FUNC) &_plant_census_trait_direct_tf24, 1},
     {"_plant_census_trait_difference_tf24", (DL_FUNC) &_plant_census_trait_difference_tf24, 2},
     {"_plant_census_trait_gradient_split_tf24", (DL_FUNC) &_plant_census_trait_gradient_split_tf24, 2},

@@ -149,7 +149,12 @@ public:
   // pass a boundary index without special-casing it.
   template <class Metrics>
   std::vector<std::vector<double>>
-  census_trait_gradient(const std::vector<size_t>& extra_splits = {});
+  // `which_metrics` names the rows to sweep, empty meaning every one. A metric
+  // not asked for is not seeded and not swept, so asking for one costs one --
+  // which is what a caller differentiating a single census wants and what
+  // computing all of them and subsetting the answer does not give.
+  census_trait_gradient(const std::vector<size_t>& extra_splits = {},
+                        const std::vector<size_t>& which_metrics = {});
 
   // One exact directional derivative of the census, by a forward tangent of the
   // same trajectory stepped at the sizes the run recorded. `direction` carries
@@ -908,7 +913,8 @@ SCM<T, E>::census_trait_difference(double rel) {
 template <typename T, typename E>
 template <class Metrics>
 std::vector<std::vector<double>>
-SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits) {
+SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
+                                 const std::vector<size_t>& which_metrics) {
   require_birth_date_coordinate("census_trait_gradient");
   // The sweep needs the state at every accepted step, and store_trajectory()
   // re-runs to record them, so the seeds below are taken after it.
@@ -925,50 +931,77 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits) {
   patch_type& live = solver.get_system_ref();
 
   adjoint_segments = 0;
-  const std::vector<std::vector<double>> seeds =
+  const std::vector<std::vector<double>> all_seeds =
       census_state_adjoint<Metrics>();
-  const std::vector<std::vector<double>> direct = census_trait_direct<Metrics>();
-  std::vector<std::vector<double>> ret;
-  ret.reserve(seeds.size());
-  std::vector<std::vector<double>> sweep_states = states;
-  for (size_t m = 0; m < seeds.size(); ++m) {
-    // Widen forward again, keeping the state each block's first step started
-    // from: an introduction is a field build and a push, so this is the widening
-    // the run itself did, and it returns the system to the census width.
-    widen_over_introductions(states, trajectory, boundary, introduced,
-                             sweep_states);
-
-    live.clear_trait_adjoint();
-    std::vector<double> lambda = seeds[m];
-    for (size_t j = boundary.size(); j-- > 0;) {
-      const size_t b = boundary[j];
-      const size_t k_last =
-          j + 1 < boundary.size() ? boundary[j + 1] : states.size() - 1;
-      // Stopped and resumed at each requested step inside this segment, highest
-      // first, so the pieces compose in the order the whole sweep would take
-      // them. With none requested this is the single call it replaces.
-      std::vector<size_t> cuts;
-      for (const size_t s : extra_splits) {
-        if (s > b && s < k_last) {
-          cuts.push_back(s);
-        }
-      }
-      std::sort(cuts.begin(), cuts.end());
-      size_t upper = k_last;
-      for (size_t c = cuts.size(); c-- > 0;) {
-        solver.solve_adjoint(sweep_states, lambda, cuts[c], upper);
-        upper = cuts[c];
-        ++adjoint_segments;
-      }
-      solver.solve_adjoint(sweep_states, lambda, b, upper);
-      ++adjoint_segments;
-      std::vector<double> narrowed;
-      live.remove_new_nodes(introduced[j]);
-      live.introduction_adjoint(introduced[j], states[b], trajectory[b].time,
-                                lambda, narrowed);
-      lambda = narrowed;
+  const std::vector<std::vector<double>> all_direct =
+      census_trait_direct<Metrics>();
+  // Which rows to sweep. Empty is every one, and a named row outside the census
+  // is refused rather than clamped: a caller indexing by position would
+  // otherwise get a different metric's gradient back.
+  std::vector<size_t> rows = which_metrics;
+  if (rows.empty()) {
+    rows.resize(all_seeds.size());
+    for (size_t m = 0; m < rows.size(); ++m) {
+      rows[m] = m;
     }
-    std::vector<double> row = live.trait_adjoint;
+  }
+  std::vector<std::vector<double>> seeds, direct;
+  for (const size_t r : rows) {
+    if (r >= all_seeds.size()) {
+      util::stop("census_trait_gradient: metric " + util::to_string(static_cast<int>(r)) +
+                 " is outside the census");
+    }
+    seeds.push_back(all_seeds[r]);
+    direct.push_back(all_direct[r]);
+  }
+  std::vector<std::vector<double>> sweep_states = states;
+
+  // Every metric's sweep visits the same trajectory and differs only in its
+  // seed, so they are carried TOGETHER: a block is recorded once and swept once
+  // per metric, where the loop this replaces recorded it once per metric. The
+  // recording is a model evaluation and a sweep is arithmetic, so the second and
+  // third metrics were costing what the first did and now cost almost nothing.
+  const size_t n_metric = seeds.size();
+  widen_over_introductions(states, trajectory, boundary, introduced,
+                           sweep_states);
+
+  live.clear_trait_adjoint(n_metric);
+  std::vector<std::vector<double>> lambda = seeds;
+  for (size_t j = boundary.size(); j-- > 0;) {
+    const size_t b = boundary[j];
+    const size_t k_last =
+        j + 1 < boundary.size() ? boundary[j + 1] : states.size() - 1;
+    // Stopped and resumed at each requested step inside this segment, highest
+    // first, so the pieces compose in the order the whole sweep would take
+    // them. With none requested this is the single call it replaces.
+    std::vector<size_t> cuts;
+    for (const size_t s : extra_splits) {
+      if (s > b && s < k_last) {
+        cuts.push_back(s);
+      }
+    }
+    std::sort(cuts.begin(), cuts.end());
+    size_t upper = k_last;
+    for (size_t c = cuts.size(); c-- > 0;) {
+      solver.solve_adjoint_batched(sweep_states, lambda, cuts[c], upper);
+      upper = cuts[c];
+      adjoint_segments += n_metric;
+    }
+    solver.solve_adjoint_batched(sweep_states, lambda, b, upper);
+    adjoint_segments += n_metric;
+    live.remove_new_nodes(introduced[j]);
+    for (size_t m = 0; m < n_metric; ++m) {
+      std::vector<double> narrowed;
+      live.introduction_adjoint(introduced[j], states[b], trajectory[b].time,
+                                lambda[m], narrowed, m);
+      lambda[m] = narrowed;
+    }
+  }
+
+  std::vector<std::vector<double>> ret;
+  ret.reserve(n_metric);
+  for (size_t m = 0; m < n_metric; ++m) {
+    std::vector<double> row = live.trait_adjoint[m];
     util::check_length(row.size(), direct[m].size());
     for (size_t p = 0; p < row.size(); ++p) {
       row[p] += direct[m][p];

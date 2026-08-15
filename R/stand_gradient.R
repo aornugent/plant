@@ -134,8 +134,12 @@ stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
   }
 
   value <- stand_census(scm)[metrics]
-  gradient <- do.call(rbind, census_trait_gradient_tf24(scm))
-  dimnames(gradient) <- list(all_metrics, all_traits)
+  # Only the metrics asked for are swept. A metric costs a sweep of the whole
+  # trajectory, so computing all three and subsetting the answer charged a
+  # caller who wanted one for three.
+  rows <- match(metrics, all_metrics) - 1L
+  gradient <- do.call(rbind, census_trait_gradient_tf24(scm, as.integer(rows)))
+  dimnames(gradient) <- list(metrics, all_traits)
 
   list(value = value,
        gradient = gradient[metrics, traits, drop = FALSE],

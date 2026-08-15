@@ -401,7 +401,7 @@ Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF2
   std::vector<double> lambda_y(patch.ode_size(), 0.0);
   patch.ode_rates_adjoint(lambda_dydt.begin(), lambda_y.begin());
   return Rcpp::List::create(Rcpp::_["state"] = lambda_y,
-                            Rcpp::_["trait"] = patch.trait_adjoint,
+                            Rcpp::_["trait"] = patch.trait_adjoint[0],
                             Rcpp::_["knot_value"] = patch.last_knot_adjoint.value,
                             Rcpp::_["knot_slope"] = patch.last_knot_adjoint.slope,
                             Rcpp::_["block_recording_size"] =
@@ -612,9 +612,9 @@ Rcpp::List ladder_light_reduction_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patc
     patch.reduction_node_count(), plant::node_size_adjoints{0, 0, 0, 0});
   patch.light_knot_adjoint(lambda_knot, sizes);
   std::vector<double> lambda_state(patch.ode_size(), 0.0);
-  patch.allometry_adjoint(sizes, lambda_state);
+  patch.allometry_adjoint(sizes, lambda_state, patch.boundary_node_adjoint);
   return Rcpp::List::create(Rcpp::_["state"] = lambda_state,
-                            Rcpp::_["trait"] = patch.trait_adjoint);
+                            Rcpp::_["trait"] = patch.trait_adjoint[0]);
 }
 
 // The block's outputs differenced in one input, in plain double, with the
@@ -712,7 +712,7 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
     }
     for (size_t p = 0; p < n_trait; ++p) {
       rev(static_cast<int>(r), static_cast<int>(n_state + p)) =
-        patch.trait_adjoint[p];
+        patch.trait_adjoint[0][p];
     }
   }
   patch.clear_trait_adjoint();
@@ -823,7 +823,7 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
     auto t1 = clock::now(); t_boundary += std::chrono::duration<double>(t1 - t0).count();
 
     t0 = clock::now();
-    patch.soil_adjoint(lambda_dydt, lambda_state, seeds);
+    patch.soil_adjoint(lambda_dydt, lambda_state, seeds, patch.boundary_node_adjoint);
     t1 = clock::now(); t_soil += std::chrono::duration<double>(t1 - t0).count();
 
     t0 = clock::now();
@@ -853,11 +853,19 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
     t1 = clock::now(); t_knot += std::chrono::duration<double>(t1 - t0).count();
 
     t0 = clock::now();
-    patch.allometry_adjoint(sizes, lambda_state);
+    patch.allometry_adjoint(sizes, lambda_state, patch.boundary_node_adjoint);
     t1 = clock::now(); t_allometry += std::chrono::duration<double>(t1 - t0).count();
 
     t0 = clock::now();
-    patch.boundary_condition_adjoint(density_in_field, density_in_uptake, lambda_state);
+    {
+      // The transpose is batched over census metrics; this instrument times one,
+      // so it hands over a single seed set and takes the state back from it.
+      std::vector<patch_type::sweep_adjoints> one(1);
+      one[0].state = lambda_state;
+      one[0].boundary_node = patch.boundary_node_adjoint;
+      patch.boundary_condition_adjoint(density_in_field, density_in_uptake, one);
+      lambda_state = one[0].state;
+    }
     t1 = clock::now(); t_bc += std::chrono::duration<double>(t1 - t0).count();
 
     t_total += std::chrono::duration<double>(clock::now() - t_start).count();

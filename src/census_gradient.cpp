@@ -36,8 +36,22 @@ census_trait_names_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<do
 // order. The active scalar lives inside this call and only doubles leave it.
 // [[Rcpp::export]]
 std::vector<std::vector<double>>
-census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  return obj_->census_trait_gradient<plant::tf24_census>();
+census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                           Rcpp::Nullable<Rcpp::IntegerVector> which_metrics = R_NilValue) {
+  // Absent means every metric, which is what a caller that does not know the
+  // census asks for. Naming a subset is what makes a single metric cost one.
+  std::vector<size_t> rows;
+  if (which_metrics.isNotNull()) {
+    const Rcpp::IntegerVector v(which_metrics);
+    for (int i = 0; i < v.size(); ++i) {
+      if (v[i] < 0) {
+        plant::util::stop("census_trait_gradient: a metric is named by its "
+                          "zero-based row");
+      }
+      rows.push_back(static_cast<size_t>(v[i]));
+    }
+  }
+  return obj_->census_trait_gradient<plant::tf24_census>({}, rows);
 }
 
 // The census's own reading of the traits at the state held. No sweep produces it,

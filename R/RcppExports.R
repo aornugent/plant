@@ -4401,8 +4401,8 @@ census_trait_names_tf24 <- function(obj_) {
     .Call('_plant_census_trait_names_tf24', PACKAGE = 'plant', obj_)
 }
 
-census_trait_gradient_tf24 <- function(obj_) {
-    .Call('_plant_census_trait_gradient_tf24', PACKAGE = 'plant', obj_)
+census_trait_gradient_tf24 <- function(obj_, which_metrics = NULL) {
+    .Call('_plant_census_trait_gradient_tf24', PACKAGE = 'plant', obj_, which_metrics)
 }
 
 census_trait_direct_tf24 <- function(obj_) {
