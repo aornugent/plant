@@ -582,3 +582,28 @@ test_that("the recording does not grow with the stand", {
   # point and both reductions integrate from it.
   expect_equal(b$block_sweeps, 6)
 })
+
+test_that("the reduction transposes refuse the height coordinate", {
+  # Both are public members of Patch, and two exported probes call them without
+  # passing ode_rates_adjoint_batched, so a guard placed only at that entry is
+  # bypassed. On the height coordinate the abscissa is state and the trapezium
+  # owes a weight term neither transpose computes, so a row returned here would
+  # be short by it and say nothing.
+  p <- ladder_parameters("fast")
+  patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"),
+                                     Control(node_density_in_birth_date = FALSE))
+  for (t in c(0, 0.29)) {
+    patch$set_time(t)
+    patch$compute_environment()
+    patch$introduce_new_node(1)
+  }
+  expect_false(patch$species[[1]]$density_in_birth_date)
+
+  n_knot <- 65L
+  expect_error(
+    ladder_light_reduction_adjoint_tf24(patch, rep(1, n_knot), rep(1, n_knot)),
+    "birth dates")
+  expect_error(
+    ladder_rhs_adjoint_timing_tf24(patch, rep(1, patch$ode_size), 1L),
+    "birth dates")
+})
