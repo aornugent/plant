@@ -102,10 +102,12 @@ test_that("the boundary's own term enters once per stage of every step", {
     # term applied once per step rather than once per stage would divide it by six.
     expect_equal(m$asked, stages * m$steps * m$metrics)
 
-    # And the calls that carried nothing are exactly the ones where no boundary
-    # adjoint was seeded: one per introduction per metric. That is the boundary of
-    # the recording's own early return, and it is a number rather than a claim.
-    expect_equal(m$asked - m$carried, m$introductions * m$metrics)
+    # And every call carries, because this recording answers for the field as
+    # well as for the inflow condition and the field is seeded at every stage.
+    # It used to skip once per introduction per metric, which was the one moment
+    # no boundary adjoint had accumulated yet; the knots are seeded then too, so
+    # the early return now needs a sweep seeded on nothing at all.
+    expect_equal(m$asked, m$carried)
   }
 
   # Non-vacuity: the count has to be a count. A constant would satisfy every

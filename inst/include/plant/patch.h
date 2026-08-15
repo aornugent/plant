@@ -2174,6 +2174,7 @@ void Patch<T,E>::boundary_condition_adjoint(
   const size_t n_trait = trait_adjoint_size();
   const size_t n_species = species.size();
   const size_t n_seed = out.size();
+  const size_t n_knot = environment.light_availability.knot_values().size();
   if (n_seed == 0) {
     util::stop("boundary_condition_adjoint: needs at least one seed set");
   }
@@ -2195,6 +2196,11 @@ void Patch<T,E>::boundary_condition_adjoint(
     for (const boundary_node_adjoints& b : out[m].boundary_node) {
       seeded = seeded || b.density_in_field != 0.0 || b.density_in_uptake != 0.0 ||
                b.height != 0.0 || b.area_leaf != 0.0;
+    }
+    // The field's rows come out of this recording too, so a metric that reaches
+    // the census only through the canopy is seeded here and nowhere else.
+    for (size_t q = 0; q < n_knot && !seeded; ++q) {
+      seeded = out[m].knot.value[q] != 0.0 || out[m].knot.slope[q] != 0.0;
     }
   }
   // Counted per METRIC, not per recording. One recording now serves every
@@ -2241,6 +2247,17 @@ void Patch<T,E>::boundary_condition_adjoint(
     for (size_t i = 0; i < n_species; ++i) {
       y[i] = active.species[i].r_new_node().get_density();
     }
+    // The field this was built through, as outputs. Every node reads it, so its
+    // rows are what a cohort's sweep needs pulled back; they are an intermediate
+    // of the condition below and cost the recording nothing to register.
+    const std::vector<scalar>& kv =
+      active.environment.light_availability.knot_values();
+    const std::vector<scalar>& ks =
+      active.environment.light_availability.knot_slopes();
+    for (size_t q = 0; q < n_knot; ++q) {
+      y[3 * n_species + q] = kv[q];
+      y[3 * n_species + n_knot + q] = ks[q];
+    }
     active.compute_boundary_nodes();
     for (size_t i = 0; i < n_species; ++i) {
       y[n_species + i] = active.species[i].r_new_node().get_density();
@@ -2256,8 +2273,14 @@ void Patch<T,E>::boundary_condition_adjoint(
   util::check_length(density_in_field.size(), n_species);
   util::check_length(density_in_uptake.size(), n_species);
   std::vector<std::vector<double>> out_adjoint(
-    n_seed, std::vector<double>(3 * n_species, 0.0));
+    n_seed, std::vector<double>(3 * n_species + 2 * n_knot, 0.0));
   for (size_t m = 0; m < n_seed; ++m) {
+  util::check_length(out[m].knot.value.size(), n_knot);
+  util::check_length(out[m].knot.slope.size(), n_knot);
+  for (size_t q = 0; q < n_knot; ++q) {
+    out_adjoint[m][3 * n_species + q] = out[m].knot.value[q];
+    out_adjoint[m][3 * n_species + n_knot + q] = out[m].knot.slope[q];
+  }
   for (size_t i = 0; i < n_species; ++i) {
     if (density_in_field[i] > 0.0) {
       out_adjoint[m][i] =
@@ -2363,12 +2386,10 @@ void Patch<T,E>::ode_rates_adjoint_batched(
   cohort_block_adjoint(seeds, out);
   last_knot_adjoint = out.front().knot;
 
-  for (size_t m = 0; m < n_seed; ++m) {
-    std::vector<node_size_adjoints> sizes(reduction_node_count(),
-                                          node_size_adjoints{0, 0, 0, 0});
-    light_knot_adjoint(out[m].knot, sizes);
-    allometry_adjoint(sizes, out[m].state, out[m].boundary_node, m);
-  }
+  // The field's rows and the inflow condition's come out of one recording. The
+  // knots are an intermediate of that condition -- it is evaluated in the field
+  // they hold -- so seeding both delivers the sum, and the reduction needs no
+  // transpose of its own.
   boundary_condition_adjoint(density_in_field, density_in_uptake, out);
 
   lambda_y.resize(n_seed);
