@@ -2,6 +2,91 @@
 
 ### Breaking changes
 
+* **The light field is built on a lattice of fixed knots and carries a slope at
+  every knot.** `ResourceSpline` no longer refines adaptively, so its
+  constructor takes the knot spacing rather than a tolerance, a base count, a
+  depth and a rescale flag; the field it holds is a
+  `odelia::interpolator::hermite_interpolator` rather than a value-fitted cubic,
+  and it is reached through `$state` rather than `$spline`. Requires odelia >=
+  0.4.0. Migration:
+
+  ```r
+  # old
+  ResourceSpline(1e-4, 17, 16, TRUE)
+  env$light_availability$spline$size
+  env$light_availability$spline$x
+  env$light_availability$spline <- interpolator
+  # new -- each environment states its own spacing, so the constructor is rarely
+  # called directly
+  ResourceSpline(0.05)
+  nrow(env$light_availability$state)
+  env$light_availability$state[, "height"]
+  la <- env$light_availability
+  la$init_interpolators(c(heights, values, slopes))
+  env$light_availability <- la
+  ```
+
+  `$state` is a matrix of `height`, `light_availability` and `slope`, and
+  `init_interpolators()` takes those three columns laid end to end -- three
+  numbers per knot where it previously took two.
+
+### Scientific changes
+
+* **FF16 and K93 go to scientific version 2, TF24 to 9** (TF24f tracks TF24).
+  The light field is read from a lattice whose knots are `k * spacing`,
+  constants of every run, with a value and an exact slope at each.
+
+  The knot spacing is the field's only discretisation parameter, so refining it
+  and watching the model output is the convergence test. Taking the answer at
+  0.00625 m as the reference, FF16 offspring production at the reference stand
+  converges as:
+
+  | field | offspring | distance from converged |
+  |---|---|---|
+  | adaptive, as shipped before (65 knots) | 16.889502 | 3.9e-04 |
+  | 0.2 m lattice | 16.889420 | 4.0e-04 |
+  | 0.1 m lattice | 16.893522 | 1.5e-04 |
+  | 0.05 m lattice (now shipped) | 16.896244 | **7.9e-06** |
+  | 0.0125 m lattice | 16.896061 | 3.0e-06 |
+
+  So the adaptive field was delivering the accuracy of a 0.2 m fixed lattice,
+  and the shipped spacing is 50x closer to converged. Below 0.05 m the answer
+  sits inside a band of about 5e-05, which is the node schedule's and the ODE
+  stepper's own noise rather than the field's.
+
+  The ecology is not rewritten. Across a twentyfold lma gradient the trait
+  optimum is the same under the adaptive field, the shipped spacing and a
+  fourfold refinement of it; what improves is the fitness values, which move
+  from 3e-04 of converged to 1.4e-05.
+
+  Archived simulations need re-running.
+
+* **`flat-top-box` now refuses a light field by name.** It shades in a step at
+  the crown centre, and a discontinuous competition profile has no interpolated
+  field -- previously the adaptive fit discovered this by running out of
+  refinement. A grid of fixed knots does not run out: it fits the step as a ramp
+  one span wide and returns numbers. So the profile states that it has no field
+  rather than leaving the fit to find out. A standalone `Individual` under the
+  model still computes; it is the patch light field that has no answer.
+
+### Performance
+
+* **The field is built in one descent over the knots rather than a sum over
+  cohorts repeated at each of them.** The crown profile is a polynomial in
+  `u^eta`, so three running sums carried down the grid give every knot at once:
+  the build costs knots plus cohorts where it cost their product.
+
+  Building the field is 4.5x to 6.9x faster while placing 4.5x to 5.5x as many
+  knots, so about 25x to 31x cheaper per knot. A whole run gains less, because
+  the build was only part of it: 1.3x to 1.5x for FF16 and 1.6x to 1.9x for K93
+  over patch lifetimes 10 to 80. TF24 does not measurably change, its leaf solve
+  being nearly the whole run.
+
+  Profiles that are not polynomials in `u^eta` (the soft box) and states the
+  descent cannot order keep the per-height reduction, which still defines the
+  answer -- the two agree to about twice that reduction's own rounding on every
+  stand tested, and exactly where the fallback is taken.
+
 These change the R-facing interface and require updating downstream code. Each
 entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate

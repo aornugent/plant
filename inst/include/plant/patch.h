@@ -5,7 +5,6 @@
 #include <plant/parameters.h>
 #include <plant/species.h>
 #include <plant/util.h>
-#include <plant/adaptive_interpolator.h> // interpolator::refinement_failure
 #include <odelia/ode_interface.hpp>
 
 #include <plant/disturbance_regime.h>
@@ -41,11 +40,29 @@ public:
   double height_max() const;
 
   double compute_competition(double height) const;
+  std::pair<double, double> compute_competition_and_slope(double height) const;
+  void compute_competition_grid(const std::vector<double>& z,
+                                std::vector<double>& value,
+                                std::vector<double>& slope) const;
 
-  // Describe the size distribution around `height`, for error messages. The
-  // light spline is built from the cohort heights, so when its refinement fails
-  // the useful thing to report is what the cohorts are doing there.
-  std::string describe_nodes_near(double height) const;
+  // Both reductions, for the checks that hold the grid against the per-height
+  // pair that defines the answer it reproduces.
+  std::vector<double> r_compute_competition_and_slope(double height) const {
+    const std::pair<double, double> vs = compute_competition_and_slope(height);
+    return {vs.first, vs.second};
+  }
+  Rcpp::NumericMatrix r_compute_competition_grid(const std::vector<double>& z) const {
+    std::vector<double> value(z.size()), slope(z.size());
+    compute_competition_grid(z, value, slope);
+    Rcpp::NumericMatrix ret(static_cast<int>(z.size()), 2);
+    for (size_t k = 0; k < z.size(); ++k) {
+      ret(static_cast<int>(k), 0) = value[k];
+      ret(static_cast<int>(k), 1) = slope[k];
+    }
+    ret.attr("dimnames") = Rcpp::List::create(
+      R_NilValue, Rcpp::CharacterVector::create("value", "slope"));
+    return ret;
+  }
 
   // * Lifetime fitness / offspring production
   // These are patch-level quantities: each integrates the per-node weighted
@@ -143,7 +160,7 @@ public:
     at(species_index.check_bounds(size()));
   }
   // This is only here because it wraps a private function.
-  void r_compute_environment() {compute_environment(false);}
+  void r_compute_environment() {compute_environment();}
 
   // env. cache for assembly
   std::vector<double> step_history{0.0};  // always start at zero
@@ -168,7 +185,7 @@ public:
 
 private:
   int idx = 0; // used to access environment cache for mutant runs
-  void compute_environment(bool rescale);
+  void compute_environment();
   void compute_rates();
 
   // The environment the rates are computed against: the patch's own on a
@@ -289,12 +306,12 @@ void Patch<T,E>::reset() {
 
   if (!parameters.initial_state.empty()) {
     // Seed the patch from an exported state / initial size distribution.
-    // set_initial_state() does its own compute_environment(false)/compute_rates
+    // set_initial_state() does its own compute_environment()/compute_rates
     // (with the real node heights, no rescale), so skip the empty-patch path.
     set_initial_state();
     check_initial_density_rates();
   } else {
-    compute_environment(false);
+    compute_environment();
 
     // compute effects of resource consumption
     compute_rates();
@@ -310,7 +327,7 @@ void Patch<T,E>::reset() {
 // but feeds the rates and lifetime-fitness integrals), then computes the
 // environment and rates. We load the state directly (rather than via the
 // double-arg set_ode_state) so the first environment build is a full
-// compute_environment(false): a rescale of the not-yet-built light spline would
+// compute_environment(): a rescale of the not-yet-built light spline would
 // read uninitialised grid state.
 template <typename T, typename E>
 void Patch<T,E>::set_initial_state() {
@@ -357,7 +374,7 @@ void Patch<T,E>::set_initial_state() {
 
   // Build the environment from the real node heights (full recompute, no
   // rescale) and compute rates for the seeded population.
-  compute_environment(false);
+  compute_environment();
   compute_rates();
 }
 
@@ -604,7 +621,7 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 // Pre-compute environment, as shaped by residents
 // Creates splines of resource availability
 template <typename T, typename E>
-void Patch<T,E>::compute_environment(bool rescale) {
+void Patch<T,E>::compute_environment() {
 
   // The boundary node is one end of the birth-date quadrature and its birth date
   // is the current time, so refresh it before the profile is built. Its own
@@ -622,117 +639,48 @@ void Patch<T,E>::compute_environment(bool rescale) {
     s.set_new_node_birth_date(environment.time);
   }
 
-  // Define an anonymous function to use in creation of environment
-  auto f = [&](double x) -> double { return compute_competition(x); };
+  // The whole grid at once: the reduction behind it costs cohorts once for a
+  // grid, and cohorts per height if asked per height.
+  auto f = [&](const std::vector<double>& z, std::vector<double>& value,
+               std::vector<double>& slope) -> void {
+    compute_competition_grid(z, value, slope);
+  };
 
   if (size() > 0 & !is_mutant_run) {
-    try {
-      environment.compute_environment(f, height_max(), rescale);
-    } catch (const interpolator::refinement_failure& e) {
-      // The refiner can only say that the profile has a feature it cannot
-      // resolve, at some height. We know what is at that height, and it is
-      // usually the actual problem: cohorts stacked at one size put a step in
-      // the competition profile (#571). Say so rather than making the reader
-      // reconstruct the patch state by hand.
-      util::stop(std::string(e.what()) + " " +
-                 describe_nodes_near(e.report.x_lo));
-    }
+    environment.compute_environment(f, height_max());
   }
 }
 
-// Report what the size distribution is doing around `height`: how many cohorts
-// sit within a narrow window of it, and -- the usual culprit -- whether the node
-// list is still ordered by decreasing height. Species::compute_competition() and
-// Species::height_max() both take that ordering as given (see the invariant noted
-// on both), so once it is violated the competition profile they build has
-// fictitious steps in it, and the refiner fails on one of them (#571).
-//
-// A window rather than a single point because the unresolved interval is ~1e-5 m
-// wide, while what matters is whether cohorts share effectively the same size.
 template <typename T, typename E>
-std::string Patch<T,E>::describe_nodes_near(double height) const {
-  const double window = 1e-3; // m
-
-  std::string ret = "Patch state at that height (time " +
-                    util::format_double(environment.time) + "):";
-
+std::pair<double, double>
+Patch<T,E>::compute_competition_and_slope(double height) const {
+  double tot = 0.0, tot_slope = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
-    size_t n_near = 0, n_inversions = 0, n_inversions_live = 0, n_zero_density = 0;
-    double h_near_min = std::numeric_limits<double>::infinity(),
-           h_near_max = -std::numeric_limits<double>::infinity(),
-           h_max = -std::numeric_limits<double>::infinity(),
-           h_front = NA_REAL, h_prev = NA_REAL;
-    bool prev_live = false;
-
-    for (auto it = species[i].node_begin(); it != species[i].node_end(); ++it) {
-      const double h = it->height();
-      const bool live = it->get_density() > 0.0;
-      if (!live) {
-        n_zero_density++;
-      }
-      if (!util::is_finite(h_front)) {
-        h_front = h;
-      } else if (h > h_prev) {
-        n_inversions++;
-        // Whether the *live* cohorts are still ordered is the question that
-        // matters: the method of characteristics guarantees it for them (growth
-        // trajectories sharing an environment cannot cross), so inversions among
-        // zero-density nodes are bookkeeping debris in the quadrature grid,
-        // whereas an inversion between two live cohorts would mean the
-        // characteristics themselves had crossed.
-        if (live && prev_live) {
-          n_inversions_live++;
-        }
-      }
-      h_prev = h;
-      prev_live = live;
-      h_max = std::max(h_max, h);
-      if (fabs(h - height) <= window) {
-        n_near++;
-        h_near_min = std::min(h_near_min, h);
-        h_near_max = std::max(h_near_max, h);
-      }
-    }
-
-    ret += " species " + util::to_string(i + 1) + ": " +
-           util::to_string(n_near) + " of " +
-           util::to_string(species[i].size()) + " cohorts within " +
-           util::format_double(window) + " m";
-    if (n_near > 0) {
-      ret += ", spanning [" + util::format_double(h_near_min) + ", " +
-             util::format_double(h_near_max) + "]";
-      // Several cohorts at one size means growth has stalled and the schedule is
-      // introducing new cohorts into a patch with nothing to separate them.
-      if (n_near > 1 && (h_near_max - h_near_min) < window / 100) {
-        ret += " -- effectively a single size, so the size distribution has"
-               " collapsed here";
-      }
-    }
-    if (n_inversions > 0) {
-      ret += "; node heights are NOT decreasing (" +
-             util::to_string(n_inversions) + " inversions, " +
-             util::to_string(n_inversions_live) +
-             " of them between two cohorts of non-zero density; " +
-             util::to_string(n_zero_density) + " of " +
-             util::to_string(species[i].size()) +
-             " nodes have zero density), which breaks the ordering that"
-             " Species::compute_competition() and height_max() assume: the"
-             " tallest cohort is " + util::format_double(h_max) +
-             " but height_max() reports " + util::format_double(h_front) +
-             " (the front node), so the competition profile is wrong and its"
-             " steps are an artefact rather than a feature of the model";
-      if (n_inversions_live == 0) {
-        ret += " (the live cohorts are still correctly ordered, so this is the"
-               " quadrature grid being scrambled by zero-density nodes rather"
-               " than growth trajectories crossing)";
-      }
-    }
-    ret += ";";
+    const std::pair<double, double> vs =
+        species[i].compute_competition_and_slope(height);
+    tot += vs.first / area;
+    tot_slope += vs.second / area;
   }
-
-  return ret;
+  return {tot, tot_slope};
 }
 
+// The competition profile and dA/dz at every knot, summed over species and
+// divided by the patch area. Filling the grid from the species directly would
+// walk around the division the per-height path does at this level.
+template <typename T, typename E>
+void Patch<T,E>::compute_competition_grid(const std::vector<double>& z,
+                                          std::vector<double>& value,
+                                          std::vector<double>& slope) const {
+  std::fill(value.begin(), value.end(), 0.0);
+  std::fill(slope.begin(), slope.end(), 0.0);
+  for (size_t i = 0; i < species.size(); ++i) {
+    species[i].add_competition_and_slope_grid(z, value, slope);
+  }
+  for (size_t k = 0; k < value.size(); ++k) {
+    value[k] /= area;
+    slope[k] /= area;
+  }
+}
 
 template <typename T, typename E>
 void Patch<T,E>::compute_rates() {
@@ -774,7 +722,7 @@ void Patch<T,E>::introduce_new_node(size_t species_index) {
   
   species[species_index].introduce_new_node();
 
-  compute_environment(false);
+  compute_environment();
 }
 
 template <typename T, typename E>
@@ -787,7 +735,7 @@ void Patch<T,E>::introduce_new_nodes(const std::vector<size_t>& species_index) {
     species[i].introduce_new_node(t, patch_density);
   }
 
-  compute_environment(false);
+  compute_environment();
 }
 
 template <typename T, typename E>
@@ -858,7 +806,7 @@ odelia::ode::const_iterator Patch<T,E>::set_ode_state(odelia::ode::const_iterato
   check_finite_ode_state();
 
   // Pre-compute environment, as shaped by residents
-  compute_environment(true);
+  compute_environment();
 
   return it;
 }

@@ -53,6 +53,18 @@ public:
 
   double height_max() const;
   double compute_competition(double height) const;
+
+  // The same integral and its vertical derivative, dA/dz. The nodes below supply
+  // q, which is -dA/dz; the sign is applied here.
+  std::pair<double, double> compute_competition_and_slope(double height) const;
+
+  // Add this species' value and dA/dz at every knot of `z`, which must ascend.
+  // Three running sums carried down the grid give every knot at once, because
+  // the crown profile is a polynomial in u^eta. Accumulates, so a patch calls it
+  // once per species.
+  void add_competition_and_slope_grid(const std::vector<double>& z,
+                                      std::vector<double>& value,
+                                      std::vector<double>& slope) const;
   // Whether the decreasing-height node ordering still holds (see height_max()).
   bool heights_are_decreasing() const;
 
@@ -177,6 +189,11 @@ public:
   ExtrinsicDrivers extrinsic_drivers() const {return strategy->extrinsic_drivers;}
 
 private:
+  // compute_competition_and_slope() for the case the ordering has broken, for
+  // the reason compute_competition_unordered() gives.
+  std::pair<double, double>
+  compute_competition_and_slope_unordered(double height) const;
+
   // compute_competition() for the case where the node heights are no longer
   // ordered, so the node list cannot be used directly as the quadrature grid.
   // Height coordinate only -- it integrates in height, and the birth-date
@@ -462,6 +479,207 @@ double Species<T,E>::compute_competition_unordered(double height) const {
   }
 
   return tot / 2;
+}
+
+// compute_competition() carrying the vertical derivative beside the value: the
+// same structure, early exit and boundary test. The nodes supply q; this is
+// where its sign is applied, and the only place.
+template <typename T, typename E>
+std::pair<double, double>
+Species<T,E>::compute_competition_and_slope(double height) const {
+  if (size() == 0) {
+    return {0.0, 0.0};
+  }
+  const HeightScan scan = scan_heights();
+  if (scan.h_max < height) {
+    return {0.0, 0.0};
+  }
+  const bool birth_date = control().node_density_in_birth_date;
+  if (!birth_date && !scan.decreasing) {
+    return compute_competition_and_slope_unordered(height);
+  }
+  double tot = 0.0, tot_q = 0.0;
+  nodes_const_iterator it = nodes.begin();
+  double x1 = abscissa_of(*it, birth_date);
+  std::pair<double, double> f1 = it->compute_competition_and_q(height);
+
+  for (++it; it != nodes.end(); ++it) {
+    const double x0 = abscissa_of(*it, birth_date), h0 = it->height();
+    const std::pair<double, double> f0 = it->compute_competition_and_q(height);
+    if (!util::is_finite(f0.first)) {
+      util::stop("Detected non-finite contribution");
+    }
+    tot += (x0 - x1) * (f1.first + f0.first);
+    tot_q += (x0 - x1) * (f1.second + f0.second);
+    x1 = x0;
+    f1 = f0;
+    if (scan.decreasing && h0 < height) {
+      break;
+    }
+  }
+
+  if (size() == 1 || birth_date || f1.first > 0) {
+    const double x0 = abscissa_of(new_node, birth_date);
+    const std::pair<double, double> f0 =
+        new_node.compute_competition_and_q(height);
+    tot += (x0 - x1) * (f1.first + f0.first);
+    tot_q += (x0 - x1) * (f1.second + f0.second);
+  }
+
+  return {tot / 2, -tot_q / 2};
+}
+
+template <typename T, typename E>
+std::pair<double, double>
+Species<T,E>::compute_competition_and_slope_unordered(double height) const {
+  thread_local std::vector<std::pair<double, std::pair<double, double>>> hf;
+  hf.clear();
+  hf.reserve(size());
+
+  for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+    const std::pair<double, double> f = it->compute_competition_and_q(height);
+    if (!util::is_finite(f.first)) {
+      util::stop("Detected non-finite contribution");
+    }
+    hf.push_back({it->height(), f});
+  }
+  std::sort(hf.begin(), hf.end(),
+            [](std::pair<double, std::pair<double, double>> const& a,
+               std::pair<double, std::pair<double, double>> const& b) {
+              return a.first > b.first;
+            });
+
+  double tot = 0.0, tot_q = 0.0;
+  double h1 = hf.front().first;
+  std::pair<double, double> f_h1 = hf.front().second;
+  for (size_t j = 1; j < hf.size(); ++j) {
+    const double h0 = hf[j].first;
+    const std::pair<double, double> f_h0 = hf[j].second;
+    tot += (h1 - h0) * (f_h1.first + f_h0.first);
+    tot_q += (h1 - h0) * (f_h1.second + f_h0.second);
+    h1 = h0;
+    f_h1 = f_h0;
+  }
+
+  if (size() == 1 || f_h1.first > 0) {
+    const double h0 = new_node.height();
+    const std::pair<double, double> f_h0 =
+        new_node.compute_competition_and_q(height);
+    tot += (h1 - h0) * (f_h1.first + f_h0.first);
+    tot_q += (h1 - h0) * (f_h1.second + f_h0.second);
+  }
+
+  return {tot / 2, -tot_q / 2};
+}
+
+// Every knot of one grid in a single descent, rather than the whole species at
+// each knot in turn.
+//
+// The trapezium is re-associated: the per-height path accumulates
+// (x0 - x1)(f1 + f0) over consecutive nodes, this collects each node's weight
+// first and sums weight times profile. Equal in exact arithmetic, different in
+// the last bits, so this path moves every number the model produces.
+template <typename T, typename E>
+void Species<T,E>::add_competition_and_slope_grid(
+    const std::vector<double>& z,
+    std::vector<double>& value,
+    std::vector<double>& slope) const {
+  // A grid fits a step at the crown centre as a ramp one span wide and returns
+  // numbers, so a discontinuous profile has to be refused here rather than left
+  // for the fit to discover.
+  if (!strategy->canopy_shape.profile_builds_a_field()) {
+    util::stop("The flat-top-box crown shades in a step at the crown centre, so "
+               "the competition profile it builds is discontinuous and no "
+               "interpolated light field represents it; this model has no light "
+               "environment");
+  }
+  if (size() == 0) {
+    return;
+  }
+  const bool birth_date = control().node_density_in_birth_date;
+
+  // Three states the descent hands back to the per-height reduction: a profile
+  // the sums do not describe, a height ordering that would admit cohorts at the
+  // wrong knots, and a boundary node above the shortest node. That last one no
+  // run reaches and a hand-built patch can: the closing interval is then
+  // admitted at heights where the per-height reduction declines it, and the two
+  // answers part company.
+  const HeightScan scan = scan_heights();
+  const bool boundary_above_shortest =
+    !birth_date && !nodes.empty() && new_node.height() > nodes.back().height();
+  if (!strategy->canopy_shape.profile_expands_in_u_eta() ||
+      (!birth_date && !scan.decreasing) || boundary_above_shortest) {
+    for (size_t i = 0; i < z.size(); ++i) {
+      const std::pair<double, double> fs = compute_competition_and_slope(z[i]);
+      value[i] += fs.first;
+      slope[i] += fs.second;
+    }
+    return;
+  }
+
+  // Q(0) is exactly 1, so a node's competition at the ground is the amplitude
+  // its profile is scaled by.
+  struct point { double abscissa; double height; double amplitude; };
+  std::vector<point> pts;
+  pts.reserve(size() + 1);
+  for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+    pts.push_back({abscissa_of(*it, birth_date), it->height(),
+                   it->compute_competition(0.0)});
+  }
+  // The per-height reduction declines the closing interval when the node it
+  // closes from contributes nothing -- a stand whose newest cohorts carry no
+  // density. The amplitude decides that at every height which can read the
+  // boundary, since higher up the boundary's own profile is already zero.
+  if (size() == 1 || birth_date || pts.back().amplitude > 0.0) {
+    pts.push_back({abscissa_of(new_node, birth_date), new_node.height(),
+                   new_node.compute_competition(0.0)});
+  }
+  if (pts.size() < 2) {
+    return;
+  }
+
+  std::sort(pts.begin(), pts.end(),
+            [](const point& a, const point& b) { return a.abscissa < b.abscissa; });
+  const size_t n = pts.size();
+  std::vector<double> scale(n, 0.0);
+  for (size_t k = 0; k < n; ++k) {
+    const double lo = pts[k == 0 ? 0 : k - 1].abscissa;
+    const double hi = pts[k + 1 == n ? k : k + 1].abscissa;
+    scale[k] = pts[k].amplitude * ((hi - lo) / 2.0);
+  }
+
+  // Admitted in decreasing height, so the sums hold only cohorts whose crowns
+  // reach the current knot and every term stays bounded by its own amplitude.
+  std::vector<size_t> by_height(n);
+  for (size_t k = 0; k < n; ++k) {
+    by_height[k] = k;
+  }
+  std::sort(by_height.begin(), by_height.end(), [&](size_t a, size_t b) {
+    return pts[a].height > pts[b].height;
+  });
+
+  const CanopyShape& shape = strategy->canopy_shape;
+  CanopyShape::ProfileSums sums;
+  size_t next = 0;
+  for (size_t i = z.size(); i-- > 0;) {
+    const double zi = z[i];
+    if (zi <= 0.0) {
+      // The sums divide by the height they hold, so the crown base is the knot
+      // the per-height path still answers.
+      const std::pair<double, double> fs = compute_competition_and_slope(zi);
+      value[i] += fs.first;
+      slope[i] += fs.second;
+      continue;
+    }
+    shape.descend_to(sums, zi);
+    while (next < n && pts[by_height[next]].height >= zi) {
+      shape.admit(sums, scale[by_height[next]], pts[by_height[next]].height);
+      ++next;
+    }
+    const std::pair<double, double> fs = shape.Q_and_q_from_sums(sums);
+    value[i] += fs.first;
+    slope[i] -= fs.second;
+  }
 }
 
 // NOTE: We should probably prefer to rescale when this is called

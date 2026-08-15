@@ -5,6 +5,7 @@
 #include <cmath>
 #include <string>
 #include <stdexcept>
+#include <utility>
 
 namespace plant {
 
@@ -100,7 +101,8 @@ class CanopyShape {
 public:
   CanopyShape()
     : eta_(12.0), eta_inverse_(1.0 / 12.0), eta_c_(eta_c(12.0)),
-      pow_eta_(&pow_eta_12), leaf_above_(&leaf_above_deep) {
+      pow_eta_(&pow_eta_12), leaf_above_(&leaf_above_deep),
+      leaf_above_q_(&leaf_above_q_deep) {
   }
 
   explicit CanopyShape(double eta) {
@@ -115,9 +117,18 @@ public:
     // Most models cast shade via the smooth Yokozawa Q (leaf_area_above == Q).
     // FlatTopBox collapses it to a hard step; FlatTopSoftBox to a smoothed step.
     switch (shading_model) {
-    case ShadingModel::FlatTopBox:     leaf_above_ = &leaf_above_box;     break;
-    case ShadingModel::FlatTopSoftBox: leaf_above_ = &leaf_above_softbox; break;
-    default:                           leaf_above_ = &leaf_above_deep;    break;
+    case ShadingModel::FlatTopBox:
+      leaf_above_ = &leaf_above_box;
+      leaf_above_q_ = &leaf_above_q_box;
+      break;
+    case ShadingModel::FlatTopSoftBox:
+      leaf_above_ = &leaf_above_softbox;
+      leaf_above_q_ = &leaf_above_q_softbox;
+      break;
+    default:
+      leaf_above_ = &leaf_above_deep;
+      leaf_above_q_ = &leaf_above_q_deep;
+      break;
     }
   }
 
@@ -162,6 +173,79 @@ public:
     return Q(z / height);
   }
 
+  // Q and q from the one u^eta both need, for the callers that read the smooth
+  // profile directly rather than through leaf_area_above.
+  std::pair<double, double> Q_and_q(double z_over_height,
+                                    double height_inverse) const {
+    return {Q(z_over_height), leaf_above_q_deep(*this, z_over_height, height_inverse)};
+  }
+
+  // The shading a crown casts at u = z / H and its q there: the pair the light
+  // field reads at every knot. Defined at the crown base, where q_from_height
+  // takes a limit.
+  std::pair<double, double> leaf_area_above_and_q(double z_over_height,
+                                                  double height_inverse) const {
+    return {leaf_above_(*this, z_over_height),
+            leaf_above_q_(*this, z_over_height, height_inverse)};
+  }
+
+  // Q(u) = 1 - 2 u^eta + u^(2 eta), so a reduction over cohorts at many heights
+  // needs three running sums rather than one Q per cohort per height.
+  //
+  // The sums hold the cohorts whose crowns reach `at`, scaled by `at` itself.
+  // Carrying them unscaled loses the sum's own small terms: the factor h^-eta at
+  // eta 12 spans nineteen orders over one stand's heights. They carry `at` so a
+  // caller cannot descend by a ratio taken from some other height -- the result
+  // would be a plausible field with no symptom.
+  struct ProfileSums {
+    double flat = 0.0;
+    double first = 0.0;
+    double second = 0.0;
+    double at = 0.0;
+  };
+
+  // Whether Q is a polynomial in u^eta, which is what the sums above rest on.
+  // The box profiles are not, and the hard box has no vertical slope at all.
+  bool profile_expands_in_u_eta() const {
+    return leaf_above_ == &leaf_above_deep;
+  }
+
+  // Whether a light field can be built from this profile. Named profiles only:
+  // a grid samples a step at the crown centre as a ramp one span wide and
+  // returns numbers, so a profile that has not been checked for continuity must
+  // not reach a field by default.
+  bool profile_builds_a_field() const {
+    return leaf_above_ == &leaf_above_deep || leaf_above_ == &leaf_above_softbox;
+  }
+
+  // Rescale the sums to a lower height. The ratio is taken from what they hold,
+  // so it cannot come from anywhere else; every admitted cohort's u falls by it.
+  void descend_to(ProfileSums& s, double z) const {
+    if (s.at > 0.0) {
+      const double r = pow_eta_(z / s.at, eta_);
+      s.first *= r;
+      s.second *= r * r;
+    }
+    s.at = z;
+  }
+
+  // Admit one cohort of amplitude `scale` whose crown top is `height`, at the
+  // height the sums now hold. Every term is at most `scale`, because a cohort is
+  // admitted only once that height has fallen to its own crown top.
+  void admit(ProfileSums& s, double scale, double height) const {
+    const double u_eta = pow_eta_(s.at / height, eta_);
+    s.flat += scale;
+    s.first += scale * u_eta;
+    s.second += scale * u_eta * u_eta;
+  }
+
+  // The pair leaf_area_above_and_q returns, summed over everything admitted.
+  // Undefined at the crown base for the reason q is.
+  std::pair<double, double> Q_and_q_from_sums(const ProfileSums& s) const {
+    const double gain = 2.0 * eta_ / s.at;
+    return {s.flat - 2.0 * s.first + s.second, (s.first - s.second) * gain};
+  }
+
   double Qp(double x, double height) const {
     return std::pow(1.0 - std::sqrt(x), eta_inverse_) * height;
   }
@@ -176,6 +260,7 @@ public:
 private:
   typedef double (*pow_eta_fn)(double, double);
   typedef double (*leaf_above_fn)(const CanopyShape&, double);
+  typedef double (*leaf_above_q_fn)(const CanopyShape&, double, double);
 
   // Smooth Yokozawa profile -- the correct shading a crown casts.
   static double leaf_above_deep(const CanopyShape& c, double z_over_height) {
@@ -202,6 +287,36 @@ private:
     }
     const double t = (z_over_height - lo) / (1.0 - lo);
     return 1.0 - t * t * (3.0 - 2.0 * t);
+  }
+
+  // Divided by the height rather than by z, which is what makes the crown base a
+  // value where q(u, z) is 0 / 0. Same limit q_from_height takes.
+  static double leaf_above_q_deep(const CanopyShape& c, double z_over_height,
+                                  double height_inverse) {
+    if (z_over_height > 1.0) {
+      return 0.0;
+    }
+    if (z_over_height <= 0.0) {
+      return c.eta_ == 1.0 ? 2.0 * height_inverse : 0.0;
+    }
+    const double u_eta = c.pow_eta_(z_over_height, c.eta_);
+    return 2.0 * c.eta_ * (1.0 - u_eta) * u_eta * height_inverse / z_over_height;
+  }
+
+  // A step is flat either side of the crown centre, and the jump there is not a
+  // number a field carries.
+  static double leaf_above_q_box(const CanopyShape&, double, double) {
+    return 0.0;
+  }
+
+  static double leaf_above_q_softbox(const CanopyShape& c, double z_over_height,
+                                     double height_inverse) {
+    const double lo = c.eta_c_ > 0.5 ? 2.0 * c.eta_c_ - 1.0 : 0.0;
+    if (z_over_height <= lo || z_over_height >= 1.0) {
+      return 0.0;
+    }
+    const double t = (z_over_height - lo) / (1.0 - lo);
+    return 6.0 * t * (1.0 - t) * height_inverse / (1.0 - lo);
   }
 
   static pow_eta_fn select_pow_eta(double eta) {
@@ -264,6 +379,7 @@ private:
   double eta_c_;
   pow_eta_fn pow_eta_;
   leaf_above_fn leaf_above_;
+  leaf_above_q_fn leaf_above_q_;
 };
 
 }

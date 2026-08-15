@@ -76,10 +76,15 @@ for (x in names(strategy_types)) {
 
     expect_equal(patch$deaths(), 0)
 
-    ci <- patch$environment$light_availability$spline
-    expect_equal(range(ci$x), c(0.0, cmp$state("height")))
-    expect_equal(max(ci$y), 1.0)
-    expect_lt(ci$y[[1]], 1.0)
+    ## The knots are a lattice reaching one node past the canopy, not a grid tied
+    ## to the canopy top, so the top knot is above the tallest individual rather
+    ## than on it.
+    ci <- patch$environment$light_availability$state
+    expect_equal(min(ci[, "height"]), 0.0)
+    expect_gt(max(ci[, "height"]), cmp$state("height"))
+    ## Full openness above the canopy, and shade at the ground.
+    expect_equal(max(ci[, "light_availability"]), 1.0)
+    expect_lt(ci[1, "light_availability"], 1.0)
 
     if (x == "FF16") {
       expect_true(all(patch$ode_rates > 0.0))

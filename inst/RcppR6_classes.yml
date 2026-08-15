@@ -725,6 +725,14 @@ Patch:
     survival_weighting_cdf: {return_type: double, args: [time: double], name_cpp: r_survival_weighting_cdf}
     survival_weighting_icdf: {return_type: double, args: [prob: double], name_cpp: r_survival_weighting_icdf}
     compute_competition: {return_type: double, args: [height: double]}
+    compute_competition_and_slope:
+      return_type: "std::vector<double>"
+      args: [height: double]
+      name_cpp: r_compute_competition_and_slope
+    compute_competition_grid:
+      return_type: "Rcpp::NumericMatrix"
+      args: [z: "std::vector<double>"]
+      name_cpp: r_compute_competition_grid
 
 SCM:
   name_cpp: "plant::SCM<T,E>"
@@ -968,18 +976,19 @@ ResourceSpline:
   name_cpp: "plant::ResourceSpline"
   constructor:
     args:
-      - tol: double
-      - nbase: double
-      - max_depth: double
-      - rescale_usually: bool
+      - knot_spacing: double
   methods:
     get_value_at_height:
       args: [height: double]
       return_type: double
+    init_interpolators:
+      args: [state: "std::vector<double>"]
+      return_type: void
+      name_cpp: r_init_interpolators
     clear:
       return_type: void
   active:
-    spline: {type: "odelia::interpolator::Interpolator", access: field}
+    state: {type: "Rcpp::NumericMatrix", access: member, name_cpp: r_get_state}
 
 Interpolator:
   name_cpp: "odelia::interpolator::Interpolator"

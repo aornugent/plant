@@ -43,7 +43,11 @@ public:
   // the simulation output for identical inputs. Do NOT bump for refactors,
   // performance, interface, or serialisation changes. Bumping invalidates
   // logpile's cache for this model (see plant::model_version() / model_id()).
-  static constexpr int scientific_version = 1;
+  // v2: the light field is built on a lattice of constants and read as a cubic
+  // carrying a slope at every knot. Its pointwise error against the exact
+  // reduction falls from 3.3e-04 to 2.0e-05 on a mature stand, and the outputs
+  // move with it.
+  static constexpr int scientific_version = 2;
 
   // Direct aux indices for the hot path, avoiding aux_index.at("...") string-map
   // lookups (these showed up in profiling; see #466). MUST stay in sync with the
@@ -113,6 +117,22 @@ public:
   double compute_competition(double z, const Internals& vars) const {
     return compute_competition(z, vars.aux(COMPETITION_EFFECT_AUX_INDEX),
                                vars.aux(HEIGHT_INVERSE_AUX_INDEX));
+  }
+
+  // The same contribution and its q, from the one u^eta both need.
+  std::pair<double, double>
+  compute_competition_and_q(double z, double whole_plant_competition,
+                                double height_inverse) const {
+    const std::pair<double, double> ls =
+        canopy_shape.Q_and_q(z * height_inverse, height_inverse);
+    return {whole_plant_competition * ls.first,
+            whole_plant_competition * ls.second};
+  }
+  std::pair<double, double>
+  compute_competition_and_q(double z, const Internals& vars) const {
+    return compute_competition_and_q(z,
+                                         vars.aux(COMPETITION_EFFECT_AUX_INDEX),
+                                         vars.aux(HEIGHT_INVERSE_AUX_INDEX));
   }
 
   void update_dependent_aux(const int index, Internals& vars);

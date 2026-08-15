@@ -19,7 +19,7 @@ namespace plant {
 class Environment {
 public:
   template <typename Function>
-  void compute_environment(Function f, double height_max, bool rescale);
+  void compute_environment(Function f, double height_max);
 
   void set_fixed_environment(double value, double height_max);
   void set_fixed_environment(double value);

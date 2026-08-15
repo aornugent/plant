@@ -27,6 +27,7 @@ public:
 
   double height() const {return individual.state(HEIGHT_INDEX);}
   double compute_competition(double z) const;
+  std::pair<double, double> compute_competition_and_q(double z) const;
   double fecundity() const {return offspring_produced_survival_weighted;}
 
   // Bookkeeping recorded at the moment the node is introduced, so that
@@ -269,6 +270,14 @@ double Node<T,E>::r_growth_rate_gradient(const environment_type& environment) {
 template <typename T, typename E>
 double Node<T,E>::compute_competition(double height_) const {
   return density * individual.compute_competition(height_);
+}
+
+template <typename T, typename E>
+std::pair<double, double>
+Node<T,E>::compute_competition_and_q(double height_) const {
+  const std::pair<double, double> vs =
+      individual.compute_competition_and_q(height_);
+  return {density * vs.first, density * vs.second};
 }
 
 // ODE interface -- note that the don't care about time in the node;

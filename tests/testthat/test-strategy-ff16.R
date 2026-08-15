@@ -212,15 +212,19 @@ test_that("offspring arrival", {
   p1 <- add_strategies(p0, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar, birth_rate = list(20))
 
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 16.8895016, tolerance=1e-4)
-  expect_equal(out$ode_times[c(10, 100)], c(0.000070, 4.215899), tolerance=1e-5)
+  # Re-blessed with the light field on a lattice of constants. The field the
+  # numbers below were taken against carried a pointwise error of 3.3e-04 at
+  # this stand; this one carries 2.0e-05, and the shift here is that difference
+  # rather than noise.
+  expect_equal(out$offspring_production, 16.8962440, tolerance=1e-4)
+  expect_equal(out$ode_times[c(10, 100)], c(0.000070, 4.215410), tolerance=1e-5)
 
   # two species
   p2 <- add_strategies(p0, trait_matrix(c(0.0825, 0.2625), "lma"), hyperpar = FF16_hyperpar, birth_rate = list(11.99177, 16.51006))
   
   out <- run_scm(p2, env, ctrl)
-  expect_equal(out$offspring_production, c(11.995204, 16.474988), tolerance=1e-5)
-  expect_equal(length(out$ode_times), 293)
+  expect_equal(out$offspring_production, c(11.995916, 16.477685), tolerance=1e-5)
+  expect_equal(length(out$ode_times), 298)
 })
 
 test_that("Report generation", {

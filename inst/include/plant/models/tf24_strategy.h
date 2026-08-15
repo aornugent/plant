@@ -229,7 +229,9 @@ public:
   // Gamma*/Kc/Ko/Km and conductance side, which is the whole point of item 10c. Set
   // `atm_kpa` per site if you mean altitude; it just no longer defaults to an
   // altitude nobody chose.
-  static constexpr int scientific_version = 8;
+  // v9: the light field is built on a lattice of constants and read as a cubic
+  // carrying a slope at every knot; the outputs move with it.
+  static constexpr int scientific_version = 9;
 
   double compute_average_light_environment(double z, double height,
                                            const TF24_Environment &environment);
@@ -468,6 +470,21 @@ public:
   double compute_competition(double z, const Internals& vars) const {
     return compute_competition(z, vars.aux(aux_idx_competition_effect),
                                vars.aux(aux_idx_height_inverse));
+  }
+
+  // The same contribution and its q, from the one u^eta both need.
+  std::pair<double, double>
+  compute_competition_and_q(double z, double area_leaf_,
+                                double height_inverse) const {
+    const std::pair<double, double> ls =
+        canopy_shape.Q_and_q(z * height_inverse, height_inverse);
+    const double scale = pars.k_I * area_leaf_;
+    return {scale * ls.first, scale * ls.second};
+  }
+  std::pair<double, double>
+  compute_competition_and_q(double z, const Internals& vars) const {
+    return compute_competition_and_q(z, vars.aux(aux_idx_competition_effect),
+                                         vars.aux(aux_idx_height_inverse));
   }
 
   // The fraction of root mass below soil depth `z`, for a plant rooted to
