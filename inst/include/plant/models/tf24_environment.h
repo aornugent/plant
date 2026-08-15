@@ -69,14 +69,6 @@ public:
 
 
 
-    // Shading defaults have lower tolerance which are overwritten for speed
-    light_availability = ResourceSpline(
-                   1e-4,  // light_availability_spline_tol,
-                   17,    // light_availability_spline_nbase,
-                   16,    // light_availability_spline_max_depth,
-                   true //light_availability_spline_rescale_usually)
-                  );
-
     ExtrinsicDrivers extrinsic_drivers;
 
     extrinsic_drivers_set_constant("PPFD",1800);
@@ -214,8 +206,12 @@ public:
   // which the R interface lets a caller choose. Restored by clear_state().
   std::vector<double> initial_states;
 
+  // Metres between the light field's knots. Sized as FF16's, against the same
+  // stand: about the canopy a run reaches over 350.
+  constexpr static double light_knot_spacing = 0.05;
+
   // A ResourceSpline used for storing light availbility (0-1)
-  ResourceSpline light_availability;
+  ResourceSpline light_availability{light_knot_spacing};
 
   // Light interface
   bool canopy_rescale_usually;
@@ -520,17 +516,23 @@ public:
 
   // Pre-compute resources available in the environment, as a function of height
   template <typename Function>
-  void compute_environment(Function f_compute_competition, double height_max, bool rescale) {
+  void compute_environment(Function f_compute_competition_and_slope, double height_max) {
 
-    // Define an anonymous function to use in creation of light_availability spline
-    // Note: extinction coefficient was already applied in strategy, so
-    // f_compute_competition gives sum of projected leaf area (k L) across species. Just need to apply Beer's law, E = exp(- (k L))
-    auto f_light_availability = [&](double height) -> double
-    { return exp(-f_compute_competition(height)); };
+    // Beer's law on the competition profile A, whose extinction coefficient the
+    // strategy has already applied: E = exp(-A) and dE/dz = -A' exp(-A).
+    auto f_light_availability = [&](const std::vector<double>& z,
+                                    std::vector<double>& value,
+                                    std::vector<double>& slope) -> void
+    {
+      f_compute_competition_and_slope(z, value, slope);
+      for (size_t k = 0; k < z.size(); ++k) {
+        const double E = exp(-value[k]);
+        value[k] = E;
+        slope[k] = -(slope[k] * E);
+      }
+    };
 
-    // Calculates the light_availability spline, by fitting to the function
-    // `f_compute_competition` as a function of height
-    light_availability.compute_environment(f_light_availability, height_max, rescale);
+    light_availability.compute_environment(f_light_availability, height_max);
   }
 
   // Clear the light profile, and nothing else. This runs whenever the patch

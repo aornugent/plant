@@ -2201,6 +2201,14 @@ Patch___FF16__FF16_Env__compute_competition <- function(obj_, height) {
     .Call('_plant_Patch___FF16__FF16_Env__compute_competition', PACKAGE = 'plant', obj_, height)
 }
 
+Patch___FF16__FF16_Env__compute_competition_and_slope <- function(obj_, height) {
+    .Call('_plant_Patch___FF16__FF16_Env__compute_competition_and_slope', PACKAGE = 'plant', obj_, height)
+}
+
+Patch___FF16__FF16_Env__compute_competition_grid <- function(obj_, z) {
+    .Call('_plant_Patch___FF16__FF16_Env__compute_competition_grid', PACKAGE = 'plant', obj_, z)
+}
+
 Patch___FF16__FF16_Env__time__get <- function(obj_) {
     .Call('_plant_Patch___FF16__FF16_Env__time__get', PACKAGE = 'plant', obj_)
 }
@@ -2311,6 +2319,14 @@ Patch___TF24__TF24_Env__survival_weighting_icdf <- function(obj_, prob) {
 
 Patch___TF24__TF24_Env__compute_competition <- function(obj_, height) {
     .Call('_plant_Patch___TF24__TF24_Env__compute_competition', PACKAGE = 'plant', obj_, height)
+}
+
+Patch___TF24__TF24_Env__compute_competition_and_slope <- function(obj_, height) {
+    .Call('_plant_Patch___TF24__TF24_Env__compute_competition_and_slope', PACKAGE = 'plant', obj_, height)
+}
+
+Patch___TF24__TF24_Env__compute_competition_grid <- function(obj_, z) {
+    .Call('_plant_Patch___TF24__TF24_Env__compute_competition_grid', PACKAGE = 'plant', obj_, z)
 }
 
 Patch___TF24__TF24_Env__time__get <- function(obj_) {
@@ -2425,6 +2441,14 @@ Patch___TF24f__TF24_Env__compute_competition <- function(obj_, height) {
     .Call('_plant_Patch___TF24f__TF24_Env__compute_competition', PACKAGE = 'plant', obj_, height)
 }
 
+Patch___TF24f__TF24_Env__compute_competition_and_slope <- function(obj_, height) {
+    .Call('_plant_Patch___TF24f__TF24_Env__compute_competition_and_slope', PACKAGE = 'plant', obj_, height)
+}
+
+Patch___TF24f__TF24_Env__compute_competition_grid <- function(obj_, z) {
+    .Call('_plant_Patch___TF24f__TF24_Env__compute_competition_grid', PACKAGE = 'plant', obj_, z)
+}
+
 Patch___TF24f__TF24_Env__time__get <- function(obj_) {
     .Call('_plant_Patch___TF24f__TF24_Env__time__get', PACKAGE = 'plant', obj_)
 }
@@ -2535,6 +2559,14 @@ Patch___K93__K93_Env__survival_weighting_icdf <- function(obj_, prob) {
 
 Patch___K93__K93_Env__compute_competition <- function(obj_, height) {
     .Call('_plant_Patch___K93__K93_Env__compute_competition', PACKAGE = 'plant', obj_, height)
+}
+
+Patch___K93__K93_Env__compute_competition_and_slope <- function(obj_, height) {
+    .Call('_plant_Patch___K93__K93_Env__compute_competition_and_slope', PACKAGE = 'plant', obj_, height)
+}
+
+Patch___K93__K93_Env__compute_competition_grid <- function(obj_, z) {
+    .Call('_plant_Patch___K93__K93_Env__compute_competition_grid', PACKAGE = 'plant', obj_, z)
 }
 
 Patch___K93__K93_Env__time__get <- function(obj_) {
@@ -3857,24 +3889,24 @@ StochasticPatchRunner___K93__K93_Env__node_schedule__set <- function(obj_, value
     invisible(.Call('_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__set', PACKAGE = 'plant', obj_, value))
 }
 
-ResourceSpline__ctor <- function(tol, nbase, max_depth, rescale_usually) {
-    .Call('_plant_ResourceSpline__ctor', PACKAGE = 'plant', tol, nbase, max_depth, rescale_usually)
+ResourceSpline__ctor <- function(knot_spacing) {
+    .Call('_plant_ResourceSpline__ctor', PACKAGE = 'plant', knot_spacing)
 }
 
 ResourceSpline__get_value_at_height <- function(obj_, height) {
     .Call('_plant_ResourceSpline__get_value_at_height', PACKAGE = 'plant', obj_, height)
 }
 
+ResourceSpline__init_interpolators <- function(obj_, state) {
+    invisible(.Call('_plant_ResourceSpline__init_interpolators', PACKAGE = 'plant', obj_, state))
+}
+
 ResourceSpline__clear <- function(obj_) {
     invisible(.Call('_plant_ResourceSpline__clear', PACKAGE = 'plant', obj_))
 }
 
-ResourceSpline__spline__get <- function(obj_) {
-    .Call('_plant_ResourceSpline__spline__get', PACKAGE = 'plant', obj_)
-}
-
-ResourceSpline__spline__set <- function(obj_, value) {
-    invisible(.Call('_plant_ResourceSpline__spline__set', PACKAGE = 'plant', obj_, value))
+ResourceSpline__state__get <- function(obj_) {
+    .Call('_plant_ResourceSpline__state__get', PACKAGE = 'plant', obj_)
 }
 
 Interpolator__ctor <- function() {

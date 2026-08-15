@@ -6217,6 +6217,30 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// Patch___FF16__FF16_Env__compute_competition_and_slope
+std::vector<double> Patch___FF16__FF16_Env__compute_competition_and_slope(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, double height);
+RcppExport SEXP _plant_Patch___FF16__FF16_Env__compute_competition_and_slope(SEXP obj_SEXP, SEXP heightSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< double >::type height(heightSEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___FF16__FF16_Env__compute_competition_and_slope(obj_, height));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___FF16__FF16_Env__compute_competition_grid
+Rcpp::NumericMatrix Patch___FF16__FF16_Env__compute_competition_grid(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<double> z);
+RcppExport SEXP _plant_Patch___FF16__FF16_Env__compute_competition_grid(SEXP obj_SEXP, SEXP zSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type z(zSEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___FF16__FF16_Env__compute_competition_grid(obj_, z));
+    return rcpp_result_gen;
+END_RCPP
+}
 // Patch___FF16__FF16_Env__time__get
 double Patch___FF16__FF16_Env__time__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_);
 RcppExport SEXP _plant_Patch___FF16__FF16_Env__time__get(SEXP obj_SEXP) {
@@ -6533,6 +6557,30 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
     Rcpp::traits::input_parameter< double >::type height(heightSEXP);
     rcpp_result_gen = Rcpp::wrap(Patch___TF24__TF24_Env__compute_competition(obj_, height));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___TF24__TF24_Env__compute_competition_and_slope
+std::vector<double> Patch___TF24__TF24_Env__compute_competition_and_slope(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, double height);
+RcppExport SEXP _plant_Patch___TF24__TF24_Env__compute_competition_and_slope(SEXP obj_SEXP, SEXP heightSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< double >::type height(heightSEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24__TF24_Env__compute_competition_and_slope(obj_, height));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___TF24__TF24_Env__compute_competition_grid
+Rcpp::NumericMatrix Patch___TF24__TF24_Env__compute_competition_grid(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<double> z);
+RcppExport SEXP _plant_Patch___TF24__TF24_Env__compute_competition_grid(SEXP obj_SEXP, SEXP zSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type z(zSEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24__TF24_Env__compute_competition_grid(obj_, z));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -6855,6 +6903,30 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// Patch___TF24f__TF24_Env__compute_competition_and_slope
+std::vector<double> Patch___TF24f__TF24_Env__compute_competition_and_slope(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, double height);
+RcppExport SEXP _plant_Patch___TF24f__TF24_Env__compute_competition_and_slope(SEXP obj_SEXP, SEXP heightSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< double >::type height(heightSEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24f__TF24_Env__compute_competition_and_slope(obj_, height));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___TF24f__TF24_Env__compute_competition_grid
+Rcpp::NumericMatrix Patch___TF24f__TF24_Env__compute_competition_grid(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<double> z);
+RcppExport SEXP _plant_Patch___TF24f__TF24_Env__compute_competition_grid(SEXP obj_SEXP, SEXP zSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type z(zSEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___TF24f__TF24_Env__compute_competition_grid(obj_, z));
+    return rcpp_result_gen;
+END_RCPP
+}
 // Patch___TF24f__TF24_Env__time__get
 double Patch___TF24f__TF24_Env__time__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_);
 RcppExport SEXP _plant_Patch___TF24f__TF24_Env__time__get(SEXP obj_SEXP) {
@@ -7171,6 +7243,30 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
     Rcpp::traits::input_parameter< double >::type height(heightSEXP);
     rcpp_result_gen = Rcpp::wrap(Patch___K93__K93_Env__compute_competition(obj_, height));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___K93__K93_Env__compute_competition_and_slope
+std::vector<double> Patch___K93__K93_Env__compute_competition_and_slope(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, double height);
+RcppExport SEXP _plant_Patch___K93__K93_Env__compute_competition_and_slope(SEXP obj_SEXP, SEXP heightSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< double >::type height(heightSEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___K93__K93_Env__compute_competition_and_slope(obj_, height));
+    return rcpp_result_gen;
+END_RCPP
+}
+// Patch___K93__K93_Env__compute_competition_grid
+Rcpp::NumericMatrix Patch___K93__K93_Env__compute_competition_grid(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<double> z);
+RcppExport SEXP _plant_Patch___K93__K93_Env__compute_competition_grid(SEXP obj_SEXP, SEXP zSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type z(zSEXP);
+    rcpp_result_gen = Rcpp::wrap(Patch___K93__K93_Env__compute_competition_grid(obj_, z));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -10837,16 +10933,13 @@ BEGIN_RCPP
 END_RCPP
 }
 // ResourceSpline__ctor
-plant::ResourceSpline ResourceSpline__ctor(double tol, double nbase, double max_depth, bool rescale_usually);
-RcppExport SEXP _plant_ResourceSpline__ctor(SEXP tolSEXP, SEXP nbaseSEXP, SEXP max_depthSEXP, SEXP rescale_usuallySEXP) {
+plant::ResourceSpline ResourceSpline__ctor(double knot_spacing);
+RcppExport SEXP _plant_ResourceSpline__ctor(SEXP knot_spacingSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
-    Rcpp::traits::input_parameter< double >::type nbase(nbaseSEXP);
-    Rcpp::traits::input_parameter< double >::type max_depth(max_depthSEXP);
-    Rcpp::traits::input_parameter< bool >::type rescale_usually(rescale_usuallySEXP);
-    rcpp_result_gen = Rcpp::wrap(ResourceSpline__ctor(tol, nbase, max_depth, rescale_usually));
+    Rcpp::traits::input_parameter< double >::type knot_spacing(knot_spacingSEXP);
+    rcpp_result_gen = Rcpp::wrap(ResourceSpline__ctor(knot_spacing));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -10862,6 +10955,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ResourceSpline__init_interpolators
+void ResourceSpline__init_interpolators(plant::RcppR6::RcppR6<plant::ResourceSpline> obj_, std::vector<double> state);
+RcppExport SEXP _plant_ResourceSpline__init_interpolators(SEXP obj_SEXP, SEXP stateSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::ResourceSpline> >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type state(stateSEXP);
+    ResourceSpline__init_interpolators(obj_, state);
+    return R_NilValue;
+END_RCPP
+}
 // ResourceSpline__clear
 void ResourceSpline__clear(plant::RcppR6::RcppR6<plant::ResourceSpline> obj_);
 RcppExport SEXP _plant_ResourceSpline__clear(SEXP obj_SEXP) {
@@ -10872,26 +10976,15 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
-// ResourceSpline__spline__get
-odelia::interpolator::Interpolator ResourceSpline__spline__get(plant::RcppR6::RcppR6<plant::ResourceSpline> obj_);
-RcppExport SEXP _plant_ResourceSpline__spline__get(SEXP obj_SEXP) {
+// ResourceSpline__state__get
+Rcpp::NumericMatrix ResourceSpline__state__get(plant::RcppR6::RcppR6<plant::ResourceSpline> obj_);
+RcppExport SEXP _plant_ResourceSpline__state__get(SEXP obj_SEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::ResourceSpline> >::type obj_(obj_SEXP);
-    rcpp_result_gen = Rcpp::wrap(ResourceSpline__spline__get(obj_));
+    rcpp_result_gen = Rcpp::wrap(ResourceSpline__state__get(obj_));
     return rcpp_result_gen;
-END_RCPP
-}
-// ResourceSpline__spline__set
-void ResourceSpline__spline__set(plant::RcppR6::RcppR6<plant::ResourceSpline> obj_, odelia::interpolator::Interpolator value);
-RcppExport SEXP _plant_ResourceSpline__spline__set(SEXP obj_SEXP, SEXP valueSEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::ResourceSpline> >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< odelia::interpolator::Interpolator >::type value(valueSEXP);
-    ResourceSpline__spline__set(obj_, value);
-    return R_NilValue;
 END_RCPP
 }
 // Interpolator__ctor
@@ -12860,6 +12953,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___FF16__FF16_Env__survival_weighting_cdf", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__survival_weighting_cdf, 2},
     {"_plant_Patch___FF16__FF16_Env__survival_weighting_icdf", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__survival_weighting_icdf, 2},
     {"_plant_Patch___FF16__FF16_Env__compute_competition", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__compute_competition, 2},
+    {"_plant_Patch___FF16__FF16_Env__compute_competition_and_slope", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__compute_competition_and_slope, 2},
+    {"_plant_Patch___FF16__FF16_Env__compute_competition_grid", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__compute_competition_grid, 2},
     {"_plant_Patch___FF16__FF16_Env__time__get", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__time__get, 1},
     {"_plant_Patch___FF16__FF16_Env__size__get", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__size__get, 1},
     {"_plant_Patch___FF16__FF16_Env__get_area__get", (DL_FUNC) &_plant_Patch___FF16__FF16_Env__get_area__get, 1},
@@ -12888,6 +12983,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___TF24__TF24_Env__survival_weighting_cdf", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__survival_weighting_cdf, 2},
     {"_plant_Patch___TF24__TF24_Env__survival_weighting_icdf", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__survival_weighting_icdf, 2},
     {"_plant_Patch___TF24__TF24_Env__compute_competition", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__compute_competition, 2},
+    {"_plant_Patch___TF24__TF24_Env__compute_competition_and_slope", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__compute_competition_and_slope, 2},
+    {"_plant_Patch___TF24__TF24_Env__compute_competition_grid", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__compute_competition_grid, 2},
     {"_plant_Patch___TF24__TF24_Env__time__get", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__time__get, 1},
     {"_plant_Patch___TF24__TF24_Env__size__get", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__size__get, 1},
     {"_plant_Patch___TF24__TF24_Env__get_area__get", (DL_FUNC) &_plant_Patch___TF24__TF24_Env__get_area__get, 1},
@@ -12916,6 +13013,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___TF24f__TF24_Env__survival_weighting_cdf", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__survival_weighting_cdf, 2},
     {"_plant_Patch___TF24f__TF24_Env__survival_weighting_icdf", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__survival_weighting_icdf, 2},
     {"_plant_Patch___TF24f__TF24_Env__compute_competition", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__compute_competition, 2},
+    {"_plant_Patch___TF24f__TF24_Env__compute_competition_and_slope", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__compute_competition_and_slope, 2},
+    {"_plant_Patch___TF24f__TF24_Env__compute_competition_grid", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__compute_competition_grid, 2},
     {"_plant_Patch___TF24f__TF24_Env__time__get", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__time__get, 1},
     {"_plant_Patch___TF24f__TF24_Env__size__get", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__size__get, 1},
     {"_plant_Patch___TF24f__TF24_Env__get_area__get", (DL_FUNC) &_plant_Patch___TF24f__TF24_Env__get_area__get, 1},
@@ -12944,6 +13043,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Patch___K93__K93_Env__survival_weighting_cdf", (DL_FUNC) &_plant_Patch___K93__K93_Env__survival_weighting_cdf, 2},
     {"_plant_Patch___K93__K93_Env__survival_weighting_icdf", (DL_FUNC) &_plant_Patch___K93__K93_Env__survival_weighting_icdf, 2},
     {"_plant_Patch___K93__K93_Env__compute_competition", (DL_FUNC) &_plant_Patch___K93__K93_Env__compute_competition, 2},
+    {"_plant_Patch___K93__K93_Env__compute_competition_and_slope", (DL_FUNC) &_plant_Patch___K93__K93_Env__compute_competition_and_slope, 2},
+    {"_plant_Patch___K93__K93_Env__compute_competition_grid", (DL_FUNC) &_plant_Patch___K93__K93_Env__compute_competition_grid, 2},
     {"_plant_Patch___K93__K93_Env__time__get", (DL_FUNC) &_plant_Patch___K93__K93_Env__time__get, 1},
     {"_plant_Patch___K93__K93_Env__size__get", (DL_FUNC) &_plant_Patch___K93__K93_Env__size__get, 1},
     {"_plant_Patch___K93__K93_Env__get_area__get", (DL_FUNC) &_plant_Patch___K93__K93_Env__get_area__get, 1},
@@ -13274,11 +13375,11 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_StochasticPatchRunner___K93__K93_Env__patch__get", (DL_FUNC) &_plant_StochasticPatchRunner___K93__K93_Env__patch__get, 1},
     {"_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__get", (DL_FUNC) &_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__get, 1},
     {"_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__set", (DL_FUNC) &_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__set, 2},
-    {"_plant_ResourceSpline__ctor", (DL_FUNC) &_plant_ResourceSpline__ctor, 4},
+    {"_plant_ResourceSpline__ctor", (DL_FUNC) &_plant_ResourceSpline__ctor, 1},
     {"_plant_ResourceSpline__get_value_at_height", (DL_FUNC) &_plant_ResourceSpline__get_value_at_height, 2},
+    {"_plant_ResourceSpline__init_interpolators", (DL_FUNC) &_plant_ResourceSpline__init_interpolators, 2},
     {"_plant_ResourceSpline__clear", (DL_FUNC) &_plant_ResourceSpline__clear, 1},
-    {"_plant_ResourceSpline__spline__get", (DL_FUNC) &_plant_ResourceSpline__spline__get, 1},
-    {"_plant_ResourceSpline__spline__set", (DL_FUNC) &_plant_ResourceSpline__spline__set, 2},
+    {"_plant_ResourceSpline__state__get", (DL_FUNC) &_plant_ResourceSpline__state__get, 1},
     {"_plant_Interpolator__ctor", (DL_FUNC) &_plant_Interpolator__ctor, 0},
     {"_plant_Interpolator__init", (DL_FUNC) &_plant_Interpolator__init, 3},
     {"_plant_Interpolator__eval", (DL_FUNC) &_plant_Interpolator__eval, 2},

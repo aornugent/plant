@@ -290,7 +290,11 @@ test_that("Can create empty SCM", {
     env <- scm$patch$environment
     patch <- scm$patch
 
-    expect_equal(env$light_availability$spline$size, 0)
+    ## Before any build the field is the open one rather than no field at all:
+    ## every query reads the interpolant's bounds, and an emptied interpolant has
+    ## none. Three knots, all carrying full openness.
+    expect_equal(nrow(env$light_availability$state), 3)
+    expect_equal(env$light_availability$state[, "light_availability"], rep(1, 3))
     expect_equal(env$get_environment_at_height(0), 1.0)
   }
 })

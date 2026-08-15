@@ -2496,6 +2496,14 @@ double Patch___FF16__FF16_Env__compute_competition(plant::RcppR6::RcppR6<plant::
   return obj_->compute_competition(height);
 }
 // [[Rcpp::export]]
+std::vector<double> Patch___FF16__FF16_Env__compute_competition_and_slope(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, double height) {
+  return obj_->r_compute_competition_and_slope(height);
+}
+// [[Rcpp::export]]
+Rcpp::NumericMatrix Patch___FF16__FF16_Env__compute_competition_grid(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_, std::vector<double> z) {
+  return obj_->r_compute_competition_grid(z);
+}
+// [[Rcpp::export]]
 double Patch___FF16__FF16_Env__time__get(plant::RcppR6::RcppR6<plant::Patch<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   return obj_->time();
 }
@@ -2621,6 +2629,14 @@ double Patch___TF24__TF24_Env__survival_weighting_icdf(plant::RcppR6::RcppR6<pla
 // [[Rcpp::export]]
 double Patch___TF24__TF24_Env__compute_competition(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, double height) {
   return obj_->compute_competition(height);
+}
+// [[Rcpp::export]]
+std::vector<double> Patch___TF24__TF24_Env__compute_competition_and_slope(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, double height) {
+  return obj_->r_compute_competition_and_slope(height);
+}
+// [[Rcpp::export]]
+Rcpp::NumericMatrix Patch___TF24__TF24_Env__compute_competition_grid(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_, std::vector<double> z) {
+  return obj_->r_compute_competition_grid(z);
 }
 // [[Rcpp::export]]
 double Patch___TF24__TF24_Env__time__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy,plant::TF24_Environment> > obj_) {
@@ -2750,6 +2766,14 @@ double Patch___TF24f__TF24_Env__compute_competition(plant::RcppR6::RcppR6<plant:
   return obj_->compute_competition(height);
 }
 // [[Rcpp::export]]
+std::vector<double> Patch___TF24f__TF24_Env__compute_competition_and_slope(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, double height) {
+  return obj_->r_compute_competition_and_slope(height);
+}
+// [[Rcpp::export]]
+Rcpp::NumericMatrix Patch___TF24f__TF24_Env__compute_competition_grid(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_, std::vector<double> z) {
+  return obj_->r_compute_competition_grid(z);
+}
+// [[Rcpp::export]]
 double Patch___TF24f__TF24_Env__time__get(plant::RcppR6::RcppR6<plant::Patch<plant::TF24f_Strategy,plant::TF24_Environment> > obj_) {
   return obj_->time();
 }
@@ -2875,6 +2899,14 @@ double Patch___K93__K93_Env__survival_weighting_icdf(plant::RcppR6::RcppR6<plant
 // [[Rcpp::export]]
 double Patch___K93__K93_Env__compute_competition(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, double height) {
   return obj_->compute_competition(height);
+}
+// [[Rcpp::export]]
+std::vector<double> Patch___K93__K93_Env__compute_competition_and_slope(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, double height) {
+  return obj_->r_compute_competition_and_slope(height);
+}
+// [[Rcpp::export]]
+Rcpp::NumericMatrix Patch___K93__K93_Env__compute_competition_grid(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_, std::vector<double> z) {
+  return obj_->r_compute_competition_grid(z);
 }
 // [[Rcpp::export]]
 double Patch___K93__K93_Env__time__get(plant::RcppR6::RcppR6<plant::Patch<plant::K93_Strategy,plant::K93_Environment> > obj_) {
@@ -4392,24 +4424,24 @@ void StochasticPatchRunner___K93__K93_Env__node_schedule__set(plant::RcppR6::Rcp
 
 
 // [[Rcpp::export]]
-plant::ResourceSpline ResourceSpline__ctor(double tol, double nbase, double max_depth, bool rescale_usually) {
-  return plant::ResourceSpline(tol, nbase, max_depth, rescale_usually);
+plant::ResourceSpline ResourceSpline__ctor(double knot_spacing) {
+  return plant::ResourceSpline(knot_spacing);
 }
 // [[Rcpp::export]]
 double ResourceSpline__get_value_at_height(plant::RcppR6::RcppR6<plant::ResourceSpline> obj_, double height) {
   return obj_->get_value_at_height(height);
 }
 // [[Rcpp::export]]
+void ResourceSpline__init_interpolators(plant::RcppR6::RcppR6<plant::ResourceSpline> obj_, std::vector<double> state) {
+  obj_->r_init_interpolators(state);
+}
+// [[Rcpp::export]]
 void ResourceSpline__clear(plant::RcppR6::RcppR6<plant::ResourceSpline> obj_) {
   obj_->clear();
 }
 // [[Rcpp::export]]
-odelia::interpolator::Interpolator ResourceSpline__spline__get(plant::RcppR6::RcppR6<plant::ResourceSpline> obj_) {
-  return obj_->spline;
-}
-// [[Rcpp::export]]
-void ResourceSpline__spline__set(plant::RcppR6::RcppR6<plant::ResourceSpline> obj_, odelia::interpolator::Interpolator value) {
-  obj_->spline = value;
+Rcpp::NumericMatrix ResourceSpline__state__get(plant::RcppR6::RcppR6<plant::ResourceSpline> obj_) {
+  return obj_->r_get_state();
 }
 
 

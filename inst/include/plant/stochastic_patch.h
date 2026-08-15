@@ -80,10 +80,13 @@ public:
     at(species_index.check_bounds(size()));
   }
   // These are only here because they wrap private functions.
-  void r_compute_environment() {compute_environment(false);}
+  void r_compute_environment() {compute_environment();}
   void r_compute_rates() {compute_rates();}
 private:
-  void compute_environment(bool rescale);
+  void compute_environment();
+  void compute_competition_grid(const std::vector<double>& z,
+                                std::vector<double>& value,
+                                std::vector<double>& slope) const;
   void compute_rates();
 
   parameters_type parameters;
@@ -119,7 +122,7 @@ void StochasticPatch<T,E>::reset() {
   }
   resource_depletion.reserve(environment.n_resources());
   environment.clear();
-  compute_environment(false);
+  compute_environment();
   compute_rates();
 }
 
@@ -141,11 +144,34 @@ double StochasticPatch<T,E>::compute_competition(double height) const {
   return tot;
 }
 
+// One knot at a time: this patch carries individuals rather than a quadrature
+// over a size distribution, so there is no sum over cohorts to re-associate.
 template <typename T, typename E>
-void StochasticPatch<T,E>::compute_environment(bool rescale) {
+void StochasticPatch<T,E>::compute_competition_grid(
+    const std::vector<double>& z,
+    std::vector<double>& value,
+    std::vector<double>& slope) const {
+  for (size_t k = 0; k < z.size(); ++k) {
+    double v = 0.0, s = 0.0;
+    for (size_t i = 0; i < species.size(); ++i) {
+      const std::pair<double, double> vs =
+          species[i].compute_competition_and_slope(z[k]);
+      v += vs.first / area;
+      s += vs.second / area;
+    }
+    value[k] = v;
+    slope[k] = s;
+  }
+}
+
+template <typename T, typename E>
+void StochasticPatch<T,E>::compute_environment() {
   if (height_max() > 0.0) {
-    auto f = [&] (double x) -> double {return compute_competition(x);};
-    environment.compute_environment(f, height_max(), rescale);
+    auto f = [&](const std::vector<double>& z, std::vector<double>& value,
+                 std::vector<double>& slope) -> void {
+      compute_competition_grid(z, value, slope);
+    };
+    environment.compute_environment(f, height_max());
   } else {
     environment.clear_environment();
   }
@@ -182,7 +208,7 @@ void StochasticPatch<T,E>::introduce_new_node_and_update(size_t species_index) {
   // Add a offspring, setting ODE variables based on the *current* light environment
   species[species_index].introduce_new_node(environment);
   // Then we update the light environment.
-  compute_environment(false);
+  compute_environment();
 }
 
 template <typename T, typename E>
@@ -207,7 +233,7 @@ std::vector<size_t> StochasticPatch<T,E>::deaths() {
     recompute = recompute || n_deaths > 0;
   }
   if (recompute) {
-    compute_environment(false);
+    compute_environment();
     compute_rates();
   }
   return ret;
@@ -270,7 +296,7 @@ odelia::ode::const_iterator StochasticPatch<T,E>::set_ode_state(odelia::ode::con
   environment.time = time;
 
   // pre-compute resources avaialability and competion, as defined by residents
-  compute_environment(true);
+  compute_environment();
 
   // compute rates of changes
   compute_rates();

@@ -118,15 +118,20 @@ test_that("flat-top-soft-box has a continuous competition profile and runs", {
 })
 
 test_that("flat-top-box cannot build a light environment (discontinuous competition)", {
-  # The step competition makes the patch light profile discontinuous, so the
-  # adaptive light-environment spline cannot represent it and the SCM fails.
-  # This is the point of the model: the competition profile must be continuous.
+  # The step competition makes the patch light profile discontinuous, so no
+  # interpolated field represents it and the SCM fails. This is the point of the
+  # model: the competition profile must be continuous.
+  #
+  # The refusal is now stated rather than discovered. A grid of fixed knots fits
+  # the step as a ramp one span wide instead of failing to resolve it, so the
+  # field would build and return numbers -- which is why the profile says it has
+  # no field rather than leaving the fit to find out.
   p0 <- scm_base_parameters("FF16")
   p0$max_patch_lifetime <- 40
   p1 <- add_strategies(p0, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar, birth_rate = list(20))
   ctrl <- Control(); ctrl$shading_model <- "flat-top-box"
   expect_error(run_scm(p1, Environment("FF16"), ctrl),
-               "Interpolated function as refined as currently possible")
+               "this model has no light environment")
 })
 
 test_that("under uniform light, the integrate-based models all agree", {
@@ -176,7 +181,8 @@ test_that("deep-crown reproduces the baseline SCM result", {
   ctrl <- Control() # shading_model defaults to "deep-crown"
   p1 <- add_strategies(p0, trait_matrix(0.0825, "lma"), hyperpar = FF16_hyperpar, birth_rate = list(20))
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 16.88946, tolerance = 1e-4)
+  # Re-blessed with the light field on a lattice of constants; see NEWS.
+  expect_equal(out$offspring_production, 16.8962440, tolerance = 1e-4)
 })
 
 test_that("crown-centre runs through the SCM and changes the outcome", {

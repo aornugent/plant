@@ -13,20 +13,16 @@ class K93_Environment : public Environment {
 public:
   K93_Environment() {
     time = 0.0;
-    // Match FF16: loosen the light-availability spline tolerance from the
-    // ResourceSpline default (1e-6) to 1e-4 for speed. The spline is rebuilt
-    // every ODE step, so its construction dominates K93 runtime; 1e-6 was 100x
-    // tighter than FF16 for no comparable accuracy need.
-    light_availability = ResourceSpline(
-        1e-4, // light_availability_spline_tol
-        17,   // light_availability_spline_nbase
-        16,   // light_availability_spline_max_depth
-        true  // light_availability_spline_rescale_usually
-    );
   };
 
+  // Metres between the light field's knots. Half FF16's and TF24's because K93's
+  // stand is half the height -- it starts at 2 m and reaches about 8.5, where
+  // theirs reach 17 -- and a grid of constants gives a stand resolution in
+  // proportion to its height. Both are about the canopy a run reaches over 350.
+  constexpr static double light_knot_spacing = 0.025;
+
   // Light interface
-  ResourceSpline light_availability;
+  ResourceSpline light_availability{light_knot_spacing};
 
   void set_fixed_environment(double value, double height_max) {
     light_availability.set_fixed_value(value, height_max);
@@ -53,18 +49,23 @@ public:
 
   // Core functions
   template <typename Function>
-  void compute_environment(Function f_compute_competition, double height_max, bool rescale) {
+  void compute_environment(Function f_compute_competition_and_slope, double height_max) {
 
-    // Define an anonymous function to use in creation of light_availability spline
-    // Note: extinction coefficient was already applied in strategy, so
-    // f_compute_competition gives sum of projected leaf area (k L) across species. Just need to apply Beer's law, E = exp(- (k L))
-    auto f_light_availability = [&](double height) -> double
-    { return exp(-f_compute_competition(height)); };
+    // Beer's law on the competition profile A, whose extinction coefficient the
+    // strategy has already applied: E = exp(-A) and dE/dz = -A' exp(-A).
+    auto f_light_availability = [&](const std::vector<double>& z,
+                                    std::vector<double>& value,
+                                    std::vector<double>& slope) -> void
+    {
+      f_compute_competition_and_slope(z, value, slope);
+      for (size_t k = 0; k < z.size(); ++k) {
+        const double E = exp(-value[k]);
+        value[k] = E;
+        slope[k] = -(slope[k] * E);
+      }
+    };
 
-    // Calculates the light_availability spline, by fitting to the function
-    // `f_compute_competition` as a function of height
-
-    light_availability.compute_environment(f_light_availability, height_max, rescale);
+    light_availability.compute_environment(f_light_availability, height_max);
   }
 
   virtual void clear_environment() {

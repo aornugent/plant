@@ -9,6 +9,10 @@ test_that("mutant method works", {
   ctrl$save_RK45_cache = TRUE
     
   tol <- 1e-4
+
+  # The expected values below were re-blessed with the light field on a lattice
+  # of constants. Nothing about the mutant machinery changed; the landscape the
+  # mutants are read against is a more accurate field.
   
   # We'll run tests with 1 and 3 residents, each with different numbers of mutants
   
@@ -34,24 +38,24 @@ test_that("mutant method works", {
   # check mutant fitness against resindet and expected values
   scm <- run_scm(pr1, e, ctrl)
   pr1_rr <- scm$net_reproduction_ratios
-  expected <- 2.77322
+  expected <- 2.773199
   expect_equal(pr1_rr, expected, tolerance = tol)
 
   scm$run_mutant(pr1m1)
   pr1m1_rr <- scm$net_reproduction_ratios
-  expected <- c(2.77322, 3.707605)
+  expected <- c(2.773199, 3.709963)
   expect_equal(pr1m1_rr, expected, tolerance = tol)
   expect_equal(pr1m1_rr[1], pr1_rr, tolerance = tol)
 
   scm$run_mutant(pr1m3)
   pr1m3_rr <- scm$net_reproduction_ratios
-  expected <- c(2.77322, 3.7429e-10, 2.77322, 3.70753)
+  expected <- c(2.773199, 3.745328e-10, 2.773199, 3.709963)
   expect_equal(pr1m3_rr, expected, tolerance = tol)
   expect_equal(pr1m3_rr[1], pr1_rr, tolerance = tol)
 
   scm$run_mutant(pr1m10)
   pr1m10_rr <- scm$net_reproduction_ratios
-  expected <- c(2.773222, 3.742935e-10, 9.308944e-07, 0.1363641, 2.773222, 3.890554, 1.524582, 1.160212, 1.871261, 2.765328, 3.707372)
+  expected <- c(2.773199, 3.745328e-10, 9.303273e-07, 0.1364043, 2.773199, 3.889955, 1.525705, 1.160858, 1.872443, 2.767104, 3.709963)
   expect_equal(pr1m10_rr, expected, tolerance = tol)
   expect_equal(pr1m10_rr[1], pr1_rr, tolerance = tol)
 
@@ -66,25 +70,25 @@ test_that("mutant method works", {
 
   scm <- run_scm(pr3, e, ctrl)
   pr3_rr <- scm$net_reproduction_ratios
-  expected <- c(4.265e-10, 2.831741, 0.09125339)
+  expected <- c(4.266354e-10, 2.831856, 0.09126577)
   expect_equal(pr3_rr, expected, tolerance = tol)
 
 
   scm$run_mutant(pr3m1)
   pr3m1_rr <- scm$net_reproduction_ratios
-  expected <- c(4.265e-10, 2.831741, 0.09125339, 0.09125339)
+  expected <- c(4.266354e-10, 2.831856, 0.09126577, 0.09126577)
   expect_equal(pr3m1_rr, expected, tolerance = tol)
   expect_equal(pr3m1_rr[1:3], pr3_rr, tolerance = tol)
 
   scm$run_mutant(pr3m3)
   pr3m3_rr <- scm$net_reproduction_ratios
-  expected <- c(4.265e-10, 2.831741, 0.09125339, 4.265e-10, 2.831741, 0.09125339)
+  expected <- c(4.266354e-10, 2.831856, 0.09126577, 4.266354e-10, 2.831856, 0.09126577)
   expect_equal(pr3m3_rr, expected, tolerance = tol)
   expect_equal(pr3m3_rr[1:3], pr3_rr, tolerance = tol)
 
   scm$run_mutant(pr3m10)
   pr3m10_rr <- scm$net_reproduction_ratios
-  expected <- c(4.265011e-10, 2.831741, 0.09125377, 4.265011e-10, 5.587752e-06, 0.266188, 2.831741, 2.690585, 0.3796333, 0.07098642, 0.07226859, 0.08342181, 0.09125377)
+  expected <- c(4.266354e-10, 2.831856, 0.09126577, 4.266354e-10, 5.590962e-06, 0.2660957, 2.831856, 2.689936, 0.379855, 0.0709911, 0.07227059, 0.08343305, 0.09126577)
   expect_equal(pr3m10_rr, expected, tolerance = tol)
   expect_equal(pr3m3_rr[1:3], pr3_rr, tolerance = tol)
 })

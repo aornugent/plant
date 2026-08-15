@@ -41,6 +41,9 @@ public:
   double compute_competition(double z) const {
     return individual.compute_competition(z);
   }
+  std::pair<double, double> compute_competition_and_q(double z) const {
+    return individual.compute_competition_and_q(z);
+  }
   void compute_rates(const E& environment) {
     individual.compute_rates(environment);
   }

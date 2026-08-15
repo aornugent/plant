@@ -61,6 +61,7 @@ public:
 
   double height_max() const;
   double compute_competition(double height) const;
+  std::pair<double, double> compute_competition_and_slope(double height) const;
   void compute_rates(const E& environment);
   double consumption_rate(int i) const;
   std::vector<double> net_reproduction_ratio_by_node() const;
@@ -194,6 +195,29 @@ double StochasticSpecies<T,E>::compute_competition(double height) const {
     }
   }
   return tot;
+}
+
+// The same sum and its dA/dz. Individuals each count once rather than carrying a
+// quadrature weight, so the value is the one compute_competition() returns.
+template <typename T, typename E>
+std::pair<double, double>
+StochasticSpecies<T,E>::compute_competition_and_slope(double height) const {
+  if (size() == 0 || height_max() < height) {
+    return {0.0, 0.0};
+  }
+  double tot = 0.0, tot_q = 0.0;
+  for (auto& n : nodes) {
+    if (n.alive) {
+      if (n.height() > height) {
+        const std::pair<double, double> vs = n.compute_competition_and_q(height);
+        tot += vs.first;
+        tot_q += vs.second;
+      } else {
+        break;
+      }
+    }
+  }
+  return {tot, -tot_q};
 }
 
 // NOTE: We should probably prefer to rescale when this is called

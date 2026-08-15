@@ -70,6 +70,11 @@ public:
     return strategy->compute_competition(z, vars);
   }
 
+  // The same contribution and its q.
+  std::pair<double, double> compute_competition_and_q(double z) const {
+    return strategy->compute_competition_and_q(z, vars);
+  }
+
   // Seed strategy-specific initial ODE states (e.g. an acclimating tracked
   // state) given the birth environment. No-op for strategies that don't need it.
   void set_initial_states(const environment_type& environment) {
