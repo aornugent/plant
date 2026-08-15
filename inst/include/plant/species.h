@@ -10,6 +10,7 @@
 #include <plant/util.h>
 #include <plant/environment.h>
 #include <odelia/ode_interface.hpp>
+#include <odelia/quadrature.hpp>
 #include <plant/node.h>
 #include <plant/species_base.h>
 #include <plant/transport_census.h>
@@ -378,9 +379,6 @@ private:
     using odelia::util::to_passive;
     return birth_date ? to_passive(n.introduction_time())
                       : -to_passive(n.height());
-  }
-  double quadrature_abscissa(const node_type& n) const {
-    return abscissa_of(n, control().node_density_in_birth_date);
   }
   std::vector<double> quadrature_abscissae() const {
     std::vector<double> ret;
@@ -1082,56 +1080,37 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
   // rather than only lending its abscissa to its neighbour's weight.
   const double lv = lambda_value * 0.5, ls = lambda_slope * 0.5;
   const size_t n_slot = size() + 1;
-  std::vector<double> lambda_f(n_slot, 0.0), lambda_s(n_slot, 0.0);
+  std::vector<double> w(n_slot, 0.0);
 
-  std::pair<value_type, value_type> fs1 =
-    nodes[0].compute_competition_and_slope(height);
-  size_t upper = 0;
-  double x1 = to_passive(nodes[0].introduction_time());
-  double f_h1 = to_passive(fs1.first), s_h1 = to_passive(fs1.second);
-
-  for (size_t k = 1; k < size(); ++k) {
-    const std::pair<value_type, value_type> fs0 =
-      nodes[k].compute_competition_and_slope(height);
-    const double x0 = to_passive(nodes[k].introduction_time());
-    const double h0 = to_passive(nodes[k].height());
-    const double f_h0 = to_passive(fs0.first), s_h0 = to_passive(fs0.second);
-    const double width = x0 - x1;
-    lambda_f[upper] += lv * width;
-    lambda_s[upper] += ls * width;
-    lambda_f[k]     += lv * width;
-    lambda_s[k]     += ls * width;
-    upper = k;
-    x1 = x0; f_h1 = f_h0; s_h1 = s_h0;
-    if (scan.decreasing && h0 < height) {
-      break;
-    }
-  }
-
-  // The closing trapezium, always taken: the boundary node is the youngest, so
-  // the birth-date grid reaches it on every stand. Its height and density are
-  // not ODE state.
-  const double closing = to_passive(new_node.introduction_time()) - x1;
-  lambda_f[upper] += lv * closing;
-  lambda_s[upper] += ls * closing;
-  lambda_f[size()] += lv * closing;
-  lambda_s[size()] += ls * closing;
+  // The last point is the boundary node, which closes the grid on every stand:
+  // it is the youngest, and its height and density are not ODE state.
+  odelia::quadrature::trapezium_weights(
+    n_slot,
+    [&](size_t k) -> double {
+      return to_passive(k + 1 < n_slot ? nodes[k].introduction_time()
+                                       : new_node.introduction_time());
+    },
+    [&](size_t k) -> bool {
+      return scan.decreasing && to_passive(nodes[k].height()) < height;
+    },
+    w.data());
 
   for (size_t k = 0; k < n_slot; ++k) {
-    if (lambda_f[k] == 0.0 && lambda_s[k] == 0.0) {
+    if (w[k] == 0.0) {
       continue;
     }
+    const double lambda_f = lv * w[k], lambda_s = ls * w[k];
     const node_type& node = k + 1 < n_slot ? nodes[k] : new_node;
     const typename node_type::competition_partials p =
       node.compute_competition_and_slope_partials(height);
-    out[k].area_leaf += lambda_f[k] * to_passive(p.value_darea_leaf) +
-                        lambda_s[k] * to_passive(p.slope_darea_leaf);
-    out[k].height    += lambda_f[k] * to_passive(p.value_dheight) +
-                        lambda_s[k] * to_passive(p.slope_dheight);
-    out[k].log_density += lambda_f[k] * to_passive(p.value_dlog_density) +
-                          lambda_s[k] * to_passive(p.slope_dlog_density);
-    out[k].extinction += lambda_f[k] * to_passive(p.value_dk_I) +
-                         lambda_s[k] * to_passive(p.slope_dk_I);
+    out[k].area_leaf += lambda_f * to_passive(p.value_darea_leaf) +
+                        lambda_s * to_passive(p.slope_darea_leaf);
+    out[k].height    += lambda_f * to_passive(p.value_dheight) +
+                        lambda_s * to_passive(p.slope_dheight);
+    out[k].log_density += lambda_f * to_passive(p.value_dlog_density) +
+                          lambda_s * to_passive(p.slope_dlog_density);
+    out[k].extinction += lambda_f * to_passive(p.value_dk_I) +
+                         lambda_s * to_passive(p.slope_dk_I);
   }
 }
 
@@ -1149,29 +1128,25 @@ void Species<T,E>::consumption_rate_adjoint(int resource, double lambda_uptake,
   }
   // Slot j holds node j and slot n-1 the boundary node, which is not ODE state.
   const size_t n = size() + 1;
-  std::vector<double> x(n), y(n);
-  for (size_t j = 0; j + 1 < n; ++j) {
-    x[j] = to_passive(nodes[j].introduction_time());
-    y[j] = to_passive(nodes[j].consumption_rate(resource));
-  }
-  x[n - 1] = to_passive(new_node.introduction_time());
-  y[n - 1] = to_passive(new_node.consumption_rate(resource));
+  std::vector<double> w(n, 0.0);
+  odelia::quadrature::trapezium_weights(
+    n,
+    [&](size_t j) -> double {
+      return to_passive(j + 1 < n ? nodes[j].introduction_time()
+                                  : new_node.introduction_time());
+    },
+    [](size_t) -> bool { return false; },
+    w.data());
 
-  std::vector<double> lambda_y(n, 0.0);
-  for (size_t j = 0; j + 1 < n; ++j) {
-    const double half = 0.5 * lambda_uptake;
-    lambda_y[j]     += half * (x[j + 1] - x[j]);
-    lambda_y[j + 1] += half * (x[j + 1] - x[j]);
-  }
   // Every slot, boundary node included. It is the distribution's lower grid
   // point, so a transpose stopping at the introduced nodes is the transpose of a
   // reduction the forward model is not computing -- and a quadrature node is not
   // a term that can be dropped, because its weight is shared with its neighbour.
   for (size_t j = 0; j < n; ++j) {
     const node_type& node = j + 1 < n ? nodes[j] : new_node;
-    const double density = to_passive(node.get_density());
-    out[j].uptake      += lambda_y[j] * density;
-    out[j].log_density += lambda_y[j] * y[j];
+    const double lambda_y = 0.5 * lambda_uptake * w[j];
+    out[j].uptake      += lambda_y * to_passive(node.get_density());
+    out[j].log_density += lambda_y * to_passive(node.consumption_rate(resource));
   }
 }
 
