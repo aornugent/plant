@@ -1208,15 +1208,17 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   const bool lt_zero_at_interior[n_leaf_trait] = {
       false, false, false, true,  false, false, true,
       false, false, false, false, false, false, false};
-  // Five the leaf answers for directly, so they are not driven. beta2 and the
+  // Eight the leaf answers for directly, so they are not driven. beta2 and the
   // cost scale reach profit through the hydraulic cost and nothing else; the
-  // quantum yield and the two curvature factors reach it through assimilation
-  // and nothing else, two of them sharing the electron transport as their only
-  // route. Every one of the five has an exactly zero frozen-collar uptake row
-  // for the same reason: at a fixed collar a carbon-side trait moves no water.
+  // other six reach it through assimilation and nothing else, three of them
+  // sharing the electron transport as their only route. Every one of the eight
+  // has an exactly zero frozen-collar uptake row for the same reason: at a
+  // fixed collar a carbon-side trait moves no water. What is left driven is the
+  // four vulnerability-curve traits, which have no analytic route at all --
+  // their grid is a function of the trait and the forward model rebuilds it.
   const bool lt_closed_form[n_leaf_trait] = {
-      false, false, false, false, false, false, false,
-      true,  false, true,  true,  true,  true,  false};
+      true,  false, false, false, false, false, false,
+      true,  true,  true,  true,  true,  true,  true};
   auto apply_leaf_traits = [&]() -> void {
     leaf.set_traits(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5], lt[6], lt[7],
                     lt[8], lt[9], lt[10], lt[11], lt[12], lt[13]);
@@ -1275,23 +1277,33 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     dcollar_dlt[k_beta2] = -rows.dmarginal_dbeta2 / curvature;
     dcollar_dlt[k_cost_scale] = -rows.dmarginal_dcost_scale / curvature;
 
-    const int k_a = 9, k_curv_elec = 10, k_curv_colim = 11;
+    const int k_vcmax = 0, k_jmax = 8, k_a = 9, k_curv_elec = 10,
+              k_curv_colim = 11, k_R_d = 13;
     const phylloptim::Leaf::PhotoTraitRows photo = leaf.photo_trait_rows();
-    if (!util::is_finite(photo.dprofit_da) ||
-        !util::is_finite(photo.dprofit_dcurv_elec) ||
-        !util::is_finite(photo.dprofit_dcurv_colim) ||
-        !util::is_finite(photo.dmarginal_da) ||
-        !util::is_finite(photo.dmarginal_dcurv_elec) ||
-        !util::is_finite(photo.dmarginal_dcurv_colim)) {
-      util::stop("TF24 gradient: the leaf's assimilation does not respond "
-                 "finitely to the three traits that set it");
+    const double photo_rows[12] = {
+        photo.dprofit_da, photo.dprofit_dcurv_elec, photo.dprofit_dcurv_colim,
+        photo.dprofit_dvcmax_25, photo.dprofit_djmax_25, photo.dprofit_dR_d_25,
+        photo.dmarginal_da, photo.dmarginal_dcurv_elec,
+        photo.dmarginal_dcurv_colim, photo.dmarginal_dvcmax_25,
+        photo.dmarginal_djmax_25, photo.dmarginal_dR_d_25};
+    for (int i = 0; i < 12; ++i) {
+      if (!util::is_finite(photo_rows[i])) {
+        util::stop("TF24 gradient: the leaf's assimilation does not respond "
+                   "finitely to the six traits that set it");
+      }
     }
     dprofit_dlt[k_a] = photo.dprofit_da;
     dprofit_dlt[k_curv_elec] = photo.dprofit_dcurv_elec;
     dprofit_dlt[k_curv_colim] = photo.dprofit_dcurv_colim;
+    dprofit_dlt[k_vcmax] = photo.dprofit_dvcmax_25;
+    dprofit_dlt[k_jmax] = photo.dprofit_djmax_25;
+    dprofit_dlt[k_R_d] = photo.dprofit_dR_d_25;
     dcollar_dlt[k_a] = -photo.dmarginal_da / curvature;
     dcollar_dlt[k_curv_elec] = -photo.dmarginal_dcurv_elec / curvature;
     dcollar_dlt[k_curv_colim] = -photo.dmarginal_dcurv_colim / curvature;
+    dcollar_dlt[k_vcmax] = -photo.dmarginal_dvcmax_25 / curvature;
+    dcollar_dlt[k_jmax] = -photo.dmarginal_djmax_25 / curvature;
+    dcollar_dlt[k_R_d] = -photo.dmarginal_dR_d_25 / curvature;
   }
 
   // Profit, carrying the envelope response, and the two channels stay apart
