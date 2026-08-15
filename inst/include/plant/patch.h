@@ -2121,9 +2121,8 @@ void Patch<T,E>::allometry_adjoint(const std::vector<node_size_adjoints>& sizes,
         slots, individual.area_leaf(), sizes[k].area_leaf,
         sizes[k].extinction, trait_adjoint[metric].data() + trait_at);
       if (boundary) {
-        // The extinction row is not carried on: the call above has already
-        // taken it from this same value, so pulling it back again here would
-        // deliver it twice.
+        // light_reduction_trait_adjoint above takes the extinction row from this
+        // same value; carrying it on here would deliver it twice.
         boundary_out[i].area_leaf += sizes[k].area_leaf;
         boundary_out[i].height += sizes[k].height;
         boundary_out[i].density_in_field += sizes[k].log_density;
@@ -2304,16 +2303,6 @@ void Patch<T,E>::ode_rates_adjoint_batched(
   const size_t n_seed = lambda_dydt.size();
   if (n_seed == 0) {
     util::stop("ode_rates_adjoint: needs at least one rate adjoint");
-  }
-  // Every transpose below this door integrates over birth dates, so none of
-  // them carries a coordinate. Refusing here is what lets them be written that
-  // way: on the height coordinate the quadrature abscissa is state, and each
-  // reduction would owe a weight term none of them computes.
-  for (const auto& s : species) {
-    if (!s.density_in_birth_date()) {
-      util::stop("The reverse sweep runs on the birth-date coordinate; set"
-                 " control$node_density_in_birth_date = TRUE and re-run.");
-    }
   }
   std::vector<sweep_adjoints> out(n_seed);
   const size_t n_slot = reduction_node_count();

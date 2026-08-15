@@ -22,10 +22,9 @@ struct node_size_adjoints {
 };
 
 // One node's adjoints from the water aggregation: the individual's uptake, which
-// is a block output, and the density the quadrature weights it by. Height is not
-// here -- the quadrature runs on birth dates, so the widths are constants and the
-// only route from a height into total uptake is the individual's own rate, which
-// the block carries.
+// is a block output, and the density the quadrature weights it by. A height
+// reaches total uptake through the individual's own rate, which the block
+// carries.
 struct node_uptake_adjoints {
   double uptake;
   double log_density;

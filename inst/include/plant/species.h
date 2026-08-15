@@ -1059,15 +1059,17 @@ Species<T,E>::census(Psi psi) const {
 }
 
 // Mirrors compute_competition_and_slope_impl(height, true) term by term: the
-// same early exit, the same closing trapezium, the same node order. The
-// quadrature runs on birth dates, so the widths are constants and the trapezium
-// has no weight term; Patch::ode_rates_adjoint_batched refuses any other
-// coordinate before this is reached.
+// same early exit, the same closing trapezium, the same node order. Birth-date
+// widths are constants, so the trapezium has no weight term.
 template <typename T, typename E>
 void Species<T,E>::compute_competition_and_slope_adjoint(
     double height, double lambda_value, double lambda_slope,
     node_size_adjoints* out) const {
   using odelia::util::to_passive;
+  if (!control().node_density_in_birth_date) {
+    util::stop("The competition adjoint integrates over birth dates; on the"
+               " height coordinate the widths carry a term it does not compute");
+  }
   if (size() == 0) {
     return;
   }
@@ -1106,17 +1108,14 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
     }
   }
 
-  {
-    // The boundary node's own height and density are not ODE state. It closes
-    // the grid on every stand here: the birth-date abscissa always reaches it.
-    const std::pair<value_type, value_type> fs0 =
-      new_node.compute_competition_and_slope(height);
-    const double x0 = to_passive(new_node.introduction_time());
-    lambda_f[upper] += lv * (x0 - x1);
-    lambda_s[upper] += ls * (x0 - x1);
-    lambda_f[size()] += lv * (x0 - x1);
-    lambda_s[size()] += ls * (x0 - x1);
-  }
+  // The closing trapezium, always taken: the boundary node is the youngest, so
+  // the birth-date grid reaches it on every stand. Its height and density are
+  // not ODE state.
+  const double closing = to_passive(new_node.introduction_time()) - x1;
+  lambda_f[upper] += lv * closing;
+  lambda_s[upper] += ls * closing;
+  lambda_f[size()] += lv * closing;
+  lambda_s[size()] += ls * closing;
 
   for (size_t k = 0; k < n_slot; ++k) {
     if (lambda_f[k] == 0.0 && lambda_s[k] == 0.0) {
@@ -1136,19 +1135,19 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
   }
 }
 
-// Mirrors consumption_rate: the grid runs from new_node upwards, so array slot
-// j holds node size() - j and slot 0 the boundary node, which is not state.
+// Mirrors consumption_rate over the birth-date grid.
 template <typename T, typename E>
 void Species<T,E>::consumption_rate_adjoint(int resource, double lambda_uptake,
                                             node_uptake_adjoints* out) const {
   using odelia::util::to_passive;
+  if (!control().node_density_in_birth_date) {
+    util::stop("The uptake adjoint integrates over birth dates; on the height"
+               " coordinate the widths carry a term it does not compute");
+  }
   if (size() == 0) {
     return;
   }
-  // The grid is the birth date, which ascends as the nodes are walked in storage
-  // order and puts the boundary node last: it is the youngest. So slot j holds
-  // node j, slot n-1 holds the boundary node, and that last one is not ODE
-  // state. Widths are gaps between introduction times and carry no derivative.
+  // Slot j holds node j and slot n-1 the boundary node, which is not ODE state.
   const size_t n = size() + 1;
   std::vector<double> x(n), y(n);
   for (size_t j = 0; j + 1 < n; ++j) {
