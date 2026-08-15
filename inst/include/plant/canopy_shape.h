@@ -187,27 +187,6 @@ public:
     return {tmp * tmp, 2.0 * eta_ * tmp * u_eta / z};
   }
 
-  // Q_and_q's pair differentiated in the individual's height at fixed z, where
-  // u = z / H. The box profiles have no vertical slope to differentiate.
-  std::pair<S, S> Q_and_q_dheight(S z_over_height, S z, S height_inverse) const {
-    if (shading_model_ == ShadingModel::FlatTopBox ||
-        shading_model_ == ShadingModel::FlatTopSoftBox) {
-      throw std::runtime_error("Only the smooth competition profile carries a "
-                               "height derivative of its vertical slope");
-    }
-    if (z_over_height > 1.0) {
-      return {S(0.0), S(0.0)};
-    }
-    if (z <= 0.0) {
-      // u = 0, so Q is 1 for every eta and only the eta = 1 limit of q moves.
-      return {S(0.0), eta_ == 1.0
-                        ? -(2.0 * height_inverse * height_inverse) : S(0.0)};
-    }
-    const S u_eta = pow_eta(z_over_height);
-    return {2.0 * eta_ * (1.0 - u_eta) * u_eta * height_inverse,
-            -(2.0 * eta_ * eta_ * u_eta * (1.0 - 2.0 * u_eta) *
-              height_inverse / z)};
-  }
 
   S Q(S z_over_height) const {
     if (z_over_height > 1.0) {

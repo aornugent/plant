@@ -158,13 +158,6 @@ public:
   std::pair<value_type, value_type>
   close_competition_and_slope(const competition_split& c, double height) const;
 
-  // Transpose of compute_competition_and_slope at `height`, closing boundary
-  // trapezium and all. `out` points at this species' first node.
-  void compute_competition_and_slope_adjoint(double height,
-                                             double lambda_value,
-                                             double lambda_slope,
-                                             node_size_adjoints* out) const;
-
   // Transpose of consumption_rate for one resource. The grid is birth dates, so
   // the weights are constants and no row runs through them.
   void consumption_rate_adjoint(int resource, double lambda_uptake,
@@ -947,64 +940,6 @@ Species<T,E>::census(Psi psi) const {
   weighted.push_back(new_node.get_density() *
                      psi(*strategy, new_node.individual));
   return util::trapezium(x, weighted);
-}
-
-// Mirrors compute_competition_and_slope_impl(height, true) term by term: the
-// same early exit, the same closing trapezium, the same node order. Birth-date
-// widths are constants, so the trapezium has no weight term.
-template <typename T, typename E>
-void Species<T,E>::compute_competition_and_slope_adjoint(
-    double height, double lambda_value, double lambda_slope,
-    node_size_adjoints* out) const {
-  using odelia::util::to_passive;
-  if (!control().node_density_in_birth_date) {
-    util::stop("The competition adjoint integrates over birth dates; on the"
-               " height coordinate the widths carry a term it does not compute");
-  }
-  if (size() == 0) {
-    return;
-  }
-  const HeightScan scan = scan_heights();
-  if (to_passive(scan.h_max) < height) {
-    return;
-  }
-  // The forward halves both sums once at the end. One slot per grid point, so
-  // the boundary node -- the distribution's lower point -- carries its own row
-  // rather than only lending its abscissa to its neighbour's weight.
-  const double lv = lambda_value * 0.5, ls = lambda_slope * 0.5;
-  const size_t n_slot = size() + 1;
-  std::vector<double> w(n_slot, 0.0);
-
-  // The last point is the boundary node, which closes the grid on every stand:
-  // it is the youngest, and its height and density are not ODE state.
-  odelia::quadrature::trapezium_weights(
-    n_slot,
-    [&](size_t k) -> double {
-      return to_passive(k + 1 < n_slot ? nodes[k].introduction_time()
-                                       : new_node.introduction_time());
-    },
-    [&](size_t k) -> bool {
-      return scan.decreasing && to_passive(nodes[k].height()) < height;
-    },
-    w.data());
-
-  for (size_t k = 0; k < n_slot; ++k) {
-    if (w[k] == 0.0) {
-      continue;
-    }
-    const double lambda_f = lv * w[k], lambda_s = ls * w[k];
-    const node_type& node = k + 1 < n_slot ? nodes[k] : new_node;
-    const typename node_type::competition_partials p =
-      node.compute_competition_and_slope_partials(height);
-    out[k].area_leaf += lambda_f * to_passive(p.value_darea_leaf) +
-                        lambda_s * to_passive(p.slope_darea_leaf);
-    out[k].height    += lambda_f * to_passive(p.value_dheight) +
-                        lambda_s * to_passive(p.slope_dheight);
-    out[k].log_density += lambda_f * to_passive(p.value_dlog_density) +
-                          lambda_s * to_passive(p.slope_dlog_density);
-    out[k].extinction += lambda_f * to_passive(p.value_dk_I) +
-                         lambda_s * to_passive(p.slope_dk_I);
-  }
 }
 
 // Mirrors consumption_rate over the birth-date grid.

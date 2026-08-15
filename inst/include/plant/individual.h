@@ -83,14 +83,6 @@ public:
     return strategy->compute_competition_and_slope(z, vars);
   }
 
-  // The partials of that pair in this individual's leaf area and height. The
-  // strategy is a template parameter so the return type is formed on use.
-  template <typename Strategy = strategy_type>
-  typename Strategy::competition_partials
-  compute_competition_and_slope_partials(const value_type& z) const {
-    return strategy->compute_competition_and_slope_partials(z, vars);
-  }
-
   // d(leaf area)/d(height), for a caller pulling a leaf-area adjoint back.
   value_type darea_leaf_dheight() const {
     return strategy->darea_leaf_dheight(aux("competition_effect"));

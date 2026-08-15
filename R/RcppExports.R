@@ -4517,10 +4517,6 @@ ladder_field_knots_tf24 <- function(obj_) {
     .Call('_plant_ladder_field_knots_tf24', PACKAGE = 'plant', obj_)
 }
 
-ladder_light_reduction_adjoint_tf24 <- function(obj_, lambda_value, lambda_slope) {
-    .Call('_plant_ladder_light_reduction_adjoint_tf24', PACKAGE = 'plant', obj_, lambda_value, lambda_slope)
-}
-
 ladder_block_difference_tf24 <- function(obj_, node, rel) {
     .Call('_plant_ladder_block_difference_tf24', PACKAGE = 'plant', obj_, node, rel)
 }

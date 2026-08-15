@@ -598,24 +598,6 @@ Rcpp::List ladder_field_knots_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF2
                               environment.light_availability.spline.knots());
 }
 
-// The light reduction's transpose on its own: knot adjoints in, the size-space
-// adjoints scattered onto the state and the trait rows they pull back to out.
-// The cohort block and the water reduction are not on this path.
-// [[Rcpp::export]]
-Rcpp::List ladder_light_reduction_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
-                                               std::vector<double> lambda_value,
-                                               std::vector<double> lambda_slope) {
-  patch_type& patch = *obj_;
-  patch.clear_trait_adjoint();
-  patch_type::light_knot_adjoints lambda_knot{lambda_value, lambda_slope};
-  std::vector<plant::node_size_adjoints> sizes(
-    patch.reduction_node_count(), plant::node_size_adjoints{0, 0, 0, 0});
-  patch.light_knot_adjoint(lambda_knot, sizes);
-  std::vector<double> lambda_state(patch.ode_size(), 0.0);
-  patch.allometry_adjoint(sizes, lambda_state, patch.boundary_node_adjoint);
-  return Rcpp::List::create(Rcpp::_["state"] = lambda_state,
-                            Rcpp::_["trait"] = patch.trait_adjoint[0]);
-}
 
 // The block's outputs differenced in one input, in plain double, with the
 // environment held. A difference of the RECORDED step cannot see an error in a
@@ -795,7 +777,7 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
   const size_t stride = patch_type::node_type::ode_size();
 
   double t_boundary = 0, t_soil = 0, t_offspring = 0, t_env = 0,
-         t_blocks = 0, t_knot = 0, t_allometry = 0, t_bc = 0, t_total = 0;
+         t_blocks = 0, t_bc = 0, t_total = 0;
   double slots = 0, sweeps = 0;
 
   for (int rep = 0; rep < reps; ++rep) {
@@ -845,17 +827,6 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
     slots = static_cast<double>(patch.block_recording_size);
     sweeps = static_cast<double>(patch.block_sweeps);
 
-    std::vector<plant::node_size_adjoints> sizes(
-      n_slot, plant::node_size_adjoints{0, 0, 0, 0});
-
-    t0 = clock::now();
-    patch.light_knot_adjoint(lambda_knot, sizes);
-    t1 = clock::now(); t_knot += std::chrono::duration<double>(t1 - t0).count();
-
-    t0 = clock::now();
-    patch.allometry_adjoint(sizes, lambda_state, patch.boundary_node_adjoint);
-    t1 = clock::now(); t_allometry += std::chrono::duration<double>(t1 - t0).count();
-
     t0 = clock::now();
     {
       // The transpose is batched over census metrics; this instrument times one,
@@ -878,8 +849,6 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
     Rcpp::_["offspring_adjoint"] = t_offspring / r,
     Rcpp::_["compute_environment"] = t_env / r,
     Rcpp::_["cohort_blocks"] = t_blocks / r,
-    Rcpp::_["light_knot_adjoint"] = t_knot / r,
-    Rcpp::_["allometry_adjoint"] = t_allometry / r,
     Rcpp::_["boundary_condition_adjoint"] = t_bc / r,
     Rcpp::_["total"] = t_total / r,
     Rcpp::_["block_recording_size"] = slots,

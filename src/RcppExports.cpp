@@ -12717,19 +12717,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// ladder_light_reduction_adjoint_tf24
-Rcpp::List ladder_light_reduction_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<double> lambda_value, std::vector<double> lambda_slope);
-RcppExport SEXP _plant_ladder_light_reduction_adjoint_tf24(SEXP obj_SEXP, SEXP lambda_valueSEXP, SEXP lambda_slopeSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< std::vector<double> >::type lambda_value(lambda_valueSEXP);
-    Rcpp::traits::input_parameter< std::vector<double> >::type lambda_slope(lambda_slopeSEXP);
-    rcpp_result_gen = Rcpp::wrap(ladder_light_reduction_adjoint_tf24(obj_, lambda_value, lambda_slope));
-    return rcpp_result_gen;
-END_RCPP
-}
 // ladder_block_difference_tf24
 Rcpp::NumericMatrix ladder_block_difference_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, int node, double rel);
 RcppExport SEXP _plant_ladder_block_difference_tf24(SEXP obj_SEXP, SEXP nodeSEXP, SEXP relSEXP) {
@@ -14161,7 +14148,6 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ladder_trait_names_tf24", (DL_FUNC) &_plant_ladder_trait_names_tf24, 1},
     {"_plant_ladder_node_count_tf24", (DL_FUNC) &_plant_ladder_node_count_tf24, 1},
     {"_plant_ladder_field_knots_tf24", (DL_FUNC) &_plant_ladder_field_knots_tf24, 1},
-    {"_plant_ladder_light_reduction_adjoint_tf24", (DL_FUNC) &_plant_ladder_light_reduction_adjoint_tf24, 3},
     {"_plant_ladder_block_difference_tf24", (DL_FUNC) &_plant_ladder_block_difference_tf24, 3},
     {"_plant_ladder_introduction_jacobian_tf24", (DL_FUNC) &_plant_ladder_introduction_jacobian_tf24, 4},
     {"_plant_ladder_rhs_trait_difference_tf24", (DL_FUNC) &_plant_ladder_rhs_trait_difference_tf24, 2},

@@ -10,17 +10,6 @@
 
 namespace plant {
 
-// One node's adjoints on the quantities the field reductions read: the three
-// size variables, and the extinction coefficient, which the competition kernel
-// scales by and no size variable carries. Its row is pulled back to the trait
-// accumulator beside the allometric constants leaf area reaches.
-struct node_size_adjoints {
-  double area_leaf;
-  double height;
-  double log_density;
-  double extinction;
-};
-
 // One node's adjoints from the water aggregation: the individual's uptake, which
 // is a block output, and the density the quadrature weights it by. A height
 // reaches total uptake through the individual's own rate, which the block
@@ -72,35 +61,6 @@ public:
   std::pair<value_type, value_type>
   compute_competition_and_slope(const value_type& z) const;
   value_type fecundity() const {return offspring_produced_survival_weighted;}
-
-  // Partials of compute_competition_and_slope's pair in the individual's leaf
-  // area, its height, this node's log density, and the extinction coefficient.
-  struct competition_partials {
-    value_type value_darea_leaf;
-    value_type value_dheight;
-    value_type value_dlog_density;
-    value_type value_dk_I;
-    value_type slope_darea_leaf;
-    value_type slope_dheight;
-    value_type slope_dlog_density;
-    value_type slope_dk_I;
-  };
-
-  competition_partials
-  compute_competition_and_slope_partials(const value_type& z) const {
-    const typename strategy_type::competition_partials p =
-      individual.compute_competition_and_slope_partials(z);
-    const std::pair<value_type, value_type> fs =
-      individual.compute_competition_and_slope(z);
-    return {density * p.value_darea_leaf,
-            density * p.value_dheight,
-            density * fs.first,
-            density * p.value_dk_I,
-            density * p.slope_darea_leaf,
-            density * p.slope_dheight,
-            density * fs.second,
-            density * p.slope_dk_I};
-  }
 
   // The survival factor offspring_produced_survival_weighted_dt multiplies,
   // zero where compute_rates squashed a non-finite one.

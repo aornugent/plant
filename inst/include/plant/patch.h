@@ -272,7 +272,7 @@ public:
   // field. Dropping them narrows the width just as well and returns a gradient
   // that is finite, correctly signed and wrong.
   // `metric` selects the row of trait_adjoint the newcomer's trait rows land
-  // in, for allometry_adjoint's reason.
+  // in, for the reason the leaf-area adjoint is folded onto height.
   void introduction_adjoint(const std::vector<size_t>& species_index,
                             const std::vector<double>& state_before,
                             double time_before,
@@ -295,20 +295,6 @@ public:
   void offspring_adjoint(const std::vector<double>& lambda_dydt,
                          std::vector<double>& lambda_state,
                          block_seeds& seeds) const;
-
-  // The light knots pulled back to each cohort's leaf area, height and log
-  // density. `out` holds one entry per node in ode_state's order.
-  void light_knot_adjoint(const light_knot_adjoints& lambda_knot,
-                          std::vector<node_size_adjoints>& out) const;
-
-  // The leaf-area adjoints folded onto height, and the whole of `sizes`
-  // scattered into the state adjoints.
-  // `metric` selects which row of trait_adjoint the reduction's own trait rows
-  // accumulate into, because a batched sweep fills one per census metric.
-  void allometry_adjoint(const std::vector<node_size_adjoints>& sizes,
-                         std::vector<double>& lambda_state,
-                         std::vector<boundary_node_adjoints>& boundary_out,
-                         size_t metric = 0);
 
   // The boundary node's density adjoints pulled back through the condition that
   // sets it, which is the whole of the inflow boundary's contribution: the adjoint
@@ -2043,100 +2029,6 @@ void Patch<T,E>::introduction_adjoint(const std::vector<size_t>& species_index,
   }
   for (size_t p = 0; p < n_trait; ++p) {
     trait_adjoint[metric][p] += in_adjoint[n_state + p];
-  }
-}
-
-// The knots hold L = exp(-A), so the value adjoint chains through dL/dA = -L
-// and the slope adjoint reaches both data vectors before either is distributed.
-template <typename T, typename E>
-void Patch<T,E>::light_knot_adjoint(const light_knot_adjoints& lambda_knot,
-                                    std::vector<node_size_adjoints>& out) const {
-  const std::vector<double>& knots = environment.light_availability.spline.knots();
-  util::check_length(lambda_knot.value.size(), knots.size());
-  util::check_length(lambda_knot.slope.size(), knots.size());
-  util::check_length(out.size(), reduction_node_count());
-  if (is_mutant_run) {
-    return;
-  }
-  for (size_t k = 0; k < knots.size(); ++k) {
-    if (lambda_knot.value[k] == 0.0 && lambda_knot.slope[k] == 0.0) {
-      continue;
-    }
-    const double z = knots[k];
-    const std::pair<value_type, value_type> as =
-      compute_competition_and_slope(z);
-    const double competition = odelia::util::to_passive(as.first);
-    const double competition_slope = odelia::util::to_passive(as.second);
-    const double transmittance = std::exp(-competition);
-    // m = -L A', so the slope data carries the value with it.
-    const double lambda_competition_slope =
-      -(lambda_knot.slope[k] * transmittance);
-    const double lambda_transmittance =
-      lambda_knot.value[k] - lambda_knot.slope[k] * competition_slope;
-    const double lambda_competition = -(lambda_transmittance * transmittance);
-    size_t at = 0;
-    for (size_t i = 0; i < species.size(); ++i) {
-      species[i].compute_competition_and_slope_adjoint(
-        z, lambda_competition / area, lambda_competition_slope / area,
-        out.data() + at);
-      at += species[i].size() + 1;
-    }
-  }
-}
-
-// The size-space adjoint pulled back: to height through the allometry, and to
-// the traits the reduction reads that no cohort step writes. A trait is one
-// input read by every node of its species, so its row is a sum over them.
-template <typename T, typename E>
-void Patch<T,E>::allometry_adjoint(const std::vector<node_size_adjoints>& sizes,
-                                   std::vector<double>& lambda_state,
-                                   std::vector<boundary_node_adjoints>& boundary_out,
-                                   size_t metric) {
-  util::check_length(sizes.size(), reduction_node_count());
-  util::check_length(lambda_state.size(), ode_size());
-  if (trait_adjoint.size() <= metric ||
-      trait_adjoint[metric].size() != trait_adjoint_size()) {
-    clear_trait_adjoint(metric + 1);
-  }
-  if (boundary_node_adjoint.size() != species.size()) {
-    boundary_node_adjoint.assign(species.size(),
-                                 boundary_node_adjoints{0, 0, 0, 0});
-  }
-  const size_t node_stride = node_type::ode_size();
-  size_t k = 0;
-  size_t state_at = 0;
-  size_t trait_at = 0;
-  for (size_t i = 0; i < species.size(); ++i) {
-    typename T::ptr strategy = species[i].strategy_ptr();
-    const size_t n_trait = strategy->ad_parameters().size();
-    const typename T::light_reduction_slots slots =
-      strategy->light_reduction_trait_slots();
-    for (size_t j = 0; j <= species[i].size(); ++j, ++k) {
-      const bool boundary = j == species[i].size();
-      const individual_type& individual =
-        (boundary ? species[i].r_new_node() : species[i].node_at(j)).individual;
-      // The trait rows arrive for every grid point, because a trait is one input
-      // read by every node of its species and the boundary node is one of them.
-      strategy->light_reduction_trait_adjoint(
-        slots, individual.area_leaf(), sizes[k].area_leaf,
-        sizes[k].extinction, trait_adjoint[metric].data() + trait_at);
-      if (boundary) {
-        // light_reduction_trait_adjoint above takes the extinction row from this
-        // same value; carrying it on here would deliver it twice.
-        boundary_out[i].area_leaf += sizes[k].area_leaf;
-        boundary_out[i].height += sizes[k].height;
-        boundary_out[i].density_in_field += sizes[k].log_density;
-        continue;
-      }
-      const double darea_leaf_dheight =
-        odelia::util::to_passive(individual.darea_leaf_dheight());
-      lambda_state[state_at * node_stride + HEIGHT_INDEX] +=
-        sizes[k].height + sizes[k].area_leaf * darea_leaf_dheight;
-      lambda_state[state_at * node_stride + T::state_size() + 1] +=
-        sizes[k].log_density;
-      ++state_at;
-    }
-    trait_at += n_trait;
   }
 }
 
