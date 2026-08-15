@@ -1059,7 +1059,10 @@ Species<T,E>::census(Psi psi) const {
 }
 
 // Mirrors compute_competition_and_slope_impl(height, true) term by term: the
-// same early exit, the same closing trapezium, the same node order.
+// same early exit, the same closing trapezium, the same node order. The
+// quadrature runs on birth dates, so the widths are constants and the trapezium
+// has no weight term; Patch::ode_rates_adjoint_batched refuses any other
+// coordinate before this is reached.
 template <typename T, typename E>
 void Species<T,E>::compute_competition_and_slope_adjoint(
     double height, double lambda_value, double lambda_slope,
@@ -1072,11 +1075,6 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
   if (to_passive(scan.h_max) < height) {
     return;
   }
-  const bool birth_date = control().node_density_in_birth_date;
-  if (!birth_date && !scan.decreasing) {
-    util::stop("The competition adjoint needs the node heights in decreasing"
-               " order; the sorted-view reduction has no transpose here");
-  }
   // The forward halves both sums once at the end. One slot per grid point, so
   // the boundary node -- the distribution's lower point -- carries its own row
   // rather than only lending its abscissa to its neighbour's weight.
@@ -1087,25 +1085,16 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
   std::pair<value_type, value_type> fs1 =
     nodes[0].compute_competition_and_slope(height);
   size_t upper = 0, last = 0;
-  double x1 = abscissa_of(nodes[0], birth_date);
+  double x1 = to_passive(nodes[0].introduction_time());
   double f_h1 = to_passive(fs1.first), s_h1 = to_passive(fs1.second);
 
   for (size_t k = 1; k < size(); ++k) {
     const std::pair<value_type, value_type> fs0 =
       nodes[k].compute_competition_and_slope(height);
-    const double x0 = abscissa_of(nodes[k], birth_date);
+    const double x0 = to_passive(nodes[k].introduction_time());
     const double h0 = to_passive(nodes[k].height());
     const double f_h0 = to_passive(fs0.first), s_h0 = to_passive(fs0.second);
     const double width = x0 - x1;
-    if (!birth_date) {
-      // On the height abscissa the interval's width is built from two node
-      // heights, so the quadrature moves with them and not only the integrand
-      // does. A birth date is fixed at birth, so there the width is a constant
-      // and this term does not exist.
-      const double edge = lv * (f_h1 + f_h0) + ls * (s_h1 + s_h0);
-      out[upper].height += edge;
-      out[k].height     -= edge;
-    }
     lambda_f[upper] += lv * width;
     lambda_s[upper] += ls * width;
     lambda_f[k]     += lv * width;
@@ -1117,15 +1106,12 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
     }
   }
 
-  if (size() == 1 || birth_date || f_h1 > 0) {
-    // The boundary node's own height and density are not ODE state.
+  {
+    // The boundary node's own height and density are not ODE state. It closes
+    // the grid on every stand here: the birth-date abscissa always reaches it.
     const std::pair<value_type, value_type> fs0 =
       new_node.compute_competition_and_slope(height);
-    const double x0 = abscissa_of(new_node, birth_date);
-    if (!birth_date) {
-      out[upper].height += lv * (f_h1 + to_passive(fs0.first)) +
-                           ls * (s_h1 + to_passive(fs0.second));
-    }
+    const double x0 = to_passive(new_node.introduction_time());
     lambda_f[upper] += lv * (x0 - x1);
     lambda_s[upper] += ls * (x0 - x1);
     lambda_f[size()] += lv * (x0 - x1);
@@ -1159,33 +1145,22 @@ void Species<T,E>::consumption_rate_adjoint(int resource, double lambda_uptake,
   if (size() == 0) {
     return;
   }
-  // The grid is the quadrature abscissa, which ascends as the nodes are walked
-  // in storage order and puts the boundary node last on either coordinate: it is
-  // the youngest, and the shortest. So slot j holds node j, slot n-1 holds the
-  // boundary node, and that last one is not ODE state.
-  const bool birth_date = control().node_density_in_birth_date;
-  if (!birth_date && !heights_are_decreasing()) {
-    util::stop("The uptake adjoint needs the node heights in decreasing order;"
-               " the sorted-view reduction has no transpose here");
-  }
+  // The grid is the birth date, which ascends as the nodes are walked in storage
+  // order and puts the boundary node last: it is the youngest. So slot j holds
+  // node j, slot n-1 holds the boundary node, and that last one is not ODE
+  // state. Widths are gaps between introduction times and carry no derivative.
   const size_t n = size() + 1;
   std::vector<double> x(n), y(n);
   for (size_t j = 0; j + 1 < n; ++j) {
-    x[j] = abscissa_of(nodes[j], birth_date);
+    x[j] = to_passive(nodes[j].introduction_time());
     y[j] = to_passive(nodes[j].consumption_rate(resource));
   }
-  x[n - 1] = abscissa_of(new_node, birth_date);
+  x[n - 1] = to_passive(new_node.introduction_time());
   y[n - 1] = to_passive(new_node.consumption_rate(resource));
 
-  std::vector<double> lambda_x(n, 0.0), lambda_y(n, 0.0);
+  std::vector<double> lambda_y(n, 0.0);
   for (size_t j = 0; j + 1 < n; ++j) {
     const double half = 0.5 * lambda_uptake;
-    if (!birth_date) {
-      // The height abscissa is state, so the width carries a derivative. A
-      // birth date is fixed at birth and the width is a constant.
-      lambda_x[j]     -= half * (y[j + 1] + y[j]);
-      lambda_x[j + 1] += half * (y[j + 1] + y[j]);
-    }
     lambda_y[j]     += half * (x[j + 1] - x[j]);
     lambda_y[j + 1] += half * (x[j + 1] - x[j]);
   }
@@ -1198,9 +1173,6 @@ void Species<T,E>::consumption_rate_adjoint(int resource, double lambda_uptake,
     const double density = to_passive(node.get_density());
     out[j].uptake      += lambda_y[j] * density;
     out[j].log_density += lambda_y[j] * y[j];
-    // lambda_x is taken in the abscissa, and on the height coordinate the
-    // abscissa is minus the height.
-    out[j].height      -= lambda_x[j];
   }
 }
 

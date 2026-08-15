@@ -1639,7 +1639,7 @@ void Patch<T,E>::soil_adjoint(const std::vector<double>& lambda_dydt,
 
   const size_t node_stride = node_type::ode_size();
   std::vector<node_uptake_adjoints> per_node(reduction_node_count(),
-                                             node_uptake_adjoints{0, 0, 0});
+                                             node_uptake_adjoints{0, 0});
   if (boundary_node_adjoint.size() != species.size()) {
     boundary_node_adjoint.assign(species.size(),
                                  boundary_node_adjoints{0, 0, 0, 0, 0});
@@ -1649,7 +1649,7 @@ void Patch<T,E>::soil_adjoint(const std::vector<double>& lambda_dydt,
       continue;
     }
     for (size_t k = 0; k < per_node.size(); ++k) {
-      per_node[k] = node_uptake_adjoints{0, 0, 0};
+      per_node[k] = node_uptake_adjoints{0, 0};
     }
     size_t at = 0;
     for (size_t i = 0; i < species.size(); ++i) {
@@ -1665,12 +1665,9 @@ void Patch<T,E>::soil_adjoint(const std::vector<double>& lambda_dydt,
       for (size_t j = 0; j <= species[i].size(); ++j, ++slot) {
         seeds.uptake[slot * n_resource + r] += per_node[slot].uptake;
         if (j == species[i].size()) {
-          boundary_out[i].height += per_node[slot].height;
           boundary_out[i].density_in_uptake += per_node[slot].log_density;
           continue;
         }
-        lambda_state[state_at * node_stride + HEIGHT_INDEX] +=
-          per_node[slot].height;
         lambda_state[state_at * node_stride + T::state_size() + 1] +=
           per_node[slot].log_density;
         ++state_at;
@@ -2305,6 +2302,16 @@ void Patch<T,E>::ode_rates_adjoint_batched(
   const size_t n_seed = lambda_dydt.size();
   if (n_seed == 0) {
     util::stop("ode_rates_adjoint: needs at least one rate adjoint");
+  }
+  // Every transpose below this door integrates over birth dates, so none of
+  // them carries a coordinate. Refusing here is what lets them be written that
+  // way: on the height coordinate the quadrature abscissa is state, and each
+  // reduction would owe a weight term none of them computes.
+  for (const auto& s : species) {
+    if (!s.density_in_birth_date()) {
+      util::stop("The reverse sweep runs on the birth-date coordinate; set"
+                 " control$node_density_in_birth_date = TRUE and re-run.");
+    }
   }
   std::vector<sweep_adjoints> out(n_seed);
   const size_t n_slot = reduction_node_count();
