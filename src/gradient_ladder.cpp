@@ -830,9 +830,12 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
     t0 = clock::now();
     {
       // The transpose is batched over census metrics; this instrument times one,
-      // so it hands over a single seed set and takes the state back from it.
+      // so it hands over a single seed set and takes the state back from it. The
+      // knot adjoints ride with it: the field's rows come out of this recording,
+      // so a seed set without them is not one this can be asked for.
       std::vector<patch_type::sweep_adjoints> one(1);
       one[0].state = lambda_state;
+      one[0].knot = lambda_knot;
       one[0].boundary_node = patch.boundary_node_adjoint;
       patch.boundary_condition_adjoint(density_in_field, density_in_uptake, one);
       lambda_state = one[0].state;
