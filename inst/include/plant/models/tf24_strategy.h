@@ -1208,13 +1208,15 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   const bool lt_zero_at_interior[n_leaf_trait] = {
       false, false, false, true,  false, false, true,
       false, false, false, false, false, false, false};
-  // beta2 and the cost scale reach profit through the hydraulic cost and
-  // nothing else, so the leaf answers for them in closed form and they are not
-  // driven. Their frozen-collar uptake rows are exactly zero for the same
-  // reason: at a fixed collar neither moves any water.
+  // Five the leaf answers for directly, so they are not driven. beta2 and the
+  // cost scale reach profit through the hydraulic cost and nothing else; the
+  // quantum yield and the two curvature factors reach it through assimilation
+  // and nothing else, two of them sharing the electron transport as their only
+  // route. Every one of the five has an exactly zero frozen-collar uptake row
+  // for the same reason: at a fixed collar a carbon-side trait moves no water.
   const bool lt_closed_form[n_leaf_trait] = {
       false, false, false, false, false, false, false,
-      true,  false, false, false, false, true,  false};
+      true,  false, true,  true,  true,  true,  false};
   auto apply_leaf_traits = [&]() -> void {
     leaf.set_traits(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5], lt[6], lt[7],
                     lt[8], lt[9], lt[10], lt[11], lt[12], lt[13]);
@@ -1257,7 +1259,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   apply_leaf_traits();
   seat_at(radiation_value, psi_value, kmax_value);
 
-  // The two the leaf answers for directly, read once at that operating point.
+  // The five the leaf answers for directly, read once at that operating point.
   {
     const int k_beta2 = 7, k_cost_scale = 12;
     const phylloptim::Leaf::CostTraitRows rows = leaf.cost_trait_rows();
@@ -1272,6 +1274,24 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     dprofit_dlt[k_cost_scale] = rows.dprofit_dcost_scale;
     dcollar_dlt[k_beta2] = -rows.dmarginal_dbeta2 / curvature;
     dcollar_dlt[k_cost_scale] = -rows.dmarginal_dcost_scale / curvature;
+
+    const int k_a = 9, k_curv_elec = 10, k_curv_colim = 11;
+    const phylloptim::Leaf::PhotoTraitRows photo = leaf.photo_trait_rows();
+    if (!util::is_finite(photo.dprofit_da) ||
+        !util::is_finite(photo.dprofit_dcurv_elec) ||
+        !util::is_finite(photo.dprofit_dcurv_colim) ||
+        !util::is_finite(photo.dmarginal_da) ||
+        !util::is_finite(photo.dmarginal_dcurv_elec) ||
+        !util::is_finite(photo.dmarginal_dcurv_colim)) {
+      util::stop("TF24 gradient: the leaf's assimilation does not respond "
+                 "finitely to the three traits that set it");
+    }
+    dprofit_dlt[k_a] = photo.dprofit_da;
+    dprofit_dlt[k_curv_elec] = photo.dprofit_dcurv_elec;
+    dprofit_dlt[k_curv_colim] = photo.dprofit_dcurv_colim;
+    dcollar_dlt[k_a] = -photo.dmarginal_da / curvature;
+    dcollar_dlt[k_curv_elec] = -photo.dmarginal_dcurv_elec / curvature;
+    dcollar_dlt[k_curv_colim] = -photo.dmarginal_dcurv_colim / curvature;
   }
 
   // Profit, carrying the envelope response, and the two channels stay apart
