@@ -42,12 +42,9 @@ struct node_uptake_adjoints {
 // other's argument.
 //
 // `height` and `area_leaf` are pulled back together, through the seed's height.
-// `extinction` is a second copy of a row the light reduction has already taken
-// from the same value, and consuming it here would double it.
 struct boundary_node_adjoints {
   double area_leaf;
   double height;
-  double extinction;
   double density_in_field;
   double density_in_uptake;
 };

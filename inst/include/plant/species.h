@@ -164,8 +164,8 @@ public:
                                              double lambda_slope,
                                              node_size_adjoints* out) const;
 
-  // Transpose of consumption_rate for one resource. The grid is the quadrature
-  // abscissa, so the weights reach the heights only where that abscissa is one.
+  // Transpose of consumption_rate for one resource. The grid is birth dates, so
+  // the weights are constants and no row runs through them.
   void consumption_rate_adjoint(int resource, double lambda_uptake,
                                 node_uptake_adjoints* out) const;
 
@@ -1084,7 +1084,7 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
 
   std::pair<value_type, value_type> fs1 =
     nodes[0].compute_competition_and_slope(height);
-  size_t upper = 0, last = 0;
+  size_t upper = 0;
   double x1 = to_passive(nodes[0].introduction_time());
   double f_h1 = to_passive(fs1.first), s_h1 = to_passive(fs1.second);
 
@@ -1099,7 +1099,7 @@ void Species<T,E>::compute_competition_and_slope_adjoint(
     lambda_s[upper] += ls * width;
     lambda_f[k]     += lv * width;
     lambda_s[k]     += ls * width;
-    upper = k; last = k;
+    upper = k;
     x1 = x0; f_h1 = f_h0; s_h1 = s_h0;
     if (scan.decreasing && h0 < height) {
       break;

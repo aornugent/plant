@@ -1642,7 +1642,7 @@ void Patch<T,E>::soil_adjoint(const std::vector<double>& lambda_dydt,
                                              node_uptake_adjoints{0, 0});
   if (boundary_node_adjoint.size() != species.size()) {
     boundary_node_adjoint.assign(species.size(),
-                                 boundary_node_adjoints{0, 0, 0, 0, 0});
+                                 boundary_node_adjoints{0, 0, 0, 0});
   }
   for (size_t r = 0; r < n_resource; ++r) {
     if (lambda_uptake[r] == 0.0) {
@@ -1786,7 +1786,7 @@ void Patch<T,E>::cohort_block_adjoint(const std::vector<block_seeds>& seeds,
     util::check_length(out[m].knot.slope.size(), n_knot);
     if (out[m].boundary_node.size() != species.size()) {
       out[m].boundary_node.assign(species.size(),
-                                  boundary_node_adjoints{0, 0, 0, 0, 0});
+                                  boundary_node_adjoints{0, 0, 0, 0});
     }
   }
 
@@ -1907,7 +1907,7 @@ void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
   }
   if (boundary_node_adjoint.size() != species.size()) {
     boundary_node_adjoint.assign(species.size(),
-                                 boundary_node_adjoints{0, 0, 0, 0, 0});
+                                 boundary_node_adjoints{0, 0, 0, 0});
   }
   std::vector<sweep_adjoints> out(1);
   out[0].state = std::move(lambda_state);
@@ -2100,7 +2100,7 @@ void Patch<T,E>::allometry_adjoint(const std::vector<node_size_adjoints>& sizes,
   }
   if (boundary_node_adjoint.size() != species.size()) {
     boundary_node_adjoint.assign(species.size(),
-                                 boundary_node_adjoints{0, 0, 0, 0, 0});
+                                 boundary_node_adjoints{0, 0, 0, 0});
   }
   const size_t node_stride = node_type::ode_size();
   size_t k = 0;
@@ -2121,10 +2121,12 @@ void Patch<T,E>::allometry_adjoint(const std::vector<node_size_adjoints>& sizes,
         slots, individual.area_leaf(), sizes[k].area_leaf,
         sizes[k].extinction, trait_adjoint[metric].data() + trait_at);
       if (boundary) {
+        // The extinction row is not carried on: the call above has already
+        // taken it from this same value, so pulling it back again here would
+        // deliver it twice.
         boundary_out[i].area_leaf += sizes[k].area_leaf;
         boundary_out[i].height += sizes[k].height;
         boundary_out[i].density_in_field += sizes[k].log_density;
-        boundary_out[i].extinction += sizes[k].extinction;
         continue;
       }
       const double darea_leaf_dheight =
@@ -2327,7 +2329,7 @@ void Patch<T,E>::ode_rates_adjoint_batched(
     out[m].knot.value.assign(n_knot, 0.0);
     out[m].knot.slope.assign(n_knot, 0.0);
     out[m].boundary_node.assign(species.size(),
-                                boundary_node_adjoints{0, 0, 0, 0, 0});
+                                boundary_node_adjoints{0, 0, 0, 0});
   }
 
   // The strategy rate adjoints the stage recursion supplies, and beside them the
