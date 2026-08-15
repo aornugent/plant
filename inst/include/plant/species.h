@@ -137,6 +137,26 @@ public:
   std::pair<value_type, value_type>
   compute_competition_and_slope_excl_boundary(double height) const;
 
+  // What the reduction accumulates before its closing trapezium, plus the node
+  // it closed on. Holding this lets the field WITH the boundary interval be
+  // formed from the field without it in one operation, rather than by a second
+  // reduction over every node -- the two differ only in that trapezium, and the
+  // boundary node it needs is not known until the field without it exists.
+  struct competition_split {
+    value_type tot{0.0}, tot_slope{0.0};
+    value_type f_h1{0.0}, s_h1{0.0}, x1{0.0};
+    bool closes{false};      // whether the closing trapezium is taken at all
+    bool from_loop{false};   // false when a short path returned before the loop
+    bool unordered{false};   // the sorted-view fallback, which splits no further
+    std::pair<value_type, value_type> excl{value_type(0.0), value_type(0.0)};
+  };
+  competition_split compute_competition_and_slope_split(double height) const;
+  // The inclusive reduction, from a split taken at the same height. Bit-identical
+  // to compute_competition_and_slope(height) at the boundary node it is closed
+  // with.
+  std::pair<value_type, value_type>
+  close_competition_and_slope(const competition_split& c, double height) const;
+
   // Transpose of compute_competition_and_slope at `height`, closing boundary
   // trapezium and all. `out` points at this species' first node.
   void compute_competition_and_slope_adjoint(double height,
@@ -619,16 +639,32 @@ std::pair<typename Species<T,E>::value_type,
           typename Species<T,E>::value_type>
 Species<T,E>::compute_competition_and_slope_impl(double height,
                                                  bool include_boundary) const {
+  const competition_split c = compute_competition_and_slope_split(height);
+  if (!include_boundary) {
+    return c.excl;
+  }
+  return close_competition_and_slope(c, height);
+}
+
+// The reduction up to its closing trapezium. Everything the closing term needs
+// travels in the result, so a caller that has to wait for the boundary node can
+// close it later without walking the nodes again.
+template <typename T, typename E>
+typename Species<T,E>::competition_split
+Species<T,E>::compute_competition_and_slope_split(double height) const {
+  competition_split c;
   if (size() == 0) {
-    return {value_type(0.0), value_type(0.0)};
+    return c;
   }
   const HeightScan scan = scan_heights();
   if (scan.h_max < height) {
-    return {value_type(0.0), value_type(0.0)};
+    return c;
   }
   const bool birth_date = control().node_density_in_birth_date;
   if (!birth_date && !scan.decreasing) {
-    return compute_competition_and_slope_unordered(height, include_boundary);
+    c.unordered = true;
+    c.excl = compute_competition_and_slope_unordered(height, false);
+    return c;
   }
   value_type tot = 0.0, tot_slope = 0.0;
   nodes_const_iterator it = nodes.begin();
@@ -655,14 +691,37 @@ Species<T,E>::compute_competition_and_slope_impl(double height,
     }
   }
 
-  if (include_boundary && (size() == 1 || birth_date || f_h1 > 0)) {
+  c.tot = tot;
+  c.tot_slope = tot_slope;
+  c.x1 = x1;
+  c.f_h1 = f_h1;
+  c.s_h1 = s_h1;
+  c.closes = (size() == 1 || birth_date || f_h1 > 0);
+  c.from_loop = true;
+  c.excl = {tot / 2, tot_slope / 2};
+  return c;
+}
+
+template <typename T, typename E>
+std::pair<typename Species<T,E>::value_type,
+          typename Species<T,E>::value_type>
+Species<T,E>::close_competition_and_slope(const competition_split& c,
+                                          double height) const {
+  if (c.unordered) {
+    return compute_competition_and_slope_unordered(height, true);
+  }
+  if (!c.from_loop) {
+    return c.excl;
+  }
+  value_type tot = c.tot, tot_slope = c.tot_slope;
+  if (c.closes) {
     const std::pair<value_type, value_type> fs0 =
       new_node.compute_competition_and_slope(height);
-    const value_type x0 = abscissa_of(new_node, birth_date);
-    tot       += (x0 - x1) * (f_h1 + fs0.first);
-    tot_slope += (x0 - x1) * (s_h1 + fs0.second);
+    const value_type x0 =
+      abscissa_of(new_node, control().node_density_in_birth_date);
+    tot       += (x0 - c.x1) * (c.f_h1 + fs0.first);
+    tot_slope += (x0 - c.x1) * (c.s_h1 + fs0.second);
   }
-
   return {tot / 2, tot_slope / 2};
 }
 

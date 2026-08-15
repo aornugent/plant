@@ -456,6 +456,16 @@ private:
 
   // Step (b)'s tape and templates, held so one tape spans the cohort loop.
   // Type-erased: a model declaring no rebind has no active type to form here.
+  // What each species' reduction had accumulated at each knot before its
+  // closing trapezium, kept from the field built without the boundary interval
+  // so the field built with it costs one trapezium per knot rather than a second
+  // walk over every node.
+  mutable std::vector<std::vector<typename species_type::competition_split>>
+    competition_capture;
+  mutable size_t capture_at = 0;
+  void compute_environment_excl_capturing(bool rescale);
+  void compute_environment_closing(bool rescale);
+
   mutable std::shared_ptr<void> block_workspace;
 
   int idx = 0; // used to access environment cache for mutant runs
@@ -621,12 +631,11 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
   out.environment.set_shading_model(control.shading_model,
                                     control.ppa_layer_optical_depth,
                                     control.ppa_layer_smoothing);
-  out.compute_environment(false);
-  // What a rebound patch owes its callers is the boundary node: each of them
-  // reads r_new_node() before setting a state of its own, and none reads a
-  // cohort's rates. Rating every cohort to reach the same new_node evaluates one
-  // leaf per node, and this runs once per adjoint of the right-hand side.
-  out.compute_boundary_nodes();
+  // The field and the boundary node are left to the caller. Every caller sets a
+  // state through set_ode_state_and_field or set_recorded_state before reading
+  // either, and both rebuild the field and re-evaluate the inflow condition, so
+  // computing them here solves the boundary leaf twice per right-hand side and
+  // then discards it. A caller that reads before setting gets an unbuilt field.
   return out;
 }
 
@@ -1075,9 +1084,72 @@ void Patch<T,E>::compute_environment(bool rescale) {
   if (!(size() > 0 && !is_mutant_run)) {
     return;
   }
-  compute_environment_once(rescale, false);
+  compute_environment_excl_capturing(rescale);
   compute_boundary_nodes();
-  compute_environment_once(rescale, true);
+  compute_environment_closing(rescale);
+}
+
+// The field without the boundary interval, keeping each species' reduction at
+// the point its closing trapezium would be added.
+template <typename T, typename E>
+void Patch<T,E>::compute_environment_excl_capturing(bool rescale) {
+  for (auto& s : species) {
+    s.set_new_node_birth_date(environment.time);
+  }
+  competition_capture.assign(size(), {});
+  capture_at = 0;
+  auto f = [&](double x) -> std::pair<value_type, value_type> {
+    value_type tot = 0.0, tot_slope = 0.0;
+    for (size_t i = 0; i < size(); ++i) {
+      const typename species_type::competition_split c =
+        species[i].compute_competition_and_slope_split(x);
+      competition_capture[i].push_back(c);
+      tot       += c.excl.first / area;
+      tot_slope += c.excl.second / area;
+    }
+    return {tot, tot_slope};
+  };
+  if (size() > 0 & !is_mutant_run) {
+    try {
+      environment.compute_environment(f, height_max(), rescale);
+    } catch (const interpolator::refinement_failure& e) {
+      util::stop(std::string(e.what()) + " " + describe_nodes_near(e.report.x_lo));
+    }
+  }
+}
+
+// The same field with the boundary interval closed, from the kept reductions and
+// the boundary node the call between the two established.
+template <typename T, typename E>
+void Patch<T,E>::compute_environment_closing(bool rescale) {
+  for (auto& s : species) {
+    s.set_new_node_birth_date(environment.time);
+  }
+  capture_at = 0;
+  auto f = [&](double x) -> std::pair<value_type, value_type> {
+    value_type tot = 0.0, tot_slope = 0.0;
+    for (size_t i = 0; i < species.size(); ++i) {
+      if (!is_mutant_run) {
+        if (capture_at >= competition_capture[i].size()) {
+          util::stop("compute_environment_closing: the field without the "
+                     "boundary interval was built over a different knot set");
+        }
+        const std::pair<value_type, value_type> fs =
+          species[i].close_competition_and_slope(competition_capture[i][capture_at], x);
+        tot       += fs.first / area;
+        tot_slope += fs.second / area;
+      }
+    }
+    ++capture_at;
+    return {tot, tot_slope};
+  };
+  if (size() > 0 & !is_mutant_run) {
+    try {
+      environment.compute_environment(f, height_max(), rescale);
+    } catch (const interpolator::refinement_failure& e) {
+      util::stop(std::string(e.what()) + " " + describe_nodes_near(e.report.x_lo));
+    }
+  }
 }
 
 template <typename T, typename E>
