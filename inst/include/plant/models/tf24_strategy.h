@@ -1880,6 +1880,22 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
     // underneath. An uncounted severance is indistinguishable from a true zero.
     if (light < S(0.0001)) {
       ++clamp_counts[CLAMP_LIGHT_FLOOR];
+      // Below the floor the radiation this cohort receives stops depending on
+      // any other cohort's height, so the light coupling is severed -- and the
+      // field is SMOOTH here, so the severance is the guard's rather than the
+      // model's. Returning the clamped value would hand back a row that is zero
+      // for a reason no measurement reveals.
+      //
+      // The forward model must keep running: the floor is what keeps the light
+      // sane, and a stand is not wrong for reaching it. So this refuses on the
+      // differentiated path alone -- a compile-time choice, because which path
+      // this is is a property of the scalar and not of the state.
+      if constexpr (!std::is_same_v<S, double>) {
+        throw gradient_refusal(
+            "TF24 gradient: the light floor binds here, so this cohort's "
+            "radiation no longer depends on any other cohort's height and its "
+            "light row is severed by the guard rather than by the model");
+      }
     }
     return pars.k_I * std::max(light, S(0.0001)) * PPFD;
   };

@@ -94,5 +94,19 @@ test_that("the light floor is counted, and does not bind at shipped values", {
                   fired, solves, 100 * fired / solves))
   expect_gt(fired, 0)
 
+  # The forward model must keep running where the gradient stops, or the guard
+  # has been turned into a model change. That half is the one worth asserting:
+  # the census is still a number here.
+  expect_gt(stand_census(walked)[[1]], 0)
+  g <- stand_gradient(walked)
+  expect_true(all(g$status == "refused"))
+
+  # ⚠️ NOT asserted: that the refusal names the light floor. It does not, on any
+  # configuration reached so far. The floor only binds once the canopy has
+  # closed, and by then some operating point has also left the interior branch,
+  # so the gate refuses first and wins the race. The floor's own refusal is
+  # implemented and unexercised -- treat it as a guard nothing has yet fired,
+  # the same standing as the graft's input test.
+
   expect_identical(census_clamp_names_tf24(), "light_floor")
 })

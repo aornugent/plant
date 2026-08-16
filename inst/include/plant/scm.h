@@ -954,10 +954,31 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
 
   patch_type& live = solver.get_system_ref();
 
-  const std::vector<std::vector<double>> all_seeds =
-      census_state_adjoint<Metrics>();
-  const std::vector<std::vector<double>> all_direct =
-      census_trait_direct<Metrics>();
+  adjoint_segments = 0;
+  adjoint_at_first_state.clear();
+  // The seeds and the direct term are on the gradient path too, and a refusal
+  // raised while forming them has no sweep to be caught in -- so it escaped as
+  // an error while every refusal from the sweep itself came back as a status.
+  // Caught here, where the shape of the answer is still known from what the
+  // caller asked for and the patch's trait width rather than from the seeds
+  // themselves. Nothing is restored: the walk that borrows the width runs below.
+  std::vector<std::vector<double>> all_seeds, all_direct;
+  try {
+    all_seeds = census_state_adjoint<Metrics>();
+    all_direct = census_trait_direct<Metrics>();
+  } catch (gradient_refusal& e) {
+    const size_t width = live.trait_adjoint_size();
+    const size_t rows = which_metrics.empty()
+                            ? std::tuple_size<Metrics>::value
+                            : which_metrics.size();
+    census_gradient ret;
+    for (size_t m = 0; m < rows; ++m) {
+      ret.gradient.push_back(std::vector<double>(
+          width, std::numeric_limits<double>::quiet_NaN()));
+      ret.status.push_back(std::vector<gradient_status>(width, e.status));
+    }
+    return ret;
+  }
   // Which rows to sweep. Empty is every one, and a named row outside the census
   // is refused rather than clamped: a caller indexing by position would
   // otherwise get a different metric's gradient back.
