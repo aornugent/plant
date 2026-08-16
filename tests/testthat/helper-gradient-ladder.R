@@ -106,6 +106,40 @@ ladder_patch_shutdown <- function(factor = 0.5) {
 # `swap` exchanges the two states. Every shared object then sees the same two
 # plants in the opposite order, with the same field and the same soil, which is the
 # one thing a re-run cannot vary.
+# The one-cohort patch given a root system that puts the collar on the soil.
+#
+# The uniform-drying direction is a near-symmetry only when the collar follows a
+# uniform shift of the soil potentials -- measured, 0.973 of it here against
+# 0.698 at the shipped traits -- and when root mass is spread over the layers, so
+# the top layer's own column does not already carry the tracking. Both are
+# properties of the root network and neither is reached by a trajectory: every
+# run stand measures 1.1x, and a run with these traits ends at 1.0x.
+#
+# `conductance` scales root mass and divides root respiration and turnover by the
+# same factor, so the root CARBON budget is bit-for-bit the shipped one and only
+# the hydraulics differ. Net production is 2.09 against the shipped 1.25.
+# The default is the first value at which the amplification passes fifteen; the
+# leaf refuses between 100 and 130.
+ladder_patch_uniform_drying <- function(conductance = 60, spread = 0.99) {
+  p <- ladder_parameters("fast")
+  strategies <- p$strategies
+  for (i in seq_along(strategies)) {
+    pars <- strategies[[i]]$pars
+    pars$a_r1 <- pars$a_r1 * conductance
+    pars$r_r  <- pars$r_r / conductance
+    pars$k_r  <- pars$k_r / conductance
+    pars$root_depth_shape_eta <- spread
+    strategies[[i]]$pars <- pars
+  }
+  p$strategies <- strategies
+  heights <- list(4.73)
+  densities <- list(-0.39)
+  ladder_condition(
+    ladder_patch(species = "fast", heights = heights,
+                 log_densities = densities, parameters = p),
+    heights, densities)
+}
+
 ladder_patch_permutable <- function(swap = FALSE, time = 1.37) {
   births <- c(0.17, (0.17 + time) / 2, 1.03)
   stopifnot(births[[2]] < births[[3]], births[[3]] < time)

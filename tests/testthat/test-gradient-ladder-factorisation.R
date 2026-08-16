@@ -160,9 +160,16 @@ test_that("the water rows hold in the direction the ecology reads", {
   #
   # A wrong split between the two scalars is exactly such a systematic error. So
   # this forms the direction and checks it there.
-  for (name in c("one cohort", "two by two")) {
-    patch <- if (name == "one cohort") ladder_patch_one() else
-      ladder_patch_two_by_two()
+  # The shipped parameterisation is nowhere near the regime -- 1.1x on both
+  # constructed patches, and measured at every node of every run stand between
+  # 1.03 and 1.14, the competing stand included. What reaches it is the root
+  # network's hydraulics at constant root carbon, which no trajectory develops.
+  # The first two are kept because their 1.1x is the finding.
+  for (name in c("one cohort", "two by two", "uniform drying")) {
+    patch <- switch(name,
+                    "one cohort" = ladder_patch_one(),
+                    "two by two" = ladder_patch_two_by_two(),
+                    "uniform drying" = ladder_patch_uniform_drying())
     ladder_require_regime(patch, "patch")
     ladder_block_or_skip(patch)
 
@@ -196,22 +203,24 @@ test_that("the water rows hold in the direction the ecology reads", {
     message(sprintf("\n  %s: uniform-drying amplification %.1fx, reference error %.3e",
                     name, amplification, floor))
 
-    # Measured at 1.1x on both patch fixtures. Report 05 prices the channel at
-    # fifteen- to twenty-six-fold and measured it on a COMPETING STAND, where the
-    # collar tracks the soil closely enough for the row sum to be a small residue
-    # of its terms. A constructed patch does not reproduce that, so the number
-    # this check exists to bound is not available here and the margin is reported
-    # rather than asserted.
+    # What bounds this is the per-entry bound above, times the amplification the
+    # fixture is measured at. That composition IS the thing this check exists for:
+    # the entries carry the fit's own truncation, a systematic error adds
+    # coherently across them, and the direction divides what is left by the
+    # cancellation. So a bound on the entries alone permits amplification times as
+    # much here, and saying so is what turns the per-entry number into a statement
+    # about the direction the ecology reads.
+    #
+    # Not `floor`. That is the gap between two step sizes, which measures how far
+    # the difference has converged and not how accurate it is, so it tightens
+    # exactly where the check gets sharper -- the same defect the per-layer
+    # statistic above was carrying.
+    fit_step <- 1e-3
     ladder_report_margin(
       sprintf("the uniform-drying direction, %s", name),
       max(abs(rows - fine)) / scale,
-      if (amplification > 5) 10 * floor else Inf)
+      10 * fit_step^2 * amplification)
   }
-  skip(paste("the uniform-drying direction is measured at 1.1x amplification on",
-             "both patch fixtures, where report 05 prices it at 15-26x on a",
-             "competing stand: the regime this check exists for is not reachable",
-             "on a constructed patch, and the stand it needs is a trajectory-tier",
-             "fixture"))
 })
 
 test_that("the water rows hold in the family the pair was anchored in", {
