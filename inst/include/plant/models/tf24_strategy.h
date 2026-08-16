@@ -348,23 +348,60 @@ public:
   // order ad_parameter_names() gives. Both allocate, so take them once per
   // gradient evaluation and hold them for the run rather than per block; the
   // strategy is shared and the fields do not move. Index against .size().
-  std::vector<S*> ad_parameters() {
+  // One entry per differentiable parameter: the member, and the name its gradient
+  // column carries. The two were separate lists held in the same order by hand,
+  // and nothing said so -- a parameter added to one and not the other relabels
+  // every column after it, no arithmetic goes wrong, and the number a reader
+  // trusts is attached to the wrong trait. Here the name is the member's own
+  // spelling and cannot be given separately.
+  struct ad_parameter {
+    S* value;
+    const char* name;
+  };
+#define PLANT_TF24_AD_PARAMETER(x) ad_parameter{&pars.x, #x}
+  std::vector<ad_parameter> ad_parameter_table() {
     return {
-      &pars.lma, &pars.rho, &pars.hmat, &pars.omega,
-      &pars.theta, &pars.a_l1, &pars.a_l2, &pars.a_r1, &pars.a_b1,
-      &pars.r_s, &pars.r_b, &pars.r_r, &pars.r_l, &pars.a_y, &pars.a_bio,
-      &pars.k_l, &pars.k_b, &pars.k_s, &pars.k_r,
-      &pars.a_f3, &pars.a_f1, &pars.a_f2,
-      &pars.a_d0, &pars.d_I, &pars.a_dG1, &pars.a_dG2,
-      &pars.a_st1, &pars.a_st2, &pars.a_st3,
-      &pars.k_I,
-      &pars.K_s, &pars.c, &pars.b, &pars.psi_crit,
-      &pars.beta2, &pars.g1_TF24, &pars.a,
-      &pars.curv_fact_elec_trans, &pars.curv_fact_colim,
-      &pars.vcmax_25, &pars.jmax_25, &pars.R_d_25,
-      &pars.root_c, &pars.root_b, &pars.root_psi_crit,
-      &pars.rooting_depth_max, &pars.recruitment_decay
+      PLANT_TF24_AD_PARAMETER(lma), PLANT_TF24_AD_PARAMETER(rho),
+      PLANT_TF24_AD_PARAMETER(hmat), PLANT_TF24_AD_PARAMETER(omega),
+      PLANT_TF24_AD_PARAMETER(theta), PLANT_TF24_AD_PARAMETER(a_l1),
+      PLANT_TF24_AD_PARAMETER(a_l2), PLANT_TF24_AD_PARAMETER(a_r1),
+      PLANT_TF24_AD_PARAMETER(a_b1),
+      PLANT_TF24_AD_PARAMETER(r_s), PLANT_TF24_AD_PARAMETER(r_b),
+      PLANT_TF24_AD_PARAMETER(r_r), PLANT_TF24_AD_PARAMETER(r_l),
+      PLANT_TF24_AD_PARAMETER(a_y), PLANT_TF24_AD_PARAMETER(a_bio),
+      PLANT_TF24_AD_PARAMETER(k_l), PLANT_TF24_AD_PARAMETER(k_b),
+      PLANT_TF24_AD_PARAMETER(k_s), PLANT_TF24_AD_PARAMETER(k_r),
+      PLANT_TF24_AD_PARAMETER(a_f3), PLANT_TF24_AD_PARAMETER(a_f1),
+      PLANT_TF24_AD_PARAMETER(a_f2),
+      PLANT_TF24_AD_PARAMETER(a_d0), PLANT_TF24_AD_PARAMETER(d_I),
+      PLANT_TF24_AD_PARAMETER(a_dG1), PLANT_TF24_AD_PARAMETER(a_dG2),
+      PLANT_TF24_AD_PARAMETER(a_st1), PLANT_TF24_AD_PARAMETER(a_st2),
+      PLANT_TF24_AD_PARAMETER(a_st3),
+      PLANT_TF24_AD_PARAMETER(k_I),
+      PLANT_TF24_AD_PARAMETER(K_s), PLANT_TF24_AD_PARAMETER(c),
+      PLANT_TF24_AD_PARAMETER(b), PLANT_TF24_AD_PARAMETER(psi_crit),
+      PLANT_TF24_AD_PARAMETER(beta2), PLANT_TF24_AD_PARAMETER(g1_TF24),
+      PLANT_TF24_AD_PARAMETER(a),
+      PLANT_TF24_AD_PARAMETER(curv_fact_elec_trans),
+      PLANT_TF24_AD_PARAMETER(curv_fact_colim),
+      PLANT_TF24_AD_PARAMETER(vcmax_25), PLANT_TF24_AD_PARAMETER(jmax_25),
+      PLANT_TF24_AD_PARAMETER(R_d_25),
+      PLANT_TF24_AD_PARAMETER(root_c), PLANT_TF24_AD_PARAMETER(root_b),
+      PLANT_TF24_AD_PARAMETER(root_psi_crit),
+      PLANT_TF24_AD_PARAMETER(rooting_depth_max),
+      PLANT_TF24_AD_PARAMETER(recruitment_decay)
     };
+  }
+#undef PLANT_TF24_AD_PARAMETER
+
+  std::vector<S*> ad_parameters() {
+    const std::vector<ad_parameter> table = ad_parameter_table();
+    std::vector<S*> ret;
+    ret.reserve(table.size());
+    for (const ad_parameter& p : table) {
+      ret.push_back(p.value);
+    }
+    return ret;
   }
 
   // The TF24_Pars members ad_parameters() addresses, in the same order. Absent
@@ -381,22 +418,13 @@ public:
   // A derivative with respect to it belongs to whatever computes c and b, which for
   // a run driven from traits is the R hyperparameter function.
   std::vector<std::string> ad_parameter_names() {
-    return {
-      "lma", "rho", "hmat", "omega",
-      "theta", "a_l1", "a_l2", "a_r1", "a_b1",
-      "r_s", "r_b", "r_r", "r_l", "a_y", "a_bio",
-      "k_l", "k_b", "k_s", "k_r",
-      "a_f3", "a_f1", "a_f2",
-      "a_d0", "d_I", "a_dG1", "a_dG2",
-      "a_st1", "a_st2", "a_st3",
-      "k_I",
-      "K_s", "c", "b", "psi_crit",
-      "beta2", "g1_TF24", "a",
-      "curv_fact_elec_trans", "curv_fact_colim",
-      "vcmax_25", "jmax_25", "R_d_25",
-      "root_c", "root_b", "root_psi_crit",
-      "rooting_depth_max", "recruitment_decay"
-    };
+    const std::vector<ad_parameter> table = ad_parameter_table();
+    std::vector<std::string> ret;
+    ret.reserve(table.size());
+    for (const ad_parameter& p : table) {
+      ret.push_back(p.name);
+    }
+    return ret;
   }
 
   // Translate generic methods to TF24 strategy leaf area methods
@@ -1078,19 +1106,19 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // against a reference that rebuilds the strategy, the identity's row is 1.9e-04
   // off where the rebuild's is 2e-06: the grid is a function of the trait, so a
   // held grid differentiates a different model.
-  const int n_leaf_trait = 14;
-  double lt[n_leaf_trait] = {
-      to_passive(pars.vcmax_25), to_passive(pars.c), to_passive(pars.b),
-      to_passive(pars.psi_crit), to_passive(pars.root_c),
-      to_passive(pars.root_b), to_passive(pars.root_psi_crit),
-      to_passive(pars.beta2), to_passive(pars.jmax_25), to_passive(pars.a),
-      to_passive(pars.curv_fact_elec_trans), to_passive(pars.curv_fact_colim),
-      to_passive(pars.g1_TF24), to_passive(pars.R_d_25)};
-  const S* lt_input[n_leaf_trait] = {
-      &pars.vcmax_25, &pars.c, &pars.b, &pars.psi_crit, &pars.root_c,
-      &pars.root_b, &pars.root_psi_crit, &pars.beta2, &pars.jmax_25, &pars.a,
-      &pars.curv_fact_elec_trans, &pars.curv_fact_colim, &pars.g1_TF24,
-      &pars.R_d_25};
+  // One entry per trait the leaf holds: the value it is seated at, the active
+  // input its rows are recorded against, whether its rows have to be driven, and
+  // the two rows themselves. These were five lists keyed by position -- values,
+  // addresses, two reasons for not driving, and the rows -- and a trait inserted
+  // into one of them and not the rest paired every later trait's value with
+  // another's address.
+  struct leaf_trait {
+    double value;
+    const S* input;
+    bool driven;
+    double dprofit = 0.0;
+    double dcollar = 0.0;
+  };
   // Which are driven by moving the trait and re-solving. Ten are not, for two
   // different reasons.
   //
@@ -1110,27 +1138,43 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // What is left driven is the four vulnerability-curve traits, which have no
   // analytic route at all -- their grid is a function of the trait and the
   // forward model rebuilds it.
-  const bool lt_driven[n_leaf_trait] = {
-      false, true,  true,  false, true,  true,  false,
-      false, false, false, false, false, false, false};
+  leaf_trait lt[] = {
+      {to_passive(pars.vcmax_25), &pars.vcmax_25, false},
+      {to_passive(pars.c), &pars.c, true},
+      {to_passive(pars.b), &pars.b, true},
+      {to_passive(pars.psi_crit), &pars.psi_crit, false},
+      {to_passive(pars.root_c), &pars.root_c, true},
+      {to_passive(pars.root_b), &pars.root_b, true},
+      {to_passive(pars.root_psi_crit), &pars.root_psi_crit, false},
+      {to_passive(pars.beta2), &pars.beta2, false},
+      {to_passive(pars.jmax_25), &pars.jmax_25, false},
+      {to_passive(pars.a), &pars.a, false},
+      {to_passive(pars.curv_fact_elec_trans), &pars.curv_fact_elec_trans, false},
+      {to_passive(pars.curv_fact_colim), &pars.curv_fact_colim, false},
+      {to_passive(pars.g1_TF24), &pars.g1_TF24, false},
+      {to_passive(pars.R_d_25), &pars.R_d_25, false}};
+  const int n_leaf_trait = static_cast<int>(sizeof(lt) / sizeof(lt[0]));
+
+  // The setter takes them by position, so the order above is its argument list
+  // and not this file's to choose.
   auto apply_leaf_traits = [&]() -> void {
-    leaf.set_traits(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5], lt[6], lt[7],
-                    lt[8], lt[9], lt[10], lt[11], lt[12], lt[13]);
+    leaf.set_traits(lt[0].value, lt[1].value, lt[2].value, lt[3].value,
+                    lt[4].value, lt[5].value, lt[6].value, lt[7].value,
+                    lt[8].value, lt[9].value, lt[10].value, lt[11].value,
+                    lt[12].value, lt[13].value);
   };
-  std::vector<double> dprofit_dlt(n_leaf_trait, 0.0),
-      dcollar_dlt(n_leaf_trait, 0.0);
   std::vector<std::vector<double>> dE_dlt_frozen(
       n_layer, std::vector<double>(n_leaf_trait, 0.0));
   for (int k = 0; k < n_leaf_trait; ++k) {
-    if (!lt_driven[k]) {
+    if (!lt[k].driven) {
       continue;
     }
-    const double base_t = lt[k];
+    const double base_t = lt[k].value;
     const double h_t = std::max(std::abs(base_t), 1.0) * fit_step;
     double p_up = 0.0, p_dn = 0.0, m_up = 0.0, m_dn = 0.0;
     std::vector<double> u_up(n_layer), u_dn(n_layer);
     for (int side = 0; side < 2; ++side) {
-      lt[k] = base_t + (side == 0 ? h_t : -h_t);
+      lt[k].value = base_t + (side == 0 ? h_t : -h_t);
       apply_leaf_traits();
       seat_at(radiation_value, psi_value, kmax_value);
       (side == 0 ? p_up : p_dn) = leaf.profit_;
@@ -1139,14 +1183,14 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
         (side == 0 ? u_up : u_dn)[i] = leaf.soil_consumption_[i];
       }
     }
-    lt[k] = base_t;
-    dprofit_dlt[k] = (p_up - p_dn) / (2.0 * h_t);
+    lt[k].value = base_t;
+    lt[k].dprofit = (p_up - p_dn) / (2.0 * h_t);
     const double dR_dlt = (m_up - m_dn) / (2.0 * h_t);
-    if (!util::is_finite(dprofit_dlt[k]) || !util::is_finite(dR_dlt)) {
+    if (!util::is_finite(lt[k].dprofit) || !util::is_finite(dR_dlt)) {
       util::stop("TF24 gradient: leaf trait " + util::to_string(k) +
                  " moves the leaf by an amount that is not finite");
     }
-    dcollar_dlt[k] = -dR_dlt / curvature;
+    lt[k].dcollar = -dR_dlt / curvature;
     for (size_t i = 0; i < n_layer; ++i) {
       dE_dlt_frozen[i][k] = (u_up[i] - u_dn[i]) / (2.0 * h_t);
     }
@@ -1166,10 +1210,10 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       util::stop("TF24 gradient: the leaf's hydraulic cost does not respond "
                  "finitely to the two traits that set it");
     }
-    dprofit_dlt[k_beta2] = rows.dprofit_dbeta2;
-    dprofit_dlt[k_cost_scale] = rows.dprofit_dcost_scale;
-    dcollar_dlt[k_beta2] = -rows.dmarginal_dbeta2 / curvature;
-    dcollar_dlt[k_cost_scale] = -rows.dmarginal_dcost_scale / curvature;
+    lt[k_beta2].dprofit = rows.dprofit_dbeta2;
+    lt[k_cost_scale].dprofit = rows.dprofit_dcost_scale;
+    lt[k_beta2].dcollar = -rows.dmarginal_dbeta2 / curvature;
+    lt[k_cost_scale].dcollar = -rows.dmarginal_dcost_scale / curvature;
 
     const int k_vcmax = 0, k_jmax = 8, k_a = 9, k_curv_elec = 10,
               k_curv_colim = 11, k_R_d = 13;
@@ -1186,18 +1230,18 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                    "finitely to the six traits that set it");
       }
     }
-    dprofit_dlt[k_a] = photo.dprofit_da;
-    dprofit_dlt[k_curv_elec] = photo.dprofit_dcurv_elec;
-    dprofit_dlt[k_curv_colim] = photo.dprofit_dcurv_colim;
-    dprofit_dlt[k_vcmax] = photo.dprofit_dvcmax_25;
-    dprofit_dlt[k_jmax] = photo.dprofit_djmax_25;
-    dprofit_dlt[k_R_d] = photo.dprofit_dR_d_25;
-    dcollar_dlt[k_a] = -photo.dmarginal_da / curvature;
-    dcollar_dlt[k_curv_elec] = -photo.dmarginal_dcurv_elec / curvature;
-    dcollar_dlt[k_curv_colim] = -photo.dmarginal_dcurv_colim / curvature;
-    dcollar_dlt[k_vcmax] = -photo.dmarginal_dvcmax_25 / curvature;
-    dcollar_dlt[k_jmax] = -photo.dmarginal_djmax_25 / curvature;
-    dcollar_dlt[k_R_d] = -photo.dmarginal_dR_d_25 / curvature;
+    lt[k_a].dprofit = photo.dprofit_da;
+    lt[k_curv_elec].dprofit = photo.dprofit_dcurv_elec;
+    lt[k_curv_colim].dprofit = photo.dprofit_dcurv_colim;
+    lt[k_vcmax].dprofit = photo.dprofit_dvcmax_25;
+    lt[k_jmax].dprofit = photo.dprofit_djmax_25;
+    lt[k_R_d].dprofit = photo.dprofit_dR_d_25;
+    lt[k_a].dcollar = -photo.dmarginal_da / curvature;
+    lt[k_curv_elec].dcollar = -photo.dmarginal_dcurv_elec / curvature;
+    lt[k_curv_colim].dcollar = -photo.dmarginal_dcurv_colim / curvature;
+    lt[k_vcmax].dcollar = -photo.dmarginal_dvcmax_25 / curvature;
+    lt[k_jmax].dcollar = -photo.dmarginal_djmax_25 / curvature;
+    lt[k_R_d].dcollar = -photo.dmarginal_dR_d_25 / curvature;
   }
 
   // Profit, carrying the envelope response, and the two channels stay apart
@@ -1211,7 +1255,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     against.push_back({root_carbon_per_leaf_area_[a], dprofit_drc[a]});
   }
   for (int k = 0; k < n_leaf_trait; ++k) {
-    against.push_back({*lt_input[k], dprofit_dlt[k]});
+    against.push_back({*lt[k].input, lt[k].dprofit});
   }
   for (size_t j = 0; j < n_layer; ++j) {
     against.push_back({psi_soil[j], env.dprofit_dpsi_soil[j]});
@@ -1262,9 +1306,9 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                            to_mol * dE_dcollar[i] * dcollar_drc[a]});
     }
     for (int k = 0; k < n_leaf_trait; ++k) {
-      against.push_back({*lt_input[k],
+      against.push_back({*lt[k].input,
                          dE_dlt_frozen[i][k] +
-                           to_mol * dE_dcollar[i] * dcollar_dlt[k]});
+                           to_mol * dE_dcollar[i] * lt[k].dcollar});
     }
     for (size_t j = 0; j < n_layer; ++j) {
       const double frozen = (i == j) ? dEup_dpsi[i] : 0.0;

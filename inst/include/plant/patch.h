@@ -240,12 +240,16 @@ public:
   // vector as given by ode_state
   Rcpp::List r_get_state() const;
 
-  // Set state of patch, based on estimate of future state estimated by the solver
-  // There are two implementations.
-  //   - first function is for resident runs.
-  //   - second is for mutant runs.
-  // The second does not calculate environment when states are updated, as mutants only experience the environment
-  // The decision which to use is determined by `use_cached_environment` below
+  // Set state of patch, based on estimate of future state estimated by the solver.
+  // The first is for resident runs and computes the environment as it goes.
+  //
+  // The second is for mutant runs, which read a cached environment by RK stage
+  // rather than computing one. **The solver has no route to it.** It is reached
+  // only through the stage-indexed derivs, which asks a System whether it has
+  // recorded field values, and this one does not record them -- so the stage index
+  // it writes is never written, and rate_environment() reads stage zero's
+  // environment for all six stages of a mutant step. Finishing the mutant path
+  // means recording the field, not calling this from somewhere else.
   template <typename It> It set_ode_state(It it, double time);
   template <typename It> It set_ode_state(It it, int index);
 
@@ -301,15 +305,10 @@ public:
   void cache_RK45_step(int step);
   void load_ode_step();
 
-  // Per-accepted-step recording. record_ode_step() is called by the stepper once a
-  // step is committed, so the states it keeps are the run's own. The other three are
-  // what the solver's concept asks for and no more; has_recorded_field() is false, so
-  // a derivative evaluation takes the same path it takes for a patch that keeps none
-  // of this.
+  // Per-accepted-step recording. Called by the stepper once a step is committed, so
+  // the states it keeps are the run's own. The field is not kept with them: it is
+  // rebuilt at the recorded positions, which is what lets its derivative flow.
   void record_ode_step();
-  void record_stage(int) {}
-  void replay_step() {}
-  bool has_recorded_field() const { return false; }
 
   bool record_steps = false;
   // One record per accepted step, the first being the initial state. The step size is
