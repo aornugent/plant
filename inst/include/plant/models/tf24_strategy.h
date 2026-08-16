@@ -973,6 +973,22 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     throw gradient_refusal("TF24 gradient: the leaf cannot say how profit responds to its "
                "environment here -- " + env.message);
   }
+  // The leaf CAN now supply a pinned point's profit rows -- the frozen-collar
+  // partial plus the bound's own movement -- but everything below this line is
+  // the interior derivation: the operating point's response is formed as
+  // -dR/du divided by the curvature, at ten sites, and at a pin that quotient is
+  // not what the point does. The bound's row is, and substituting it is the work
+  // this refusal is holding open.
+  //
+  // Refused by name rather than left to the interior formula, which would return
+  // a finite plausible number built on a stationarity that does not hold here.
+  if (env.pinned) {
+    throw gradient_refusal(
+        "TF24 gradient: this operating point is pinned to a feasibility bound, "
+        "so its response is the bound's rather than the stationarity "
+        "condition's -- the leaf supplies that row and the stand does not yet "
+        "consume it");
+  }
   const size_t n_layer = env.dprofit_dpsi_soil.size();
   // The leaf answers only as deep as it is rooted, while psi_soil runs the whole
   // column. Deeper layers move no water and their response is a true zero.
