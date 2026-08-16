@@ -967,34 +967,44 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
 
   live.clear_trait_adjoint(n_metric);
   std::vector<std::vector<double>> lambda = seeds;
-  for (size_t j = boundary.size(); j-- > 0;) {
-    const size_t b = boundary[j];
-    const size_t k_last =
-        j + 1 < boundary.size() ? boundary[j + 1] : states.size() - 1;
+  // One segment per width, highest first: the decomposition the tangent runs
+  // forwards, so there is one more segment than there are widenings and the
+  // lowest of them runs down to the initial state. Every segment but that one
+  // has an introduction at its foot, transposed once the sweep reaches it.
+  for (size_t j = boundary.size() + 1; j-- > 0;) {
+    const size_t first = j > 0 ? boundary[j - 1] : 0;
+    const size_t last = j < boundary.size() ? boundary[j] : states.size() - 1;
     // Stopped and resumed at each requested step inside this segment, highest
     // first, so the pieces compose in the order the whole sweep would take
     // them. With none requested this is the single call it replaces.
     std::vector<size_t> cuts;
     for (const size_t s : extra_splits) {
-      if (s > b && s < k_last) {
+      if (s > first && s < last) {
         cuts.push_back(s);
       }
     }
     std::sort(cuts.begin(), cuts.end());
-    size_t upper = k_last;
+    size_t upper = last;
     for (size_t c = cuts.size(); c-- > 0;) {
       solver.solve_adjoint_batched(sweep_states, lambda, cuts[c], upper);
       upper = cuts[c];
       adjoint_segments += n_metric;
     }
-    solver.solve_adjoint_batched(sweep_states, lambda, b, upper);
-    adjoint_segments += n_metric;
-    live.remove_new_nodes(introduced[j]);
-    for (size_t m = 0; m < n_metric; ++m) {
-      std::vector<double> narrowed;
-      live.introduction_adjoint(introduced[j], states[b], trajectory[b].time,
-                                lambda[m], narrowed, m);
-      lambda[m] = narrowed;
+    // A widening at the first recorded step leaves the lowest segment with no
+    // step in it, which is what a run from bare ground gives.
+    if (first < upper) {
+      solver.solve_adjoint_batched(sweep_states, lambda, first, upper);
+      adjoint_segments += n_metric;
+    }
+    if (j > 0) {
+      live.remove_new_nodes(introduced[j - 1]);
+      for (size_t m = 0; m < n_metric; ++m) {
+        std::vector<double> narrowed;
+        live.introduction_adjoint(introduced[j - 1], states[first],
+                                  trajectory[first].time, lambda[m], narrowed,
+                                  m);
+        lambda[m] = narrowed;
+      }
     }
   }
 
