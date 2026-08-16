@@ -96,9 +96,12 @@ test_that("the birth-size channel is priced rather than asserted", {
     expect_true(is.finite(ratio))
     expect_gt(abs(ratio), 0)
   }
-  skip(paste("the birth-size channel is priced, not bounded: no acceptance number",
-             "is declared for it until report 05 §10.1's imposition is either",
-             "closed or restated with a domain"))
+  skip(paste("the birth-size channel is priced, not bounded: every ratio reads",
+             "1.000 and a bound of 1e-04 would hold each with an order of margin,",
+             "but the reference is a whole-run difference of the same bisected",
+             "root-find the row check below bounds, and its own floor is measured",
+             "as a gap between steps -- which reads the opposite of an error that",
+             "rises as the step falls"))
 })
 
 test_that("the seed's geometry row is refereed against a rebuilt strategy", {
@@ -118,8 +121,11 @@ test_that("the seed's geometry row is refereed against a rebuilt strategy", {
   for (name in ladder_birth_size_parameters()) {
     at <- match(paste0("1.", name), columns)
     expect_false(is.na(at))
+    # Named rather than defaulted: the bound below is the reference's own error at
+    # THIS step, so the two have to be one number.
+    rel <- 1e-4
     got <- ladder_seed_geometry_tangent_tf24(patch, at)
-    ref <- ladder_boundary_difference(patch, name)
+    ref <- ladder_boundary_difference(patch, name, rel = rel)
 
     # The graft returns the root itself, so the value is the rebuild's own.
     ladder_report_margin(
@@ -127,27 +133,29 @@ test_that("the seed's geometry row is refereed against a rebuilt strategy", {
       abs(got$height - ref$value[["height"]]) / abs(ref$value[["height"]]),
       1e-10)
 
-    # And the row, against a difference of the rebuilt root. The reference is a
-    # difference of a root-find, so its own error is measured at two steps rather
-    # than assumed: the eight parameters converge over two orders between them.
-    coarse <- ladder_boundary_difference(patch, name, rel = 1e-3)
-    floor <- max(abs(coarse$row[["height"]] - ref$row[["height"]]) /
-                   abs(ref$row[["height"]]), 4 * .Machine$double.eps)
-
     # Non-vacuity first: each of these reaches the residual, so a zero here is a
     # dropped channel rather than a small disagreement.
     expect_gt(abs(got$dheight), 0)
 
-    # omega is the residual's own constant, so dF/domega is exactly -1 and its
-    # row is the cleanest of the eight -- and it is the one that disagrees, at
-    # 1.32e-05 against a reference converged to 2.3e-07, a factor of 5.8. The
-    # other seven land inside a tenth of their references' error. That is a
-    # finding rather than a tolerance to widen, and no acceptance number is
-    # declared for it here.
+    # And the row, against a difference of the rebuilt root. What bounds it is
+    # where the root-find stopped, not how fine the step is: the reference
+    # differences a bisection whose answer is quantised at half a bracket, and a
+    # relative step of 1e-4 in the parameter is a step of a few nanometres in the
+    # height, which is smaller than the quantisation it is dividing.
+    #
+    # 1e-4 is also where this is the WHOLE bound: the reference's truncation there
+    # is a ten-thousandth of it for every one of the eight. At 1e-3 truncation
+    # returns at a seventh and the bound would need a second term.
+    #
+    # No factor of ten. This is a hard interval, not a scale estimate, so over it
+    # means the row disagrees by more than a bisected root-find can account for.
     ladder_report_margin(
       sprintf("the seed height's row, %s", name),
       abs(got$dheight - ref$row[["height"]]) / abs(ref$row[["height"]]),
-      if (name == "omega") Inf else 10 * floor)
+      ladder_bisection_bound(
+        patch, 1L, ref$value[["height"]],
+        abs(ladder_strategy_parameter(patch, 1L, name)) * rel,
+        ref$row[["height"]]))
   }
 
   # And the structural half: the residual reads those parameters and no others,

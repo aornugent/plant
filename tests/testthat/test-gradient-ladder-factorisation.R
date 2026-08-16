@@ -97,25 +97,12 @@ test_that("the marginal profit's factorisation is measured, not assumed", {
   # was fitted from a potential; that stopped being true when the anchor moved.
   expect_gt(length(residual), 1L)
 
-  # Per layer against its own reference, which is the sharper reading and is what
-  # this check now reports. Measured: 20.9, 18.9, 17.5, 0.5, 1.4 -- a consistent
-  # factor on the three layers whose difference converges best, not one bad layer.
-  #
-  # In absolute terms the worst residual is 1e-6 of the block's largest entry, so
-  # this is a small systematic disagreement and not a wrong row. What it is NOT is
-  # inside the reference's error. The previous reading said it was, two ways at
-  # once: it pooled the floor across layers that differ by three orders in how
-  # well they converge, and it excused the layer with the largest diagonal as
-  # in-sample, on a reading of where the pair is fitted that stopped being true
-  # when the anchor moved to root carbon.
+  # Reported per layer because that is how the disagreement was found, but it is
+  # not what is asserted: this statistic scales each layer by the whole block's
+  # largest entry, so one error common to every layer reads as five different
+  # numbers -- measured, 20.9, 18.9, 17.5, 0.5, 1.4.
   message("  per-layer ratio to its own reference: ",
           paste(sprintf("%.1f", residual / floor), collapse = " "))
-  ladder_report_margin("factorisation, worst layer against its own reference",
-                       max(residual / floor), Inf)
-  skip(paste("the factorisation's residual is 17-21x its own reference on the",
-             "three best-converged layers and no acceptance number is declared",
-             "for it: the previous bound held only by pooling the floor and by",
-             "excusing one layer as in-sample, which it no longer is"))
 
   # Non-vacuity: the predicted entries must carry a response, or agreeing about
   # zero would pass. The off-diagonal of the supplied block IS the argmax channel.
@@ -123,6 +110,40 @@ test_that("the marginal profit's factorisation is measured, not assumed", {
   diag(off) <- 0
   ladder_expect_moves(off, matrix(0, nrow(off), ncol(off)),
                       "the argmax channel's off-diagonal")
+
+  # The disagreement is ONE scalar. The difference matrix is rank one to a part in
+  # ten thousand, which says every layer is wrong by the same relative amount and
+  # so exactly one quantity is -- dcollar/dpsi. Size and structure are asserted
+  # apart because neither sees the other's failure: a scalar bound cannot see a
+  # wrong basis vector, and a rank bound cannot see a wrong size.
+  # Refereed against the middle step, not the finest. The 1e-7 difference is past
+  # the round-off crossing -- it disagrees with the 1e-6 one by 5e-06 on the
+  # driest layer, where 1e-5 and 1e-6 agree to 2.8e-09 -- so the finest step is
+  # the noisiest reference of the three, and the per-layer floor above is a ratio
+  # to that noise, which is why it moves with the build and the entries below do
+  # not.
+  reference <- steps[[2]]
+
+  singular <- svd(supplied - reference)$d
+  ladder_report_margin("the factorisation's residual is one direction",
+                       singular[[2]] / singular[[1]], 1e-3)
+
+  # Entrywise relative, on the entries whose reference has converged -- an entry
+  # still moving between the two coarsest steps is being compared against its own
+  # round-off, and on the worst of them that ratio reaches 2.5.
+  #
+  # The bound is the fit's own truncation and is not read off this measurement:
+  # `a` is solved from a central difference at a relative fit_step, so a quantity
+  # built from it carries fit_step^2 times a dimensionless third-derivative ratio.
+  # The factor of ten is the headroom the anchoring column below is held to, at
+  # the same step and by the same argument.
+  fit_step <- 1e-3
+  converged <- abs(steps[[1]] - reference) < 0.1 * abs(reference)
+  expect_gt(sum(converged), length(residual))
+  ladder_report_margin(
+    "the water rows entrywise, where the reference converged",
+    max(abs((supplied - reference)[converged] / reference[converged])),
+    10 * fit_step^2)
 })
 
 test_that("the water rows hold in the direction the ecology reads", {

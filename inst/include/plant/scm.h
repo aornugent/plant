@@ -280,6 +280,12 @@ public:
   // that fell inside a segment -- which is what says a requested split cut.
   size_t adjoint_segments = 0;
 
+  // The adjoint the last census_trait_gradient's walk ended holding: one row per
+  // metric swept, one column per entry of the first recorded state. It is
+  // d(census)/d(that state), which census_initial_state_tangent computes forwards
+  // from the same state and over the same steps.
+  std::vector<std::vector<double>> adjoint_at_first_state;
+
   // The time of each recorded step, which the walks over a widened state index
   // their states against.
   std::vector<double> recorded_times(
@@ -973,6 +979,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
       n_metric * odelia::ode::solve_adjoint_over_widenings(
                      solver, states, widenings, lambda, trait_adjoint,
                      extra_splits);
+  adjoint_at_first_state = std::move(lambda);
 
   std::vector<std::vector<double>> ret;
   ret.reserve(n_metric);

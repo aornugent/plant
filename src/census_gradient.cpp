@@ -97,6 +97,17 @@ double census_adjoint_segments_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24
   return static_cast<double>(obj_->adjoint_segments);
 }
 
+// The adjoint the last gradient's walk ended holding: d(census)/d(the first
+// recorded state), one row per metric swept and one column per entry of that
+// state. Reaching it means carrying lambda over the range below the first
+// widening, so a run with steps there is what separates a walk that ran that
+// range from one that started above it.
+// [[Rcpp::export]]
+std::vector<std::vector<double>>
+census_adjoint_at_first_state_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  return obj_->adjoint_at_first_state;
+}
+
 // [[Rcpp::export]]
 std::vector<double> gradient_control_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   return obj_->gradient_control();

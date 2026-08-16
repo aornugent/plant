@@ -12433,6 +12433,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// census_adjoint_at_first_state_tf24
+std::vector<std::vector<double>> census_adjoint_at_first_state_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_census_adjoint_at_first_state_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(census_adjoint_at_first_state_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
 // gradient_control_tf24
 std::vector<double> gradient_control_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
 RcppExport SEXP _plant_gradient_control_tf24(SEXP obj_SEXP) {
@@ -14138,6 +14149,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_census_trait_difference_tf24", (DL_FUNC) &_plant_census_trait_difference_tf24, 2},
     {"_plant_census_trait_gradient_split_tf24", (DL_FUNC) &_plant_census_trait_gradient_split_tf24, 2},
     {"_plant_census_adjoint_segments_tf24", (DL_FUNC) &_plant_census_adjoint_segments_tf24, 1},
+    {"_plant_census_adjoint_at_first_state_tf24", (DL_FUNC) &_plant_census_adjoint_at_first_state_tf24, 1},
     {"_plant_gradient_control_tf24", (DL_FUNC) &_plant_gradient_control_tf24, 1},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
     {"_plant_make_node_schedule__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___FF16__FF16_Env, 1},

@@ -299,6 +299,31 @@ ladder_stand_introductions_short <- function() {
   ladder_run(p)
 }
 
+# A run that starts from a patch already carrying cohorts, so the recording holds
+# seventeen steps before the state first widens.
+#
+# Every other stand introduces at the initial time, which puts the first widening
+# at the first recorded step and leaves the lowest segment with no step in it. A
+# walk that ran that segment and a walk that started above it are then the same
+# walk. Here they are not: half the run sits below the first widening, and the
+# census depends on the state there through three cohorts rather than through the
+# soil alone.
+#
+# The birth dates are supplied rather than taken from make_initial_state, which
+# gives every seeded node the same one; the birth-date coordinate integrates over
+# that abscissa and refuses a tie. They are distinct, negative and mutually
+# non-commensurate for the reason every other fixture's are.
+ladder_stand_resumed <- function() {
+  p <- ladder_parameters(c("fast", "slow"), lifetime = 0.45)
+  p$node_schedule_times <- list(c(0, 0.13, 0.31), c(0, 0.22))
+  state <- make_initial_state(p,
+                              heights = list(c(1.71, 0.93), c(1.24)),
+                              log_densities = list(c(-0.39, -1.67), c(-1.03)),
+                              env = Environment("TF24"), ctrl = ladder_control())
+  state$node_times <- list(c(-0.37, -0.11), c(-0.23))
+  ladder_run(set_initial_state(p, state))
+}
+
 ladder_stand_marginal_recruit <- function(scale = 30, lifetime = 0.45) {
   p <- ladder_parameters(c("fast", "slow"), lifetime = lifetime)
   strategies <- p$strategies
@@ -739,6 +764,21 @@ ladder_boundary_tangent <- function(patch, name, species = 1L) {
 # differentiated path, and the state is imposed rather than reconditioned, so both
 # sides are partial derivatives at one state. The free check that they are is that
 # they agree on the value, and every caller asserts it before reading a row.
+# What a central difference of a bisected root-find can be worth.
+#
+# height_seed() runs util::uniroot at offspring_production_tol, which is passed as
+# BOTH the absolute and the relative tolerance, and returns the midpoint of the
+# final bracket. So the bracket is at most tol * (1 + root) wide, each evaluation
+# is at most half of that from the root, and a central difference of two of them
+# carries the whole width over its own step.
+#
+# This error RISES as the step falls, so the gap between two steps reads the
+# opposite of it and a floor taken that way is blind to the whole of it.
+ladder_bisection_bound <- function(patch, species, root, step, row) {
+  tol <- patch$parameters$strategies[[species]]$control$offspring_production_tol
+  tol * (1 + root) / (2 * step * abs(row))
+}
+
 ladder_boundary_difference <- function(patch, name, species = 1L, rel = 1e-4) {
   state <- patch$ode_state
   time <- patch$ode_time

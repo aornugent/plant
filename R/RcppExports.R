@@ -4421,6 +4421,10 @@ census_adjoint_segments_tf24 <- function(obj_) {
     .Call('_plant_census_adjoint_segments_tf24', PACKAGE = 'plant', obj_)
 }
 
+census_adjoint_at_first_state_tf24 <- function(obj_) {
+    .Call('_plant_census_adjoint_at_first_state_tf24', PACKAGE = 'plant', obj_)
+}
+
 gradient_control_tf24 <- function(obj_) {
     .Call('_plant_gradient_control_tf24', PACKAGE = 'plant', obj_)
 }
