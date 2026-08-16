@@ -590,27 +590,3 @@ test_that("the recording does not grow with the stand", {
   # per metric per unit.
   expect_equal(b$block_sweeps, 1)
 })
-
-test_that("the uptake transpose refuses the height coordinate", {
-  # It is a public member of Patch and an exported probe reaches it without
-  # passing ode_rates_adjoint_batched, so a guard placed only at that entry is
-  # bypassed. On the height coordinate the abscissa is state and the trapezium
-  # owes a weight term the transpose does not compute, so a row returned here
-  # would be short by it and say nothing.
-  #
-  # The light reduction had the same guard and no longer needs one: its rows come
-  # from a recording of the forward field build, which handles either coordinate.
-  p <- ladder_parameters("fast")
-  patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"),
-                                     Control(node_density_in_birth_date = FALSE))
-  for (t in c(0, 0.29)) {
-    patch$set_time(t)
-    patch$compute_environment()
-    patch$introduce_new_node(1)
-  }
-  expect_false(patch$species[[1]]$density_in_birth_date)
-
-  expect_error(
-    ladder_rhs_adjoint_timing_tf24(patch, rep(1, patch$ode_size), 1L),
-    "birth dates")
-})

@@ -158,11 +158,6 @@ public:
   std::pair<value_type, value_type>
   close_competition_and_slope(const competition_split& c, double height) const;
 
-  // Transpose of consumption_rate for one resource. The grid is birth dates, so
-  // the weights are constants and no row runs through them.
-  void consumption_rate_adjoint(int resource, double lambda_uptake,
-                                node_uptake_adjoints* out) const;
-
   // Evaluate the inflow boundary condition in the environment passed. Split out
   // of compute_rates() so the field build owns it and the field stops reading a
   // density carried from the previous evaluation.
@@ -940,42 +935,6 @@ Species<T,E>::census(Psi psi) const {
   weighted.push_back(new_node.get_density() *
                      psi(*strategy, new_node.individual));
   return util::trapezium(x, weighted);
-}
-
-// Mirrors consumption_rate over the birth-date grid.
-template <typename T, typename E>
-void Species<T,E>::consumption_rate_adjoint(int resource, double lambda_uptake,
-                                            node_uptake_adjoints* out) const {
-  using odelia::util::to_passive;
-  if (!control().node_density_in_birth_date) {
-    util::stop("The uptake adjoint integrates over birth dates; on the height"
-               " coordinate the widths carry a term it does not compute");
-  }
-  if (size() == 0) {
-    return;
-  }
-  // Slot j holds node j and slot n-1 the boundary node, which is not ODE state.
-  const size_t n = size() + 1;
-  std::vector<double> w(n, 0.0);
-  odelia::quadrature::trapezium_weights(
-    n,
-    [&](size_t j) -> double {
-      return to_passive(j + 1 < n ? nodes[j].introduction_time()
-                                  : new_node.introduction_time());
-    },
-    [](size_t) -> bool { return false; },
-    w.data());
-
-  // Every slot, boundary node included. It is the distribution's lower grid
-  // point, so a transpose stopping at the introduced nodes is the transpose of a
-  // reduction the forward model is not computing -- and a quadrature node is not
-  // a term that can be dropped, because its weight is shared with its neighbour.
-  for (size_t j = 0; j < n; ++j) {
-    const node_type& node = j + 1 < n ? nodes[j] : new_node;
-    const double lambda_y = 0.5 * lambda_uptake * w[j];
-    out[j].uptake      += lambda_y * to_passive(node.get_density());
-    out[j].log_density += lambda_y * to_passive(node.consumption_rate(resource));
-  }
 }
 
 // bit clunky...

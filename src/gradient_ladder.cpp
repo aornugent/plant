@@ -755,13 +755,13 @@ Rcpp::NumericMatrix ladder_rhs_trait_difference_tf24(plant::RcppR6::RcppR6<plant
   return out;
 }
 
-// Where one whole right-hand-side adjoint spends its time, by component.
+// Where one whole right-hand-side adjoint spends its time.
 //
-// The per-cohort blocks are one of eight steps and four of the others are
-// hand-written transposes, so a per-block cost obtained by dividing the total is
-// attributed by construction rather than measured. Each entry below is one
-// component of ode_rates_adjoint, timed in the order that function runs them and
-// with the same arguments, so the parts sum to the whole.
+// The stage is one recording swept once per metric, so there are no components
+// left to attribute between -- what used to be eight entries here were the
+// hand-written transposes it replaced. What is still separable is the forward
+// field build against the recording that repeats it at an active scalar, which
+// is the ratio that says what differentiating the stage costs over running it.
 // [[Rcpp::export]]
 Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                           std::vector<double> lambda_dydt,
@@ -771,88 +771,30 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
   plant::util::check_length(lambda_dydt.size(), patch.ode_size());
 
   const size_t n = patch.ode_size();
-  const size_t n_resource = patch.r_environment().n_resources();
-  const size_t n_state = strategy_type::state_size();
-  const size_t n_slot = patch.reduction_node_count();
-  const size_t stride = patch_type::node_type::ode_size();
-
-  double t_boundary = 0, t_soil = 0, t_offspring = 0, t_env = 0,
-         t_blocks = 0, t_bc = 0, t_total = 0;
+  double t_env = 0, t_total = 0;
   double slots = 0, sweeps = 0;
 
   for (int rep = 0; rep < reps; ++rep) {
-    const auto t_start = clock::now();
     std::vector<double> lambda_state(n, 0.0);
-    patch_type::block_seeds seeds{
-      std::vector<double>(n_slot * n_state, 0.0),
-      std::vector<double>(n_slot, 0.0),
-      std::vector<double>(n_slot * n_resource, 0.0)};
-    size_t slot = 0, state_at = 0;
-    for (size_t i = 0; i < patch.size(); ++i) {
-      for (size_t j = 0; j <= patch.at_species(i).size(); ++j, ++slot) {
-        if (j == patch.at_species(i).size()) continue;
-        for (size_t s = 0; s < n_state; ++s) {
-          seeds.rate[slot * n_state + s] = lambda_dydt[state_at * stride + s];
-        }
-        seeds.transport[slot] = lambda_dydt[state_at * stride + n_state + 1];
-        ++state_at;
-      }
-    }
 
     auto t0 = clock::now();
-    patch.compute_boundary_nodes();
-    const std::vector<double> density_in_uptake = patch.boundary_density();
-    auto t1 = clock::now(); t_boundary += std::chrono::duration<double>(t1 - t0).count();
-
-    t0 = clock::now();
-    patch.soil_adjoint(lambda_dydt, lambda_state, seeds, patch.boundary_node_adjoint);
-    t1 = clock::now(); t_soil += std::chrono::duration<double>(t1 - t0).count();
-
-    t0 = clock::now();
-    patch.offspring_adjoint(lambda_dydt, lambda_state, seeds);
-    t1 = clock::now(); t_offspring += std::chrono::duration<double>(t1 - t0).count();
-
-    t0 = clock::now();
     patch.r_compute_environment();
-    const std::vector<double> density_in_field = patch.boundary_density();
-    t1 = clock::now(); t_env += std::chrono::duration<double>(t1 - t0).count();
-
-    const size_t n_knot = patch.r_environment().light_availability.spline.knots().size();
-    patch_type::light_knot_adjoints lambda_knot{
-      std::vector<double>(n_knot, 0.0), std::vector<double>(n_knot, 0.0)};
+    auto t1 = clock::now();
+    t_env += std::chrono::duration<double>(t1 - t0).count();
 
     t0 = clock::now();
-    patch.cohort_block_adjoint(seeds, lambda_state, lambda_knot);
-    t1 = clock::now(); t_blocks += std::chrono::duration<double>(t1 - t0).count();
+    patch.ode_rates_adjoint(lambda_dydt.begin(), lambda_state.begin());
+    t1 = clock::now();
+    t_total += std::chrono::duration<double>(t1 - t0).count();
+
     slots = static_cast<double>(patch.block_recording_size);
     sweeps = static_cast<double>(patch.block_sweeps);
-
-    t0 = clock::now();
-    {
-      // The transpose is batched over census metrics; this instrument times one,
-      // so it hands over a single seed set and takes the state back from it. The
-      // knot adjoints ride with it: the field's rows come out of this recording,
-      // so a seed set without them is not one this can be asked for.
-      std::vector<patch_type::sweep_adjoints> one(1);
-      one[0].state = lambda_state;
-      one[0].knot = lambda_knot;
-      one[0].boundary_node = patch.boundary_node_adjoint;
-      patch.boundary_condition_adjoint(density_in_field, density_in_uptake, one);
-      lambda_state = one[0].state;
-    }
-    t1 = clock::now(); t_bc += std::chrono::duration<double>(t1 - t0).count();
-
-    t_total += std::chrono::duration<double>(clock::now() - t_start).count();
   }
 
   const double r = static_cast<double>(reps);
   return Rcpp::List::create(
-    Rcpp::_["boundary_nodes"] = t_boundary / r,
-    Rcpp::_["soil_adjoint"] = t_soil / r,
-    Rcpp::_["offspring_adjoint"] = t_offspring / r,
     Rcpp::_["compute_environment"] = t_env / r,
-    Rcpp::_["cohort_blocks"] = t_blocks / r,
-    Rcpp::_["boundary_condition_adjoint"] = t_bc / r,
+    Rcpp::_["ode_rates_adjoint"] = t_total / r,
     Rcpp::_["total"] = t_total / r,
     Rcpp::_["block_recording_size"] = slots,
     Rcpp::_["block_sweeps"] = sweeps);
