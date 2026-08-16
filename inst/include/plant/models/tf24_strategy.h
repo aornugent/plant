@@ -491,17 +491,6 @@ public:
   // when net_mass_production_dt is reused unchanged by the subclass.
   virtual void solve_leaf();
 
-  // One input, and how the output being recorded responds to it. Kept as a pair
-  // so the two cannot be assembled from separate lists and paired by position.
-  struct input_and_derivative {
-    S input;
-    double derivative;
-  };
-  // value + sum_i derivative_i * (input_i - to_passive(input_i)). Every term is
-  // zero in value, so the number is the leaf's own and the derivative recorded
-  // against it is the supplied one.
-  S record_with_derivatives(
-      double value, const std::vector<input_and_derivative>& against) const;
   // Read how the leaf's outputs respond to what it was given, and record each
   // output that re-enters the active chain carrying that response.
   //
@@ -852,27 +841,6 @@ S TF24_Strategy<S>::evapotranspiration_dt(S area_leaf_, int soil_layer) {
   }
 }
 
-template <typename S>
-S TF24_Strategy<S>::record_with_derivatives(
-    double value, const std::vector<input_and_derivative>& against) const {
-  using odelia::util::to_passive;
-  S out = value;
-  for (const input_and_derivative& term : against) {
-    // A non-finite derivative poisons the VALUE and not only what is recorded
-    // against it, because NaN times zero is not a number. Tested here, where the
-    // two are still separable; downstream they are one expression.
-    if (!util::is_finite(term.derivative)) {
-      util::stop("TF24 gradient: the leaf's derivative with respect to input " +
-                 util::to_string(static_cast<int>(&term - against.data())) +
-                 " of " + util::to_string(static_cast<int>(against.size())) +
-                 " is not finite (" + util::to_string(term.derivative) +
-                 "), so the value it belongs to cannot be recorded");
-    }
-    out += term.derivative * (term.input - to_passive(term.input));
-  }
-  return out;
-}
-
 // Two of the leaf's outputs re-enter the active chain, and they respond to the
 // environment in two different ways.
 //
@@ -1121,28 +1089,28 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       &pars.root_b, &pars.root_psi_crit, &pars.beta2, &pars.jmax_25, &pars.a,
       &pars.curv_fact_elec_trans, &pars.curv_fact_colim, &pars.g1_TF24,
       &pars.R_d_25};
-  const bool lt_seeded[n_leaf_trait] = {true,  true, true, true, true, true,
-                                        true,  true, true, true, true, true,
-                                        true,  true};
+  // Which are driven by moving the trait and re-solving. Ten are not, for two
+  // different reasons.
+  //
   // psi_crit and root_psi_crit set the dry bound of an interval the operating
   // point is strictly inside, so complementary slackness makes their rows zero
   // at an interior optimum -- which is the only kind of point this boundary
   // answers for. They are live at a pin, so a branch that begins answering
   // pinned points has to drive them again rather than read this list.
-  const bool lt_zero_at_interior[n_leaf_trait] = {
-      false, false, false, true,  false, false, true,
+  //
+  // Eight more the leaf answers for directly. beta2 and the cost scale reach
+  // profit through the hydraulic cost and nothing else; the other six reach it
+  // through assimilation and nothing else, three of them sharing the electron
+  // transport as their only route. Every one of the eight has an exactly zero
+  // frozen-collar uptake row for the same reason: at a fixed collar a
+  // carbon-side trait moves no water.
+  //
+  // What is left driven is the four vulnerability-curve traits, which have no
+  // analytic route at all -- their grid is a function of the trait and the
+  // forward model rebuilds it.
+  const bool lt_driven[n_leaf_trait] = {
+      false, true,  true,  false, true,  true,  false,
       false, false, false, false, false, false, false};
-  // Eight the leaf answers for directly, so they are not driven. beta2 and the
-  // cost scale reach profit through the hydraulic cost and nothing else; the
-  // other six reach it through assimilation and nothing else, three of them
-  // sharing the electron transport as their only route. Every one of the eight
-  // has an exactly zero frozen-collar uptake row for the same reason: at a
-  // fixed collar a carbon-side trait moves no water. What is left driven is the
-  // four vulnerability-curve traits, which have no analytic route at all --
-  // their grid is a function of the trait and the forward model rebuilds it.
-  const bool lt_closed_form[n_leaf_trait] = {
-      true,  false, false, false, false, false, false,
-      true,  true,  true,  true,  true,  true,  true};
   auto apply_leaf_traits = [&]() -> void {
     leaf.set_traits(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5], lt[6], lt[7],
                     lt[8], lt[9], lt[10], lt[11], lt[12], lt[13]);
@@ -1152,7 +1120,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   std::vector<std::vector<double>> dE_dlt_frozen(
       n_layer, std::vector<double>(n_leaf_trait, 0.0));
   for (int k = 0; k < n_leaf_trait; ++k) {
-    if (!lt_seeded[k] || lt_zero_at_interior[k] || lt_closed_form[k]) {
+    if (!lt_driven[k]) {
       continue;
     }
     const double base_t = lt[k];
@@ -1233,7 +1201,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // Profit, carrying the envelope response, and the two channels stay apart
   // because they are different objects: a soil term is a price times a supply
   // derivative, and radiation moves no water at all.
-  std::vector<input_and_derivative> against;
+  std::vector<odelia::input_and_derivative<S>> against;
   against.reserve(2 + 2 * n_layer + n_leaf_trait);
   against.push_back({radiation, env.dprofit_dlight});
   against.push_back({conductance_max, dprofit_dkmax});
@@ -1241,14 +1209,12 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     against.push_back({root_carbon_per_leaf_area_[a], dprofit_drc[a]});
   }
   for (int k = 0; k < n_leaf_trait; ++k) {
-    if (lt_seeded[k]) {
-      against.push_back({*lt_input[k], dprofit_dlt[k]});
-    }
+    against.push_back({*lt_input[k], dprofit_dlt[k]});
   }
   for (size_t j = 0; j < n_layer; ++j) {
     against.push_back({psi_soil[j], env.dprofit_dpsi_soil[j]});
   }
-  leaf_profit_ = record_with_derivatives(leaf.profit_, against);
+  leaf_profit_ = odelia::record_with_derivatives<S>(leaf.profit_, against);
 
   // The collar's own response, then uptake. dE_i/d(radiation) at a frozen collar
   // is exactly zero -- light moves no water -- so the whole of the light channel
@@ -1294,11 +1260,9 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                            to_mol * dE_dcollar[i] * dcollar_drc[a]});
     }
     for (int k = 0; k < n_leaf_trait; ++k) {
-      if (lt_seeded[k]) {
-        against.push_back({*lt_input[k],
-                           dE_dlt_frozen[i][k] +
-                             to_mol * dE_dcollar[i] * dcollar_dlt[k]});
-      }
+      against.push_back({*lt_input[k],
+                         dE_dlt_frozen[i][k] +
+                           to_mol * dE_dcollar[i] * dcollar_dlt[k]});
     }
     for (size_t j = 0; j < n_layer; ++j) {
       const double frozen = (i == j) ? dEup_dpsi[i] : 0.0;
@@ -1308,7 +1272,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     // The leaf reports uptake in mol and E_up in kg; soil_consumption_ is the
     // mol one, which is what the patch water balance reads.
     leaf_soil_consumption_[i] =
-        record_with_derivatives(leaf.soil_consumption_[i], against);
+        odelia::record_with_derivatives<S>(leaf.soil_consumption_[i], against);
   }
   // Layers below the deepest rooted one draw nothing and respond to nothing, and
   // that zero is the model rather than a missing answer.
