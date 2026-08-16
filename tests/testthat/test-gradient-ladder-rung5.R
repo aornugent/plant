@@ -420,3 +420,56 @@ test_that("a newcomer's leaf area reaches the census through a field built witho
   }
 })
 
+
+test_that("the census's sensitivity to a segment's starting state is refereed", {
+  # A segment's first step runs from a state no record holds -- the widened one,
+  # after the introduction and before the step. The three probes here are the only
+  # way to reach it: one names the state, one differentiates the whole remaining
+  # trajectory from it exactly, and one replays that trajectory in plain double so
+  # the first can be differenced.
+  #
+  # This is the forward counterpart of what the sweep carries and discards: the
+  # adjoint it holds after the last introduction is d(census)/d(this state). None
+  # of the reverse pass is on this path, so the two share no code.
+  stand <- ladder_stand_introductions_short()
+  base <- ladder_segment_base_state_tf24(stand, 0L)
+
+  # Segment 0 is the state no step reached, which on this coordinate holds the
+  # environment and no cohort -- so its width is the soil column's.
+  expect_gt(length(base), 0L)
+  message(sprintf("\n  segment 0 starts from %d components", length(base)))
+
+  # An unseeded direction differentiates nothing, which pins that the tangent is
+  # carried by the seed rather than by the replay.
+  none <- ladder_census_initial_state_tangent_tf24(stand, numeric(length(base)),
+                                                   0L)
+  expect_true(all(none$tangent == 0))
+  expect_true(all(is.finite(none$value)))
+
+  # The replay has to reach the same census the tangent reports, or the two are
+  # differentiating different functions.
+  replayed <- ladder_census_initial_state_replay_tf24(stand, base, 0L)
+  ladder_report_margin("the initial-state replay reaches the run's census",
+                       max(abs(replayed - none$value) / abs(none$value)), 1e-12)
+
+  for (i in seq_along(base)) {
+    d <- replace(numeric(length(base)), i, 1)
+    tangent <- ladder_census_initial_state_tangent_tf24(stand, d, 0L)$tangent
+    along <- function(rel) {
+      h <- max(abs(base[[i]]), 1) * rel
+      (ladder_census_initial_state_replay_tf24(stand, base + h * d, 0L) -
+         ladder_census_initial_state_replay_tf24(stand, base - h * d, 0L)) /
+        (2 * h)
+    }
+    coarse <- along(1e-5)
+    fine <- along(1e-6)
+    scale <- max(abs(fine))
+    if (scale == 0) {
+      message(sprintf("  component %d moves no census metric", i))
+      next
+    }
+    floor <- max(max(abs(coarse - fine)) / scale, 4 * .Machine$double.eps)
+    ladder_report_margin(sprintf("d(census)/d(segment 0 state %d)", i),
+                         max(abs(tangent - fine)) / scale, 10 * floor)
+  }
+})

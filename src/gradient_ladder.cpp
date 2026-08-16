@@ -589,10 +589,10 @@ int ladder_node_count_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strate
   return static_cast<int>(obj_->node_count());
 }
 
-// The field's knot data, which is what the recorded step reads and what the
-// light reduction's transpose is the transpose of. Exposed so a reduction row
-// can be refereed against a difference of the reduction alone, without the
-// cohort block or the boundary condition in the way.
+// The field's knot data, which is what the recorded step reads. The reduction
+// that builds it has no transpose of its own any more -- it is an intermediate
+// of the stage recording -- so what this serves is the forward check that a
+// permutation of the nodes leaves the knots alone.
 // [[Rcpp::export]]
 Rcpp::List ladder_field_knots_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   const patch_type& patch = *obj_;
@@ -648,6 +648,77 @@ Rcpp::NumericMatrix ladder_block_difference_tf24(plant::RcppR6::RcppR6<plant::Pa
     for (size_t r = 0; r < n_out; ++r) {
       out(static_cast<int>(r), static_cast<int>(c)) = (up[r] - dn[r]) / (2.0 * h);
     }
+  }
+  return out;
+}
+
+// The block's outputs differenced along ONE direction of its inputs, in plain
+// double, with the environment held.
+//
+// Summing the per-column differences above would not do. Water moves on
+// differences of potential and tissue fails on absolutes, so along a direction
+// that moves every soil potential together the answer is a small residue of the
+// columns that make it -- and a sum of columns carries the columns' own error,
+// which is the size of the terms rather than the size of what is left of them.
+// Perturbing along the direction puts that cancellation inside the model, where
+// the same near-symmetry shrinks the truncation too.
+//
+// `direction` is one weight per block input, in block_inputs order; the step is
+// `rel` times the size of the inputs the direction actually reaches.
+// [[Rcpp::export]]
+std::vector<double> ladder_block_direction_difference_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                                           int node,
+                                                           std::vector<double> direction,
+                                                           double rel) {
+  patch_type& patch = *obj_;
+  const node_address at = locate(patch, static_cast<size_t>(node - 1));
+
+  const strategy_type& source = *patch.at_species(at.species).strategy_ptr();
+  environment_type environment = patch.r_environment();
+  strategy_type::ptr strategy = std::make_shared<strategy_type>(source);
+  plant::Individual<strategy_type, environment_type> individual(strategy);
+
+  const size_t n_in = individual.block_input_size(environment);
+  const size_t n_out = individual.block_output_size(environment);
+  plant::util::check_length(direction.size(), n_in);
+  std::vector<double> in(n_in);
+  patch.at_species(at.species).node_at(at.node).individual
+    .block_inputs(in.begin(), patch.r_environment());
+
+  // The step is scaled by the inputs the direction reaches, so a direction over
+  // one family is not stepped by the size of another.
+  double reach = 0.0;
+  for (size_t c = 0; c < n_in; ++c) {
+    if (direction[c] != 0.0) {
+      reach = std::max(reach, std::abs(in[c]));
+    }
+  }
+  if (reach == 0.0) {
+    plant::util::stop("a direction reaching no input of any size");
+  }
+  const double h = reach * rel;
+
+  auto evaluate = [&](const std::vector<double>& x, std::vector<double>& y) {
+    environment = patch.r_environment();
+    individual.set_block_inputs(x.begin(), environment);
+    individual.compute_rates(environment);
+    y.resize(n_out);
+    individual.block_outputs(y.begin(), environment);
+  };
+
+  std::vector<double> up(n_out), dn(n_out), x(n_in);
+  for (size_t c = 0; c < n_in; ++c) {
+    x[c] = in[c] + h * direction[c];
+  }
+  evaluate(x, up);
+  for (size_t c = 0; c < n_in; ++c) {
+    x[c] = in[c] - h * direction[c];
+  }
+  evaluate(x, dn);
+
+  std::vector<double> out(n_out);
+  for (size_t r = 0; r < n_out; ++r) {
+    out[r] = (up[r] - dn[r]) / (2.0 * h);
   }
   return out;
 }

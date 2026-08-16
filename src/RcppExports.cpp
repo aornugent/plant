@@ -12730,6 +12730,20 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ladder_block_direction_difference_tf24
+std::vector<double> ladder_block_direction_difference_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, int node, std::vector<double> direction, double rel);
+RcppExport SEXP _plant_ladder_block_direction_difference_tf24(SEXP obj_SEXP, SEXP nodeSEXP, SEXP directionSEXP, SEXP relSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    Rcpp::traits::input_parameter< int >::type node(nodeSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type direction(directionSEXP);
+    Rcpp::traits::input_parameter< double >::type rel(relSEXP);
+    rcpp_result_gen = Rcpp::wrap(ladder_block_direction_difference_tf24(obj_, node, direction, rel));
+    return rcpp_result_gen;
+END_RCPP
+}
 // ladder_introduction_jacobian_tf24
 Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<int> species_index, std::vector<double> state_before, double time_before);
 RcppExport SEXP _plant_ladder_introduction_jacobian_tf24(SEXP obj_SEXP, SEXP species_indexSEXP, SEXP state_beforeSEXP, SEXP time_beforeSEXP) {
@@ -14149,6 +14163,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ladder_node_count_tf24", (DL_FUNC) &_plant_ladder_node_count_tf24, 1},
     {"_plant_ladder_field_knots_tf24", (DL_FUNC) &_plant_ladder_field_knots_tf24, 1},
     {"_plant_ladder_block_difference_tf24", (DL_FUNC) &_plant_ladder_block_difference_tf24, 3},
+    {"_plant_ladder_block_direction_difference_tf24", (DL_FUNC) &_plant_ladder_block_direction_difference_tf24, 4},
     {"_plant_ladder_introduction_jacobian_tf24", (DL_FUNC) &_plant_ladder_introduction_jacobian_tf24, 4},
     {"_plant_ladder_rhs_trait_difference_tf24", (DL_FUNC) &_plant_ladder_rhs_trait_difference_tf24, 2},
     {"_plant_ladder_rhs_adjoint_timing_tf24", (DL_FUNC) &_plant_ladder_rhs_adjoint_timing_tf24, 3},

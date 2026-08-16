@@ -4521,6 +4521,10 @@ ladder_block_difference_tf24 <- function(obj_, node, rel) {
     .Call('_plant_ladder_block_difference_tf24', PACKAGE = 'plant', obj_, node, rel)
 }
 
+ladder_block_direction_difference_tf24 <- function(obj_, node, direction, rel) {
+    .Call('_plant_ladder_block_direction_difference_tf24', PACKAGE = 'plant', obj_, node, direction, rel)
+}
+
 ladder_introduction_jacobian_tf24 <- function(obj_, species_index, state_before, time_before) {
     .Call('_plant_ladder_introduction_jacobian_tf24', PACKAGE = 'plant', obj_, species_index, state_before, time_before)
 }

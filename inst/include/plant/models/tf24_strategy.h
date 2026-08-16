@@ -865,13 +865,15 @@ S TF24_Strategy<S>::evapotranspiration_dt(S area_leaf_, int soil_layer) {
 // It has to come from the marginal profit itself, which is what the
 // perturbations below read.
 //
-// Two of them, and they are in deliberately different families -- one soil
-// potential, one layer resistance. Marginal profit reads the state only through
-// total uptake and through uptake's own collar sensitivity, so two evaluations
-// fix the pair of scalars that then serves every direction analytically. Two
-// potentials would not: their pair of sensitivities is collinear to about one
-// part in 10^4, and the condition number below is what refuses that rather than
-// absorbing it.
+// Marginal profit reads the state only through total uptake and through uptake's
+// own collar sensitivity, so a pair of scalars serves every direction. The second
+// is closed form; the first is solved from ONE perturbation, in root carbon.
+//
+// The family that perturbation is taken from decides the answer, and a residual
+// cannot say so. The soil potentials' pairs of sensitivities are collinear to
+// about one part in 10^4, so a pair fitted from them fits every one of them and
+// still carries the wrong split between the two scalars into every other
+// direction. Root carbon is outside that span, which is why it anchors here.
 template <typename S>
 template <typename Drive, typename Rebuild>
 void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,

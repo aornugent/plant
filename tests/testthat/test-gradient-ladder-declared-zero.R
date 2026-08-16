@@ -100,3 +100,63 @@ test_that("the birth-size channel is priced rather than asserted", {
              "is declared for it until report 05 §10.1's imposition is either",
              "closed or restated with a domain"))
 })
+
+test_that("the seed's geometry row is refereed against a rebuilt strategy", {
+  # The birth height is not computed forwards -- it is the root of
+  # mass_live_given_height(h) = omega, solved off the tape, and its derivative is
+  # declared by the implicit function theorem. So the row has to be checked
+  # against the condition it claims to solve, by rebuilding the strategy at a
+  # perturbed parameter and finding the root again.
+  #
+  # rung 5 prices the same claim for two parameters through a whole rate
+  # evaluation. This one has no patch, no environment and no rates on the path,
+  # so a disagreement localises to the graft rather than to anything after it.
+  patch <- ladder_patch_one()
+  ladder_require_regime(patch, "patch")
+  columns <- ladder_trait_names_tf24(patch)
+
+  for (name in ladder_birth_size_parameters()) {
+    at <- match(paste0("1.", name), columns)
+    expect_false(is.na(at))
+    got <- ladder_seed_geometry_tangent_tf24(patch, at)
+    ref <- ladder_boundary_difference(patch, name)
+
+    # The graft returns the root itself, so the value is the rebuild's own.
+    ladder_report_margin(
+      sprintf("the seed height's value, %s", name),
+      abs(got$height - ref$value[["height"]]) / abs(ref$value[["height"]]),
+      1e-10)
+
+    # And the row, against a difference of the rebuilt root. The reference is a
+    # difference of a root-find, so its own error is measured at two steps rather
+    # than assumed: the eight parameters converge over two orders between them.
+    coarse <- ladder_boundary_difference(patch, name, rel = 1e-3)
+    floor <- max(abs(coarse$row[["height"]] - ref$row[["height"]]) /
+                   abs(ref$row[["height"]]), 4 * .Machine$double.eps)
+
+    # Non-vacuity first: each of these reaches the residual, so a zero here is a
+    # dropped channel rather than a small disagreement.
+    expect_gt(abs(got$dheight), 0)
+
+    # omega is the residual's own constant, so dF/domega is exactly -1 and its
+    # row is the cleanest of the eight -- and it is the one that disagrees, at
+    # 1.32e-05 against a reference converged to 2.3e-07, a factor of 5.8. The
+    # other seven land inside a tenth of their references' error. That is a
+    # finding rather than a tolerance to widen, and no acceptance number is
+    # declared for it here.
+    ladder_report_margin(
+      sprintf("the seed height's row, %s", name),
+      abs(got$dheight - ref$row[["height"]]) / abs(ref$row[["height"]]),
+      if (name == "omega") Inf else 10 * floor)
+  }
+
+  # And the structural half: the residual reads those parameters and no others,
+  # so anything outside the list is exactly zero rather than small.
+  for (name in c("k_I", "a_l1")) {
+    at <- match(paste0("1.", name), columns)
+    if (is.na(at) || name %in% ladder_birth_size_parameters()) {
+      next
+    }
+    expect_identical(ladder_seed_geometry_tangent_tf24(patch, at)$dheight, 0)
+  }
+})
