@@ -569,18 +569,26 @@ test_that("the recording does not grow with the stand", {
   seed_four <- rep(1, four$ode_size)
   a <- ladder_rhs_adjoint_tf24(one, seed_one)
   b <- ladder_rhs_adjoint_tf24(four, seed_four)
-  message(sprintf("\n  recording size: %.0f at 1 cohort, %.0f at 4, %d sweeps",
-                  a$block_recording_size, b$block_recording_size,
-                  b$block_sweeps))
-  # The size reported is the last block's, and the two stands' last blocks belong
-  # to different species, so this is a bound rather than an equality: a recording
-  # that grew with the stand would exceed it by a factor, not by a few percent.
-  expect_lt(b$block_recording_size, 1.1 * a$block_recording_size)
+  per_unit <- (b$block_recording_size - a$block_recording_size) / 3
+  message(sprintf(
+    "\n  stage recording: %.0f at 1 cohort, %.0f at 4, %.0f per unit, %d sweep(s)",
+    a$block_recording_size, b$block_recording_size, per_unit, b$block_sweeps))
 
-  # One block per grid point of the reductions, which is one per cohort plus one
-  # boundary node per species: the boundary node is the distribution's lower grid
-  # point and both reductions integrate from it.
-  expect_equal(b$block_sweeps, 6)
+  # The stage is recorded whole, so peak holds every unit at once and the size is
+  # linear in the unit count. That is the commitment report 01 traded away: it
+  # asked for a recording flat in the cohort count, and the flat one was paid for
+  # by writing every transpose between the state and the rates by hand.
+  #
+  # What replaces a flatness test is amortisation. Four units cost less than four
+  # one-unit recordings, because the field is read into the tape once for the
+  # stage where a per-unit block registered the whole 130-wide field read again
+  # for every unit. A recording that lost that would land at four times the one.
+  expect_gt(per_unit, 0)
+  expect_lt(b$block_recording_size, 4 * a$block_recording_size)
+
+  # One recording, swept once per census metric. Not one per unit, and not one
+  # per metric per unit.
+  expect_equal(b$block_sweeps, 1)
 })
 
 test_that("the uptake transpose refuses the height coordinate", {

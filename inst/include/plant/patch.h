@@ -242,8 +242,9 @@ public:
   std::vector<std::string> trait_adjoint_names() const;
   void clear_trait_adjoint(size_t n_metrics = 1);
 
-  // How large the recording grew on the last block, and how many blocks the one
-  // tape has carried. Either climbing with the cohort count is the tape leaking.
+  // How large the stage's recording grew, and how many blocks the one tape has
+  // carried. The stage holds every unit, so the size is linear in the unit count
+  // rather than flat in it; what a leak looks like here is a slope that climbs.
   size_t block_recording_size = 0;
   size_t block_sweeps = 0;
 
@@ -2213,84 +2214,80 @@ template <typename T, typename E>
 void Patch<T,E>::ode_rates_adjoint_batched(
     const std::vector<std::vector<double>>& lambda_dydt,
     std::vector<std::vector<double>>& lambda_y) {
-  const size_t n = ode_size();
-  const size_t n_resource = environment.n_resources();
+  using scalar = odelia::ode::active_scalar<double>;
+  using active_strategy = typename at_scalar<scalar>::template apply<T>;
+  const size_t n_state = ode_size();
+  const size_t n_trait = trait_adjoint_size();
   const size_t n_seed = lambda_dydt.size();
   if (n_seed == 0) {
     util::stop("ode_rates_adjoint: needs at least one rate adjoint");
   }
-  std::vector<sweep_adjoints> out(n_seed);
-  const size_t n_slot = reduction_node_count();
-  const size_t n_knot = environment.light_availability.spline.knots().size();
-
-  std::vector<block_seeds> seeds(
-    n_seed, block_seeds{std::vector<double>(n_slot * T::state_size(), 0.0),
-                        std::vector<double>(n_slot, 0.0),
-                        std::vector<double>(n_slot * n_resource, 0.0)});
   for (size_t m = 0; m < n_seed; ++m) {
-    util::check_length(lambda_dydt[m].size(), n);
-    out[m].state.assign(n, 0.0);
-    out[m].knot.value.assign(n_knot, 0.0);
-    out[m].knot.slope.assign(n_knot, 0.0);
-    out[m].boundary_node.assign(species.size(),
-                                boundary_node_adjoints{0, 0, 0, 0});
+    util::check_length(lambda_dydt[m].size(), n_state);
+  }
+  if (trait_adjoint.size() < n_seed) {
+    clear_trait_adjoint(n_seed);
   }
 
-  // The strategy rate adjoints the stage recursion supplies, and beside them the
-  // transport term's, which is a block output rather than a closed-form seed.
-  // A boundary node's slot takes none of them: its rates are not ODE rates.
-  for (size_t m = 0; m < n_seed; ++m) {
-    size_t slot = 0, state_at = 0;
-    for (size_t i = 0; i < species.size(); ++i) {
-      for (size_t j = 0; j <= species[i].size(); ++j, ++slot) {
-        if (j == species[i].size()) {
-          continue;
-        }
-        for (size_t s = 0; s < T::state_size(); ++s) {
-          seeds[m].rate[slot * T::state_size() + s] =
-            lambda_dydt[m][state_at * node_type::ode_size() + s];
-        }
-        seeds[m].transport[slot] =
-          lambda_dydt[m][state_at * node_type::ode_size() + T::state_size() + 1];
-        ++state_at;
-      }
+  std::vector<value_type> current(n_state);
+  ode_state(current.begin());
+  std::vector<double> in;
+  in.reserve(n_state + n_trait);
+  for (size_t j = 0; j < n_state; ++j) {
+    in.push_back(odelia::util::to_passive(current[j]));
+  }
+  for (size_t i = 0; i < species.size(); ++i) {
+    for (const typename T::value_type* p :
+         species[i].strategy_ptr()->ad_parameters()) {
+      in.push_back(odelia::util::to_passive(*p));
     }
   }
 
-  // The stage evaluated the inflow condition twice and the two reductions read
-  // different ones: the field was built with the first, and the water aggregation
-  // ran after the second. So each transpose is linearised at the boundary node its
-  // own forward pass saw -- the second here, the first restored below.
-  //
-  // Both of these are the STATE's, not a metric's, so they run once however many
-  // metrics ride along.
-  compute_boundary_nodes();
-  const std::vector<double> density_in_uptake = boundary_density();
+  // Built with no tape active, so it holds no slot the recording could alias.
+  Patch<active_strategy, typename at_scalar<scalar>::template apply<E>> active =
+    this->template rebind_from<scalar>();
+
+  const double time_ = environment.time;
+  // The stage, recorded whole. Everything between the state and the rates is an
+  // intermediate of it -- the field and both its reductions, the inflow
+  // condition, every individual's physiology, the water aggregation and the soil
+  // -- so none of them needs a transpose written for it, and none can drift from
+  // the forward it transposes because there is one function here.
+  auto rhs = [&](const std::vector<scalar>& x, std::vector<scalar>& y) -> void {
+    size_t at = n_state;
+    for (size_t i = 0; i < active.species.size(); ++i) {
+      for (scalar* p : active.species[i].strategy_ptr()->ad_parameters()) {
+        *p = x[at++];
+      }
+    }
+    // Traits before state: the seed's leaf area reads them, so a state set first
+    // derives it at the previous value.
+    active.set_ode_state_and_field(x.begin(), time_);
+    active.ode_rates(y.begin());
+  };
+
+  // The inflow condition is inside this recording, so its row enters once per
+  // stage per step per metric and this is still where that count is taken. It
+  // is no longer skippable: one recording answers for every channel, so there is
+  // no seed that leaves it with nothing to carry.
+  boundary_condition_asked += n_seed;
+  boundary_condition_carried += n_seed;
+
+  std::vector<std::vector<double>> in_adjoint;
+  typename scalar::tape_type tape(false);
+  block_recording_size = odelia::ode::vector_jacobian_products(
+    tape, in, lambda_dydt, rhs, in_adjoint);
+  block_sweeps = n_seed;
+
+  lambda_y.assign(n_seed, std::vector<double>(n_state, 0.0));
   for (size_t m = 0; m < n_seed; ++m) {
-    soil_adjoint(lambda_dydt[m], out[m].state, seeds[m], out[m].boundary_node);
-    offspring_adjoint(lambda_dydt[m], out[m].state, seeds[m]);
+    for (size_t j = 0; j < n_state; ++j) {
+      lambda_y[m][j] = in_adjoint[m][j];
+    }
+    for (size_t p = 0; p < n_trait; ++p) {
+      trait_adjoint[m][p] += in_adjoint[m][n_state + p];
+    }
   }
-  // Rebuilt on the grid the blocks below index their knot adjoints against, so
-  // restoring the first evaluation cannot move a knot.
-  compute_environment(false);
-  const std::vector<double> density_in_field = boundary_density();
-
-  cohort_block_adjoint(seeds, out);
-  last_knot_adjoint = out.front().knot;
-
-  // The field's rows and the inflow condition's come out of one recording. The
-  // knots are an intermediate of that condition -- it is evaluated in the field
-  // they hold -- so seeding both delivers the sum, and the reduction needs no
-  // transpose of its own.
-  boundary_condition_adjoint(density_in_field, density_in_uptake, out);
-
-  lambda_y.resize(n_seed);
-  for (size_t m = 0; m < n_seed; ++m) {
-    lambda_y[m] = std::move(out[m].state);
-  }
-  // Kept so the single-seed entry point can hand this patch's own accumulator
-  // back to a caller that reads it between steps.
-  boundary_node_adjoint = std::move(out.front().boundary_node);
 }
 
 // One metric's transpose, accumulating into this patch's own trait adjoint. The
