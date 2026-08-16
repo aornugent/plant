@@ -30,34 +30,6 @@ struct at_scalar {
 // One accepted step. The state widens at an introduction, so the record is ragged.
 struct ode_step_record { double time; double step_size; std::vector<double> state; };
 
-// A tape held across the stage transposes that record on it, and built on first
-// use. Clearing between recordings keeps the capacity the largest of them grew,
-// where one built per call regrows it six times a step.
-//
-// A copy gets its own rather than sharing: two holders recording on one tape
-// would each clear the other's recording, and the check that a foreign tape is
-// active would not fire, because it is not foreign.
-class scratch_tape {
-public:
-  using tape_type = typename odelia::ode::active_scalar<double>::tape_type;
-
-  scratch_tape() = default;
-  scratch_tape(const scratch_tape&) {}
-  scratch_tape& operator=(const scratch_tape&) { tape.reset(); return *this; }
-  scratch_tape(scratch_tape&&) = default;
-  scratch_tape& operator=(scratch_tape&&) = default;
-
-  tape_type& get() {
-    if (!tape) {
-      tape = std::make_unique<tape_type>(false);
-    }
-    return *tape;
-  }
-
-private:
-  std::unique_ptr<tape_type> tape;
-};
-
 template <typename T, typename E>
 class Patch {
 public:
@@ -199,41 +171,7 @@ public:
   // Hand them back, in the order ode_aux wrote them
   template <typename It> It set_ode_aux(It it);
 
-  // The mirror of ode_rates: the adjoints of dydt in, the adjoints of the state
-  // out through the iterator ode_state would write to.
-  template <class ItIn, class ItOut>
-  ItOut ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y,
-                          std::vector<double>& parameter_adjoint);
-
-  // The same transpose over several metrics at once. Everything that depends on
-  // the STATE -- the two boundary evaluations, the field rebuild, and every
-  // block recording -- runs once; only the seeding, the sweeps and the linear
-  // maps run per metric. That is report 05's record-once-sweep-many, and here
-  // the record is 99 per cent of the call.
-  //
-  // `twin` is this patch at the adjoint scalar, owned by the caller across the
-  // stages of a sweep and seated from this patch here, before the recording.
-  template <class Twin>
-  void ode_rates_adjoint_batched(
-      const std::vector<std::vector<double>>& lambda_dydt,
-      std::vector<std::vector<double>>& lambda_y,
-      std::vector<std::vector<double>>& parameter_adjoint,
-      Twin& twin);
-
   size_t node_count() const;
-
-  // How often the boundary's own term was asked for, and how often it carried
-  // anything. The boundary node stands at the seed's height for a whole run while
-  // its condition is re-evaluated at every stage of every step, so this row acts
-  // once per step where the quantity it belongs to changes once per plant. Its
-  // value being right is therefore not the same claim as its being multiplied by
-  // the right number of evaluations, and only the second is a count.
-  //
-  // The two agree now: one recording answers for every channel, so there is no
-  // seed that leaves it with nothing to carry. They are kept apart because the
-  // count is the claim and an early return would have to show up here.
-  size_t boundary_condition_asked = 0;
-  size_t boundary_condition_carried = 0;
 
   // Every species' differentiable parameters, species-major: the order a trait
   // row is indexed in, answered once rather than walked by each caller.
@@ -245,16 +183,6 @@ public:
   // species and character indexing then resolves each to species one's column,
   // which an unknown-name check cannot see.
   std::vector<std::string> trait_adjoint_names() const;
-
-  // How large the stage's recording grew, and how many blocks the one tape has
-  // carried. The stage holds every unit, so the size is linear in the unit count
-  // rather than flat in it; what a leak looks like here is a slope that climbs.
-  size_t block_recording_size = 0;
-  size_t block_sweeps = 0;
-
-  // The tape the stage transposes record on. Held rather than passed because the
-  // transpose is reached through the ODE interface, which carries no tape.
-  scratch_tape adjoint_tape;
 
   // The widening map's whole Jacobian, by forward tangent: one row per widened state entry
   // and one column per input, the state's entries first and the traits after.
@@ -283,15 +211,8 @@ public:
   template <typename It> It set_ode_state(It it, int index);
 
   // The state and the field: what set_ode_state establishes before it computes
-  // rates. ode_rates_adjoint is taken here, where the block recordings carry the
-  // rate chain and a rate evaluation in double would repeat all of it.
+  // rates.
   template <typename It> It set_ode_state_and_field(It it, double time);
-
-  // Where the stage transpose is taken from, which here is the state and the
-  // time and no field: ode_rates_adjoint records the field at an active scalar
-  // inside its own recording, so one built here in double is computed and thrown
-  // away. Every other loader below wants the field and says so.
-  template <typename It> It set_ode_state_for_adjoint(It it, double time);
 
   // A recorded state loaded as the run itself carries it. set_ode_state_and_field
   // evaluates the inflow condition in the field that leaves the boundary interval
@@ -1366,7 +1287,7 @@ double Patch<T,E>::ode_time() const {
 // First set_ode_state function is for resident runs. Second is for mutant runs
 template <typename T, typename E>
 template <typename It>
-It Patch<T,E>::set_ode_state_for_adjoint(It it, double time) {
+It Patch<T,E>::set_ode_state_and_field(It it, double time) {
 
   // Set ode states
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
@@ -1379,14 +1300,6 @@ It Patch<T,E>::set_ode_state_for_adjoint(It it, double time) {
   // environment state) before it feeds into competition, resource uptake, or
   // physiology below and surfaces as an opaque downstream error (issue #550).
   check_finite_ode_state();
-
-  return it;
-}
-
-template <typename T, typename E>
-template <typename It>
-It Patch<T,E>::set_ode_state_and_field(It it, double time) {
-  it = set_ode_state_for_adjoint(it, time);
 
   // Pre-compute environment, as shaped by residents
   compute_environment(true);
@@ -1656,87 +1569,6 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
   return ret;
 }
 
-
-template <typename T, typename E>
-template <class Twin>
-void Patch<T,E>::ode_rates_adjoint_batched(
-    const std::vector<std::vector<double>>& lambda_dydt,
-    std::vector<std::vector<double>>& lambda_y,
-    std::vector<std::vector<double>>& parameter_adjoint,
-    Twin& active) {
-  using scalar = odelia::ode::active_scalar<double>;
-  const size_t n_state = ode_size();
-  const size_t n_seed = lambda_dydt.size();
-  if (n_seed == 0) {
-    util::stop("ode_rates_adjoint: needs at least one rate adjoint");
-  }
-  for (size_t m = 0; m < n_seed; ++m) {
-    util::check_length(lambda_dydt[m].size(), n_state);
-  }
-  std::vector<value_type> current(n_state);
-  ode_state(current.begin());
-  std::vector<double> state(n_state);
-  for (size_t j = 0; j < n_state; ++j) {
-    state[j] = odelia::util::to_passive(current[j]);
-  }
-
-  // Seated with no tape active, so it holds no slot the recording could alias.
-  active.seat_from(*this);
-
-  const double time_ = environment.time;
-  // The stage, recorded whole. Everything between the state and the rates is an
-  // intermediate of it -- the field and both its reductions, the inflow
-  // condition, every individual's physiology, the water aggregation and the soil
-  // -- so none of them needs a transpose written for it, and none can drift from
-  // the forward it transposes because there is one function here.
-  auto rates = [&](typename std::vector<scalar>::const_iterator x,
-                   std::vector<scalar>& y) -> void {
-    active.set_ode_state_and_field(x, time_);
-    active.ode_rates(y.begin());
-  };
-
-  // The inflow condition is inside this recording, so its row enters once per
-  // stage per step per metric and this is still where that count is taken. It
-  // is no longer skippable: one recording answers for every channel, so there is
-  // no seed that leaves it with nothing to carry.
-  boundary_condition_asked += n_seed;
-  boundary_condition_carried += n_seed;
-
-  block_recording_size = odelia::ode::state_and_parameter_adjoints(
-    adjoint_tape.get(), active, state, lambda_dydt, rates, lambda_y,
-    parameter_adjoint);
-  block_sweeps = n_seed;
-}
-
-// One metric's transpose, accumulating into this patch's own trait adjoint. The
-// batched form is the real one; every caller outside the sweep takes this.
-template <typename T, typename E>
-template <class ItIn, class ItOut>
-ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y,
-                                    std::vector<double>& parameter_adjoint) {
-  const size_t n = ode_size();
-  std::vector<std::vector<double>> lambda_in(1, std::vector<double>(n));
-  for (size_t i = 0; i < n; ++i) {
-    lambda_in[0][i] = *lambda_dydt++;
-  }
-  // An empty accumulator starts from zero rather than meaning the rows are not
-  // wanted: they come back either way, and a caller that ignores them has
-  // ignored something it was handed.
-  if (parameter_adjoint.empty()) {
-    parameter_adjoint.assign(trait_adjoint_size(), 0.0);
-  }
-  std::vector<std::vector<double>> rows(1, std::move(parameter_adjoint));
-  std::vector<std::vector<double>> out;
-  // One call, so the twin is this call's; a sweep hands the same one to every
-  // stage instead.
-  auto twin = this->template rebind_from<odelia::ode::active_scalar<double>>();
-  ode_rates_adjoint_batched(lambda_in, out, rows, twin);
-  parameter_adjoint = std::move(rows[0]);
-  for (size_t i = 0; i < n; ++i) {
-    *lambda_y++ = out[0][i];
-  }
-  return lambda_y;
-}
 
 }
 
