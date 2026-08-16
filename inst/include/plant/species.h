@@ -10,7 +10,6 @@
 #include <plant/util.h>
 #include <plant/environment.h>
 #include <odelia/ode_interface.hpp>
-#include <odelia/quadrature.hpp>
 #include <plant/node.h>
 #include <plant/species_base.h>
 #include <plant/transport_census.h>

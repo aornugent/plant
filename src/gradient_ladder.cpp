@@ -400,10 +400,11 @@ Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF2
   patch.clear_trait_adjoint();
   std::vector<double> lambda_y(patch.ode_size(), 0.0);
   patch.ode_rates_adjoint(lambda_dydt.begin(), lambda_y.begin());
+  // The knot halves are gone with the reduction transposes that produced them:
+  // the field's rows are an intermediate of the stage recording now, so they are
+  // in the state and trait rows rather than beside them.
   return Rcpp::List::create(Rcpp::_["state"] = lambda_y,
                             Rcpp::_["trait"] = patch.trait_adjoint[0],
-                            Rcpp::_["knot_value"] = patch.last_knot_adjoint.value,
-                            Rcpp::_["knot_slope"] = patch.last_knot_adjoint.slope,
                             Rcpp::_["block_recording_size"] =
                               static_cast<double>(patch.block_recording_size),
                             Rcpp::_["block_sweeps"] =

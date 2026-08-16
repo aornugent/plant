@@ -10,33 +10,6 @@
 
 namespace plant {
 
-// One node's adjoints from the water aggregation: the individual's uptake, which
-// is a block output, and the density the quadrature weights it by. A height
-// reaches total uptake through the individual's own rate, which the block
-// carries.
-struct node_uptake_adjoints {
-  double uptake;
-  double log_density;
-};
-
-// The inflow boundary node's own adjoints. It holds no ODE row, so each of these
-// is pulled back through the condition that sets it rather than written to a
-// state slot.
-//
-// The density has two slots because a stage evaluates the boundary condition
-// twice, in two different fields: the light field is built with the first and the
-// water aggregation runs after the second. They are sensitivities to different
-// quantities, so one accumulator would transpose one derivative through the
-// other's argument.
-//
-// `height` and `area_leaf` are pulled back together, through the seed's height.
-struct boundary_node_adjoints {
-  double area_leaf;
-  double height;
-  double density_in_field;
-  double density_in_uptake;
-};
-
 template <typename T, typename E>
 class Node {
 public:

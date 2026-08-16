@@ -151,34 +151,6 @@ public:
   // Hand them back, in the order ode_aux wrote them
   template <typename It> It set_ode_aux(It it);
 
-  // Block output adjoints the closed-form steps form and the per-cohort sweep
-  // consumes, in the order ode_state visits the nodes.
-  struct block_seeds {
-    std::vector<double> rate;
-    std::vector<double> transport;
-    std::vector<double> uptake;
-  };
-
-  // Adjoints of the light field's two data vectors, one entry per knot.
-  struct light_knot_adjoints {
-    std::vector<double> value;
-    std::vector<double> slope;
-  };
-
-  // Everything one census metric's sweep accumulates. Several ride through the
-  // transpose together so that a block is RECORDED once and swept once per
-  // metric: the recording is a model evaluation and the sweep is arithmetic, so
-  // where a metric costs a recording it costs a hundred times what it needs to.
-  //
-  // It exists as a bundle rather than four parallel arguments because the
-  // batched forms would otherwise carry four vectors that must stay the same
-  // length and in the same order, and a transposed pair there is silent.
-  struct sweep_adjoints {
-    std::vector<double> state;
-    light_knot_adjoints knot;
-    std::vector<boundary_node_adjoints> boundary_node;
-  };
-
   // The mirror of ode_rates: the adjoints of dydt in, the adjoints of the state
   // out through the iterator ode_state would write to.
   template <class ItIn, class ItOut>
@@ -194,17 +166,6 @@ public:
       std::vector<std::vector<double>>& lambda_y);
 
   size_t node_count() const;
-
-  // Every grid point both reductions integrate over: the introduced nodes and,
-  // last within each species, its boundary node. The reductions run from the
-  // boundary node up, so this is the index their transposes scatter over, and it
-  // is wider than the ODE state by one node per species.
-  size_t reduction_node_count() const;
-
-  // The boundary node's own size and density adjoints, one entry per species. No
-  // ODE row holds them; the stage's recording reaches them through the condition
-  // that sets them, and this is where a caller between steps reads them back.
-  std::vector<boundary_node_adjoints> boundary_node_adjoint;
 
   // How often the boundary's own term was asked for, and how often it carried
   // anything. The boundary node stands at the seed's height for a whole run while
@@ -228,10 +189,10 @@ public:
   // otherwise unaffected.
   std::vector<std::vector<double>> trait_adjoint;
 
-  // The knot adjoints the cohort blocks produced on the last sweep, kept so a
-  // trait row can be read back as its block half and its reduction half rather
-  // than only as their sum.
-  light_knot_adjoints last_knot_adjoint{std::vector<double>(), std::vector<double>()};
+  // Every species' differentiable parameters, species-major: the order a trait
+  // row is indexed in, answered once rather than walked by each caller.
+  std::vector<typename T::value_type*> ad_parameters();
+
   size_t trait_adjoint_size() const;
   // The same order, named. Each name carries its species index, because
   // concatenating the strategies' own names repeats every one of them per
@@ -245,19 +206,6 @@ public:
   // rather than flat in it; what a leak looks like here is a slope that climbs.
   size_t block_recording_size = 0;
   size_t block_sweeps = 0;
-
-  // One recording per cohort, on a tape held across the loop, swept once per
-  // seed set. `seeds[m]` and `out[m]` are one census metric's, and the cost of a
-  // metric past the first is its sweeps alone.
-  void cohort_block_adjoint(const std::vector<block_seeds>& seeds,
-                            std::vector<sweep_adjoints>& out);
-
-  // The same for one metric, accumulating into this patch's own trait and
-  // boundary-node adjoints. Every caller that is not the batched transpose takes
-  // this form.
-  void cohort_block_adjoint(const block_seeds& seeds,
-                            std::vector<double>& lambda_state,
-                            light_knot_adjoints& lambda_knot);
 
   // Carry lambda back across a node introduction. Called with this patch already
   // narrowed to the width `state_before` has, so it records the inflow boundary
@@ -411,8 +359,6 @@ private:
   mutable size_t capture_at = 0;
   void compute_environment_excl_capturing(bool rescale);
   void compute_environment_closing(bool rescale);
-
-  mutable std::shared_ptr<void> block_workspace;
 
   int idx = 0; // used to access environment cache for mutant runs
   void compute_environment(bool rescale);
@@ -1554,9 +1500,20 @@ size_t Patch<T,E>::node_count() const {
   return n;
 }
 
+// The differentiable parameters of every species, species-major, which is the
+// order every row indexed by a trait is in. A patch answers for this rather than
+// each caller walking the species, because the order is the layout of a gradient
+// and a caller that walks it itself is free to walk it differently.
 template <typename T, typename E>
-size_t Patch<T,E>::reduction_node_count() const {
-  return node_count() + species.size();
+std::vector<typename T::value_type*> Patch<T,E>::ad_parameters() {
+  std::vector<typename T::value_type*> ret;
+  for (size_t i = 0; i < species.size(); ++i) {
+    for (typename T::value_type* p :
+         species[i].strategy_ptr()->ad_parameters()) {
+      ret.push_back(p);
+    }
+  }
+  return ret;
 }
 
 template <typename T, typename E>
@@ -1591,185 +1548,6 @@ void Patch<T,E>::clear_trait_adjoint(size_t n_metrics) {
   trait_adjoint.assign(n_metrics, std::vector<double>(trait_adjoint_size(), 0.0));
 }
 
-// The block: Individual::compute_rates at the active scalar, recorded once per
-// cohort and swept once, with the leaf held constant at its declared boundary.
-template <typename T, typename E>
-void Patch<T,E>::cohort_block_adjoint(const std::vector<block_seeds>& seeds,
-                                      std::vector<sweep_adjoints>& out) {
-  using scalar = odelia::ode::active_scalar<double>;
-  using active_strategy = typename at_scalar<scalar>::template apply<T>;
-  using active_environment = typename at_scalar<scalar>::template apply<E>;
-  using active_individual = Individual<active_strategy, active_environment>;
-
-  // The tape and the buffers persist. No active value does: clearAll() returns
-  // the tape's slot counter to zero, so a value outliving a recording aliases.
-
-  // The templates are the exception, and never carry a slot: they are built
-  // from doubles with no tape active, and are only ever copied from.
-  struct block_state {
-    typename scalar::tape_type tape{false};
-    std::vector<double> in;
-    std::vector<std::vector<double>> out_adjoint, in_adjoint;
-    std::vector<active_strategy> strategy_template;
-    active_environment environment_template;
-  };
-
-  const size_t n_state = T::state_size();
-  const size_t n_resource = environment.n_resources();
-  const size_t n_knot = environment.light_availability.knot_count();
-  const size_t n_layer = static_cast<size_t>(environment.get_soil_number_of_depths());
-  const size_t node_stride = node_type::ode_size();
-  const size_t env_offset = ode_size() - environment.ode_size();
-  const size_t n_seed = seeds.size();
-  if (n_seed == 0) {
-    util::stop("cohort_block_adjoint: needs at least one seed set");
-  }
-  util::check_length(out.size(), n_seed);
-  for (size_t m = 0; m < n_seed; ++m) {
-    util::check_length(out[m].state.size(), ode_size());
-    util::check_length(seeds[m].rate.size(), reduction_node_count() * n_state);
-    util::check_length(seeds[m].transport.size(), reduction_node_count());
-    util::check_length(seeds[m].uptake.size(), reduction_node_count() * n_resource);
-    util::check_length(out[m].knot.value.size(), n_knot);
-    util::check_length(out[m].knot.slope.size(), n_knot);
-    if (out[m].boundary_node.size() != species.size()) {
-      out[m].boundary_node.assign(species.size(),
-                                  boundary_node_adjoints{0, 0, 0, 0});
-    }
-  }
-
-  if (!block_workspace) {
-    std::shared_ptr<block_state> fresh = std::make_shared<block_state>();
-    for (size_t i = 0; i < species.size(); ++i) {
-      fresh->strategy_template.push_back(
-        species[i].strategy_ptr()->template rebind_from<scalar>());
-    }
-    block_workspace = fresh;
-  }
-  block_state& ws = *std::static_pointer_cast<block_state>(block_workspace);
-
-  // This stage's soil state, time and drivers. The knot positions come across
-  // because set_cohort_reads writes the field's data and not its grid.
-  ws.environment_template = environment.template rebind_from<scalar>();
-  ws.environment_template.light_availability.spline.set_nodes(
-    environment.light_availability.spline.knots());
-
-  // One block per grid point of the reductions, so the boundary node's own draw
-  // and its own radiation reach the soil state and the traits. Its rate seeds are
-  // zero -- its rates are not ODE rates -- and its state adjoints have no row.
-  size_t k = 0;
-  size_t state_at = 0;
-  size_t trait_at = 0;
-  for (size_t i = 0; i < species.size(); ++i) {
-    const size_t n_trait = species[i].strategy_ptr()->ad_parameters().size();
-    for (size_t j = 0; j <= species[i].size(); ++j, ++k) {
-      const bool boundary = j == species[i].size();
-      const node_type& node =
-        boundary ? species[i].r_new_node() : species[i].node_at(j);
-      typename active_strategy::ptr strategy =
-        std::make_shared<active_strategy>(ws.strategy_template[i]);
-      active_individual individual(strategy);
-      active_environment block_environment = ws.environment_template;
-
-      ws.in.resize(individual.block_input_size(block_environment));
-      node.individual.block_inputs(ws.in.begin(), environment);
-
-      ws.out_adjoint.assign(n_seed,
-                            std::vector<double>(n_state + 1 + n_resource, 0.0));
-      for (size_t m = 0; m < n_seed; ++m) {
-        for (size_t s = 0; s < n_state; ++s) {
-          ws.out_adjoint[m][s] = seeds[m].rate[k * n_state + s];
-        }
-        ws.out_adjoint[m][n_state] = seeds[m].transport[k];
-        for (size_t r = 0; r < n_resource; ++r) {
-          ws.out_adjoint[m][n_state + 1 + r] = seeds[m].uptake[k * n_resource + r];
-        }
-      }
-
-      // The transport term inside block_outputs evaluates the cohort a second
-      // time at a displaced height, so the recording holds both evaluations and
-      // the quotient over them.
-      auto block = [&](const std::vector<scalar>& x,
-                       std::vector<scalar>& y) -> void {
-        individual.set_block_inputs(x.begin(), block_environment);
-        individual.compute_rates(block_environment);
-        individual.block_outputs(y.begin(), block_environment);
-      };
-      // ONE recording of the block, swept once per metric. The block is a model
-      // evaluation and a sweep is arithmetic, so a metric past the first is
-      // nearly free -- which is the whole of this function's economy.
-      block_recording_size = odelia::ode::vector_jacobian_products(
-        ws.tape, ws.in, ws.out_adjoint, block, ws.in_adjoint);
-      ++block_sweeps;
-
-      for (size_t m = 0; m < n_seed; ++m) {
-        const std::vector<double>& row_in = ws.in_adjoint[m];
-        size_t at = 0;
-        for (size_t s = 0; s < n_state; ++s) {
-          const double row = row_in[at++];
-          if (boundary) {
-            // No ODE row holds the boundary node's states: its height solves the
-            // seed's own condition and the rest are the inflow condition's.
-            if (s == HEIGHT_INDEX) {
-              out[m].boundary_node[i].height += row;
-            }
-            continue;
-          }
-          out[m].state[state_at * node_stride + s] += row;
-        }
-        for (size_t c = 0; c < n_knot; ++c) {
-          out[m].knot.value[c] += row_in[at++];
-        }
-        for (size_t c = 0; c < n_knot; ++c) {
-          out[m].knot.slope[c] += row_in[at++];
-        }
-        for (size_t layer = 0; layer < n_layer; ++layer) {
-          out[m].state[env_offset + layer] +=
-            row_in[at++] *
-            environment.dpsi_from_soil_moist_dtheta(
-              odelia::util::to_passive(environment.vars.state(layer)), layer);
-        }
-        for (size_t p = 0; p < n_trait; ++p) {
-          trait_adjoint[m][trait_at + p] += row_in[at++];
-        }
-        util::check_length(at, ws.in.size());
-      }
-      if (!boundary) {
-        ++state_at;
-      }
-    }
-    trait_at += n_trait;
-  }
-}
-
-// One metric's sweep, accumulating into this patch's own trait and boundary-node
-// adjoints. The batched form is the real one; this packs the members into a single
-// seed set and unpacks them again, so a caller outside the transpose is unchanged.
-template <typename T, typename E>
-void Patch<T,E>::cohort_block_adjoint(const block_seeds& seeds,
-                                      std::vector<double>& lambda_state,
-                                      light_knot_adjoints& lambda_knot) {
-  if (trait_adjoint.size() != 1 ||
-      trait_adjoint[0].size() != trait_adjoint_size()) {
-    clear_trait_adjoint();
-  }
-  if (boundary_node_adjoint.size() != species.size()) {
-    boundary_node_adjoint.assign(species.size(),
-                                 boundary_node_adjoints{0, 0, 0, 0});
-  }
-  std::vector<sweep_adjoints> out(1);
-  out[0].state = std::move(lambda_state);
-  out[0].knot = std::move(lambda_knot);
-  out[0].boundary_node = std::move(boundary_node_adjoint);
-  cohort_block_adjoint(std::vector<block_seeds>{seeds}, out);
-  lambda_state = std::move(out[0].state);
-  lambda_knot = std::move(out[0].knot);
-  boundary_node_adjoint = std::move(out[0].boundary_node);
-}
-
-// The traits go in before the state: area_leaf(height) reads lma, so a state set
-// first is derived at the previous value. set_recorded_state is what computes the
-// boundary node the run introduced, and introduce_new_node only pushes it.
 template <typename T, typename E>
 template <class Active, class S>
 void Patch<T,E>::introduce_over(Active& active,
@@ -1806,11 +1584,8 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
 
   std::vector<double> in(state_before);
   in.reserve(n_state + n_trait);
-  for (size_t i = 0; i < species.size(); ++i) {
-    for (const typename T::value_type* p :
-         species[i].strategy_ptr()->ad_parameters()) {
-      in.push_back(odelia::util::to_passive(*p));
-    }
+  for (const typename T::value_type* p : ad_parameters()) {
+    in.push_back(odelia::util::to_passive(*p));
   }
   util::check_length(in.size(), n_state + n_trait);
 
@@ -1867,11 +1642,8 @@ void Patch<T,E>::introduction_adjoint(const std::vector<size_t>& species_index,
 
   std::vector<double> in(state_before);
   in.reserve(ode_size() + n_trait);
-  for (size_t i = 0; i < species.size(); ++i) {
-    for (const typename T::value_type* p :
-         species[i].strategy_ptr()->ad_parameters()) {
-      in.push_back(odelia::util::to_passive(*p));
-    }
+  for (const typename T::value_type* p : ad_parameters()) {
+    in.push_back(odelia::util::to_passive(*p));
   }
   util::check_length(in.size(), ode_size() + n_trait);
 
@@ -1919,11 +1691,8 @@ void Patch<T,E>::ode_rates_adjoint_batched(
   for (size_t j = 0; j < n_state; ++j) {
     in.push_back(odelia::util::to_passive(current[j]));
   }
-  for (size_t i = 0; i < species.size(); ++i) {
-    for (const typename T::value_type* p :
-         species[i].strategy_ptr()->ad_parameters()) {
-      in.push_back(odelia::util::to_passive(*p));
-    }
+  for (const typename T::value_type* p : ad_parameters()) {
+    in.push_back(odelia::util::to_passive(*p));
   }
 
   // Built with no tape active, so it holds no slot the recording could alias.
