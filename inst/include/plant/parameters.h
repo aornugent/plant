@@ -10,6 +10,7 @@
 #include <plant/node_schedule.h>
 #include <plant/scm_utils.h> // Unfortunately needed for setup_node_schedule
 
+#include <memory>
 #include <plant/disturbance_regime.h>
 #include <plant/disturbances/no_disturbance.h>
 #include <plant/disturbances/weibull_disturbance.h>
@@ -45,7 +46,12 @@ struct Parameters {
   double max_patch_lifetime; // Disturbance interval (years)
   std::vector<strategy_type> strategies;
 
-  Disturbance_Regime* disturbance;
+  // Owned, and shared with every copy of these parameters and with the patch
+  // that reads it. A raw pointer here was allocated on every validate() and
+  // freed nowhere, and the leak was load-bearing: the pointer is copied into
+  // each Parameters copy and aliased by the patch, so freeing it once would have
+  // left the others dangling.
+  std::shared_ptr<Disturbance_Regime> disturbance;
 
   // Default strategy.
   strategy_type strategy_default;
@@ -106,10 +112,10 @@ void Parameters<T,E>::validate() {
   // when calculating fitness, otherwise defaults to fixed-duration run without
   // disturbance
   if(patch_type == "meta-population") {
-    disturbance = new Weibull_Disturbance_Regime(max_patch_lifetime);
+    disturbance = std::make_shared<Weibull_Disturbance_Regime>(max_patch_lifetime);
   }
   else {
-    disturbance = new No_Disturbance();
+    disturbance = std::make_shared<No_Disturbance>();
   }
 }
 

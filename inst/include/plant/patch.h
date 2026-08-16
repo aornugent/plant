@@ -149,7 +149,7 @@ public:
   }
 
   // Patch disturbance
-  Disturbance_Regime* survival_weighting;
+  std::shared_ptr<Disturbance_Regime> survival_weighting;
 
   // * ODE interface
   // Caluclate size of ode system (number of equations). Is constantly changing as 
