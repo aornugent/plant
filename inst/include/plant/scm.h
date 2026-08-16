@@ -1084,12 +1084,7 @@ std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
   size_t start = 0;
   odelia::ode::state_at_segment(live, widenings, states, times, segment, base,
                                 start);
-  // That walk widened its way forward to the segment's width, so the restore
-  // starts by undoing exactly those.
-  for (size_t j = segment; j-- > 0;) {
-    live.narrow(widenings[j].event);
-  }
-  odelia::ode::widen_all(live, widenings, states, times);
+  odelia::ode::widen_all(live, widenings, states, times, segment);
   return base;
 }
 
@@ -1130,12 +1125,9 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   odelia::ode::advance_over_widenings(forward, widenings, sizes, from_segment, start);
 
   // Leave the double system where the run left it, so this call is repeatable
-  // beside the sweep that shares its trajectory. The walk above left it at this
-  // segment's width, so undo exactly those widenings before widening back.
-  for (size_t j = from_segment; j-- > 0;) {
-    live.narrow(widenings[j].event);
-  }
-  odelia::ode::widen_all(live, widenings, states, recorded_times(trajectory));
+  // beside the sweep that shares its trajectory.
+  odelia::ode::widen_all(live, widenings, states, recorded_times(trajectory),
+                         from_segment);
 
   std::vector<Scalar> out;
   out.reserve(std::tuple_size<Metrics>::value);

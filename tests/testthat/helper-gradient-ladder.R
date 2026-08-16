@@ -1056,12 +1056,33 @@ ladder_sweep_blocked <- function(stand) {
 # A rung blocked because the block cannot record at an active scalar is one red
 # line, named once. Shared by every file that forms the block or consumes its
 # rows, which is why it is here rather than in the first file that needed it.
+# A fixture the model REFUSES and a model that is broken are different events,
+# and these gates used to report both as a skip -- so a sweep that started
+# throwing would have turned the trajectory tier quiet rather than red. Measured:
+# a deliberately wrong narrow() made rung 5 skip six times and fail none.
+#
+# A refusal is something the model declares, in words it chose. Anything else is
+# the failure it is, and is re-raised.
+ladder_declared_refusals <- function() {
+  c("size-density coordinate only",
+    "does not record at an active scalar")
+}
+
+ladder_skip_if_refused <- function(err, what) {
+  msg <- conditionMessage(err)
+  refused <- vapply(ladder_declared_refusals(),
+                    function(p) grepl(p, msg, fixed = TRUE), logical(1))
+  if (any(refused)) {
+    testthat::skip(paste(what, msg))
+  }
+  stop(err)
+}
+
 ladder_block_or_skip <- function(patch, node = 1L) {
   out <- tryCatch(list(value = ladder_block_value_tf24(patch, node)),
                   error = function(e) e)
   if (inherits(out, "error")) {
-    testthat::skip(paste("the cohort block does not record at an active scalar:",
-                         conditionMessage(out)))
+    ladder_skip_if_refused(out, "the cohort block:")
   }
   out
 }
@@ -1101,8 +1122,7 @@ ladder_shared <- function(key) {
   }
   got <- get(key, envir = ladder_shared_cache, inherits = FALSE)
   if (inherits(got$gradient, "error")) {
-    testthat::skip(paste("the sweep does not run on this stand:",
-                         conditionMessage(got$gradient)))
+    ladder_skip_if_refused(got$gradient, "the sweep refuses this stand:")
   }
   got
 }
@@ -1110,8 +1130,7 @@ ladder_shared <- function(key) {
 ladder_gradient_or_skip <- function(stand, ...) {
   result <- tryCatch(stand_gradient(stand, ...), error = function(e) e)
   if (inherits(result, "error")) {
-    testthat::skip(paste("the sweep does not run on this stand:",
-                         conditionMessage(result)))
+    ladder_skip_if_refused(result, "the sweep refuses this stand:")
   }
   result
 }

@@ -125,3 +125,30 @@ test_that("the structural assertions reject a structure that does not hold", {
   # is not among the block's inputs at all.
   expect_false(any(grepl("log_density", inputs)))
 })
+
+test_that("the gates skip a refusal and re-raise a fault", {
+  # These gates decide whether a ladder run reports anything at all, and they
+  # used to convert every error into a skip -- so a broken sweep left the
+  # trajectory tier green with nothing in it. Measured at the time: a
+  # deliberately wrong narrow() produced six skips and no failures.
+  #
+  # A refusal is something the model declares. Anything else has to come back
+  # out, and that is what this pins.
+  refusal <- simpleError(paste("census_trait_gradient: the reverse-mode gradient",
+                               "runs on the birth-date size-density coordinate",
+                               "only. Set control$node_density_in_birth_date"))
+  expect_condition(ladder_skip_if_refused(refusal, "the sweep refuses this stand:"),
+                   class = "skip")
+
+  # A fault wearing the same shape is not a refusal, whatever it says.
+  fault <- simpleError("solve_adjoint_over_widenings: narrow returned a different state")
+  expect_error(ladder_skip_if_refused(fault, "the sweep refuses this stand:"),
+               "narrow returned a different state")
+
+  # And non-vacuity for the list itself: an empty one would skip nothing, a
+  # catch-all would skip everything.
+  expect_gt(length(ladder_declared_refusals()), 0L)
+  expect_false(any(vapply(ladder_declared_refusals(),
+                          function(p) grepl(p, conditionMessage(fault), fixed = TRUE),
+                          logical(1))))
+})
