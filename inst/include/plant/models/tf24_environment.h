@@ -297,7 +297,6 @@ public:
   std::vector<double> get_soil_mid_depths() const { return z_mid; }
 
   // The same environment at scalar U.
-  template <class U> using rebind = TF24_Environment<U>;
 
   // This environment copied onto scalar U. Everything but the light spline is
   // double; the spline is rebuilt by Patch::compute_environment.

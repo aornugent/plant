@@ -677,7 +677,6 @@ public:
   void prepare_strategy();
 
   // The same strategy at scalar U.
-  template <class U> using rebind = TF24_Strategy<U>;
 
   // This strategy, already prepared, copied onto scalar U. prepare_strategy()
   // is refused at an active scalar, so its results are carried, not rebuilt.

@@ -34,14 +34,14 @@ using patch_type = plant::Patch<strategy_type, environment_type>;
 using patch_handle = plant::RcppR6::RcppR6<patch_type>;
 
 using tangent = xad::fwd<double>::active_type;
-using tangent_strategy = strategy_type::rebind<tangent>;
-using tangent_environment = environment_type::rebind<tangent>;
+using tangent_strategy = plant::at_scalar<strategy_type, tangent>;
+using tangent_environment = plant::at_scalar<environment_type, tangent>;
 using tangent_individual = plant::Individual<tangent_strategy,
                                              tangent_environment>;
 
 using adjoint = odelia::ode::active_scalar<double>;
-using adjoint_patch = plant::Patch<strategy_type::rebind<adjoint>,
-                                   environment_type::rebind<adjoint>>;
+using adjoint_patch = plant::Patch<plant::at_scalar<strategy_type, adjoint>,
+                                   plant::at_scalar<environment_type, adjoint>>;
 
 // One right-hand-side transpose, taken by the call the sweep takes: odelia seats
 // the twin, records derivs() and sweeps the recording per seed. Returns the
@@ -263,8 +263,8 @@ Rcpp::NumericMatrix ladder_block_jacobian_reverse_tf24(plant::RcppR6::RcppR6<pla
   const node_address at = locate(patch, static_cast<size_t>(node - 1));
 
   using scalar = odelia::ode::active_scalar<double>;
-  using active_strategy = strategy_type::rebind<scalar>;
-  using active_environment = environment_type::rebind<scalar>;
+  using active_strategy = plant::at_scalar<strategy_type, scalar>;
+  using active_environment = plant::at_scalar<environment_type, scalar>;
   using active_individual = plant::Individual<active_strategy,
                                               active_environment>;
 
@@ -934,8 +934,8 @@ Rcpp::List ladder_block_copy_cost_tf24(plant::RcppR6::RcppR6<plant::Patch<plant:
                                        int node, int reps) {
   using clock = std::chrono::steady_clock;
   using ad_scalar = odelia::ode::active_scalar<double>;
-  using ad_strategy = strategy_type::rebind<ad_scalar>;
-  using ad_environment = environment_type::rebind<ad_scalar>;
+  using ad_strategy = plant::at_scalar<strategy_type, ad_scalar>;
+  using ad_environment = plant::at_scalar<environment_type, ad_scalar>;
 
   patch_type& patch = *obj_;
   const node_address at = locate(patch, static_cast<size_t>(node - 1));

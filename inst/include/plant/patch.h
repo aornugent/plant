@@ -20,12 +20,12 @@ using namespace Rcpp;
 
 namespace plant {
 
-// A strategy or environment named at scalar U. Reached through U so the lookup
-// of the rebind alias waits until a rebind is actually asked for.
-template <typename U>
-struct at_scalar {
-  template <typename X> using apply = typename X::template rebind<U>;
-};
+// A strategy or environment named at scalar U: the type its own rebind returns.
+// Named from the factory rather than from a second alias beside it, so there is
+// one answer to "what is this at another scalar" and a type that cannot rebind
+// says so here rather than further in.
+template <typename X, typename U>
+using at_scalar = decltype(std::declval<const X&>().template rebind_from<U>());
 
 // One accepted step. The state widens at an introduction, so the record is ragged.
 struct ode_step_record { double time; double step_size; std::vector<double> state; };
@@ -49,8 +49,7 @@ public:
   // This patch at scalar U: strategies (already prepared), environment, node
   // structure, ODE state, and the birth stamps that divide the fecundity rate.
   template <class U,
-            class T2 = typename at_scalar<U>::template apply<T>,
-            class E2 = typename at_scalar<U>::template apply<E>>
+            class T2 = at_scalar<T, U>, class E2 = at_scalar<E, U>>
   Patch<T2,E2> rebind_from() const;
 
   // The value half of rebind_from, written into a patch that already exists: the
