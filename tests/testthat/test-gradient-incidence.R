@@ -43,11 +43,12 @@ test_that("the classification tally is the route to a regime's incidence", {
   expect_equal(sum(incidence_of(scm)), 0)
 })
 
-test_that("a refused gradient is a small minority of the operating points", {
-  # The number this exists to produce. A refusal is metric-level and total, so
-  # the share of points that cause it is what says how much answering the pinned
-  # branch would buy -- and it is not recoverable from the refusal message, which
-  # names the first such point and nothing about the rest.
+test_that("the dry pins are a small minority, and the run answers over them", {
+  # The number this exists to produce. It was first taken while this driver's
+  # gradient was refused outright, to say how much answering the pinned branch
+  # would buy; the branch answers now, so the same number says what the answer
+  # rests on. It is not recoverable from a run afterwards either way -- the
+  # classification is overwritten by the next individual.
   scm <- incidence_stand(0.25, 10)
   n <- incidence_of(scm)
   total <- sum(n)
@@ -63,18 +64,21 @@ test_that("a refused gradient is a small minority of the operating points", {
   expect_gt(n[["pinned-dry-root-crit"]], 0)
 
   share <- 100 * dry / total
-  message(sprintf("  dry pins on a refusing run: %.0f of %.0f solves (%.2f%%), all on the %s arm",
+  message(sprintf("  dry pins: %.0f of %.0f solves (%.2f%%), all on the %s arm",
                   dry, total, share, "root-crit"))
-  # Stated as a band rather than a value: the exact count moves with the
-  # schedule the adaptive pass resolves, and what is being pinned is that a
-  # total refusal is caused by a small minority of points.
+  # Stated as a band rather than a value: the exact count moves with the schedule
+  # the adaptive pass resolves.
   expect_lt(share, 5)
 
-  # And the pairing that makes the number mean something: this run's gradient
-  # really is refused, so the minority above is what costs the whole answer.
+  # And the pairing that makes the number mean something. This assertion used to
+  # run the other way -- the run refused, and the minority above was what cost the
+  # whole answer. A driver that reaches the pinned branch is now the driver that
+  # demonstrates it, so what is asserted is that it comes back answered with
+  # finite rows rather than that it comes back refused.
   g <- stand_gradient(scm)
-  expect_true(all(g$status == "refused"))
-  expect_false(is.null(g$refusal[[1]]))
+  expect_true(all(g$status != "refused"))
+  expect_null(g$refusal[[1]])
+  expect_true(any(is.finite(g$gradient[[1]])))
 })
 
 test_that("the light floor is counted, and does not bind at shipped values", {

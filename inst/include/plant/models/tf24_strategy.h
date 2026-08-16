@@ -1096,6 +1096,11 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // caller holding a step can shrink it rather than give up. `seat_at` is the
   // same thing for callers whose step is not theirs to choose.
   double last_hold = collar;
+  double last_wet = 0.0, last_dry = 0.0;
+  const double base_wet_margin =
+      collar - leaf.find_root_psi(leaf.supply_begin_solve(), psi_value, 0);
+  const double base_dry_margin =
+      leaf.find_root_psi(leaf.supply_begin_solve(), psi_value, 1) - collar;
   auto try_seat_at = [&](double rad, const std::vector<double>& psi,
                          double kmax) -> bool {
     drive(rad, psi, kmax);
@@ -1107,21 +1112,113 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     // two orders more, so the clamp fires on essentially every arm and the row it
     // returns is the feasibility jump rather than a derivative.
     last_hold = operating_collar(psi);
+    last_wet = leaf.find_root_psi(leaf.supply_begin_solve(), psi, 0);
+    last_dry = leaf.find_root_psi(leaf.supply_begin_solve(), psi, 1);
     return leaf.profit_at_fixed_collar(last_hold).feasible;
   };
+  // What a crossing was: how much room the arm had, and how far the interval
+  // moved into it. The two are what say whether the point sat close to a bound or
+  // the bound ran at it, and they are not recoverable once the arm has been
+  // abandoned.
   auto crossed = [&](const char* what) -> gradient_refusal {
     return gradient_refusal(
         std::string("TF24 gradient: a finite-difference arm moved the feasible "
                     "interval across the collar it was holding at ") +
         util::to_string(last_hold) + " on a " + base_kind + " point, perturbing " +
-        what + ", so the two arms do not describe one operating point and "
-        "their difference is a jump rather than a derivative");
+        what + " -- room " + util::to_string(base_wet_margin) + "/" +
+        util::to_string(base_dry_margin) + ", the interval moved to " +
+        util::to_string(last_wet) + "/" + util::to_string(last_dry) +
+        ", so the two arms do not describe one operating point and their "
+        "difference is a jump rather than a derivative");
   };
   auto seat_at = [&](double rad, const std::vector<double>& psi, double kmax,
                      const char* what) -> void {
     if (!try_seat_at(rad, psi, kmax)) {
       throw crossed(what);
     }
+  };
+  // The step every driven family differences at. A relative 1e-6 does not move
+  // total uptake above the solve's own floor, so the largest step that is still
+  // local is the best-conditioned one.
+  const double fit_step = 1e-3;
+  // One scalar's difference at the operating point, with the arms chosen so that
+  // none of them evaluates outside the feasible interval.
+  //
+  // Centred wherever both sides stay inside, which is almost everywhere. Where
+  // one side does not, a one-sided SECOND-ORDER difference on the side that
+  // does: it costs one extra evaluation, keeps the order, and never asks the
+  // profit algebra for a point below the wet bound, where it runs on a negative
+  // conductance and returns a plausible number.
+  //
+  // Only then is the step reduced, because a smaller step is the worse trade
+  // here -- the reads carry the solve's own floor, so dividing them by a step two
+  // decades smaller costs more than the one-sided formula's truncation.
+  struct Difference {
+    double profit = 0.0;
+    double marginal = 0.0;
+    std::vector<double> uptake;
+  };
+  auto read_here = [&]() -> Difference {
+    Difference r;
+    r.profit = leaf.profit_;
+    r.marginal = pinned ? 0.0 : leaf.dprofit_droot_collar_psi(collar);
+    r.uptake.assign(n_layer, 0.0);
+    for (size_t i = 0; i < n_layer; ++i) {
+      r.uptake[i] = leaf.soil_consumption_[i];
+    }
+    return r;
+  };
+  auto differenced = [&](double base, double scale, const char* what,
+                         auto&& seat_with) -> Difference {
+    double h = scale * fit_step;
+    const double h_floor = scale * fit_step * 1e-2;
+    std::vector<double> weight;
+    std::vector<Difference> read;
+    while (true) {
+      const bool up_ok = seat_with(base + h);
+      const Difference up = up_ok ? read_here() : Difference{};
+      const bool dn_ok = seat_with(base - h);
+      const Difference dn = dn_ok ? read_here() : Difference{};
+      if (up_ok && dn_ok) {
+        // Written out rather than run through the weights below, and that is not
+        // tidiness: (a - b) / (2h) and 0.5/h*a - 0.5/h*b differ in the last bit,
+        // and every run that already answers takes this branch.
+        Difference out;
+        out.profit = (up.profit - dn.profit) / (2.0 * h);
+        out.marginal = (up.marginal - dn.marginal) / (2.0 * h);
+        out.uptake.assign(n_layer, 0.0);
+        for (size_t i = 0; i < n_layer; ++i) {
+          out.uptake[i] = (up.uptake[i] - dn.uptake[i]) / (2.0 * h);
+        }
+        return out;
+      }
+      if (up_ok || dn_ok) {
+        const double side = up_ok ? 1.0 : -1.0;
+        if (seat_with(base + 2.0 * side * h)) {
+          const Difference far = read_here();
+          if (!seat_with(base)) {
+            throw crossed(what);   // the point cannot evaluate at itself
+          }
+          weight = {-1.5 * side / h, 2.0 * side / h, -0.5 * side / h};
+          read = {read_here(), up_ok ? up : dn, far};
+          break;
+        }
+      }
+      if (h <= h_floor) {
+        throw crossed(what);
+      }
+      h *= 0.1;
+    }
+    Difference out;
+    out.uptake.assign(n_layer, 0.0);
+    for (size_t t = 0; t < weight.size(); ++t) {
+      out.profit += weight[t] * read[t].profit;
+      out.marginal += weight[t] * read[t].marginal;
+      for (size_t i = 0; i < n_layer; ++i) {
+        out.uptake[i] += weight[t] * read[t].uptake[i];
+      }
+    }
+    return out;
   };
   auto marginal_at = [&](double rad, const std::vector<double>& psi) -> double {
     seat_at(rad, psi, kmax_value, "radiation");
@@ -1142,7 +1239,6 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // then take whatever error is left, and they are the family that cannot see it.
   // A relative step of 1e-6 does not move total uptake above the solve's own
   // floor, so the largest step that is still local is the best-conditioned one.
-  const double fit_step = 1e-3;
   // The leaf reports per-layer uptake in mol and every flux derivative in kg.
   const double to_mol_flux = 1.0 / phylloptim::kg_per_mol_h2o;
 
@@ -1217,44 +1313,17 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // factors: it enters the marginal profit through the stem potential directly,
   // not through total uptake. So it is read along its own direction, at the same
   // step the pair was fitted at, and one pass gives all three of its partials.
-  double h_kmax = std::abs(kmax_value) * fit_step;
-  std::vector<double> uptake_up(n_layer), uptake_dn(n_layer);
-  double profit_up = 0.0, profit_dn = 0.0, m_kmax_up = 0.0, m_kmax_dn = 0.0;
-  // Reduced until both arms are inside the feasible interval, on the same terms
-  // and for the same reason as the leaf traits below: the conductance moves the
-  // dry bound, so near it a step chosen for conditioning can step across.
-  while (true) {
-    bool inside = true;
-    for (int side = 0; side < 2 && inside; ++side) {
-      if (!try_seat_at(radiation_value, psi_value,
-                       kmax_value + (side == 0 ? h_kmax : -h_kmax))) {
-        inside = false;
-        break;
-      }
-      (side == 0 ? profit_up : profit_dn) = leaf.profit_;
-      if (!pinned) {
-        (side == 0 ? m_kmax_up : m_kmax_dn) =
-            leaf.dprofit_droot_collar_psi(collar);
-      }
-      for (size_t i = 0; i < n_layer; ++i) {
-        (side == 0 ? uptake_up : uptake_dn)[i] = leaf.soil_consumption_[i];
-      }
-    }
-    if (inside) {
-      break;
-    }
-    h_kmax *= 0.1;
-    if (h_kmax < std::abs(kmax_value) * fit_step * 1e-2) {
-      throw crossed("the maximum conductance");
-    }
-  }
+  const Difference kmax_row = differenced(
+      kmax_value, std::abs(kmax_value), "the maximum conductance",
+      [&](double v) -> bool {
+        return try_seat_at(radiation_value, psi_value, v);
+      });
   seat_at(radiation_value, psi_value, kmax_value, "the maximum conductance");
-  // At a pin these two arms followed the bound, so they are already the total and
-  // the collar's own term is zero rather than small. At an interior optimum they
-  // are the frozen-collar partial and the term below carries the argmax.
-  const double dprofit_dkmax = (profit_up - profit_dn) / (2.0 * h_kmax);
-  const double dR_dkmax =
-      pinned ? 0.0 : (m_kmax_up - m_kmax_dn) / (2.0 * h_kmax);
+  // At a pin these arms followed the bound, so they are already the total and the
+  // collar's own term is zero rather than small. At an interior optimum they are
+  // the frozen-collar partial and the term below carries the argmax.
+  const double dprofit_dkmax = kmax_row.profit;
+  const double dR_dkmax = pinned ? 0.0 : kmax_row.marginal;
   if (!util::is_finite(dprofit_dkmax) || !util::is_finite(dR_dkmax)) {
     throw gradient_refusal("TF24 gradient: the leaf's response to its maximum conductance "
                "is not finite, so the stem channel has nothing to stand on");
@@ -1383,59 +1452,24 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     }
     const double base_t = lt[k].value;
     const double scale_t = std::max(std::abs(base_t), 1.0);
-    double h_t = scale_t * fit_step;
-    double p_up = 0.0, p_dn = 0.0, m_up = 0.0, m_dn = 0.0;
-    std::vector<double> u_up(n_layer), u_dn(n_layer);
-    // An arm that leaves the feasible interval is not a coarser reading of the
-    // same derivative -- it is a different branch -- so the step is reduced until
-    // both arms are inside it. At an INTERIOR point the margin is strictly
-    // positive and the bound's movement is proportional to the step, so a small
-    // enough step always exists; at a pin the margin is zero and no step helps,
-    // which is why the arms follow the bound there instead.
-    //
-    // Two decades of room and no more: 1e-3 is the largest step that is still
-    // local and 1e-6 is where a step stops moving total uptake above the solve's
-    // own floor, so a difference taken below the floor here would be measuring
-    // rounding rather than the model.
-    while (true) {
-      bool inside = true;
-      for (int side = 0; side < 2 && inside; ++side) {
-        lt[k].value = base_t + (side == 0 ? h_t : -h_t);
-        apply_leaf_traits();
-        if (!try_seat_at(radiation_value, psi_value, kmax_value)) {
-          inside = false;
-          break;
-        }
-        (side == 0 ? p_up : p_dn) = leaf.profit_;
-        if (!pinned) {
-          (side == 0 ? m_up : m_dn) = leaf.dprofit_droot_collar_psi(collar);
-        }
-        for (size_t i = 0; i < n_layer; ++i) {
-          (side == 0 ? u_up : u_dn)[i] = leaf.soil_consumption_[i];
-        }
-      }
-      if (inside) {
-        break;
-      }
-      h_t *= 0.1;
-      if (h_t < scale_t * fit_step * 1e-2) {
-        lt[k].value = base_t;
-        apply_leaf_traits();
-        throw crossed(lt[k].name);
-      }
-    }
+    const Difference row = differenced(
+        base_t, scale_t, lt[k].name, [&](double v) -> bool {
+          lt[k].value = v;
+          apply_leaf_traits();
+          return try_seat_at(radiation_value, psi_value, kmax_value);
+        });
     lt[k].value = base_t;
-    lt[k].dprofit = (p_up - p_dn) / (2.0 * h_t);
+    lt[k].dprofit = row.profit;
     // At a pin the arms above followed the bound, so the profit row is already the
     // TOTAL and the operating point takes no further row from this trait: the zero
     // is what keeps the collar's own term from counting the same movement twice.
-    lt[k].dresidual = pinned ? 0.0 : (m_up - m_dn) / (2.0 * h_t);
+    lt[k].dresidual = pinned ? 0.0 : row.marginal;
     if (!util::is_finite(lt[k].dprofit) || !util::is_finite(lt[k].dresidual)) {
       throw gradient_refusal("TF24 gradient: leaf trait " + util::to_string(k) +
                  " moves the leaf by an amount that is not finite");
     }
     for (size_t i = 0; i < n_layer; ++i) {
-      dE_dlt_held[i][k] = (u_up[i] - u_dn[i]) / (2.0 * h_t);
+      dE_dlt_held[i][k] = row.uptake[i];
     }
   }
   // Put the leaf back to the traits the value came from.
@@ -1563,8 +1597,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     against.push_back({recorded_collar, to_mol * dE_dcollar[i]});
     // soil_consumption_ is already the mol quantity, so its own difference needs
     // no conversion; dE_dcollar is the kg one and does.
-    against.push_back({conductance_max,
-                       (uptake_up[i] - uptake_dn[i]) / (2.0 * h_kmax)});
+    against.push_back({conductance_max, kmax_row.uptake[i]});
     for (size_t k = 0; k < n_layer; ++k) {
       against.push_back({root_carbon_per_leaf_area_[k], dE_drc_held[i][k]});
     }
