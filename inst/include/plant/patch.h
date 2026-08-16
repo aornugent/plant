@@ -30,6 +30,34 @@ struct at_scalar {
 // One accepted step. The state widens at an introduction, so the record is ragged.
 struct ode_step_record { double time; double step_size; std::vector<double> state; };
 
+// A tape held across the stage transposes that record on it, and built on first
+// use. Clearing between recordings keeps the capacity the largest of them grew,
+// where one built per call regrows it six times a step.
+//
+// A copy gets its own rather than sharing: two holders recording on one tape
+// would each clear the other's recording, and the check that a foreign tape is
+// active would not fire, because it is not foreign.
+class scratch_tape {
+public:
+  using tape_type = typename odelia::ode::active_scalar<double>::tape_type;
+
+  scratch_tape() = default;
+  scratch_tape(const scratch_tape&) {}
+  scratch_tape& operator=(const scratch_tape&) { tape.reset(); return *this; }
+  scratch_tape(scratch_tape&&) = default;
+  scratch_tape& operator=(scratch_tape&&) = default;
+
+  tape_type& get() {
+    if (!tape) {
+      tape = std::make_unique<tape_type>(false);
+    }
+    return *tape;
+  }
+
+private:
+  std::unique_ptr<tape_type> tape;
+};
+
 template <typename T, typename E>
 class Patch {
 public:
@@ -209,6 +237,10 @@ public:
   // rather than flat in it; what a leak looks like here is a slope that climbs.
   size_t block_recording_size = 0;
   size_t block_sweeps = 0;
+
+  // The tape the stage transposes record on. Held rather than passed because the
+  // transpose is reached through the ODE interface, which carries no tape.
+  scratch_tape adjoint_tape;
 
   // The widening map's whole Jacobian, by forward tangent: one row per widened state entry
   // and one column per input, the state's entries first and the traits after.
@@ -1604,9 +1636,9 @@ void Patch<T,E>::ode_rates_adjoint_batched(
   boundary_condition_asked += n_seed;
   boundary_condition_carried += n_seed;
 
-  typename scalar::tape_type tape(false);
   block_recording_size = odelia::ode::state_and_parameter_adjoints(
-    tape, active, state, lambda_dydt, rates, lambda_y, parameter_adjoint);
+    adjoint_tape.get(), active, state, lambda_dydt, rates, lambda_y,
+    parameter_adjoint);
   block_sweeps = n_seed;
 }
 
