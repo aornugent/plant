@@ -998,13 +998,10 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
     }
     if (j > 0) {
       live.remove_new_nodes(introduced[j - 1]);
-      for (size_t m = 0; m < n_metric; ++m) {
-        std::vector<double> narrowed;
-        live.introduction_adjoint(introduced[j - 1], states[first],
-                                  trajectory[first].time, lambda[m], narrowed,
-                                  m);
-        lambda[m] = narrowed;
-      }
+      std::vector<std::vector<double>> narrowed;
+      live.introduction_adjoint(introduced[j - 1], states[first],
+                                trajectory[first].time, lambda, narrowed);
+      lambda = narrowed;
     }
   }
 
@@ -1095,15 +1092,11 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   // Seeded before the state is set: the quantities a state determines read the
   // parameters, and would otherwise be derived at the unseeded values.
   size_t at = 0;
-  for (size_t i = 0; i < active.size(); ++i) {
-    std::vector<tangent*> pars =
-      active.at_species(i).strategy_ptr()->ad_parameters();
-    for (size_t p = 0; p < pars.size(); ++p, ++at) {
-      if (at >= direction.size()) {
-        util::stop("census_trait_tangent: one weight per trait, species-major");
-      }
-      xad::derivative(*pars[p]) = direction[at];
+  for (tangent* p : active.ad_parameters()) {
+    if (at >= direction.size()) {
+      util::stop("census_trait_tangent: one weight per trait, species-major");
     }
+    xad::derivative(*p) = direction[at++];
   }
   util::check_length(direction.size(), at);
   std::vector<tangent> x0(states[0].size());

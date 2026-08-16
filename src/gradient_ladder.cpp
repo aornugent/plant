@@ -679,23 +679,27 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
     patch.introduction_jacobian(which, state_before, time_before);
   const size_t n_out = forward.size();
 
-  // One sweep per output row gives one row of the transpose. The trait accumulator
-  // adds across calls by design, so it is cleared between rows.
+  // One seed per output row, swept over a single recording of the map, which is
+  // the shape the trajectory sweep takes. The trait accumulator adds by design,
+  // so it is cleared before the call and again after it.
+  std::vector<std::vector<double>> seeds(n_out, std::vector<double>(n_out, 0.0));
+  for (size_t r = 0; r < n_out; ++r) {
+    seeds[r][r] = 1.0;
+  }
+  std::vector<std::vector<double>> lambda_before;
+  patch.clear_trait_adjoint(n_out);
+  patch.introduction_adjoint(which, state_before, time_before, seeds,
+                             lambda_before);
+
   Rcpp::NumericMatrix rev(static_cast<int>(n_out),
                           static_cast<int>(n_state + n_trait));
   for (size_t r = 0; r < n_out; ++r) {
-    std::vector<double> seed(n_out, 0.0);
-    seed[r] = 1.0;
-    std::vector<double> lambda_before;
-    patch.clear_trait_adjoint();
-    patch.introduction_adjoint(which, state_before, time_before, seed,
-                               lambda_before);
     for (size_t c = 0; c < n_state; ++c) {
-      rev(static_cast<int>(r), static_cast<int>(c)) = lambda_before[c];
+      rev(static_cast<int>(r), static_cast<int>(c)) = lambda_before[r][c];
     }
     for (size_t p = 0; p < n_trait; ++p) {
       rev(static_cast<int>(r), static_cast<int>(n_state + p)) =
-        patch.trait_adjoint[0][p];
+        patch.trait_adjoint[r][p];
     }
   }
   patch.clear_trait_adjoint();

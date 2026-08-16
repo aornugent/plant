@@ -218,27 +218,27 @@ public:
   // seedling's physiology reads and every other cohort's state through the
   // field. Dropping them narrows the width just as well and returns a gradient
   // that is finite, correctly signed and wrong.
-  // `metric` selects the row of trait_adjoint the newcomer's trait rows land
-  // in, for the reason the leaf-area adjoint is folded onto height.
+  // One seed per census metric, carried together: every metric crosses the same
+  // introduction, so the map is recorded once and swept once per metric, and
+  // row m of trait_adjoint takes metric m's newcomer rows.
   void introduction_adjoint(const std::vector<size_t>& species_index,
                             const std::vector<double>& state_before,
                             double time_before,
-                            const std::vector<double>& lambda_after,
-                            std::vector<double>& lambda_before,
-                            size_t metric = 0);
+                            const std::vector<std::vector<double>>& lambda_after,
+                            std::vector<std::vector<double>>& lambda_before);
 
-  // The introduction as a map: the pre-introduction state and the traits in, the
-  // whole widened state out. introduction_adjoint records it and
-  // introduction_jacobian evaluates it at a tangent, so the transpose and its
-  // reference differentiate one function rather than two spellings of one.
+  // The introduction as a map: the pre-introduction state in, the whole widened
+  // state out, with the traits already on the patch it is called through.
+  // introduction_adjoint records it and introduction_jacobian evaluates it at a
+  // tangent, so the transpose and its reference differentiate one function
+  // rather than two spellings of one.
   //
   // `active` is left holding the node it pushed; a caller evaluating the map more
   // than once removes it between calls.
-  template <class Active, class S>
+  template <class Active, class It, class S>
   static void introduce_over(Active& active,
                              const std::vector<size_t>& species_index,
-                             double time_before, size_t n_state,
-                             const std::vector<S>& x, std::vector<S>& y);
+                             double time_before, It x, std::vector<S>& y);
 
   // That map's whole Jacobian, by forward tangent: one row per widened state entry
   // and one column per input, the state's entries first and the traits after.
@@ -1549,19 +1549,11 @@ void Patch<T,E>::clear_trait_adjoint(size_t n_metrics) {
 }
 
 template <typename T, typename E>
-template <class Active, class S>
+template <class Active, class It, class S>
 void Patch<T,E>::introduce_over(Active& active,
                                 const std::vector<size_t>& species_index,
-                                double time_before, size_t n_state,
-                                const std::vector<S>& x, std::vector<S>& y) {
-  size_t at = n_state;
-  for (size_t i = 0; i < active.species.size(); ++i) {
-    for (S* p : active.species[i].strategy_ptr()->ad_parameters()) {
-      *p = x[at++];
-    }
-  }
-  util::check_length(at, x.size());
-  active.set_recorded_state(x.begin(), time_before);
+                                double time_before, It x, std::vector<S>& y) {
+  active.set_recorded_state(x, time_before);
   for (size_t i : species_index) {
     active.species[i].introduce_new_node();
   }
@@ -1598,8 +1590,15 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
       x[j] = in[j];
       xad::derivative(x[j]) = (j == c) ? 1.0 : 0.0;
     }
+    // The traits first, for the reason the transpose writes them first: a
+    // quantity the state determines reads them while deriving it.
+    size_t at = n_state;
+    for (tangent* p : active.ad_parameters()) {
+      *p = x[at++];
+    }
+    util::check_length(at, x.size());
     std::vector<tangent> y(n_out);
-    introduce_over(active, species_index, time_before, n_state, x, y);
+    introduce_over(active, species_index, time_before, x.begin(), y);
     for (size_t r = 0; r < n_out; ++r) {
       ret[r][c] = xad::derivative(y[r]);
     }
@@ -1614,57 +1613,41 @@ template <typename T, typename E>
 void Patch<T,E>::introduction_adjoint(const std::vector<size_t>& species_index,
                                       const std::vector<double>& state_before,
                                       double time_before,
-                                      const std::vector<double>& lambda_after,
-                                      std::vector<double>& lambda_before,
-                                      size_t metric) {
+                                      const std::vector<std::vector<double>>& lambda_after,
+                                      std::vector<std::vector<double>>& lambda_before) {
   using scalar = odelia::ode::active_scalar<double>;
   using active_strategy = typename at_scalar<scalar>::template apply<T>;
-  const size_t n_trait = trait_adjoint_size();
   util::check_length(state_before.size(), ode_size());
-  if (trait_adjoint.size() <= metric ||
-      trait_adjoint[metric].size() != n_trait) {
-    clear_trait_adjoint(metric + 1);
+  if (lambda_after.empty()) {
+    util::stop("introduction_adjoint: needs at least one state adjoint");
   }
-
-  // The recording below emits the WHOLE widened state, so which widened row each
-  // narrow row became is derived rather than written out. Copying the rows an
-  // introduction does not touch and contracting only the newcomer's asserts that
-  // the first group is an exact identity in the state and carries no trait row --
-  // true of the nodes themselves, and an assertion about every other quantity a
-  // state load rebuilds. Seeding the whole vector costs one more seed per row and
-  // asserts nothing.
-  lambda_before.assign(ode_size(), 0.0);
+  if (trait_adjoint.size() < lambda_after.size()) {
+    clear_trait_adjoint(lambda_after.size());
+  }
 
   // The twin is built with no tape active, so it holds no derivative slot that
   // the recording below could alias.
   Patch<active_strategy, typename at_scalar<scalar>::template apply<E>> active =
     this->template rebind_from<scalar>();
 
-  std::vector<double> in(state_before);
-  in.reserve(ode_size() + n_trait);
-  for (const typename T::value_type* p : ad_parameters()) {
-    in.push_back(odelia::util::to_passive(*p));
-  }
-  util::check_length(in.size(), ode_size() + n_trait);
-
-  const size_t n_state = ode_size();
-  auto introduce = [&](const std::vector<scalar>& x,
+  // The recording emits the WHOLE widened state, so which widened row each
+  // narrow row became is derived rather than written out. Copying the rows an
+  // introduction does not touch and contracting only the newcomer's asserts that
+  // the first group is an exact identity in the state and carries no trait row --
+  // true of the nodes themselves, and an assertion about every other quantity a
+  // state load rebuilds. Seeding the whole vector costs one more seed per row and
+  // asserts nothing.
+  auto introduce = [&](typename std::vector<scalar>::const_iterator x,
                        std::vector<scalar>& y) -> void {
-    introduce_over(active, species_index, time_before, n_state, x, y);
+    introduce_over(active, species_index, time_before, x, y);
   };
 
-  std::vector<double> in_adjoint;
   typename scalar::tape_type tape(false);
-  odelia::ode::vector_jacobian_product(tape, in, lambda_after, introduce,
-                                       in_adjoint);
-
-  for (size_t j = 0; j < n_state; ++j) {
-    lambda_before[j] = in_adjoint[j];
-  }
-  for (size_t p = 0; p < n_trait; ++p) {
-    trait_adjoint[metric][p] += in_adjoint[n_state + p];
-  }
+  odelia::ode::state_and_parameter_adjoints(tape, active, state_before,
+                                            lambda_after, introduce,
+                                            lambda_before, trait_adjoint);
 }
+
 template <typename T, typename E>
 void Patch<T,E>::ode_rates_adjoint_batched(
     const std::vector<std::vector<double>>& lambda_dydt,
@@ -1672,7 +1655,6 @@ void Patch<T,E>::ode_rates_adjoint_batched(
   using scalar = odelia::ode::active_scalar<double>;
   using active_strategy = typename at_scalar<scalar>::template apply<T>;
   const size_t n_state = ode_size();
-  const size_t n_trait = trait_adjoint_size();
   const size_t n_seed = lambda_dydt.size();
   if (n_seed == 0) {
     util::stop("ode_rates_adjoint: needs at least one rate adjoint");
@@ -1686,13 +1668,9 @@ void Patch<T,E>::ode_rates_adjoint_batched(
 
   std::vector<value_type> current(n_state);
   ode_state(current.begin());
-  std::vector<double> in;
-  in.reserve(n_state + n_trait);
+  std::vector<double> state(n_state);
   for (size_t j = 0; j < n_state; ++j) {
-    in.push_back(odelia::util::to_passive(current[j]));
-  }
-  for (const typename T::value_type* p : ad_parameters()) {
-    in.push_back(odelia::util::to_passive(*p));
+    state[j] = odelia::util::to_passive(current[j]);
   }
 
   // Built with no tape active, so it holds no slot the recording could alias.
@@ -1705,16 +1683,9 @@ void Patch<T,E>::ode_rates_adjoint_batched(
   // condition, every individual's physiology, the water aggregation and the soil
   // -- so none of them needs a transpose written for it, and none can drift from
   // the forward it transposes because there is one function here.
-  auto rhs = [&](const std::vector<scalar>& x, std::vector<scalar>& y) -> void {
-    size_t at = n_state;
-    for (size_t i = 0; i < active.species.size(); ++i) {
-      for (scalar* p : active.species[i].strategy_ptr()->ad_parameters()) {
-        *p = x[at++];
-      }
-    }
-    // Traits before state: the seed's leaf area reads them, so a state set first
-    // derives it at the previous value.
-    active.set_ode_state_and_field(x.begin(), time_);
+  auto rates = [&](typename std::vector<scalar>::const_iterator x,
+                   std::vector<scalar>& y) -> void {
+    active.set_ode_state_and_field(x, time_);
     active.ode_rates(y.begin());
   };
 
@@ -1725,21 +1696,10 @@ void Patch<T,E>::ode_rates_adjoint_batched(
   boundary_condition_asked += n_seed;
   boundary_condition_carried += n_seed;
 
-  std::vector<std::vector<double>> in_adjoint;
   typename scalar::tape_type tape(false);
-  block_recording_size = odelia::ode::vector_jacobian_products(
-    tape, in, lambda_dydt, rhs, in_adjoint);
+  block_recording_size = odelia::ode::state_and_parameter_adjoints(
+    tape, active, state, lambda_dydt, rates, lambda_y, trait_adjoint);
   block_sweeps = n_seed;
-
-  lambda_y.assign(n_seed, std::vector<double>(n_state, 0.0));
-  for (size_t m = 0; m < n_seed; ++m) {
-    for (size_t j = 0; j < n_state; ++j) {
-      lambda_y[m][j] = in_adjoint[m][j];
-    }
-    for (size_t p = 0; p < n_trait; ++p) {
-      trait_adjoint[m][p] += in_adjoint[m][n_state + p];
-    }
-  }
 }
 
 // One metric's transpose, accumulating into this patch's own trait adjoint. The
