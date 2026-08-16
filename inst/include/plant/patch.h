@@ -165,7 +165,8 @@ public:
   // The mirror of ode_rates: the adjoints of dydt in, the adjoints of the state
   // out through the iterator ode_state would write to.
   template <class ItIn, class ItOut>
-  ItOut ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y);
+  ItOut ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y,
+                          std::vector<double>& parameter_adjoint);
 
   // The same transpose over several metrics at once. Everything that depends on
   // the STATE -- the two boundary evaluations, the field rebuild, and every
@@ -174,7 +175,8 @@ public:
   // the record is 99 per cent of the call.
   void ode_rates_adjoint_batched(
       const std::vector<std::vector<double>>& lambda_dydt,
-      std::vector<std::vector<double>>& lambda_y);
+      std::vector<std::vector<double>>& lambda_y,
+      std::vector<std::vector<double>>& parameter_adjoint);
 
   size_t node_count() const;
 
@@ -191,15 +193,6 @@ public:
   size_t boundary_condition_asked = 0;
   size_t boundary_condition_carried = 0;
 
-  // The trait adjoints, species-major in each strategy's ad_parameters() order.
-  // One trait is one input every cohort at every step reads, so this accumulates.
-  //
-  // One ROW per census metric being swept. A sweep records a block once and
-  // sweeps it per metric, so the rows fill together and the accumulator has to
-  // be as wide as the batch; a single-metric caller reads row zero and is
-  // otherwise unaffected.
-  std::vector<std::vector<double>> trait_adjoint;
-
   // Every species' differentiable parameters, species-major: the order a trait
   // row is indexed in, answered once rather than walked by each caller.
   std::vector<typename T::value_type*> ad_parameters();
@@ -210,7 +203,6 @@ public:
   // species and character indexing then resolves each to species one's column,
   // which an unknown-name check cannot see.
   std::vector<std::string> trait_adjoint_names() const;
-  void clear_trait_adjoint(size_t n_metrics = 1);
 
   // How large the stage's recording grew, and how many blocks the one tape has
   // carried. The stage holds every unit, so the size is linear in the unit count
@@ -1505,13 +1497,6 @@ std::vector<std::string> Patch<T,E>::trait_adjoint_names() const {
   return ret;
 }
 
-template <typename T, typename E>
-void Patch<T,E>::clear_trait_adjoint(size_t n_metrics) {
-  if (n_metrics == 0) {
-    util::stop("clear_trait_adjoint: a sweep accumulates for at least one metric");
-  }
-  trait_adjoint.assign(n_metrics, std::vector<double>(trait_adjoint_size(), 0.0));
-}
 
 template <typename T, typename E>
 template <typename It>
@@ -1577,7 +1562,8 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
 template <typename T, typename E>
 void Patch<T,E>::ode_rates_adjoint_batched(
     const std::vector<std::vector<double>>& lambda_dydt,
-    std::vector<std::vector<double>>& lambda_y) {
+    std::vector<std::vector<double>>& lambda_y,
+    std::vector<std::vector<double>>& parameter_adjoint) {
   using scalar = odelia::ode::active_scalar<double>;
   using active_strategy = typename at_scalar<scalar>::template apply<T>;
   const size_t n_state = ode_size();
@@ -1588,10 +1574,6 @@ void Patch<T,E>::ode_rates_adjoint_batched(
   for (size_t m = 0; m < n_seed; ++m) {
     util::check_length(lambda_dydt[m].size(), n_state);
   }
-  if (trait_adjoint.size() < n_seed) {
-    clear_trait_adjoint(n_seed);
-  }
-
   std::vector<value_type> current(n_state);
   ode_state(current.begin());
   std::vector<double> state(n_state);
@@ -1624,7 +1606,7 @@ void Patch<T,E>::ode_rates_adjoint_batched(
 
   typename scalar::tape_type tape(false);
   block_recording_size = odelia::ode::state_and_parameter_adjoints(
-    tape, active, state, lambda_dydt, rates, lambda_y, trait_adjoint);
+    tape, active, state, lambda_dydt, rates, lambda_y, parameter_adjoint);
   block_sweeps = n_seed;
 }
 
@@ -1632,18 +1614,23 @@ void Patch<T,E>::ode_rates_adjoint_batched(
 // batched form is the real one; every caller outside the sweep takes this.
 template <typename T, typename E>
 template <class ItIn, class ItOut>
-ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y) {
+ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y,
+                                    std::vector<double>& parameter_adjoint) {
   const size_t n = ode_size();
   std::vector<std::vector<double>> lambda_in(1, std::vector<double>(n));
   for (size_t i = 0; i < n; ++i) {
     lambda_in[0][i] = *lambda_dydt++;
   }
-  if (trait_adjoint.size() != 1 ||
-      trait_adjoint[0].size() != trait_adjoint_size()) {
-    clear_trait_adjoint();
+  // An empty accumulator starts from zero rather than meaning the rows are not
+  // wanted: they come back either way, and a caller that ignores them has
+  // ignored something it was handed.
+  if (parameter_adjoint.empty()) {
+    parameter_adjoint.assign(trait_adjoint_size(), 0.0);
   }
+  std::vector<std::vector<double>> rows(1, std::move(parameter_adjoint));
   std::vector<std::vector<double>> out;
-  ode_rates_adjoint_batched(lambda_in, out);
+  ode_rates_adjoint_batched(lambda_in, out, rows);
+  parameter_adjoint = std::move(rows[0]);
   for (size_t i = 0; i < n; ++i) {
     *lambda_y++ = out[0][i];
   }

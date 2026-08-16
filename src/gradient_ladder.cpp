@@ -403,14 +403,14 @@ Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF2
                                    std::vector<double> lambda_dydt) {
   patch_type& patch = *obj_;
   plant::util::check_length(lambda_dydt.size(), patch.ode_size());
-  patch.clear_trait_adjoint();
   std::vector<double> lambda_y(patch.ode_size(), 0.0);
-  patch.ode_rates_adjoint(lambda_dydt.begin(), lambda_y.begin());
+  std::vector<double> trait_adjoint;
+  patch.ode_rates_adjoint(lambda_dydt.begin(), lambda_y.begin(), trait_adjoint);
   // The knot halves are gone with the reduction transposes that produced them:
   // the field's rows are an intermediate of the stage recording now, so they are
   // in the state and trait rows rather than beside them.
   return Rcpp::List::create(Rcpp::_["state"] = lambda_y,
-                            Rcpp::_["trait"] = patch.trait_adjoint[0],
+                            Rcpp::_["trait"] = trait_adjoint,
                             Rcpp::_["block_recording_size"] =
                               static_cast<double>(patch.block_recording_size),
                             Rcpp::_["block_sweeps"] =
@@ -773,11 +773,12 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
     twin.widened_state(which, time_before, x, y);
   };
   std::vector<std::vector<double>> lambda_before;
-  patch.clear_trait_adjoint(n_out);
+  std::vector<std::vector<double>> trait_adjoint(
+      n_out, std::vector<double>(n_trait, 0.0));
   ad_scalar::tape_type tape(false);
   odelia::ode::state_and_parameter_adjoints(tape, twin, state_before, seeds,
                                             widen, lambda_before,
-                                            patch.trait_adjoint);
+                                            trait_adjoint);
 
   Rcpp::NumericMatrix rev(static_cast<int>(n_out),
                           static_cast<int>(n_state + n_trait));
@@ -787,10 +788,9 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
     }
     for (size_t p = 0; p < n_trait; ++p) {
       rev(static_cast<int>(r), static_cast<int>(n_state + p)) =
-        patch.trait_adjoint[r][p];
+        trait_adjoint[r][p];
     }
   }
-  patch.clear_trait_adjoint();
 
   Rcpp::NumericMatrix fwd(static_cast<int>(n_out),
                           static_cast<int>(n_state + n_trait));
@@ -876,7 +876,9 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
     t_env += std::chrono::duration<double>(t1 - t0).count();
 
     t0 = clock::now();
-    patch.ode_rates_adjoint(lambda_dydt.begin(), lambda_state.begin());
+    std::vector<double> trait_adjoint;
+    patch.ode_rates_adjoint(lambda_dydt.begin(), lambda_state.begin(),
+                            trait_adjoint);
     t1 = clock::now();
     t_total += std::chrono::duration<double>(t1 - t0).count();
 

@@ -985,20 +985,24 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // third metrics were costing what the first did and now cost almost nothing.
   const size_t n_metric = seeds.size();
 
-  live.clear_trait_adjoint(n_metric);
+  // The accumulator the sweep adds into, owned here for the length of the sweep
+  // rather than kept on the patch between calls. Every writer reaches it through
+  // the driver, so a row that does not match the seeds is a length mismatch.
+  std::vector<std::vector<double>> trait_adjoint(
+      n_metric, std::vector<double>(live.trait_adjoint_size(), 0.0));
   std::vector<std::vector<double>> lambda = seeds;
   // One segment per width, highest first, narrowing across each widening and
   // transposing the map that took it. The solver owns that walk: what is left
   // here is the census the sweep is seeded from and the direct term below.
   adjoint_segments =
       n_metric * odelia::ode::solve_adjoint_over_widenings(
-                     solver, states, widenings, lambda, live.trait_adjoint,
+                     solver, states, widenings, lambda, trait_adjoint,
                      extra_splits);
 
   std::vector<std::vector<double>> ret;
   ret.reserve(n_metric);
   for (size_t m = 0; m < n_metric; ++m) {
-    std::vector<double> row = live.trait_adjoint[m];
+    std::vector<double> row = trait_adjoint[m];
     util::check_length(row.size(), direct[m].size());
     for (size_t p = 0; p < row.size(); ++p) {
       row[p] += direct[m][p];
