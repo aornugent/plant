@@ -5,6 +5,7 @@
 #include <plant/parameters.h>
 #include <plant/species.h>
 #include <plant/util.h>
+#include <plant/gradient_status.h>
 #include <odelia/ode_interface.hpp>
 #include <odelia/gradient.hpp>
 
@@ -177,6 +178,8 @@ public:
   // species and character indexing then resolves each to species one's column,
   // which an unknown-name check cannot see.
   std::vector<std::string> trait_adjoint_names() const;
+  // What an exactly-zero entry in each column would mean, same order and width.
+  std::vector<gradient_status::Kind> trait_adjoint_zero_classes() const;
 
   // The widening map's whole Jacobian, by forward tangent: one row per widened state entry
   // and one column per input, the state's entries first and the traits after.
@@ -280,8 +283,8 @@ private:
   void check_finite_ode_state() const;
   // Guard the birth-date coordinate's quadrature grid: it is the per-node
   // introduction times, so nodes sharing one give zero-width intervals that drop
-  // silently out of the integral. Only reachable for a patch whose nodes were
-  // created outside the schedule (seeded or imported without per-node times).
+  // silently out of the integral. Reached by a schedule carrying a repeated time
+  // and by a patch whose nodes were seeded or imported without per-node times.
   void check_birth_dates_distinct() const;
 
   parameters_type parameters;
@@ -576,13 +579,22 @@ void Patch<T,E>::check_birth_dates_distinct() const {
       continue;
     }
     if (!species[i].birth_dates_are_distinct()) {
+      const std::vector<double> times = species[i].node_times();
+      double repeated = times.empty() ? 0.0 : times.front();
+      for (size_t k = 1; k < times.size(); ++k) {
+        if (times[k] == times[k - 1]) {
+          repeated = times[k];
+          break;
+        }
+      }
       util::stop("Species " + util::to_string(i + 1) + " has nodes sharing an "
-                 "introduction time, which the birth-date size-density "
-                 "coordinate integrates over: the repeated nodes span zero width "
-                 "and drop out of the competition and resource integrals. Supply "
-                 "per-node introduction times (parameters$initial_node_times) "
-                 "with the initial state, or run with "
-                 "control$node_density_in_birth_date = FALSE.");
+                 "introduction time (" + util::to_string(repeated) + "), which "
+                 "the birth-date size-density coordinate integrates over: the "
+                 "repeated nodes span zero width and drop out of the competition "
+                 "and resource integrals. Remove the repeat from the node "
+                 "schedule, supply per-node introduction times "
+                 "(parameters$initial_node_times) with an initial state, or run "
+                 "with control$node_density_in_birth_date = FALSE.");
     }
   }
 }
@@ -966,6 +978,10 @@ void Patch<T,E>::widen(const widening& species_index) {
     species[i].introduce_new_node(t, patch_density);
   }
 
+  // A schedule carrying the same time twice for one species stamps two nodes
+  // with it, and the grid both reductions integrate over is those times.
+  check_birth_dates_distinct();
+
   compute_environment(false);
 
   // New nodes have just changed the state and the light field, so the stored
@@ -1175,6 +1191,20 @@ std::vector<std::string> Patch<T,E>::trait_adjoint_names() const {
   return ret;
 }
 
+
+template <typename T, typename E>
+std::vector<gradient_status::Kind>
+Patch<T,E>::trait_adjoint_zero_classes() const {
+  std::vector<gradient_status::Kind> ret;
+  ret.reserve(trait_adjoint_size());
+  for (size_t i = 0; i < species.size(); ++i) {
+    for (const gradient_status::Kind k :
+         species[i].strategy_ptr()->ad_parameter_zero_classes()) {
+      ret.push_back(k);
+    }
+  }
+  return ret;
+}
 
 template <typename T, typename E>
 template <typename It>

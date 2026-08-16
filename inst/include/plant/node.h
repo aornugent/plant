@@ -229,13 +229,20 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   const value_type g = individual.rate(HEIGHT_INDEX);
   // A double diagnostic read back over the R boundary, so it takes the value.
   birth_growth_rate = odelia::util::to_passive(g);
-  if (individual.control().node_density_in_birth_date) {
-    set_log_density(log(birth_rate * pr_estab));
-  } else {
-    // NOTE: log(0.0) -> -Inf, which should behave fine.
-    set_log_density(g > 0 ? log(birth_rate * pr_estab / g)
-                          : value_type(log(0.0)));
-  }
+  // The density itself, before its log: a recruit that cannot pay for itself
+  // has an establishment probability of exactly zero on the arm below
+  // threshold, so both this and its derivative are exactly zero there.
+  const value_type density_at_birth =
+    individual.control().node_density_in_birth_date
+      ? birth_rate * pr_estab
+      : (g > 0 ? birth_rate * pr_estab / g : value_type(0.0));
+  // log() reaches -Inf from that zero through 0/0, so it records a non-finite
+  // DERIVATIVE beside a correct value, and every rate reading the field this
+  // node contributes to comes back non-finite. Only exp(log_density) is read
+  // downstream, and it is continuous in both value and derivative here, so the
+  // constructed constant is the same number carrying the zero the density has.
+  set_log_density(density_at_birth > 0 ? log(density_at_birth)
+                                       : value_type(log(0.0)));
 
   // Need to check that the rates are valid after setting the
   // mortality value here (can go to -Inf and that requires squashing

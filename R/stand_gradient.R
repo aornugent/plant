@@ -89,8 +89,17 @@ trait_without_species <- function(x) sub("^[0-9]+\\.", "", x)
 ##'   every differentiable parameter every species declares. A column is named
 ##'   for its species and its parameter, as \code{"1.lma"}.
 ##' @return A list with \code{value}, the metrics at the end of the run;
-##'   \code{gradient}, a metrics-by-traits matrix; and \code{control}, the four
-##'   entries the gradient was taken at.
+##'   \code{gradient}, a metrics-by-traits matrix; \code{status}, a matrix of the
+##'   same shape saying what each entry is (\code{"answered"},
+##'   \code{"zero-slack"}, \code{"zero-structural"} or \code{"refused"});
+##'   \code{refusal}, one entry per metric holding the reason and where it was
+##'   found, or \code{NULL} where the metric answered; and \code{control}, the
+##'   four entries the gradient was taken at.
+##'
+##'   A refused metric's whole row is \code{NaN}: a sum has no defined value with
+##'   an undefined term, so refusal is metric-level and carries no localisation
+##'   within a metric. Read \code{status} before reading \code{gradient} — a zero
+##'   that is a real zero and a slot no sweep reached are the same number.
 ##' @export
 stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
   all_metrics <- census_metric_names_tf24()
@@ -138,11 +147,18 @@ stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
   # trajectory, so computing all three and subsetting the answer charged a
   # caller who wanted one for three.
   rows <- match(metrics, all_metrics) - 1L
-  gradient <- do.call(rbind, census_trait_gradient_tf24(scm, as.integer(rows)))
-  dimnames(gradient) <- list(metrics, all_traits)
+  swept <- census_trait_gradient_tf24(scm, as.integer(rows))
+  gradient <- do.call(rbind, swept$gradient)
+  # What each number is, beside the number. A refused row comes back NaN with
+  # every entry marked, so an undefined metric is distinguishable from a zero
+  # one rather than both reading as an answer.
+  status <- do.call(rbind, swept$status)
+  dimnames(gradient) <- dimnames(status) <- list(metrics, all_traits)
 
   list(value = value,
        gradient = gradient[metrics, traits, drop = FALSE],
+       status = status[metrics, traits, drop = FALSE],
+       refusal = stats::setNames(swept$refusal, metrics),
        unanswered = unanswered,
        control = gradient_control(scm))
 }

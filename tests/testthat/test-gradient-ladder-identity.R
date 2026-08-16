@@ -62,7 +62,7 @@ test_that("a sweep split at an interior step equals the whole sweep", {
   # The short fixture keeps all five widenings and a quarter of the steps, and the
   # comparison below is bit-identity, so nothing here is re-blessed.
   stand <- ladder_stand_introductions_short()
-  whole <- do.call(rbind, census_trait_gradient_tf24(stand))
+  whole <- do.call(rbind, census_trait_gradient_tf24(stand)$gradient)
   unsplit_ranges <- census_adjoint_segments_tf24(stand)
 
   widths <- vapply(stand$store_trajectory(), function(s) length(s$state),
@@ -80,7 +80,7 @@ test_that("a sweep split at an interior step equals the whole sweep", {
                                          widening[[2]] + 1))
   for (name in names(points)) {
     split <- do.call(rbind,
-                     census_trait_gradient_split_tf24(stand, points[[name]]))
+                     census_trait_gradient_split_tf24(stand, points[[name]])$gradient)
     ranges <- census_adjoint_segments_tf24(stand)
     # Non-vacuity, and it is not decoration: a split landing ON a segment
     # boundary is outside every segment's interior and cuts nothing, so the
@@ -96,7 +96,7 @@ test_that("a sweep split at an interior step equals the whole sweep", {
   # itself requests a split no segment contains.
   boundary_split <- do.call(rbind,
                             census_trait_gradient_split_tf24(stand,
-                                                             widening[[2]]))
+                                                             widening[[2]])$gradient)
   expect_equal(census_adjoint_segments_tf24(stand), unsplit_ranges)
   expect_identical(boundary_split, whole)
 })

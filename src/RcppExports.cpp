@@ -12376,7 +12376,7 @@ BEGIN_RCPP
 END_RCPP
 }
 // census_trait_gradient_tf24
-std::vector<std::vector<double>> census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, Rcpp::Nullable<Rcpp::IntegerVector> which_metrics);
+Rcpp::List census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, Rcpp::Nullable<Rcpp::IntegerVector> which_metrics);
 RcppExport SEXP _plant_census_trait_gradient_tf24(SEXP obj_SEXP, SEXP which_metricsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
@@ -12411,7 +12411,7 @@ BEGIN_RCPP
 END_RCPP
 }
 // census_trait_gradient_split_tf24
-std::vector<std::vector<double>> census_trait_gradient_split_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<int> splits);
+Rcpp::List census_trait_gradient_split_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<int> splits);
 RcppExport SEXP _plant_census_trait_gradient_split_tf24(SEXP obj_SEXP, SEXP splitsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
@@ -12452,6 +12452,58 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
     rcpp_result_gen = Rcpp::wrap(gradient_control_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// census_operating_point_counts_tf24
+std::vector<std::vector<double>> census_operating_point_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_census_operating_point_counts_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(census_operating_point_counts_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// census_clear_operating_point_counts_tf24
+void census_clear_operating_point_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_census_clear_operating_point_counts_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    census_clear_operating_point_counts_tf24(obj_);
+    return R_NilValue;
+END_RCPP
+}
+// census_operating_point_names_tf24
+std::vector<std::string> census_operating_point_names_tf24();
+RcppExport SEXP _plant_census_operating_point_names_tf24() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(census_operating_point_names_tf24());
+    return rcpp_result_gen;
+END_RCPP
+}
+// census_clamp_counts_tf24
+std::vector<std::vector<double>> census_clamp_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_census_clamp_counts_tf24(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
+    rcpp_result_gen = Rcpp::wrap(census_clamp_counts_tf24(obj_));
+    return rcpp_result_gen;
+END_RCPP
+}
+// census_clamp_names_tf24
+std::vector<std::string> census_clamp_names_tf24();
+RcppExport SEXP _plant_census_clamp_names_tf24() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(census_clamp_names_tf24());
     return rcpp_result_gen;
 END_RCPP
 }
@@ -14136,6 +14188,11 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_census_adjoint_segments_tf24", (DL_FUNC) &_plant_census_adjoint_segments_tf24, 1},
     {"_plant_census_adjoint_at_first_state_tf24", (DL_FUNC) &_plant_census_adjoint_at_first_state_tf24, 1},
     {"_plant_gradient_control_tf24", (DL_FUNC) &_plant_gradient_control_tf24, 1},
+    {"_plant_census_operating_point_counts_tf24", (DL_FUNC) &_plant_census_operating_point_counts_tf24, 1},
+    {"_plant_census_clear_operating_point_counts_tf24", (DL_FUNC) &_plant_census_clear_operating_point_counts_tf24, 1},
+    {"_plant_census_operating_point_names_tf24", (DL_FUNC) &_plant_census_operating_point_names_tf24, 0},
+    {"_plant_census_clamp_counts_tf24", (DL_FUNC) &_plant_census_clamp_counts_tf24, 1},
+    {"_plant_census_clamp_names_tf24", (DL_FUNC) &_plant_census_clamp_names_tf24, 0},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
     {"_plant_make_node_schedule__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___FF16__FF16_Env, 1},
     {"_plant_test_gradient_fd1", (DL_FUNC) &_plant_test_gradient_fd1, 5},

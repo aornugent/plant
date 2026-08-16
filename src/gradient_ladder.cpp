@@ -593,12 +593,12 @@ std::vector<double> ladder_census_initial_state_replay_tf24(plant::RcppR6::RcppR
 // [[Rcpp::export]]
 Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   obj_->clear_boundary_condition_evaluations();
-  const std::vector<std::vector<double>> gradient =
+  const plant::census_gradient result =
     obj_->census_trait_gradient<plant::tf24_census>();
   return Rcpp::List::create(
     Rcpp::_["evaluations"] =
       static_cast<double>(obj_->boundary_condition_evaluations()),
-    Rcpp::_["metrics"] = static_cast<int>(gradient.size()));
+    Rcpp::_["metrics"] = static_cast<int>(result.gradient.size()));
 }
 
 // The trait columns' names, species-major and each carrying its species index,

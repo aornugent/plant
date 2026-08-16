@@ -3,6 +3,7 @@
 #define PLANT_PLANT_SCM_H_
 
 #include <plant/node_schedule.h>
+#include <plant/gradient_status.h>
 #include <odelia/ode_solver.hpp>
 #include <plant/patch.h>
 #include <plant/scm_utils.h>
@@ -147,8 +148,14 @@ public:
   // difference is something carried across a step boundary that is not the
   // adjoint. Splits outside a segment's interior are ignored, so a caller may
   // pass a boundary index without special-casing it.
+  //
+  // Returns the numbers AND what each of them is. The two travel together
+  // because a row of doubles cannot say whether it is an answer: a refusal
+  // anywhere in a metric's sweep makes that metric's whole gradient undefined,
+  // and an exact zero is more often a slot nothing reached than a sensitivity
+  // the model means.
   template <class Metrics>
-  std::vector<std::vector<double>>
+  census_gradient
   // `which_metrics` names the rows to sweep, empty meaning every one. A metric
   // not asked for is not seeded and not swept, so asking for one costs one --
   // which is what a caller differentiating a single census wants and what
@@ -218,6 +225,43 @@ public:
   // Run / parameters / state access
   parameters_type r_parameters() const { return parameters; }
   const patch_type &r_patch() const { return patch; }
+
+  // The classification tally the FORWARD run built, one row per species and one
+  // column per operating-point kind. Read off the live system rather than
+  // r_patch(), which is a snapshot the run copies out and whose counters are
+  // whatever they were when it was taken.
+  std::vector<std::vector<size_t>> operating_point_counts() {
+    const patch_type& live = solver.get_system_ref();
+    std::vector<std::vector<size_t>> ret;
+    ret.reserve(live.size());
+    for (size_t i = 0; i < live.size(); ++i) {
+      ret.push_back(live.at_species(i).strategy_ptr()->operating_point_counts);
+    }
+    return ret;
+  }
+  // The same for the clamp sites, which are counted for the same reason: a
+  // clamped row and a true zero are the same number.
+  std::vector<std::vector<size_t>> clamp_counts() {
+    const patch_type& live = solver.get_system_ref();
+    std::vector<std::vector<size_t>> ret;
+    ret.reserve(live.size());
+    for (size_t i = 0; i < live.size(); ++i) {
+      ret.push_back(live.at_species(i).strategy_ptr()->clamp_counts);
+    }
+    return ret;
+  }
+
+  void clear_operating_point_counts() {
+    const patch_type& live = solver.get_system_ref();
+    for (size_t i = 0; i < live.size(); ++i) {
+      std::vector<size_t>& c =
+        live.at_species(i).strategy_ptr()->operating_point_counts;
+      c.assign(c.size(), 0);
+      std::vector<size_t>& cl =
+        live.at_species(i).strategy_ptr()->clamp_counts;
+      cl.assign(cl.size(), 0);
+    }
+  }
   const std::vector<patch_type> &r_history() const { return history; }
 
   // How many times the inflow boundary was evaluated over one sweep. It is
@@ -895,7 +939,7 @@ SCM<T, E>::census_trait_difference(double rel) {
 // a snapshot the run copies out, and reading its accumulator gives zeros.
 template <typename T, typename E>
 template <class Metrics>
-std::vector<std::vector<double>>
+census_gradient
 SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
                                  const std::vector<size_t>& which_metrics) {
   require_birth_date_coordinate("census_trait_gradient");
@@ -949,21 +993,60 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // One segment per width, highest first, narrowing across each widening and
   // transposing the map that took it. The solver owns that walk: what is left
   // here is the census the sweep is seeded from and the direct term below.
-  adjoint_segments =
-      n_metric * odelia::ode::solve_adjoint_over_widenings(
-                     solver, states, widenings, lambda, trait_adjoint,
-                     extra_splits);
-  adjoint_at_first_state = std::move(lambda);
+  //
+  // A refusal costs every metric, and the grain is forced rather than chosen: the
+  // row that could not be supplied is an intermediate of a recording spanning six
+  // stages and every cohort in them, so no seed carries a component to attribute
+  // it to. Nothing is unwound here -- the walk restores the width it borrowed at
+  // the tail either way.
+  bool refused = false;
+  gradient_status refusal;
+  try {
+    adjoint_segments =
+        n_metric * odelia::ode::solve_adjoint_over_widenings(
+                       solver, states, widenings, lambda, trait_adjoint,
+                       extra_splits);
+    adjoint_at_first_state = std::move(lambda);
+  } catch (gradient_refusal& e) {
+    refusal = e.status;
+    refused = true;
+    adjoint_segments = 0;
+    adjoint_at_first_state.clear();
+  }
 
-  std::vector<std::vector<double>> ret;
-  ret.reserve(n_metric);
+  census_gradient ret;
+  ret.gradient.reserve(n_metric);
+  ret.status.reserve(n_metric);
+  const std::vector<gradient_status::Kind> zero_classes =
+      live.trait_adjoint_zero_classes();
   for (size_t m = 0; m < n_metric; ++m) {
+    if (refused) {
+      // A sum has no defined value with an undefined term, so the whole metric
+      // goes -- not the cohort's column and not the parameter's entry. The
+      // numbers are not-a-number rather than absent so that a caller indexing by
+      // position still finds the shape it expects.
+      ret.gradient.push_back(std::vector<double>(
+          direct[m].size(), std::numeric_limits<double>::quiet_NaN()));
+      ret.status.push_back(std::vector<gradient_status>(direct[m].size(), refusal));
+      continue;
+    }
     std::vector<double> row = trait_adjoint[m];
     util::check_length(row.size(), direct[m].size());
     for (size_t p = 0; p < row.size(); ++p) {
       row[p] += direct[m][p];
     }
-    ret.push_back(row);
+    // An exact zero is read against what the column declares one would mean,
+    // and a column that declares nothing says so rather than passing the number
+    // off as an answer. Only exact zeros are classified: a parameter that is
+    // live is not zero, so no declaration is consulted for it.
+    std::vector<gradient_status> row_status(row.size());
+    for (size_t p = 0; p < row.size(); ++p) {
+      if (row[p] == 0.0) {
+        row_status[p].kind = zero_classes[p];
+      }
+    }
+    ret.status.push_back(row_status);
+    ret.gradient.push_back(row);
   }
 
   // Leave the system at the width the run left it, so this call is repeatable.

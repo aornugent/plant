@@ -168,3 +168,42 @@ test_that("the seed's geometry row is refereed against a rebuilt strategy", {
     expect_identical(ladder_seed_geometry_tangent_tf24(patch, at)$dheight, 0)
   }
 })
+
+# The sweep now carries its own declaration of what an exact zero means, so the
+# list above is no longer the only statement of it. Two statements of one list is
+# the shape this corpus keeps finding defects in, so they are required to agree
+# rather than left to drift: the C++ one is what ships inside an answer, and this
+# one is the fixture that prices it.
+test_that("the shipped zero classes agree with the declared lists", {
+  stand <- ladder_stand_two_by_two()
+  g <- stand_gradient(stand)
+
+  # Only exact zeros are classified, so the two claims are checked in both
+  # directions: every column the ladder declares zero comes back in a zero class,
+  # and every column the sweep puts in one is declared.
+  declared <- ladder_zero_by_construction()
+  shipped <- apply(g$status, 2, function(col) unique(col))
+  expect_true(is.character(shipped))
+
+  slack <- names(shipped)[shipped == "zero-slack"]
+  structural <- names(shipped)[shipped == "zero-structural"]
+  undeclared <- names(shipped)[shipped == "zero-undeclared"]
+
+  expect_setequal(ladder_bare_traits(slack),
+                  ladder_zero_at_an_interior_optimum())
+  expect_setequal(ladder_bare_traits(structural),
+                  ladder_zero_outside_the_metric_support())
+  expect_setequal(ladder_bare_traits(c(slack, structural)), declared)
+
+  # An exact zero with no declared reason is a finding, and this fixture must
+  # produce none -- otherwise the classification is passing an unexplained zero
+  # off as one of the two named causes.
+  expect_length(undeclared, 0L)
+
+  # Non-vacuity: the classes are not all one value, and the zero classes really
+  # are a strict minority of a mostly-live matrix.
+  expect_gt(sum(g$status == "answered"), length(declared) * nrow(g$status))
+  message(sprintf("  %d answered, %d zero-slack, %d zero-structural, %d refused",
+                  sum(g$status == "answered"), sum(g$status == "zero-slack"),
+                  sum(g$status == "zero-structural"), sum(g$status == "refused")))
+})

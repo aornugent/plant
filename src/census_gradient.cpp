@@ -32,10 +32,48 @@ census_trait_names_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<do
   return obj_->r_patch().trait_adjoint_names();
 }
 
+// The gradient and its reading, as one R object. A caller cannot take the
+// numbers without the statuses because they arrive in the same list: an exact
+// zero and a refused row are both finite-looking, and only this says which.
+namespace {
+Rcpp::List census_gradient_to_r(const plant::census_gradient& g) {
+  const size_t n_metric = g.gradient.size();
+  Rcpp::List gradient(n_metric), status(n_metric), refusal(n_metric);
+  for (size_t m = 0; m < n_metric; ++m) {
+    gradient[m] = Rcpp::wrap(g.gradient[m]);
+    Rcpp::CharacterVector kinds(g.status[m].size());
+    for (size_t p = 0; p < g.status[m].size(); ++p) {
+      kinds[p] = plant::gradient_status::kind_name(g.status[m][p].kind);
+    }
+    status[m] = kinds;
+    // Refusal is metric-level, so one description serves the row; a metric that
+    // answered carries none rather than an empty one, so the two are not the
+    // same object in R.
+    const bool any_refused =
+      !g.status[m].empty() &&
+      g.status[m][0].kind == plant::gradient_status::Kind::refused;
+    if (any_refused) {
+      const plant::gradient_status& st = g.status[m][0];
+      refusal[m] = Rcpp::List::create(
+        Rcpp::_["reason"] = st.reason,
+        Rcpp::_["species"] = st.species,
+        Rcpp::_["node"] = st.node,
+        Rcpp::_["step_first"] = st.step_first,
+        Rcpp::_["step_last"] = st.step_last);
+    } else {
+      refusal[m] = R_NilValue;
+    }
+  }
+  return Rcpp::List::create(Rcpp::_["gradient"] = gradient,
+                            Rcpp::_["status"] = status,
+                            Rcpp::_["refusal"] = refusal);
+}
+}  // namespace
+
 // One row per census metric, one column per trait in census_trait_names_tf24()
 // order. The active scalar lives inside this call and only doubles leave it.
 // [[Rcpp::export]]
-std::vector<std::vector<double>>
+Rcpp::List
 census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                            Rcpp::Nullable<Rcpp::IntegerVector> which_metrics = R_NilValue) {
   // Absent means every metric, which is what a caller that does not know the
@@ -51,7 +89,7 @@ census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy
       rows.push_back(static_cast<size_t>(v[i]));
     }
   }
-  return obj_->census_trait_gradient<plant::tf24_census>({}, rows);
+  return census_gradient_to_r(obj_->census_trait_gradient<plant::tf24_census>({}, rows));
 }
 
 // The census's own reading of the traits at the state held. No sweep produces it,
@@ -75,7 +113,7 @@ census_trait_difference_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strate
 // step, counted from one. Composition over steps is associative, so this must
 // agree with census_trait_gradient_tf24 bit for bit.
 // [[Rcpp::export]]
-std::vector<std::vector<double>>
+Rcpp::List
 census_trait_gradient_split_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                  std::vector<int> splits) {
   std::vector<size_t> at;
@@ -86,7 +124,7 @@ census_trait_gradient_split_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_St
     }
     at.push_back(static_cast<size_t>(s - 1));
   }
-  return obj_->census_trait_gradient<plant::tf24_census>(at);
+  return census_gradient_to_r(obj_->census_trait_gradient<plant::tf24_census>(at));
 }
 
 // How many backward ranges the last gradient swept. A requested split that fell
@@ -111,4 +149,60 @@ census_adjoint_at_first_state_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_
 // [[Rcpp::export]]
 std::vector<double> gradient_control_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   return obj_->gradient_control();
+}
+
+// The forward run's classification tally: one row per species, one column per
+// operating-point kind in census_operating_point_names_tf24() order.
+//
+// The leaf classifies by the branch taken and the next plant overwrites it, so a
+// run's incidence is not recoverable afterwards from anything but this. It is
+// what says whether a regime the gradient refuses is rare or is most of the run.
+// [[Rcpp::export]]
+std::vector<std::vector<double>>
+census_operating_point_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  const std::vector<std::vector<size_t>> counts = obj_->operating_point_counts();
+  std::vector<std::vector<double>> ret;
+  ret.reserve(counts.size());
+  for (const std::vector<size_t>& row : counts) {
+    ret.push_back(std::vector<double>(row.begin(), row.end()));
+  }
+  return ret;
+}
+
+// [[Rcpp::export]]
+void census_clear_operating_point_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  obj_->clear_operating_point_counts();
+}
+
+// The kinds, in the order the counts are reported.
+// [[Rcpp::export]]
+std::vector<std::string> census_operating_point_names_tf24() {
+  std::vector<std::string> ret;
+  ret.reserve(plant::Leaf::operating_point_kind_count);
+  for (size_t k = 0; k < plant::Leaf::operating_point_kind_count; ++k) {
+    ret.push_back(plant::Leaf::operating_point_kind_name(
+        static_cast<plant::Leaf::OperatingPointKind>(k)));
+  }
+  return ret;
+}
+
+// How often each counted clamp fired on the forward run, one row per species.
+// A clamp masking a smooth function severs a gradient row, and a severed row and
+// a true zero are the same number -- so the honest treatment is to count it.
+// [[Rcpp::export]]
+std::vector<std::vector<double>>
+census_clamp_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  const std::vector<std::vector<size_t>> counts = obj_->clamp_counts();
+  std::vector<std::vector<double>> ret;
+  ret.reserve(counts.size());
+  for (const std::vector<size_t>& row : counts) {
+    ret.push_back(std::vector<double>(row.begin(), row.end()));
+  }
+  return ret;
+}
+
+// The clamp sites, in the order the counts are reported.
+// [[Rcpp::export]]
+std::vector<std::string> census_clamp_names_tf24() {
+  return {"light_floor"};
 }

@@ -14,6 +14,44 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **The dry pin is reported by its arm, and the inverted interval by its own
+  name.** Requires the matching phylloptim. Migration for anyone matching on the
+  kind a refusal message names:
+  * `"pinned-dry"`         -> `"pinned-dry-root-crit"` or `"pinned-dry-root-psi-crit"`
+  * `"hydraulic-shutdown"` -> unchanged, except the inverted-interval exit, which
+    is now `"infeasible-bracket"`
+
+  The two dry arms are different functions of the inputs -- the stem's continuity
+  root is a search result, the root's own critical potential is a registered
+  constant -- so a consumer forming the bound's row needs to know which bound.
+  Measured: at shipped defaults every dry pin is on the root-crit arm.
+
+* **The census trait gradient returns its numbers with a reading of what each one
+  is.** A row of doubles cannot say whether an entry is an answer, a zero the
+  model means, or a slot no sweep reached -- and a refusal used to escape to the
+  R prompt as an error, with no localisation and nothing a caller could inspect.
+  Migration:
+  * `census_trait_gradient_tf24(scm, m)` (a list of numeric rows)
+    -> `census_trait_gradient_tf24(scm, m)$gradient` for the same rows
+  * `census_trait_gradient_split_tf24(scm, splits)`
+    -> `census_trait_gradient_split_tf24(scm, splits)$gradient`
+  * `stand_gradient(scm)` gains `$status` and `$refusal`; `$gradient` is unchanged
+    in shape and meaning
+
+  Both C++ entry points now return `list(gradient, status, refusal)`. `status` is
+  a matrix of the gradient's shape whose entries are `"answered"`,
+  `"zero-slack"`, `"zero-structural"`, `"zero-undeclared"` or `"refused"`.
+  `refusal` carries one entry per metric -- the reason, and the species, node and
+  recorded-step range it was found at -- or `NULL` where the metric answered.
+
+  **A refused metric's whole gradient row is `NaN`.** Refusal is metric-level: a
+  sum has no defined value with an undefined term, so no localisation within a
+  metric is available. Metrics are independent of one another.
+
+  **`"zero-undeclared"` is a finding, not an answer.** An exact zero is the
+  signature of a missing accumulator far more often than of a true insensitivity,
+  so a zero with no declared reason is marked rather than read as either.
+
 * **`Leaf$set_physiology()` takes `root_network`, not `root_carbon_per_leaf_area`,
   and `Leaf()` no longer takes `beta_R_H` or `beta_R_V`.** Requires
   phylloptim >= 0.2.0 (phylloptim #33). Migration:
@@ -330,6 +368,22 @@ were not previously recorded here:
     now a full right-hand-side evaluation. `StochasticPatch$compute_rates()` is
     unchanged.
 
+
+### Added
+
+* **The gradient's incidence counters.** The leaf classifies its operating point
+  by the branch taken and the next plant overwrites it, and a clamp that severs a
+  row leaves a number indistinguishable from a true zero -- so neither was
+  recoverable after a run. Additions only:
+  * `census_operating_point_counts_tf24(scm)` -> per-species counts by kind
+  * `census_operating_point_names_tf24()`     -> the kinds, in that order
+  * `census_clamp_counts_tf24(scm)`           -> per-species counts by clamp site
+  * `census_clamp_names_tf24()`               -> the sites, in that order
+  * `census_clear_operating_point_counts_tf24(scm)` -> reset both, per run
+
+  Read off the live system, so take them from the object you ran. Measured on a
+  drought run that refuses: 99.71% interior, 0.29% pinned-dry -- and that 0.29%
+  is what makes every metric's gradient undefined.
 
 ## Plant 2.0.0 release notes
 

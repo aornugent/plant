@@ -5,6 +5,7 @@
 
 #include <plant/strategy.h>
 #include <plant/models/tf24_environment.h>
+#include <plant/gradient_status.h>
 #include <plant/qag.h>
 #include <plant/leaf_model.h>
 #include <plant/canopy_shape.h>
@@ -417,6 +418,35 @@ public:
   // it is read once at construction and a value set afterwards reaches nothing.
   // A derivative with respect to it belongs to whatever computes c and b, which for
   // a run driven from traits is the R hyperparameter function.
+  // What an exactly-zero entry in a column MEANS. Derived from
+  // ad_parameter_names() by NAME rather than declared as a third list beside it:
+  // a positional list would be one more pairing of 47 with no guard, and this
+  // one cannot drift.
+  //
+  // Consulted only where the number is exactly zero, which is what keeps it
+  // honest as the census grows -- a parameter that becomes live stops being zero
+  // and its declaration is never read.
+  std::vector<gradient_status::Kind> ad_parameter_zero_classes() {
+    const std::vector<std::string> names = ad_parameter_names();
+    std::vector<gradient_status::Kind> ret;
+    ret.reserve(names.size());
+    for (const std::string& n : names) {
+      if (n == "psi_crit" || n == "root_psi_crit") {
+        // These set the dry bound of an interval the operating point is strictly
+        // inside, so complementary slackness makes their rows zero at an
+        // interior optimum. They are live at a pin.
+        ret.push_back(gradient_status::Kind::zero_slack);
+      } else if (n == "a_f3") {
+        // Occurs only in fecundity_dt's denominator, and no census metric reads
+        // fecundity. Zero on any trajectory rather than on this one.
+        ret.push_back(gradient_status::Kind::zero_structural);
+      } else {
+        ret.push_back(gradient_status::Kind::zero_undeclared);
+      }
+    }
+    return ret;
+  }
+
   std::vector<std::string> ad_parameter_names() {
     const std::vector<ad_parameter> table = ad_parameter_table();
     std::vector<std::string> ret;
@@ -717,11 +747,6 @@ public:
     leaf = src.leaf;
     storage_gate_width = src.storage_gate_width;
     storage_prod_eps = src.storage_prod_eps;
-    newton_tol_abs = src.newton_tol_abs;
-    GSS_tol_abs = src.GSS_tol_abs;
-    vulnerability_curve_ncontrol = src.vulnerability_curve_ncontrol;
-    ci_abs_tol = src.ci_abs_tol;
-    ci_niter = src.ci_niter;
     beta_R_H = src.beta_R_H;
     beta_R_V = src.beta_R_V;
     function_integrator = src.function_integrator;
@@ -772,12 +797,19 @@ public:
   double storage_gate_width = 0.1;
   double storage_prod_eps   = 1e-4;
 
-  // Solver tolerances and other constants not currently exposed to R
-  double newton_tol_abs = 0.001;
-  double GSS_tol_abs = 1e-3;
-  double vulnerability_curve_ncontrol = 100;
-  double ci_abs_tol = 1e-6;
-  double ci_niter = 1000;
+  // The clamp sites this strategy counts. One so far -- the light floor, which
+  // is the site defect #4 names -- and the enum is what a second one is added
+  // to rather than a second counter.
+  enum clamp_site { CLAMP_LIGHT_FLOOR = 0, CLAMP_SITE_COUNT };
+  std::vector<size_t> clamp_counts = std::vector<size_t>(CLAMP_SITE_COUNT, 0);
+
+  // How many leaf solves landed in each operating-point kind, indexed by the
+  // enum. Diagnostic and deliberately outside rebind_from: a block copies the
+  // strategy per unit and discards it, so carrying the tally across would count
+  // the sweep's copies as well as the run.
+  std::vector<size_t> operating_point_counts =
+    std::vector<size_t>(Leaf::operating_point_kind_count, 0);
+
   // The root-architecture model's two constants. They used to be handed to the
   // Leaf constructor; since phylloptim #33 the leaf takes the RESISTANCES and this
   // strategy owns the model that produces them, which is where they belong -- the
@@ -938,14 +970,14 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   grad::ProfitEnvDerivatives env;
   grad::profit_env_derivatives(leaf, env);
   if (!env.usable) {
-    util::stop("TF24 gradient: the leaf cannot say how profit responds to its "
+    throw gradient_refusal("TF24 gradient: the leaf cannot say how profit responds to its "
                "environment here -- " + env.message);
   }
   const size_t n_layer = env.dprofit_dpsi_soil.size();
   // The leaf answers only as deep as it is rooted, while psi_soil runs the whole
   // column. Deeper layers move no water and their response is a true zero.
   if (n_layer > psi_soil.size()) {
-    util::stop("TF24 gradient: the leaf answered for " +
+    throw gradient_refusal("TF24 gradient: the leaf answered for " +
                util::to_string(static_cast<int>(n_layer)) + " layers out of " +
                util::to_string(static_cast<int>(psi_soil.size())));
   }
@@ -961,7 +993,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   const double marginal_lo = leaf.dprofit_droot_collar_psi(collar - h_collar);
   const double curvature = (marginal_hi - marginal_lo) / (2.0 * h_collar);
   if (!util::is_finite(curvature) || curvature >= 0.0) {
-    util::stop("TF24 gradient: the leaf's profit has no usable curvature at "
+    throw gradient_refusal("TF24 gradient: the leaf's profit has no usable curvature at "
                "this operating point, so the collar's own response has nothing "
                "to stand on");
   }
@@ -975,7 +1007,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   for (size_t j = 0; j < n_layer; ++j) {
     if (!util::is_finite(dEup_dpsi[j]) || !util::is_finite(d2Eup_dcollar_dpsi[j]) ||
         !util::is_finite(dE_dcollar[j])) {
-      util::stop("TF24 gradient: layer " + util::to_string(static_cast<int>(j)) +
+      throw gradient_refusal("TF24 gradient: layer " + util::to_string(static_cast<int>(j)) +
                  " sits on a branch kink, so its water response does not exist");
     }
   }
@@ -1014,7 +1046,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
 
   const double b = leaf.dmarginal_profit_duptake_slope();
   if (!util::is_finite(b)) {
-    util::stop("TF24 gradient: the stem's marginal profit per unit of collar "
+    throw gradient_refusal("TF24 gradient: the stem's marginal profit per unit of collar "
                "conductance is not finite, so the water response has no second "
                "coefficient");
   }
@@ -1028,7 +1060,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     if (!(root_carbon_value_[k] > 0.0)) { continue; }
     for (size_t i = 0; i < n_layer; ++i) {
       if (!util::is_finite(dE_drc[i][k]) || !util::is_finite(dD_drc[i][k])) {
-        util::stop("TF24 gradient: layer " + util::to_string(static_cast<int>(i)) +
+        throw gradient_refusal("TF24 gradient: layer " + util::to_string(static_cast<int>(i)) +
                    " sits on a branch kink, so the root carbon's route into its "
                    "flux does not exist");
       }
@@ -1047,7 +1079,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     }
   }
   if (anchor == n_layer) {
-    util::stop("TF24 gradient: no layer's root carbon reaches total uptake, so "
+    throw gradient_refusal("TF24 gradient: no layer's root carbon reaches total uptake, so "
                "the water response has no direction to be read along");
   }
 
@@ -1067,7 +1099,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
 
   const double a = (dR_drc_anchor - b * d2Eup_drc[anchor]) / dEup_drc[anchor];
   if (!util::is_finite(a)) {
-    util::stop("TF24 gradient: the first coefficient of the water response is "
+    throw gradient_refusal("TF24 gradient: the first coefficient of the water response is "
                "not finite -- dR/drc=" + util::to_string(dR_drc_anchor) +
                " b=" + util::to_string(b) +
                " dEup/drc=" + util::to_string(dEup_drc[anchor]));
@@ -1094,7 +1126,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   const double dprofit_dkmax = (profit_up - profit_dn) / (2.0 * h_kmax);
   const double dR_dkmax = (m_kmax_up - m_kmax_dn) / (2.0 * h_kmax);
   if (!util::is_finite(dprofit_dkmax) || !util::is_finite(dR_dkmax)) {
-    util::stop("TF24 gradient: the leaf's response to its maximum conductance "
+    throw gradient_refusal("TF24 gradient: the leaf's response to its maximum conductance "
                "is not finite, so the stem channel has nothing to stand on");
   }
 
@@ -1209,7 +1241,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     lt[k].dprofit = (p_up - p_dn) / (2.0 * h_t);
     const double dR_dlt = (m_up - m_dn) / (2.0 * h_t);
     if (!util::is_finite(lt[k].dprofit) || !util::is_finite(dR_dlt)) {
-      util::stop("TF24 gradient: leaf trait " + util::to_string(k) +
+      throw gradient_refusal("TF24 gradient: leaf trait " + util::to_string(k) +
                  " moves the leaf by an amount that is not finite");
     }
     lt[k].dresidual = dR_dlt;
@@ -1229,7 +1261,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
         !util::is_finite(rows.dprofit_dcost_scale) ||
         !util::is_finite(rows.dmarginal_dbeta2) ||
         !util::is_finite(rows.dmarginal_dcost_scale)) {
-      util::stop("TF24 gradient: the leaf's hydraulic cost does not respond "
+      throw gradient_refusal("TF24 gradient: the leaf's hydraulic cost does not respond "
                  "finitely to the two traits that set it");
     }
     lt[k_beta2].dprofit = rows.dprofit_dbeta2;
@@ -1248,7 +1280,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
         photo.dmarginal_djmax_25, photo.dmarginal_dR_d_25};
     for (int i = 0; i < 12; ++i) {
       if (!util::is_finite(photo_rows[i])) {
-        util::stop("TF24 gradient: the leaf's assimilation does not respond "
+        throw gradient_refusal("TF24 gradient: the leaf's assimilation does not respond "
                    "finitely to the six traits that set it");
       }
     }
@@ -1292,7 +1324,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   drive(radiation_value, psi_value, kmax_value);
   leaf.evaluate_root_collar_psi(collar);
   if (!util::is_finite(dR_dlight)) {
-    util::stop("TF24 gradient: the marginal profit's response to radiation is "
+    throw gradient_refusal("TF24 gradient: the marginal profit's response to radiation is "
                "not finite, so the collar's light response has nothing to "
                "stand on");
   }
@@ -1826,6 +1858,13 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // compute_average_light_environment().
   const double PPFD = environment.get_PPFD();
   auto radiation_at = [&](S light) -> S {
+    // Counted, not merely applied. Where this binds the cohort's radiation is a
+    // constant with respect to every other cohort's height, so the row is
+    // severed by the guard rather than by the model -- and the field is smooth
+    // underneath. An uncounted severance is indistinguishable from a true zero.
+    if (light < S(0.0001)) {
+      ++clamp_counts[CLAMP_LIGHT_FLOOR];
+    }
     return pars.k_I * std::max(light, S(0.0001)) * PPFD;
   };
 
@@ -1933,6 +1972,12 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
 template <typename S>
 void TF24_Strategy<S>::solve_leaf() {
   leaf.find_root_collar_psi();
+  // The classification is decided by the branch taken and then overwritten by
+  // the next plant, so without a tally the only route to its incidence is a
+  // refusal message -- which reports the FIRST non-interior point and nothing
+  // about how many followed it or what kinds they were.
+  ++operating_point_counts[
+      static_cast<size_t>(leaf.operating_point_kind())];
 }
 
 // [eqn 16] Fraction of production allocated to reproduction
