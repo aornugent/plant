@@ -1019,7 +1019,23 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   auto seat_at = [&](double rad, const std::vector<double>& psi,
                      double kmax) -> void {
     drive(rad, psi, kmax);
-    leaf.evaluate_root_collar_psi(collar);
+    // The collar is HELD here, not re-optimised, so this is a partial at a
+    // frozen operating point. evaluate_root_collar_psi would CLAMP it into the
+    // interval the PERTURBED state has -- which is the right treatment for a
+    // tracked collar being nudged and the wrong one here, because it silently
+    // answers about a different collar. At a pin the collar sits a millionth of
+    // the width off the bound while a trait step moves the bound by two orders
+    // more, so the clamp fires on essentially every arm and the row it returns
+    // is the feasibility jump rather than a derivative.
+    const typename phylloptim::Leaf::FixedCollarEval seated =
+        leaf.profit_at_fixed_collar(collar);
+    if (!seated.feasible) {
+      throw gradient_refusal(
+          "TF24 gradient: a finite-difference arm moved the feasible interval "
+          "across the collar it was holding at " + util::to_string(collar) +
+          ", so the two arms do not describe one operating point and their "
+          "difference is a jump rather than a derivative");
+    }
   };
   auto marginal_at = [&](double rad, const std::vector<double>& psi) -> double {
     seat_at(rad, psi, kmax_value);

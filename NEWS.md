@@ -14,6 +14,17 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **A finite-difference arm that crosses the feasible boundary now refuses.**
+  Requires the matching phylloptim. The leaf's environment rows are taken at a
+  frozen collar, and the entry point they went through clamped that collar into
+  whatever interval the PERTURBED state had -- so at a pinned operating point,
+  where the collar sits about a millionth of the interval's width off the wet
+  bound and a 1e-3 trait step moves that bound two orders further, one arm
+  answered about a different collar. No migration: the affected metrics were
+  returning a number and now report `refused` with the collar named. Measured at
+  psi_soil 5.0, `dprofit/droot_b` came back as 184.699 where the same difference
+  well inside the interval reads 0.0056.
+
 * **The dry pin is reported by its arm, and the inverted interval by its own
   name.** Requires the matching phylloptim. Migration for anyone matching on the
   kind a refusal message names:
