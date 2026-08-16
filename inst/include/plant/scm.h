@@ -209,18 +209,9 @@ public:
   // The state and time a segment's first step ran from, with the solver's system
   // left carrying that segment's width. Reached by replaying the introductions
   // before it, since a widened state is not what any record holds.
-  double narrow_to_segment(const std::vector<std::vector<double>>& states,
-                           const std::vector<ode_step_record>& trajectory,
-                           size_t from_segment,
-                           std::vector<double>& base,
-                           size_t& start);
 
   // Where the recorded trajectory widens and which species widened it. Returns
   // with the solver's system narrowed to the first segment's width.
-  // Narrow the live system to the width the run started at, undoing each
-  // widening newest first because each was applied on top of the one before.
-  void narrow_to_run_start(const std::vector<std::vector<double>>& states);
-
 
   // The four Control entries that move the trajectory and so move the gradient,
   // in the order stand_gradient() compares them.
@@ -287,10 +278,19 @@ public:
   // How many backward ranges the last census_trait_gradient swept, summed over
   // metrics. One per segment with no splits requested, and one more per split
   // that fell inside a segment -- which is what says a requested split cut.
-  // Put the live system back at the width the run left it at.
-  void restore_run_width(const std::vector<std::vector<double>>& states);
-
   size_t adjoint_segments = 0;
+
+  // The time of each recorded step, which the walks over a widened state index
+  // their states against.
+  std::vector<double> recorded_times(
+      const std::vector<ode_step_record>& trajectory) const {
+    std::vector<double> ret;
+    ret.reserve(trajectory.size());
+    for (const ode_step_record& record : trajectory) {
+      ret.push_back(record.time);
+    }
+    return ret;
+  }
 
   // Where the run widened the state, and by what. Filled as the run takes each
   // widening and cleared with the rest of the run's state.
@@ -614,19 +614,6 @@ template <typename T, typename E> void SCM<T, E>::reset() {
   widenings.clear();
 }
 
-// Put the live system back at the width the run left it at. The sweep and the
-// forward replays all descend from that width and leave it lower, so each of
-// them ends here rather than leaving the next caller to notice.
-template <typename T, typename E>
-void SCM<T, E>::restore_run_width(const std::vector<std::vector<double>>& states) {
-  patch_type& live = solver.get_system_ref();
-  for (const auto& w : widenings) {
-    util::check_length(live.ode_size(), states[w.after_step].size());
-    live.set_recorded_state(states[w.after_step].begin(),
-                            solver.times()[w.after_step]);
-    live.widen(w.event);
-  }
-}
 
 template <typename T, typename E> bool SCM<T, E>::complete() const {
   return node_schedule.remaining() == 0;
@@ -999,29 +986,10 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   }
 
   // Leave the system at the width the run left it, so this call is repeatable.
-  restore_run_width(states);
+  odelia::ode::widen_all(live, widenings, states, recorded_times(trajectory));
   return ret;
 }
 
-// A node introduction widens the state between two steps, so a trajectory runs
-// one segment per width. states[b] is the state before the introduction at its
-// own time: the last step of the segment ended exactly there, since
-// advance_adaptive lands its final step on the event time, and the introduction
-// followed. So the width changes across b, and step b + 1 starts from the
-// widened state, which no record holds.
-//
-// The species are read newest-first with the system narrowed as it goes, so each
-// read sees the nodes that were the newest then -- which leaves the system at the
-// first segment's width, where both the sweep and the tangent start.
-template <typename T, typename E>
-void SCM<T, E>::narrow_to_run_start(
-    const std::vector<std::vector<double>>& states) {
-  patch_type& live = solver.get_system_ref();
-  for (size_t j = widenings.size(); j-- > 0;) {
-    live.narrow(widenings[j].event);
-    util::check_length(live.ode_size(), states[widenings[j].after_step].size());
-  }
-}
 
 // The reference the trajectory sweep is checked against. It is a tangent of the
 // same forward source: exact, with no step size of its own and no truncation,
@@ -1047,7 +1015,7 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   for (const ode_step_record& record : trajectory) {
     states.push_back(record.state);
   }
-  narrow_to_run_start(states);
+  odelia::ode::narrow_all(solver.get_system_ref(), widenings, states);
 
   patch_type& live = solver.get_system_ref();
   live.set_ode_state_and_field(states[0].begin(), trajectory[0].time);
@@ -1082,7 +1050,8 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
 
   // Leave the double system where the run left it, so this call is repeatable
   // beside the sweep that shares its trajectory.
-  restore_run_width(states);
+  odelia::ode::widen_all(solver.get_system_ref(), widenings, states,
+                         recorded_times(trajectory));
 
   std::vector<double> ret;
   ret.reserve(std::tuple_size<Metrics>::value);
@@ -1098,26 +1067,6 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   return ret;
 }
 
-template <typename T, typename E>
-double SCM<T, E>::narrow_to_segment(
-    const std::vector<std::vector<double>>& states,
-    const std::vector<ode_step_record>& trajectory,
-    size_t from_segment,
-    std::vector<double>& base,
-    size_t& start) {
-  patch_type& live = solver.get_system_ref();
-  live.set_ode_state_and_field(states[0].begin(), trajectory[0].time);
-  start = 0;
-  for (size_t j = 0; j < from_segment; ++j) {
-    const size_t b = widenings[j].after_step;
-    live.set_recorded_state(states[b].begin(), trajectory[b].time);
-    live.widen(widenings[j].event);
-    start = b;
-  }
-  base.assign(live.ode_size(), 0.0);
-  live.ode_state(base.begin());
-  return trajectory[start].time;
-}
 
 template <typename T, typename E>
 std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
@@ -1127,20 +1076,20 @@ std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
   for (const ode_step_record& record : trajectory) {
     states.push_back(record.state);
   }
-  narrow_to_run_start(states);
-  if (segment > widenings.size()) {
-    util::stop("segment_base_state: the recording has no such segment");
-  }
+  patch_type& live = solver.get_system_ref();
+  const std::vector<double> times = recorded_times(trajectory);
+  odelia::ode::narrow_all(live, widenings, states);
+
   std::vector<double> base;
   size_t start = 0;
-  narrow_to_segment(states, trajectory, segment, base, start);
-  // narrow_to_segment widened its way forward to that segment's width; undo
-  // exactly those widenings, because the restore below replays from the first
-  // one and starts at the narrowest width.
+  odelia::ode::state_at_segment(live, widenings, states, times, segment, base,
+                                start);
+  // That walk widened its way forward to the segment's width, so the restore
+  // starts by undoing exactly those.
   for (size_t j = segment; j-- > 0;) {
-    solver.get_system_ref().narrow(widenings[j].event);
+    live.narrow(widenings[j].event);
   }
-  restore_run_width(states);
+  odelia::ode::widen_all(live, widenings, states, times);
   return base;
 }
 
@@ -1154,16 +1103,15 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   for (const ode_step_record& record : trajectory) {
     states.push_back(record.state);
   }
-  narrow_to_run_start(states);
-  if (from_segment > widenings.size()) {
-    util::stop("replay_initial_state: the recording has no such segment");
-  }
+  patch_type& live = solver.get_system_ref();
+  const std::vector<double> times = recorded_times(trajectory);
+  odelia::ode::narrow_all(live, widenings, states);
 
   std::vector<double> base;
   size_t start = 0;
-  const double t0 = narrow_to_segment(states, trajectory, from_segment, base, start);
+  const double t0 = odelia::ode::state_at_segment(live, widenings, states, times,
+                                                  from_segment, base, start);
 
-  patch_type& live = solver.get_system_ref();
   auto active = live.template rebind_from<Scalar>();
 
   std::vector<Scalar> x0(base.size());
@@ -1182,14 +1130,12 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   odelia::ode::advance_over_widenings(forward, widenings, sizes, from_segment, start);
 
   // Leave the double system where the run left it, so this call is repeatable
-  // beside the sweep that shares its trajectory. narrow_to_segment left it at
-  // this segment's width and the restore replays from the first boundary, so it
-  // needs the narrowest width back first, so undo exactly the introductions
-  // narrow_to_segment made on the way forward.
+  // beside the sweep that shares its trajectory. The walk above left it at this
+  // segment's width, so undo exactly those widenings before widening back.
   for (size_t j = from_segment; j-- > 0;) {
     live.narrow(widenings[j].event);
   }
-  restore_run_width(states);
+  odelia::ode::widen_all(live, widenings, states, recorded_times(trajectory));
 
   std::vector<Scalar> out;
   out.reserve(std::tuple_size<Metrics>::value);
