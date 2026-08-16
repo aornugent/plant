@@ -2,23 +2,29 @@
 #include <XAD/XAD.hpp>
 #include <chrono>
 
-// The reference the reverse sweep is checked against, and the two objects it is
-// checked at.
+// The references the gradient is checked against, and the two objects they are
+// checked at. The two objects referee different claims, and reading them as one
+// overstates both.
 //
-// The reference is a forward-mode tangent of the same forward source. It is
+// The main reference is a forward-mode tangent of the same forward source. It is
 // exact -- no step size, no truncation -- and it traverses the forward
 // reductions while none of the transposes under test are on its path. One seed
 // gives one exact Jacobian column, which is what makes forming a whole Jacobian
 // affordable at one cohort.
 //
-// Two objects, because two different things are being refereed. The recorded
-// cohort block relates one individual's states, the field's knot values and
-// slopes, the soil potentials and the traits to its rates, its density rate and
-// its per-layer draws; taking it forward and backward checks that the supplied
-// leaf rows serve both modes. One right-hand-side evaluation relates the whole
-// ODE state to its own rates through both reductions; taking it forward and
-// backward checks the transposes, and there the reference and the object under
-// test share no code.
+// One right-hand-side evaluation relates the whole ODE state to its own rates
+// through both reductions. Taking it forward and backward checks the sweep, and
+// there the reference and the object under test share no code.
+//
+// The recorded cohort block relates one individual's states, the field's knot
+// values and slopes, the soil potentials and the traits to its rates, its density
+// rate and its per-layer draws. Nothing in production records it; what it
+// referees is the graft. Taking it forward and backward checks that both modes
+// traverse the same recording, and it cannot check the number a grafted row
+// carries: both modes read that number from the same place, so they agree
+// whether it is right or wrong. The plain-double difference below is the only
+// instrument here that can see a wrong supplied row, because it runs the leaf's
+// own solve instead of reading the row.
 
 namespace {
 
