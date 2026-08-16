@@ -1001,7 +1001,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
       std::vector<std::vector<double>> narrowed;
       live.introduction_adjoint(introduced[j - 1], states[first],
                                 trajectory[first].time, lambda, narrowed);
-      lambda = narrowed;
+      lambda = std::move(narrowed);
     }
   }
 

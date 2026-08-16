@@ -227,19 +227,6 @@ public:
                             const std::vector<std::vector<double>>& lambda_after,
                             std::vector<std::vector<double>>& lambda_before);
 
-  // The introduction as a map: the pre-introduction state in, the whole widened
-  // state out, with the traits already on the patch it is called through.
-  // introduction_adjoint records it and introduction_jacobian evaluates it at a
-  // tangent, so the transpose and its reference differentiate one function
-  // rather than two spellings of one.
-  //
-  // `active` is left holding the node it pushed; a caller evaluating the map more
-  // than once removes it between calls.
-  template <class Active, class It, class S>
-  static void introduce_over(Active& active,
-                             const std::vector<size_t>& species_index,
-                             double time_before, It x, std::vector<S>& y);
-
   // That map's whole Jacobian, by forward tangent: one row per widened state entry
   // and one column per input, the state's entries first and the traits after.
   // Forming it entirely is what localises a disagreement to a cell, which a
@@ -343,6 +330,23 @@ public:
   void overwrite_strategies(std::vector<strategy_type> strategies);
 
 private:
+  // The introduction as a map: the pre-introduction state in, the whole widened
+  // state out, with the traits already written onto `active`. introduction_adjoint
+  // records it and introduction_jacobian evaluates it at a tangent, so the
+  // transpose and its reference differentiate one function rather than two
+  // spellings of one.
+  //
+  // It reads the state through a bare iterator and cannot check its length, and
+  // it relies on the traits being written first -- so it stays in here, where its
+  // two callers are, rather than being reachable by a third that does neither.
+  //
+  // `active` is left holding the node it pushed; a caller evaluating the map more
+  // than once removes it between calls.
+  template <class Active, class It, class S>
+  static void introduce_over(Active& active,
+                             const std::vector<size_t>& species_index,
+                             double time_before, It x, std::vector<S>& y);
+
   // A patch whose species take the prepared strategies given, rather than
   // preparing the ones in the parameters. rebind_from's only route in.
   Patch(parameters_type p, environment_type e, plant::Control c,

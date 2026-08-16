@@ -1153,7 +1153,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   apply_leaf_traits();
   seat_at(radiation_value, psi_value, kmax_value);
 
-  // The five the leaf answers for directly, read once at that operating point.
+  // The eight the leaf answers for directly, read once at that operating point.
   {
     const int k_beta2 = 7, k_cost_scale = 12;
     const phylloptim::Leaf::CostTraitRows rows = leaf.cost_trait_rows();
