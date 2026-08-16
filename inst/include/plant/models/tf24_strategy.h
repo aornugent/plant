@@ -973,22 +973,24 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     throw gradient_refusal("TF24 gradient: the leaf cannot say how profit responds to its "
                "environment here -- " + env.message);
   }
-  // The leaf CAN now supply a pinned point's profit rows -- the frozen-collar
-  // partial plus the bound's own movement -- but everything below this line is
-  // the interior derivation: the operating point's response is formed as
-  // -dR/du divided by the curvature, at ten sites, and at a pin that quotient is
-  // not what the point does. The bound's row is, and substituting it is the work
-  // this refusal is holding open.
+  // At a pin the operating point is not stationary -- it IS the bound, and it
+  // moves with the inputs. Two things follow, and the rest of this function is
+  // written to make them one branch rather than two derivations.
   //
-  // Refused by name rather than left to the interior formula, which would return
-  // a finite plausible number built on a stationarity that does not hold here.
-  if (env.pinned) {
-    throw gradient_refusal(
-        "TF24 gradient: this operating point is pinned to a feasibility bound, "
-        "so its response is the bound's rather than the stationarity "
-        "condition's -- the leaf supplies that row and the stand does not yet "
-        "consume it");
-  }
+  // A family read ANALYTICALLY needs the bound's own row where the interior
+  // derivation uses -dR/du over the curvature, because that quotient is the
+  // stationary point's response and there is no stationary point here.
+  //
+  // A family read by DIFFERENCING needs its arms taken where the operating point
+  // actually goes, which is the perturbed bound. Holding the base collar there is
+  // not a partial derivative at a nearby point -- it is a point outside the
+  // feasible interval, and `seat_at` refuses it. Measured at a dry pin, five of
+  // the six curve traits move the bound out from under a held collar on one side.
+  const bool pinned = env.pinned;
+  // Captured before anything re-supplies the leaf: `drive` resets the
+  // classification, so a diagnostic read later reports "unsolved" for every
+  // point regardless of where it was.
+  const std::string base_kind = leaf.operating_point_kind_name();
   const size_t n_layer = env.dprofit_dpsi_soil.size();
   // The leaf answers only as deep as it is rooted, while psi_soil runs the whole
   // column. Deeper layers move no water and their response is a true zero.
@@ -1002,17 +1004,57 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   const double radiation_value = to_passive(radiation);
   const std::vector<double>& psi_value = psi_soil_value_;
 
-  // The slope of the marginal profit at the collar the solve left, which is what
-  // the implicit function theorem divides every input's row by.
-  const double h_collar = std::max(std::abs(collar), 1.0) * 1e-6;
-  const double marginal_hi = leaf.dprofit_droot_collar_psi(collar + h_collar);
-  const double marginal_lo = leaf.dprofit_droot_collar_psi(collar - h_collar);
-  const double curvature = (marginal_hi - marginal_lo) / (2.0 * h_collar);
-  if (!util::is_finite(curvature) || curvature >= 0.0) {
-    throw gradient_refusal("TF24 gradient: the leaf's profit has no usable curvature at "
-               "this operating point, so the collar's own response has nothing "
-               "to stand on");
+  // The marginal profit at the collar the solve left. At a pin it is the price of
+  // the bound rather than a residual on its way to zero, and it is what every
+  // analytic row multiplies the bound's movement by.
+  const double marginal = leaf.dprofit_droot_collar_psi(collar);
+  if (pinned && !util::is_finite(marginal)) {
+    throw gradient_refusal("TF24 gradient: the marginal profit at the bound this point is "
+               "pinned to is not finite, so the bound's movement has no price");
   }
+
+  // The bound the point sits on, and its row. The leaf reports WHICH bound rather
+  // than being asked, so the row and the classification cannot name different
+  // arms. `collar_offset` is the step-in the solve leaves between the bound and
+  // the collar: it is a millionth of the interval's width and the whole reason
+  // the wet arm is evaluable at all, because AT the wet bound total uptake is
+  // exactly zero. Following the bound without carrying it read 268.561 for a
+  // derivative that is -0.0814.
+  typename phylloptim::Leaf::BoundRow bound_row;
+  double collar_offset = 0.0;
+  if (pinned) {
+    bound_row = leaf.bound_row(env.bound);
+    if (!bound_row.finite) {
+      throw gradient_refusal("TF24 gradient: the bound this operating point is pinned to "
+                 "has no derivative here, so the point's own response does not "
+                 "exist");
+    }
+    collar_offset = collar - bound_row.bound;
+  }
+
+  // The interior derivation's denominator. Every site that divides by it is a
+  // bound-row entry at a pin, so it is neither computed nor guarded there -- and
+  // the guard would refuse, because a pinned point has no reason to be concave.
+  double curvature = 0.0;
+  if (!pinned) {
+    const double h_collar = std::max(std::abs(collar), 1.0) * 1e-6;
+    const double marginal_hi = leaf.dprofit_droot_collar_psi(collar + h_collar);
+    const double marginal_lo = leaf.dprofit_droot_collar_psi(collar - h_collar);
+    curvature = (marginal_hi - marginal_lo) / (2.0 * h_collar);
+    if (!util::is_finite(curvature) || curvature >= 0.0) {
+      throw gradient_refusal("TF24 gradient: the leaf's profit has no usable curvature at "
+                 "this operating point, so the collar's own response has nothing "
+                 "to stand on");
+    }
+  }
+  // What the implicit function theorem divides by: the slope, IN THE COLLAR, of
+  // the condition that defines the operating point. Inside the interval that
+  // condition is stationarity of the profit and the slope is the curvature above.
+  // At a pin the condition is the bound itself -- bound(u) - collar = 0 -- whose
+  // slope in the collar is exactly -1, so the rows stored below are the bound's
+  // own and the quotient odelia forms from them returns them unchanged. One
+  // assembly serves both branches because only this slope and those rows differ.
+  const double residual_slope = pinned ? -1.0 : curvature;
 
   // How total uptake and its collar sensitivity respond to each layer, in closed
   // form. These are what the two scalars multiply.
@@ -1032,29 +1074,57 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // and read the marginal profit there. No solve, so the operating point does
   // not move and this is a partial derivative.
   const double kmax_value = to_passive(conductance_max);
-  auto seat_at = [&](double rad, const std::vector<double>& psi,
-                     double kmax) -> void {
+  // Where the operating point is, once the state has been perturbed. At an
+  // interior optimum the collar is held: the argmax's own movement is the
+  // envelope theorem's to supply, and freezing it is what makes the difference a
+  // partial. At a pin the point IS the bound, so it goes where the bound goes and
+  // the difference comes back a TOTAL -- which is why every family read this way
+  // takes no separate collar term below.
+  auto operating_collar = [&](const std::vector<double>& psi) -> double {
+    if (!pinned) {
+      return collar;
+    }
+    const double b =
+        env.bound == phylloptim::Leaf::WhichBound::DryRootPsiCrit
+            ? leaf.supply_psi_crit()
+            : leaf.find_root_psi(
+                  leaf.supply_begin_solve(), psi,
+                  env.bound == phylloptim::Leaf::WhichBound::Wet ? 0 : 1);
+    return b + collar_offset;
+  };
+  // Place the collar and report whether the state can be evaluated there, so a
+  // caller holding a step can shrink it rather than give up. `seat_at` is the
+  // same thing for callers whose step is not theirs to choose.
+  double last_hold = collar;
+  auto try_seat_at = [&](double rad, const std::vector<double>& psi,
+                         double kmax) -> bool {
     drive(rad, psi, kmax);
-    // The collar is HELD here, not re-optimised, so this is a partial at a
-    // frozen operating point. evaluate_root_collar_psi would CLAMP it into the
-    // interval the PERTURBED state has -- which is the right treatment for a
-    // tracked collar being nudged and the wrong one here, because it silently
-    // answers about a different collar. At a pin the collar sits a millionth of
-    // the width off the bound while a trait step moves the bound by two orders
-    // more, so the clamp fires on essentially every arm and the row it returns
-    // is the feasibility jump rather than a derivative.
-    const typename phylloptim::Leaf::FixedCollarEval seated =
-        leaf.profit_at_fixed_collar(collar);
-    if (!seated.feasible) {
-      throw gradient_refusal(
-          "TF24 gradient: a finite-difference arm moved the feasible interval "
-          "across the collar it was holding at " + util::to_string(collar) +
-          ", so the two arms do not describe one operating point and their "
-          "difference is a jump rather than a derivative");
+    // The collar is placed, not re-optimised. evaluate_root_collar_psi would
+    // CLAMP it into the interval the PERTURBED state has -- which is the right
+    // treatment for a tracked collar being nudged and the wrong one here, because
+    // it silently answers about a different collar. At a pin the collar sits a
+    // millionth of the width off the bound while a trait step moves the bound by
+    // two orders more, so the clamp fires on essentially every arm and the row it
+    // returns is the feasibility jump rather than a derivative.
+    last_hold = operating_collar(psi);
+    return leaf.profit_at_fixed_collar(last_hold).feasible;
+  };
+  auto crossed = [&](const char* what) -> gradient_refusal {
+    return gradient_refusal(
+        std::string("TF24 gradient: a finite-difference arm moved the feasible "
+                    "interval across the collar it was holding at ") +
+        util::to_string(last_hold) + " on a " + base_kind + " point, perturbing " +
+        what + ", so the two arms do not describe one operating point and "
+        "their difference is a jump rather than a derivative");
+  };
+  auto seat_at = [&](double rad, const std::vector<double>& psi, double kmax,
+                     const char* what) -> void {
+    if (!try_seat_at(rad, psi, kmax)) {
+      throw crossed(what);
     }
   };
   auto marginal_at = [&](double rad, const std::vector<double>& psi) -> double {
-    seat_at(rad, psi, kmax_value);
+    seat_at(rad, psi, kmax_value, "radiation");
     return leaf.dprofit_droot_collar_psi(collar);
   };
 
@@ -1115,48 +1185,76 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                "the water response has no direction to be read along");
   }
 
-  const double base_rc = root_carbon_value_[anchor];
-  const double h_rc = base_rc * fit_step;
-  double m_rc_up = 0.0, m_rc_dn = 0.0;
-  for (int side = 0; side < 2; ++side) {
-    root_carbon_value_[anchor] = base_rc + (side == 0 ? h_rc : -h_rc);
+  // The first coefficient exists to turn a state direction into the collar's
+  // response, and at a pin the bound's row is that response already -- so the fit
+  // is skipped there along with the two rebuilds and three re-seats it costs.
+  double a = 0.0;
+  if (!pinned) {
+    const double base_rc = root_carbon_value_[anchor];
+    const double h_rc = base_rc * fit_step;
+    double m_rc_up = 0.0, m_rc_dn = 0.0;
+    for (int side = 0; side < 2; ++side) {
+      root_carbon_value_[anchor] = base_rc + (side == 0 ? h_rc : -h_rc);
+      rebuild_roots();
+      seat_at(radiation_value, psi_value, kmax_value, "root carbon");
+      (side == 0 ? m_rc_up : m_rc_dn) = leaf.dprofit_droot_collar_psi(collar);
+    }
+    root_carbon_value_[anchor] = base_rc;
     rebuild_roots();
-    seat_at(radiation_value, psi_value, kmax_value);
-    (side == 0 ? m_rc_up : m_rc_dn) = leaf.dprofit_droot_collar_psi(collar);
-  }
-  root_carbon_value_[anchor] = base_rc;
-  rebuild_roots();
-  seat_at(radiation_value, psi_value, kmax_value);
-  const double dR_drc_anchor = (m_rc_up - m_rc_dn) / (2.0 * h_rc);
+    seat_at(radiation_value, psi_value, kmax_value, "root carbon");
+    const double dR_drc_anchor = (m_rc_up - m_rc_dn) / (2.0 * h_rc);
 
-  const double a = (dR_drc_anchor - b * d2Eup_drc[anchor]) / dEup_drc[anchor];
-  if (!util::is_finite(a)) {
-    throw gradient_refusal("TF24 gradient: the first coefficient of the water response is "
-               "not finite -- dR/drc=" + util::to_string(dR_drc_anchor) +
-               " b=" + util::to_string(b) +
-               " dEup/drc=" + util::to_string(dEup_drc[anchor]));
+    a = (dR_drc_anchor - b * d2Eup_drc[anchor]) / dEup_drc[anchor];
+    if (!util::is_finite(a)) {
+      throw gradient_refusal("TF24 gradient: the first coefficient of the water response is "
+                 "not finite -- dR/drc=" + util::to_string(dR_drc_anchor) +
+                 " b=" + util::to_string(b) +
+                 " dEup/drc=" + util::to_string(dEup_drc[anchor]));
+    }
   }
 
   // The maximum leaf-specific conductance is not in the span the pair above
   // factors: it enters the marginal profit through the stem potential directly,
   // not through total uptake. So it is read along its own direction, at the same
   // step the pair was fitted at, and one pass gives all three of its partials.
-  const double h_kmax = std::abs(kmax_value) * fit_step;
+  double h_kmax = std::abs(kmax_value) * fit_step;
   std::vector<double> uptake_up(n_layer), uptake_dn(n_layer);
   double profit_up = 0.0, profit_dn = 0.0, m_kmax_up = 0.0, m_kmax_dn = 0.0;
-  for (int side = 0; side < 2; ++side) {
-    seat_at(radiation_value, psi_value,
-            kmax_value + (side == 0 ? h_kmax : -h_kmax));
-    (side == 0 ? profit_up : profit_dn) = leaf.profit_;
-    (side == 0 ? m_kmax_up : m_kmax_dn) =
-        leaf.dprofit_droot_collar_psi(collar);
-    for (size_t i = 0; i < n_layer; ++i) {
-      (side == 0 ? uptake_up : uptake_dn)[i] = leaf.soil_consumption_[i];
+  // Reduced until both arms are inside the feasible interval, on the same terms
+  // and for the same reason as the leaf traits below: the conductance moves the
+  // dry bound, so near it a step chosen for conditioning can step across.
+  while (true) {
+    bool inside = true;
+    for (int side = 0; side < 2 && inside; ++side) {
+      if (!try_seat_at(radiation_value, psi_value,
+                       kmax_value + (side == 0 ? h_kmax : -h_kmax))) {
+        inside = false;
+        break;
+      }
+      (side == 0 ? profit_up : profit_dn) = leaf.profit_;
+      if (!pinned) {
+        (side == 0 ? m_kmax_up : m_kmax_dn) =
+            leaf.dprofit_droot_collar_psi(collar);
+      }
+      for (size_t i = 0; i < n_layer; ++i) {
+        (side == 0 ? uptake_up : uptake_dn)[i] = leaf.soil_consumption_[i];
+      }
+    }
+    if (inside) {
+      break;
+    }
+    h_kmax *= 0.1;
+    if (h_kmax < std::abs(kmax_value) * fit_step * 1e-2) {
+      throw crossed("the maximum conductance");
     }
   }
-  seat_at(radiation_value, psi_value, kmax_value);
+  seat_at(radiation_value, psi_value, kmax_value, "the maximum conductance");
+  // At a pin these two arms followed the bound, so they are already the total and
+  // the collar's own term is zero rather than small. At an interior optimum they
+  // are the frozen-collar partial and the term below carries the argmax.
   const double dprofit_dkmax = (profit_up - profit_dn) / (2.0 * h_kmax);
-  const double dR_dkmax = (m_kmax_up - m_kmax_dn) / (2.0 * h_kmax);
+  const double dR_dkmax =
+      pinned ? 0.0 : (m_kmax_up - m_kmax_dn) / (2.0 * h_kmax);
   if (!util::is_finite(dprofit_dkmax) || !util::is_finite(dR_dkmax)) {
     throw gradient_refusal("TF24 gradient: the leaf's response to its maximum conductance "
                "is not finite, so the stem channel has nothing to stand on");
@@ -1178,10 +1276,22 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       // held row carries the same conversion the collar's does.
       dE_drc_held[i][k] = to_mol_flux * dE_drc[i][k];
     }
-    dresidual_drc[k] = a * dEup_drc[k] + b * d2Eup_drc[k];
+    // Read analytically on both branches, so this is the one carbon family that
+    // takes the bound's row rather than following it in its own arms: at a pin the
+    // layer's carbon moves the operating point by moving the bound, and that row
+    // is refereed against a rebuilt network either side.
+    dresidual_drc[k] = pinned ? bound_row.d_droot_carbon[k]
+                              : a * dEup_drc[k] + b * d2Eup_drc[k];
     // At a held collar profit sees the carbon only through total uptake and
-    // thence the stem potential, and that chain is the second coefficient.
+    // thence the stem potential, and that chain is the second coefficient. At a
+    // pin the collar is not held -- it rides the bound -- so the row picks the
+    // movement back up at the marginal profit's price. Every other family gets
+    // this term from following the bound in its own arms; carbon is the one read
+    // analytically, so it is the one that has to add it.
     dprofit_drc[k] = b * dEup_drc[k];
+    if (pinned) {
+      dprofit_drc[k] += marginal * bound_row.d_droot_carbon[k];
+    }
   }
 
   // The leaf's own traits. It holds them, so the route to most of their rows is
@@ -1193,26 +1303,33 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // off where the rebuild's is 2e-06: the grid is a function of the trait, so a
   // held grid differentiates a different model.
   // One entry per trait the leaf holds: the value it is seated at, the active
-  // input its rows are recorded against, whether its rows have to be driven, and
-  // the two rows themselves. These were five lists keyed by position -- values,
-  // addresses, two reasons for not driving, and the rows -- and a trait inserted
-  // into one of them and not the rest paired every later trait's value with
-  // another's address.
+  // input its rows are recorded against, the name a refusal reports it by, the
+  // two reasons a trait is not driven, and the two rows themselves. These were
+  // six lists keyed by position -- values, addresses, names, two masks and the
+  // rows -- and a trait inserted into one of them and not the rest paired every
+  // later trait's value with another's address.
   struct leaf_trait {
     double value;
     const S* input;
-    bool driven;
+    const char* name;
+    // Zero at an interior optimum by complementary slackness, and LIVE at a pin,
+    // so whether this one is driven is a property of the branch rather than of
+    // the trait.
+    bool zero_at_interior;
+    // Answered analytically below, so driving it would pay two evaluations for a
+    // row already in hand.
+    bool closed_form;
     double dprofit = 0.0;
     double dresidual = 0.0;
   };
-  // Which are driven by moving the trait and re-solving. Ten are not, for two
-  // different reasons.
+  // Which are driven by moving the trait and re-solving. Ten are not, for the two
+  // different reasons the flags above name.
   //
-  // psi_crit and root_psi_crit set the dry bound of an interval the operating
-  // point is strictly inside, so complementary slackness makes their rows zero
-  // at an interior optimum -- which is the only kind of point this boundary
-  // answers for. They are live at a pin, so a branch that begins answering
-  // pinned points has to drive them again rather than read this list.
+  // psi_crit and root_psi_crit set the dry bound of an interval an INTERIOR
+  // operating point is strictly inside, so complementary slackness makes their
+  // rows zero there. A pinned point sits ON that bound, where they are live, so
+  // the loop below reads that flag against the branch rather than as a list of
+  // traits that are never driven.
   //
   // Eight more the leaf answers for directly. beta2 and the cost scale reach
   // profit through the hydraulic cost and nothing else; the other six reach it
@@ -1221,24 +1338,27 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // held-collar uptake row for the same reason: at a fixed collar a
   // carbon-side trait moves no water.
   //
-  // What is left driven is the four vulnerability-curve traits, which have no
-  // analytic route at all -- their grid is a function of the trait and the
-  // forward model rebuilds it.
+  // What is left driven on every branch is the four vulnerability-curve traits,
+  // which have no analytic route at all -- their grid is a function of the trait
+  // and the forward model rebuilds it.
   leaf_trait lt[] = {
-      {to_passive(pars.vcmax_25), &pars.vcmax_25, false},
-      {to_passive(pars.c), &pars.c, true},
-      {to_passive(pars.b), &pars.b, true},
-      {to_passive(pars.psi_crit), &pars.psi_crit, false},
-      {to_passive(pars.root_c), &pars.root_c, true},
-      {to_passive(pars.root_b), &pars.root_b, true},
-      {to_passive(pars.root_psi_crit), &pars.root_psi_crit, false},
-      {to_passive(pars.beta2), &pars.beta2, false},
-      {to_passive(pars.jmax_25), &pars.jmax_25, false},
-      {to_passive(pars.a), &pars.a, false},
-      {to_passive(pars.curv_fact_elec_trans), &pars.curv_fact_elec_trans, false},
-      {to_passive(pars.curv_fact_colim), &pars.curv_fact_colim, false},
-      {to_passive(pars.g1_TF24), &pars.g1_TF24, false},
-      {to_passive(pars.R_d_25), &pars.R_d_25, false}};
+      {to_passive(pars.vcmax_25), &pars.vcmax_25, "vcmax_25", false, true},
+      {to_passive(pars.c), &pars.c, "stem_c", false, false},
+      {to_passive(pars.b), &pars.b, "stem_b", false, false},
+      {to_passive(pars.psi_crit), &pars.psi_crit, "psi_crit", true, false},
+      {to_passive(pars.root_c), &pars.root_c, "root_c", false, false},
+      {to_passive(pars.root_b), &pars.root_b, "root_b", false, false},
+      {to_passive(pars.root_psi_crit), &pars.root_psi_crit, "root_psi_crit",
+       true, false},
+      {to_passive(pars.beta2), &pars.beta2, "beta2", false, true},
+      {to_passive(pars.jmax_25), &pars.jmax_25, "jmax_25", false, true},
+      {to_passive(pars.a), &pars.a, "a", false, true},
+      {to_passive(pars.curv_fact_elec_trans), &pars.curv_fact_elec_trans,
+       "curv_fact_elec_trans", false, true},
+      {to_passive(pars.curv_fact_colim), &pars.curv_fact_colim,
+       "curv_fact_colim", false, true},
+      {to_passive(pars.g1_TF24), &pars.g1_TF24, "g1_TF24", false, true},
+      {to_passive(pars.R_d_25), &pars.R_d_25, "R_d_25", false, true}};
   const int n_leaf_trait = static_cast<int>(sizeof(lt) / sizeof(lt[0]));
 
   // The setter takes them by position, so the order above is its argument list
@@ -1252,38 +1372,75 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   std::vector<std::vector<double>> dE_dlt_held(
       n_layer, std::vector<double>(n_leaf_trait, 0.0));
   for (int k = 0; k < n_leaf_trait; ++k) {
-    if (!lt[k].driven) {
+    // Which traits are driven is a function of the branch rather than a constant.
+    // The two critical potentials set the dry bound of an interval the interior
+    // optimum is strictly inside, so complementary slackness makes their rows zero
+    // there -- and a pinned point sits ON that bound, where they are live. Driving
+    // them is how they are answered for: at a pin the arms follow the bound, so
+    // the same two evaluations that give every other trait its row give theirs.
+    if (lt[k].closed_form || (lt[k].zero_at_interior && !pinned)) {
       continue;
     }
     const double base_t = lt[k].value;
-    const double h_t = std::max(std::abs(base_t), 1.0) * fit_step;
+    const double scale_t = std::max(std::abs(base_t), 1.0);
+    double h_t = scale_t * fit_step;
     double p_up = 0.0, p_dn = 0.0, m_up = 0.0, m_dn = 0.0;
     std::vector<double> u_up(n_layer), u_dn(n_layer);
-    for (int side = 0; side < 2; ++side) {
-      lt[k].value = base_t + (side == 0 ? h_t : -h_t);
-      apply_leaf_traits();
-      seat_at(radiation_value, psi_value, kmax_value);
-      (side == 0 ? p_up : p_dn) = leaf.profit_;
-      (side == 0 ? m_up : m_dn) = leaf.dprofit_droot_collar_psi(collar);
-      for (size_t i = 0; i < n_layer; ++i) {
-        (side == 0 ? u_up : u_dn)[i] = leaf.soil_consumption_[i];
+    // An arm that leaves the feasible interval is not a coarser reading of the
+    // same derivative -- it is a different branch -- so the step is reduced until
+    // both arms are inside it. At an INTERIOR point the margin is strictly
+    // positive and the bound's movement is proportional to the step, so a small
+    // enough step always exists; at a pin the margin is zero and no step helps,
+    // which is why the arms follow the bound there instead.
+    //
+    // Two decades of room and no more: 1e-3 is the largest step that is still
+    // local and 1e-6 is where a step stops moving total uptake above the solve's
+    // own floor, so a difference taken below the floor here would be measuring
+    // rounding rather than the model.
+    while (true) {
+      bool inside = true;
+      for (int side = 0; side < 2 && inside; ++side) {
+        lt[k].value = base_t + (side == 0 ? h_t : -h_t);
+        apply_leaf_traits();
+        if (!try_seat_at(radiation_value, psi_value, kmax_value)) {
+          inside = false;
+          break;
+        }
+        (side == 0 ? p_up : p_dn) = leaf.profit_;
+        if (!pinned) {
+          (side == 0 ? m_up : m_dn) = leaf.dprofit_droot_collar_psi(collar);
+        }
+        for (size_t i = 0; i < n_layer; ++i) {
+          (side == 0 ? u_up : u_dn)[i] = leaf.soil_consumption_[i];
+        }
+      }
+      if (inside) {
+        break;
+      }
+      h_t *= 0.1;
+      if (h_t < scale_t * fit_step * 1e-2) {
+        lt[k].value = base_t;
+        apply_leaf_traits();
+        throw crossed(lt[k].name);
       }
     }
     lt[k].value = base_t;
     lt[k].dprofit = (p_up - p_dn) / (2.0 * h_t);
-    const double dR_dlt = (m_up - m_dn) / (2.0 * h_t);
-    if (!util::is_finite(lt[k].dprofit) || !util::is_finite(dR_dlt)) {
+    // At a pin the arms above followed the bound, so the profit row is already the
+    // TOTAL and the operating point takes no further row from this trait: the zero
+    // is what keeps the collar's own term from counting the same movement twice.
+    lt[k].dresidual = pinned ? 0.0 : (m_up - m_dn) / (2.0 * h_t);
+    if (!util::is_finite(lt[k].dprofit) || !util::is_finite(lt[k].dresidual)) {
       throw gradient_refusal("TF24 gradient: leaf trait " + util::to_string(k) +
                  " moves the leaf by an amount that is not finite");
     }
-    lt[k].dresidual = dR_dlt;
     for (size_t i = 0; i < n_layer; ++i) {
       dE_dlt_held[i][k] = (u_up[i] - u_dn[i]) / (2.0 * h_t);
     }
   }
   // Put the leaf back to the traits the value came from.
   apply_leaf_traits();
-  seat_at(radiation_value, psi_value, kmax_value);
+  seat_at(radiation_value, psi_value, kmax_value, "the traits it came with");
 
   // The eight the leaf answers for directly, read once at that operating point.
   {
@@ -1298,8 +1455,13 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     }
     lt[k_beta2].dprofit = rows.dprofit_dbeta2;
     lt[k_cost_scale].dprofit = rows.dprofit_dcost_scale;
-    lt[k_beta2].dresidual = rows.dmarginal_dbeta2;
-    lt[k_cost_scale].dresidual = rows.dmarginal_dcost_scale;
+    // Neither bound reads a carbon-side trait -- the wet one is total uptake, the
+    // dry one adds the stem curve at psi_crit -- so at a pin these eight move the
+    // operating point not at all, and the zero is structural rather than small.
+    // Their profit rows are held-collar partials, which is what the total already
+    // is when the point does not move.
+    lt[k_beta2].dresidual = pinned ? 0.0 : rows.dmarginal_dbeta2;
+    lt[k_cost_scale].dresidual = pinned ? 0.0 : rows.dmarginal_dcost_scale;
 
     const int k_vcmax = 0, k_jmax = 8, k_a = 9, k_curv_elec = 10,
               k_curv_colim = 11, k_R_d = 13;
@@ -1322,12 +1484,13 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     lt[k_vcmax].dprofit = photo.dprofit_dvcmax_25;
     lt[k_jmax].dprofit = photo.dprofit_djmax_25;
     lt[k_R_d].dprofit = photo.dprofit_dR_d_25;
-    lt[k_a].dresidual = photo.dmarginal_da;
-    lt[k_curv_elec].dresidual = photo.dmarginal_dcurv_elec;
-    lt[k_curv_colim].dresidual = photo.dmarginal_dcurv_colim;
-    lt[k_vcmax].dresidual = photo.dmarginal_dvcmax_25;
-    lt[k_jmax].dresidual = photo.dmarginal_djmax_25;
-    lt[k_R_d].dresidual = photo.dmarginal_dR_d_25;
+    // Zero at a pin for the reason the two cost traits are.
+    lt[k_a].dresidual = pinned ? 0.0 : photo.dmarginal_da;
+    lt[k_curv_elec].dresidual = pinned ? 0.0 : photo.dmarginal_dcurv_elec;
+    lt[k_curv_colim].dresidual = pinned ? 0.0 : photo.dmarginal_dcurv_colim;
+    lt[k_vcmax].dresidual = pinned ? 0.0 : photo.dmarginal_dvcmax_25;
+    lt[k_jmax].dresidual = pinned ? 0.0 : photo.dmarginal_djmax_25;
+    lt[k_R_d].dresidual = pinned ? 0.0 : photo.dmarginal_dR_d_25;
   }
 
   // Profit records against its inputs and not against the collar below: its
@@ -1349,16 +1512,23 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
 
   // Radiation's route into the marginal profit, which is its only route into the
   // water: dE_i/d(radiation) at a held collar is exactly zero.
-  const double dR_dlight =
-      (marginal_at(radiation_value * (1.0 + 1e-6), psi_value) -
-       marginal_at(radiation_value * (1.0 - 1e-6), psi_value)) /
-      (2.0 * radiation_value * 1e-6);
-  drive(radiation_value, psi_value, kmax_value);
-  leaf.evaluate_root_collar_psi(collar);
-  if (!util::is_finite(dR_dlight)) {
-    throw gradient_refusal("TF24 gradient: the marginal profit's response to radiation is "
-               "not finite, so the collar's light response has nothing to "
-               "stand on");
+  //
+  // Neither bound reads radiation, so at a pin the light moves the operating point
+  // by exactly zero -- and the two probes that would measure it are not taken at
+  // all, which is also what keeps a pinned point off a light channel it has no use
+  // for.
+  double dR_dlight = 0.0;
+  if (!pinned) {
+    dR_dlight = (marginal_at(radiation_value * (1.0 + 1e-6), psi_value) -
+                 marginal_at(radiation_value * (1.0 - 1e-6), psi_value)) /
+                (2.0 * radiation_value * 1e-6);
+    drive(radiation_value, psi_value, kmax_value);
+    leaf.evaluate_root_collar_psi(collar);
+    if (!util::is_finite(dR_dlight)) {
+      throw gradient_refusal("TF24 gradient: the marginal profit's response to radiation is "
+                 "not finite, so the collar's light response has nothing to "
+                 "stand on");
+    }
   }
 
   // The collar the solve left, carrying every input's route into it. Each uptake
@@ -1374,11 +1544,14 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     against.push_back({*lt[k].input, lt[k].dresidual});
   }
   for (size_t j = 0; j < n_layer; ++j) {
+    // The layer's route to the operating point: through the stationarity
+    // condition inside the interval, through the bound's own position on it.
     against.push_back(
-        {psi_soil[j], a * dEup_dpsi[j] + b * d2Eup_dcollar_dpsi[j]});
+        {psi_soil[j], pinned ? bound_row.d_dpsi_soil[j]
+                             : a * dEup_dpsi[j] + b * d2Eup_dcollar_dpsi[j]});
   }
   const S recorded_collar =
-      odelia::implicit_root<S>(collar, curvature, against);
+      odelia::implicit_root<S>(collar, residual_slope, against);
 
   leaf_soil_consumption_.assign(psi_soil.size(), S(0.0));
   // The value below is soil_consumption_, in mol; every partial above it is
