@@ -273,6 +273,12 @@ public:
   // rate chain and a rate evaluation in double would repeat all of it.
   template <typename It> It set_ode_state_and_field(It it, double time);
 
+  // Where the stage transpose is taken from, which here is the state and the
+  // time and no field: ode_rates_adjoint records the field at an active scalar
+  // inside its own recording, so one built here in double is computed and thrown
+  // away. Every other loader below wants the field and says so.
+  template <typename It> It set_ode_state_for_adjoint(It it, double time);
+
   // A recorded state loaded as the run itself carries it. set_ode_state_and_field
   // evaluates the inflow condition in the field that leaves the boundary interval
   // off, then rebuilds the field including it; the run then rates the nodes and
@@ -1308,7 +1314,7 @@ double Patch<T,E>::ode_time() const {
 // First set_ode_state function is for resident runs. Second is for mutant runs
 template <typename T, typename E>
 template <typename It>
-It Patch<T,E>::set_ode_state_and_field(It it, double time) {
+It Patch<T,E>::set_ode_state_for_adjoint(It it, double time) {
 
   // Set ode states
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
@@ -1321,6 +1327,14 @@ It Patch<T,E>::set_ode_state_and_field(It it, double time) {
   // environment state) before it feeds into competition, resource uptake, or
   // physiology below and surfaces as an opaque downstream error (issue #550).
   check_finite_ode_state();
+
+  return it;
+}
+
+template <typename T, typename E>
+template <typename It>
+It Patch<T,E>::set_ode_state_and_field(It it, double time) {
+  it = set_ode_state_for_adjoint(it, time);
 
   // Pre-compute environment, as shaped by residents
   compute_environment(true);
