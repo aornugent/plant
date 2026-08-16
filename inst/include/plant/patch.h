@@ -81,6 +81,15 @@ public:
             class E2 = typename at_scalar<U>::template apply<E>>
   Patch<T2,E2> rebind_from() const;
 
+  // The value half of rebind_from, written into a patch that already exists: the
+  // strategies, the environment, the node structure and its birth stamps, by the
+  // same calls in the same order, so what is left is what a rebind would have
+  // returned. A twin holding what a recording wrote carries that recording's tape
+  // slots into the next one, and the sweep comes back wrong with nothing raised,
+  // so a twin is seated before every recording rather than once per step.
+  template <typename T1, typename E1>
+  void seat_from(const Patch<T1,E1>& src);
+
   // Every scalar's Patch is one class, so a rebind reaches the rebound patch's
   // members.
   template <typename, typename> friend class Patch;
@@ -201,10 +210,15 @@ public:
   // block recording -- runs once; only the seeding, the sweeps and the linear
   // maps run per metric. That is report 05's record-once-sweep-many, and here
   // the record is 99 per cent of the call.
+  //
+  // `twin` is this patch at the adjoint scalar, owned by the caller across the
+  // stages of a sweep and seated from this patch here, before the recording.
+  template <class Twin>
   void ode_rates_adjoint_batched(
       const std::vector<std::vector<double>>& lambda_dydt,
       std::vector<std::vector<double>>& lambda_y,
-      std::vector<std::vector<double>>& parameter_adjoint);
+      std::vector<std::vector<double>>& parameter_adjoint,
+      Twin& twin);
 
   size_t node_count() const;
 
@@ -538,6 +552,42 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
   // computing them here solves the boundary leaf twice per right-hand side and
   // then discards it. A caller that reads before setting gets an unbuilt field.
   return out;
+}
+
+template <typename T, typename E>
+template <typename T1, typename E1>
+void Patch<T,E>::seat_from(const Patch<T1,E1>& src) {
+  using U = value_type;
+  if (species.size() != src.species.size()) {
+    util::stop("seat_from: this patch runs a different number of species from "
+               "the one it is seated from");
+  }
+
+  environment = src.environment.template rebind_from<U>();
+  environment.set_shading_model(control.shading_model,
+                                control.ppa_layer_optical_depth,
+                                control.ppa_layer_smoothing);
+
+  for (size_t i = 0; i < species.size(); ++i) {
+    *species[i].strategy_ptr() =
+      src.species[i].strategy_ptr()->template rebind_from<U>();
+    // Back to the state reset() leaves a species in, so the nodes pushed below
+    // are the same copies of the same boundary node a rebind pushes.
+    species[i].clear();
+    species[i].resize_consumption_rates(environment.n_resources());
+    for (size_t j = 0; j < src.species[i].size(); ++j) {
+      species[i].introduce_new_node();
+    }
+    species[i].set_birth_state(src.species[i].node_times(),
+                               src.species[i].r_patch_densities(),
+                               src.species[i].r_pr_patch_survival_at_birth());
+  }
+
+  std::vector<U> node_state(src.node_ode_size());
+  odelia::ode::ode_state(src.species.begin(), src.species.end(),
+                         node_state.begin());
+  odelia::ode::set_ode_state(species.begin(), species.end(),
+                             node_state.begin());
 }
 
 template <typename T, typename E>
@@ -1608,12 +1658,13 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
 
 
 template <typename T, typename E>
+template <class Twin>
 void Patch<T,E>::ode_rates_adjoint_batched(
     const std::vector<std::vector<double>>& lambda_dydt,
     std::vector<std::vector<double>>& lambda_y,
-    std::vector<std::vector<double>>& parameter_adjoint) {
+    std::vector<std::vector<double>>& parameter_adjoint,
+    Twin& active) {
   using scalar = odelia::ode::active_scalar<double>;
-  using active_strategy = typename at_scalar<scalar>::template apply<T>;
   const size_t n_state = ode_size();
   const size_t n_seed = lambda_dydt.size();
   if (n_seed == 0) {
@@ -1629,9 +1680,8 @@ void Patch<T,E>::ode_rates_adjoint_batched(
     state[j] = odelia::util::to_passive(current[j]);
   }
 
-  // Built with no tape active, so it holds no slot the recording could alias.
-  Patch<active_strategy, typename at_scalar<scalar>::template apply<E>> active =
-    this->template rebind_from<scalar>();
+  // Seated with no tape active, so it holds no slot the recording could alias.
+  active.seat_from(*this);
 
   const double time_ = environment.time;
   // The stage, recorded whole. Everything between the state and the rates is an
@@ -1677,7 +1727,10 @@ ItOut Patch<T,E>::ode_rates_adjoint(ItIn lambda_dydt, ItOut lambda_y,
   }
   std::vector<std::vector<double>> rows(1, std::move(parameter_adjoint));
   std::vector<std::vector<double>> out;
-  ode_rates_adjoint_batched(lambda_in, out, rows);
+  // One call, so the twin is this call's; a sweep hands the same one to every
+  // stage instead.
+  auto twin = this->template rebind_from<odelia::ode::active_scalar<double>>();
+  ode_rates_adjoint_batched(lambda_in, out, rows, twin);
   parameter_adjoint = std::move(rows[0]);
   for (size_t i = 0; i < n; ++i) {
     *lambda_y++ = out[0][i];
