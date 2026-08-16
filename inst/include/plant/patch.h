@@ -525,8 +525,10 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
                              node_state.begin());
 
   // reset() in the constructor cleared the environment back to its initial
-  // soil state, so restore the current one before the spline is rebuilt.
-  out.environment = env;
+  // soil state, so restore the current one before the spline is rebuilt. Moved,
+  // not copied: this is the last read of env, and the object carries the light
+  // spline and a vector per soil layer.
+  out.environment = std::move(env);
   out.environment.set_shading_model(control.shading_model,
                                     control.ppa_layer_optical_depth,
                                     control.ppa_layer_smoothing);
