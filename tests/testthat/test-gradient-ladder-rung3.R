@@ -571,8 +571,8 @@ test_that("the recording does not grow with the stand", {
   b <- ladder_rhs_adjoint_tf24(four, seed_four)
   per_unit <- (b$block_recording_size - a$block_recording_size) / 3
   message(sprintf(
-    "\n  stage recording: %.0f at 1 cohort, %.0f at 4, %.0f per unit, %d sweep(s)",
-    a$block_recording_size, b$block_recording_size, per_unit, b$block_sweeps))
+    "\n  stage recording: %.0f at 1 cohort, %.0f at 4, %.0f per unit",
+    a$block_recording_size, b$block_recording_size, per_unit))
 
   # The stage is recorded whole, so peak holds every unit at once and the size is
   # linear in the unit count. That is the commitment report 01 traded away: it
@@ -585,8 +585,4 @@ test_that("the recording does not grow with the stand", {
   # for every unit. A recording that lost that would land at four times the one.
   expect_gt(per_unit, 0)
   expect_lt(b$block_recording_size, 4 * a$block_recording_size)
-
-  # One recording, swept once per census metric. Not one per unit, and not one
-  # per metric per unit.
-  expect_equal(b$block_sweeps, 1)
 })

@@ -85,35 +85,29 @@ test_that("the boundary's own term enters once per stage of every step", {
     got <- ladder_boundary_evaluations_tf24(stand)
     list(steps = length(trajectory) - 1L,
          introductions = sum(diff(widths) != 0),
-         metrics = got$metrics, asked = got$asked, carried = got$carried)
+         metrics = got$metrics, evaluations = got$evaluations)
   }
 
   short <- measure(0.4)
   long <- measure(0.8)
   for (m in list(short, long)) {
     message(sprintf(
-      "  %3d steps, %d introduction(s), %d metrics: asked %.0f, carried %.0f",
-      m$steps, m$introductions, m$metrics, m$asked, m$carried))
+      "  %3d steps, %d introduction(s), %d metrics: %.0f evaluations",
+      m$steps, m$introductions, m$metrics, m$evaluations))
     expect_gt(m$steps, 1L)
     expect_gt(m$metrics, 1L)
 
     # Once per stage, per step, per metric. A boundary term moved to act once per
     # introduction instead would collapse this from hundreds to a handful, and a
     # term applied once per step rather than once per stage would divide it by six.
-    expect_equal(m$asked, stages * m$steps * m$metrics)
-
-    # And every call carries, because this recording answers for the field as
-    # well as for the inflow condition and the field is seeded at every stage.
-    # It used to skip once per introduction per metric, which was the one moment
-    # no boundary adjoint had accumulated yet; the knots are seeded then too, so
-    # the early return now needs a sweep seeded on nothing at all.
-    expect_equal(m$asked, m$carried)
+    expect_equal(m$evaluations, stages * m$steps * m$metrics)
   }
 
   # Non-vacuity: the count has to be a count. A constant would satisfy every
   # equality above on one fixture and say nothing.
   expect_gt(long$steps, short$steps)
-  expect_gt(long$asked, short$asked)
+  expect_gt(long$evaluations, short$evaluations)
   message(sprintf("  the count tracks the step count: %.0f over %d steps against %.0f over %d",
-                  short$asked, short$steps, long$asked, long$steps))
+                  short$evaluations, short$steps, long$evaluations,
+                  long$steps))
 })

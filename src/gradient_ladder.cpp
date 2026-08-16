@@ -39,6 +39,38 @@ using tangent_environment = environment_type::rebind<tangent>;
 using tangent_individual = plant::Individual<tangent_strategy,
                                              tangent_environment>;
 
+using adjoint = odelia::ode::active_scalar<double>;
+using adjoint_patch = plant::Patch<strategy_type::rebind<adjoint>,
+                                   environment_type::rebind<adjoint>>;
+
+// One right-hand-side transpose, taken by the call the sweep takes: odelia seats
+// the twin, records derivs() and sweeps the recording per seed. Returns the
+// recording's size. The twin and the tape are the caller's, as they are the
+// solver's in a sweep, so a caller repeating the call pays for neither twice.
+size_t rhs_adjoint(patch_type& patch, adjoint_patch& twin,
+                   odelia::ode::scratch_tape& tape,
+                   const std::vector<double>& lambda_dydt,
+                   std::vector<double>& lambda_state,
+                   std::vector<double>& trait_adjoint) {
+  const size_t n = patch.ode_size();
+  plant::util::check_length(lambda_dydt.size(), n);
+  std::vector<double> state(n);
+  patch.ode_state(state.begin());
+
+  const std::vector<std::vector<double>> seeds(1, lambda_dydt);
+  std::vector<std::vector<double>> swept;
+  std::vector<std::vector<double>> rows(
+    1, std::vector<double>(patch.trait_adjoint_size(), 0.0));
+  // No recorded stage: a patch reached from R stands where its state put it,
+  // which is what the first evaluation of a step is taken at.
+  const size_t recording = odelia::ode::rates_adjoint(
+    tape.get(), patch, twin, state, patch.time(), -1, seeds, swept,
+    rows);
+  lambda_state = std::move(swept[0]);
+  trait_adjoint = std::move(rows[0]);
+  return recording;
+}
+
 // Which species and which of its nodes a flat node index names, in the order
 // the block loop and the state vector both visit them.
 struct node_address { size_t species; size_t node; };
@@ -402,19 +434,18 @@ Rcpp::NumericMatrix ladder_rhs_trait_jacobian_forward_tf24(plant::RcppR6::RcppR6
 Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                    std::vector<double> lambda_dydt) {
   patch_type& patch = *obj_;
-  plant::util::check_length(lambda_dydt.size(), patch.ode_size());
-  std::vector<double> lambda_y(patch.ode_size(), 0.0);
-  std::vector<double> trait_adjoint;
-  patch.ode_rates_adjoint(lambda_dydt.begin(), lambda_y.begin(), trait_adjoint);
+  adjoint_patch twin = patch.rebind_from<adjoint>();
+  odelia::ode::scratch_tape tape;
+  std::vector<double> lambda_y, trait_adjoint;
+  const size_t recording =
+    rhs_adjoint(patch, twin, tape, lambda_dydt, lambda_y, trait_adjoint);
   // The knot halves are gone with the reduction transposes that produced them:
   // the field's rows are an intermediate of the stage recording now, so they are
   // in the state and trait rows rather than beside them.
   return Rcpp::List::create(Rcpp::_["state"] = lambda_y,
                             Rcpp::_["trait"] = trait_adjoint,
                             Rcpp::_["block_recording_size"] =
-                              static_cast<double>(patch.block_recording_size),
-                            Rcpp::_["block_sweeps"] =
-                              static_cast<double>(patch.block_sweeps));
+                              static_cast<double>(recording));
 }
 
 // The trajectory reference: one exact directional derivative of the census by a
@@ -561,17 +592,17 @@ std::vector<double> ladder_census_initial_state_replay_tf24(plant::RcppR6::RcppR
 // multiplied by is a different failure from a wrong row, and neither a forward
 // tangent nor a sweep can see it, because both apply the same multiplier.
 //
-// `asked` counts every call and `carried` the calls that recorded something; they
-// differ exactly on the sweeps where no boundary adjoint was seeded.
+// The condition sits inside the stage recording, so the count is the solver's
+// count of stage transposes: every one records it and every sweep of one carries
+// its row.
 // [[Rcpp::export]]
 Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   obj_->clear_boundary_condition_evaluations();
   const std::vector<std::vector<double>> gradient =
     obj_->census_trait_gradient<plant::tf24_census>();
-  const std::vector<size_t> counts = obj_->boundary_condition_evaluations();
   return Rcpp::List::create(
-    Rcpp::_["asked"] = static_cast<double>(counts[0]),
-    Rcpp::_["carried"] = static_cast<double>(counts[1]),
+    Rcpp::_["evaluations"] =
+      static_cast<double>(obj_->boundary_condition_evaluations()),
     Rcpp::_["metrics"] = static_cast<int>(gradient.size()));
 }
 
@@ -862,28 +893,24 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
   using clock = std::chrono::steady_clock;
   patch_type& patch = *obj_;
   plant::util::check_length(lambda_dydt.size(), patch.ode_size());
+  adjoint_patch twin = patch.rebind_from<adjoint>();
+  odelia::ode::scratch_tape tape;
 
-  const size_t n = patch.ode_size();
   double t_env = 0, t_total = 0;
-  double slots = 0, sweeps = 0;
+  double slots = 0;
 
   for (int rep = 0; rep < reps; ++rep) {
-    std::vector<double> lambda_state(n, 0.0);
-
     auto t0 = clock::now();
     patch.r_compute_environment();
     auto t1 = clock::now();
     t_env += std::chrono::duration<double>(t1 - t0).count();
 
     t0 = clock::now();
-    std::vector<double> trait_adjoint;
-    patch.ode_rates_adjoint(lambda_dydt.begin(), lambda_state.begin(),
-                            trait_adjoint);
+    std::vector<double> lambda_state, trait_adjoint;
+    slots = static_cast<double>(
+      rhs_adjoint(patch, twin, tape, lambda_dydt, lambda_state, trait_adjoint));
     t1 = clock::now();
     t_total += std::chrono::duration<double>(t1 - t0).count();
-
-    slots = static_cast<double>(patch.block_recording_size);
-    sweeps = static_cast<double>(patch.block_sweeps);
   }
 
   const double r = static_cast<double>(reps);
@@ -891,8 +918,7 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
     Rcpp::_["compute_environment"] = t_env / r,
     Rcpp::_["ode_rates_adjoint"] = t_total / r,
     Rcpp::_["total"] = t_total / r,
-    Rcpp::_["block_recording_size"] = slots,
-    Rcpp::_["block_sweeps"] = sweeps);
+    Rcpp::_["block_recording_size"] = slots);
 }
 
 // What one recorded block pays before it records anything.
