@@ -108,15 +108,26 @@ public:
   std::vector<std::vector<double>> refinement_error_by_node() const;
 
   void introduce_new_node(size_t species_index);
-  void introduce_new_nodes(const std::vector<size_t>& species_index);
-  // The mirror of introduce_new_nodes: drop each species' newest node and
-  // rebuild the field and the rates at the narrower width.
-  void remove_new_nodes(const std::vector<size_t>& species_index);
 
-  // The species whose newest node was introduced at `time`, in species order.
-  // Read off the nodes' own birth times, which is what the run did; the schedule
-  // is what it was asked to do, and it is consumed by the time a sweep runs.
-  std::vector<size_t> nodes_introduced_at(double time) const;
+  // One entry per species gaining a node. This is what the solver carries back to
+  // the patch when it walks a recording it widened, and it never reads it.
+  using widening = std::vector<size_t>;
+
+  // Widen the state by one node per species named, and bring what the width
+  // changed up to date: the field, and the rates that describe neither once it
+  // moves. narrow() is the exact inverse, dropping each species' NEWEST node --
+  // so a sequence of widenings must be undone in reverse, which nothing in the
+  // signature can say and only a round trip can check.
+  void widen(const widening& species_index);
+  void narrow(const widening& species_index);
+
+  // The widening as a map: the state before it in, the whole widened state out,
+  // and nothing rebuilt. This is the one the sweep transposes, so it runs at
+  // whatever scalar it is called on and loads the state itself rather than
+  // asking the caller to. It leaves this patch holding what it added.
+  template <typename It>
+  void widened_state(const widening& species_index, double time, It x,
+                     std::vector<value_type>& y);
 
   // Open to better ways to test whether nodes have been introduced
   int node_ode_size() const {
@@ -207,27 +218,7 @@ public:
   size_t block_recording_size = 0;
   size_t block_sweeps = 0;
 
-  // Carry lambda back across a node introduction. Called with this patch already
-  // narrowed to the width `state_before` has, so it records the inflow boundary
-  // condition n_b = birth_rate * pr_estab / g in the field `state_before`
-  // builds, and reads the newcomers' rows of `lambda_after` back into
-  // `lambda_before` and into trait_adjoint.
-  //
-  // The newcomers' rows must be contracted here and never dropped: pr_estab and
-  // g are a full rate evaluation at the seed size, so they carry every trait the
-  // seedling's physiology reads and every other cohort's state through the
-  // field. Dropping them narrows the width just as well and returns a gradient
-  // that is finite, correctly signed and wrong.
-  // One seed per census metric, carried together: every metric crosses the same
-  // introduction, so the map is recorded once and swept once per metric, and
-  // row m of trait_adjoint takes metric m's newcomer rows.
-  void introduction_adjoint(const std::vector<size_t>& species_index,
-                            const std::vector<double>& state_before,
-                            double time_before,
-                            const std::vector<std::vector<double>>& lambda_after,
-                            std::vector<std::vector<double>>& lambda_before);
-
-  // That map's whole Jacobian, by forward tangent: one row per widened state entry
+  // The widening map's whole Jacobian, by forward tangent: one row per widened state entry
   // and one column per input, the state's entries first and the traits after.
   // Forming it entirely is what localises a disagreement to a cell, which a
   // contraction against the transpose cannot do.
@@ -329,23 +320,6 @@ public:
   void overwrite_strategies(std::vector<strategy_type> strategies);
 
 private:
-  // The introduction as a map: the pre-introduction state in, the whole widened
-  // state out, with the traits already written onto `active`. introduction_adjoint
-  // records it and introduction_jacobian evaluates it at a tangent, so the
-  // transpose and its reference differentiate one function rather than two
-  // spellings of one.
-  //
-  // It reads the state through a bare iterator and cannot check its length, and
-  // it relies on the traits being written first -- so it stays in here, where its
-  // two callers are, rather than being reachable by a third that does neither.
-  //
-  // `active` is left holding the node it pushed; a caller evaluating the map more
-  // than once removes it between calls.
-  template <class Active, class It, class S>
-  static void introduce_over(Active& active,
-                             const std::vector<size_t>& species_index,
-                             double time_before, It x, std::vector<S>& y);
-
   // A patch whose species take the prepared strategies given, rather than
   // preparing the ones in the parameters. rebind_from's only route in.
   Patch(parameters_type p, environment_type e, plant::Control c,
@@ -1231,7 +1205,7 @@ void Patch<T,E>::introduce_new_node(size_t species_index) {
 }
 
 template <typename T, typename E>
-void Patch<T,E>::introduce_new_nodes(const std::vector<size_t>& species_index) {
+void Patch<T,E>::widen(const widening& species_index) {
   // Record introduction time and patch-age density on each node as it is
   // introduced, so lifetime-fitness calcs need not look these up later.
   const double t = time();
@@ -1249,7 +1223,7 @@ void Patch<T,E>::introduce_new_nodes(const std::vector<size_t>& species_index) {
 }
 
 template <typename T, typename E>
-void Patch<T,E>::remove_new_nodes(const std::vector<size_t>& species_index) {
+void Patch<T,E>::narrow(const widening& species_index) {
   for (size_t i : species_index) {
     species[i].remove_newest_node();
   }
@@ -1257,18 +1231,6 @@ void Patch<T,E>::remove_new_nodes(const std::vector<size_t>& species_index) {
   compute_rates();
 }
 
-template <typename T, typename E>
-std::vector<size_t> Patch<T,E>::nodes_introduced_at(double time_) const {
-  std::vector<size_t> ret;
-  for (size_t i = 0; i < species.size(); ++i) {
-    const size_t n = species[i].size();
-    if (n > 0 &&
-        util::identical(species[i].node_at(n - 1).introduction_time(), time_)) {
-      ret.push_back(i);
-    }
-  }
-  return ret;
-}
 
 template <typename T, typename E>
 void Patch<T,E>::r_set_time(double time) {
@@ -1552,16 +1514,15 @@ void Patch<T,E>::clear_trait_adjoint(size_t n_metrics) {
 }
 
 template <typename T, typename E>
-template <class Active, class It, class S>
-void Patch<T,E>::introduce_over(Active& active,
-                                const std::vector<size_t>& species_index,
-                                double time_before, It x, std::vector<S>& y) {
-  active.set_recorded_state(x, time_before);
+template <typename It>
+void Patch<T,E>::widened_state(const widening& species_index, double time, It x,
+                               std::vector<value_type>& y) {
+  set_recorded_state(x, time);
   for (size_t i : species_index) {
-    active.species[i].introduce_new_node();
+    species[i].introduce_new_node();
   }
-  util::check_length(y.size(), active.ode_size());
-  active.ode_state(y.begin());
+  util::check_length(y.size(), ode_size());
+  ode_state(y.begin());
 }
 
 // One tangent seed per input column, over the same map. The node the map pushes is
@@ -1601,7 +1562,7 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
     }
     util::check_length(at, x.size());
     std::vector<tangent> y(n_out);
-    introduce_over(active, species_index, time_before, x.begin(), y);
+    active.widened_state(species_index, time_before, x.begin(), y);
     for (size_t r = 0; r < n_out; ++r) {
       ret[r][c] = xad::derivative(y[r]);
     }
@@ -1612,44 +1573,6 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
   return ret;
 }
 
-template <typename T, typename E>
-void Patch<T,E>::introduction_adjoint(const std::vector<size_t>& species_index,
-                                      const std::vector<double>& state_before,
-                                      double time_before,
-                                      const std::vector<std::vector<double>>& lambda_after,
-                                      std::vector<std::vector<double>>& lambda_before) {
-  using scalar = odelia::ode::active_scalar<double>;
-  using active_strategy = typename at_scalar<scalar>::template apply<T>;
-  util::check_length(state_before.size(), ode_size());
-  if (lambda_after.empty()) {
-    util::stop("introduction_adjoint: needs at least one state adjoint");
-  }
-  if (trait_adjoint.size() < lambda_after.size()) {
-    clear_trait_adjoint(lambda_after.size());
-  }
-
-  // The twin is built with no tape active, so it holds no derivative slot that
-  // the recording below could alias.
-  Patch<active_strategy, typename at_scalar<scalar>::template apply<E>> active =
-    this->template rebind_from<scalar>();
-
-  // The recording emits the WHOLE widened state, so which widened row each
-  // narrow row became is derived rather than written out. Copying the rows an
-  // introduction does not touch and contracting only the newcomer's asserts that
-  // the first group is an exact identity in the state and carries no trait row --
-  // true of the nodes themselves, and an assertion about every other quantity a
-  // state load rebuilds. Seeding the whole vector costs one more seed per row and
-  // asserts nothing.
-  auto introduce = [&](typename std::vector<scalar>::const_iterator x,
-                       std::vector<scalar>& y) -> void {
-    introduce_over(active, species_index, time_before, x, y);
-  };
-
-  typename scalar::tape_type tape(false);
-  odelia::ode::state_and_parameter_adjoints(tape, active, state_before,
-                                            lambda_after, introduce,
-                                            lambda_before, trait_adjoint);
-}
 
 template <typename T, typename E>
 void Patch<T,E>::ode_rates_adjoint_batched(

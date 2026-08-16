@@ -299,7 +299,15 @@ public:
   // How many backward ranges the last census_trait_gradient swept, summed over
   // metrics. One per segment with no splits requested, and one more per split
   // that fell inside a segment -- which is what says a requested split cut.
+  // Put the live system back at the width the run left it at.
+  void restore_run_width(const std::vector<std::vector<double>>& states);
+
   size_t adjoint_segments = 0;
+
+  // Where the run widened the state, and by what. Filled as the run takes each
+  // widening and cleared with the rest of the run's state.
+  std::vector<odelia::ode::recorded_widening<typename patch_type::widening>>
+      widenings;
 
   bool collect;                    // record a patch snapshot after each step
   bool collect_refinement_errors;  // accumulate competition errors during run
@@ -453,7 +461,12 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
     }
   }
 
-  sys.introduce_new_nodes(ret);
+  sys.widen(ret);
+  // Declared where it happens. Read back off the state's width afterwards it
+  // cannot be wrong, because the width is what the reading is derived from.
+  if (sys.record_steps) {
+    widenings.push_back({sys.trajectory.size() - 1, ret});
+  }
   solver.set_state_from_system();
 
   // Three integration modes:
@@ -610,6 +623,21 @@ template <typename T, typename E> void SCM<T, E>::reset() {
   solver.reset();
   patch = solver.get_system_ref();
   history.clear();
+  widenings.clear();
+}
+
+// Put the live system back at the width the run left it at. The sweep and the
+// forward replays all descend from that width and leave it lower, so each of
+// them ends here rather than leaving the next caller to notice.
+template <typename T, typename E>
+void SCM<T, E>::restore_run_width(const std::vector<std::vector<double>>& states) {
+  patch_type& live = solver.get_system_ref();
+  for (const auto& w : widenings) {
+    util::check_length(live.ode_size(), states[w.after_step].size());
+    live.set_recorded_state(states[w.after_step].begin(),
+                            solver.times()[w.after_step]);
+    live.widen(w.event);
+  }
 }
 
 template <typename T, typename E> bool SCM<T, E>::complete() const {
@@ -925,12 +953,8 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
     states.push_back(record.state);
   }
 
-  std::vector<size_t> boundary;
-  std::vector<std::vector<size_t>> introduced;
-  narrow_over_introductions(states, trajectory, boundary, introduced);
   patch_type& live = solver.get_system_ref();
 
-  adjoint_segments = 0;
   const std::vector<std::vector<double>> all_seeds =
       census_state_adjoint<Metrics>();
   const std::vector<std::vector<double>> all_direct =
@@ -954,56 +978,22 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
     seeds.push_back(all_seeds[r]);
     direct.push_back(all_direct[r]);
   }
-  std::vector<std::vector<double>> sweep_states = states;
-
   // Every metric's sweep visits the same trajectory and differs only in its
   // seed, so they are carried TOGETHER: a block is recorded once and swept once
   // per metric, where the loop this replaces recorded it once per metric. The
   // recording is a model evaluation and a sweep is arithmetic, so the second and
   // third metrics were costing what the first did and now cost almost nothing.
   const size_t n_metric = seeds.size();
-  widen_over_introductions(states, trajectory, boundary, introduced,
-                           sweep_states);
 
   live.clear_trait_adjoint(n_metric);
   std::vector<std::vector<double>> lambda = seeds;
-  // One segment per width, highest first: the decomposition the tangent runs
-  // forwards, so there is one more segment than there are widenings and the
-  // lowest of them runs down to the initial state. Every segment but that one
-  // has an introduction at its foot, transposed once the sweep reaches it.
-  for (size_t j = boundary.size() + 1; j-- > 0;) {
-    const size_t first = j > 0 ? boundary[j - 1] : 0;
-    const size_t last = j < boundary.size() ? boundary[j] : states.size() - 1;
-    // Stopped and resumed at each requested step inside this segment, highest
-    // first, so the pieces compose in the order the whole sweep would take
-    // them. With none requested this is the single call it replaces.
-    std::vector<size_t> cuts;
-    for (const size_t s : extra_splits) {
-      if (s > first && s < last) {
-        cuts.push_back(s);
-      }
-    }
-    std::sort(cuts.begin(), cuts.end());
-    size_t upper = last;
-    for (size_t c = cuts.size(); c-- > 0;) {
-      solver.solve_adjoint_batched(sweep_states, lambda, cuts[c], upper);
-      upper = cuts[c];
-      adjoint_segments += n_metric;
-    }
-    // A widening at the first recorded step leaves the lowest segment with no
-    // step in it, which is what a run from bare ground gives.
-    if (first < upper) {
-      solver.solve_adjoint_batched(sweep_states, lambda, first, upper);
-      adjoint_segments += n_metric;
-    }
-    if (j > 0) {
-      live.remove_new_nodes(introduced[j - 1]);
-      std::vector<std::vector<double>> narrowed;
-      live.introduction_adjoint(introduced[j - 1], states[first],
-                                trajectory[first].time, lambda, narrowed);
-      lambda = std::move(narrowed);
-    }
-  }
+  // One segment per width, highest first, narrowing across each widening and
+  // transposing the map that took it. The solver owns that walk: what is left
+  // here is the census the sweep is seeded from and the direct term below.
+  adjoint_segments =
+      n_metric * odelia::ode::solve_adjoint_over_widenings(
+                     solver, states, widenings, lambda, live.trait_adjoint,
+                     extra_splits);
 
   std::vector<std::vector<double>> ret;
   ret.reserve(n_metric);
@@ -1017,8 +1007,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   }
 
   // Leave the system at the width the run left it, so this call is repeatable.
-  widen_over_introductions(states, trajectory, boundary, introduced,
-                           sweep_states);
+  restore_run_width(states);
   return ret;
 }
 
@@ -1042,18 +1031,17 @@ void SCM<T, E>::narrow_over_introductions(
     util::stop("no recorded steps to sweep");
   }
   boundary.clear();
-  for (size_t k = 1; k < states.size(); ++k) {
-    if (states[k].size() != states[k - 1].size()) {
-      boundary.push_back(k - 1);
-    }
+  introduced.clear();
+  boundary.reserve(widenings.size());
+  introduced.reserve(widenings.size());
+  for (const auto& w : widenings) {
+    boundary.push_back(w.after_step);
+    introduced.push_back(w.event);
   }
-  introduced.assign(boundary.size(), {});
   patch_type& live = solver.get_system_ref();
   for (size_t j = boundary.size(); j-- > 0;) {
-    const size_t b = boundary[j];
-    introduced[j] = live.nodes_introduced_at(trajectory[b].time);
-    live.remove_new_nodes(introduced[j]);
-    util::check_length(live.ode_size(), states[b].size());
+    live.narrow(introduced[j]);
+    util::check_length(live.ode_size(), states[boundary[j]].size());
   }
 }
 
@@ -1123,7 +1111,7 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
       forward.advance_fixed_steps(sizes);
     }
     if (j < boundary.size()) {
-      forward.get_system_ref().introduce_new_nodes(introduced[j]);
+      forward.get_system_ref().widen(introduced[j]);
       forward.set_state_from_system();
       first = last;
     }
@@ -1164,7 +1152,7 @@ double SCM<T, E>::narrow_to_segment(
   for (size_t j = 0; j < from_segment; ++j) {
     const size_t b = boundary[j];
     live.set_recorded_state(states[b].begin(), trajectory[b].time);
-    live.introduce_new_nodes(introduced[j]);
+    live.widen(introduced[j]);
     start = b;
   }
   base.assign(live.ode_size(), 0.0);
@@ -1194,7 +1182,7 @@ std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
   // exactly those introductions, because the restore below replays from the
   // first boundary and starts at the narrowest width.
   for (size_t j = segment; j-- > 0;) {
-    solver.get_system_ref().remove_new_nodes(introduced[j]);
+    solver.get_system_ref().narrow(introduced[j]);
   }
   std::vector<std::vector<double>> sweep_states = states;
   widen_over_introductions(states, trajectory, boundary, introduced,
@@ -1249,7 +1237,7 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
       forward.advance_fixed_steps(sizes);
     }
     if (j < boundary.size()) {
-      forward.get_system_ref().introduce_new_nodes(introduced[j]);
+      forward.get_system_ref().widen(introduced[j]);
       forward.set_state_from_system();
       first = last;
     }
@@ -1261,7 +1249,7 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   // needs the narrowest width back first, so undo exactly the introductions
   // narrow_to_segment made on the way forward.
   for (size_t j = from_segment; j-- > 0;) {
-    live.remove_new_nodes(introduced[j]);
+    live.narrow(introduced[j]);
   }
   std::vector<std::vector<double>> sweep_states = states;
   widen_over_introductions(states, trajectory, boundary, introduced,
@@ -1337,7 +1325,7 @@ void SCM<T, E>::widen_over_introductions(
     const size_t b = boundary[j];
     util::check_length(live.ode_size(), states[b].size());
     live.set_recorded_state(states[b].begin(), trajectory[b].time);
-    live.introduce_new_nodes(introduced[j]);
+    live.widen(introduced[j]);
     sweep_states[b].assign(live.ode_size(), 0.0);
     live.ode_state(sweep_states[b].begin());
     util::check_length(sweep_states[b].size(), states[b + 1].size());

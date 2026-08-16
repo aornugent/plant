@@ -763,10 +763,21 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
   for (size_t r = 0; r < n_out; ++r) {
     seeds[r][r] = 1.0;
   }
+  // The transpose the sweep takes at a widening, taken here on its own: the same
+  // twin, the same tape and the same product the solver's walk runs, with the
+  // trajectory and the segmentation left out so a disagreement is the map's.
+  using ad_scalar = odelia::ode::active_scalar<double>;
+  auto twin = patch.template rebind_from<ad_scalar>();
+  auto widen = [&](std::vector<ad_scalar>::const_iterator x,
+                   std::vector<ad_scalar>& y) -> void {
+    twin.widened_state(which, time_before, x, y);
+  };
   std::vector<std::vector<double>> lambda_before;
   patch.clear_trait_adjoint(n_out);
-  patch.introduction_adjoint(which, state_before, time_before, seeds,
-                             lambda_before);
+  ad_scalar::tape_type tape(false);
+  odelia::ode::state_and_parameter_adjoints(tape, twin, state_before, seeds,
+                                            widen, lambda_before,
+                                            patch.trait_adjoint);
 
   Rcpp::NumericMatrix rev(static_cast<int>(n_out),
                           static_cast<int>(n_state + n_trait));
