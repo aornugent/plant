@@ -873,18 +873,23 @@ S TF24_Strategy<S>::evapotranspiration_dt(S area_leaf_, int soil_layer) {
 // environment in two different ways.
 //
 // PROFIT is the objective at the operating point the leaf chose, so by the
-// envelope theorem its response is the direct one, at a frozen operating point.
+// envelope theorem its response is the direct one, at a held operating point.
 // The leaf supplies it analytically.
 //
 // PER-LAYER UPTAKE is set as a side effect AT that operating point. It consumes
 // the choice rather than being it, so the choice's own movement is part of the
 // answer:
 //
-//     dE_i/du = dE_i/du at a frozen collar  +  (dE_i/dcollar) * (dcollar/du)
+//     dE_i/du = dE_i/du at a held collar  +  (dE_i/dcollar) * (dcollar/du)
 //
 // and dcollar/du comes from the condition that defines the collar rather than
 // from the solve that found it: dprofit/dcollar is zero there, so
 // dcollar/du = -(d2profit/dcollar du) / (d2profit/dcollar2).
+//
+// So what this assembles per input is d2profit/dcollar du, and the collar is
+// then recorded once as a value carrying every one of them. The second term
+// above is a single dE_i/dcollar against that value rather than a product
+// written out per layer per input.
 //
 // ⚠️ d2profit/dcollar du CANNOT be had by differencing the leaf's analytic
 // dprofit/du in the collar, which is the obvious economy and is wrong by a
@@ -930,9 +935,9 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   const double radiation_value = to_passive(radiation);
   const std::vector<double>& psi_value = psi_soil_value_;
 
-  // The marginal profit at the collar the solve left, and its slope there.
+  // The slope of the marginal profit at the collar the solve left, which is what
+  // the implicit function theorem divides every input's row by.
   const double h_collar = std::max(std::abs(collar), 1.0) * 1e-6;
-  const double marginal = leaf.dprofit_droot_collar_psi(collar);
   const double marginal_hi = leaf.dprofit_droot_collar_psi(collar + h_collar);
   const double marginal_lo = leaf.dprofit_droot_collar_psi(collar - h_collar);
   const double curvature = (marginal_hi - marginal_lo) / (2.0 * h_collar);
@@ -1073,14 +1078,13 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     util::stop("TF24 gradient: the leaf's response to its maximum conductance "
                "is not finite, so the stem channel has nothing to stand on");
   }
-  const double dcollar_dkmax = -dR_dkmax / curvature;
 
   // The root carbon each layer holds. Every quantity below is analytic: the
   // per-layer supply comes from the map the architecture model defines, which is
   // plain arithmetic with no interpolant in it, and the collar's own response
   // from the two coefficients above.
-  std::vector<double> dprofit_drc(n_layer, 0.0), dcollar_drc(n_layer, 0.0);
-  std::vector<std::vector<double>> dE_drc_frozen(
+  std::vector<double> dprofit_drc(n_layer, 0.0), dresidual_drc(n_layer, 0.0);
+  std::vector<std::vector<double>> dE_drc_held(
       n_layer, std::vector<double>(n_layer, 0.0));
   for (size_t k = 0; k < n_layer; ++k) {
     if (!(root_carbon_value_[k] > 0.0)) {
@@ -1088,12 +1092,11 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     }
     for (size_t i = 0; i < n_layer; ++i) {
       // soil_consumption_ is in mol and these are the kg quantities, so the
-      // frozen row carries the same conversion the collar's does.
-      dE_drc_frozen[i][k] = to_mol_flux * dE_drc[i][k];
+      // held row carries the same conversion the collar's does.
+      dE_drc_held[i][k] = to_mol_flux * dE_drc[i][k];
     }
-    const double dR_drc = a * dEup_drc[k] + b * d2Eup_drc[k];
-    dcollar_drc[k] = -dR_drc / curvature;
-    // At a frozen collar profit sees the carbon only through total uptake and
+    dresidual_drc[k] = a * dEup_drc[k] + b * d2Eup_drc[k];
+    // At a held collar profit sees the carbon only through total uptake and
     // thence the stem potential, and that chain is the second coefficient.
     dprofit_drc[k] = b * dEup_drc[k];
   }
@@ -1117,7 +1120,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     const S* input;
     bool driven;
     double dprofit = 0.0;
-    double dcollar = 0.0;
+    double dresidual = 0.0;
   };
   // Which are driven by moving the trait and re-solving. Ten are not, for two
   // different reasons.
@@ -1132,7 +1135,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // profit through the hydraulic cost and nothing else; the other six reach it
   // through assimilation and nothing else, three of them sharing the electron
   // transport as their only route. Every one of the eight has an exactly zero
-  // frozen-collar uptake row for the same reason: at a fixed collar a
+  // held-collar uptake row for the same reason: at a fixed collar a
   // carbon-side trait moves no water.
   //
   // What is left driven is the four vulnerability-curve traits, which have no
@@ -1163,7 +1166,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                     lt[8].value, lt[9].value, lt[10].value, lt[11].value,
                     lt[12].value, lt[13].value);
   };
-  std::vector<std::vector<double>> dE_dlt_frozen(
+  std::vector<std::vector<double>> dE_dlt_held(
       n_layer, std::vector<double>(n_leaf_trait, 0.0));
   for (int k = 0; k < n_leaf_trait; ++k) {
     if (!lt[k].driven) {
@@ -1190,9 +1193,9 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       util::stop("TF24 gradient: leaf trait " + util::to_string(k) +
                  " moves the leaf by an amount that is not finite");
     }
-    lt[k].dcollar = -dR_dlt / curvature;
+    lt[k].dresidual = dR_dlt;
     for (size_t i = 0; i < n_layer; ++i) {
-      dE_dlt_frozen[i][k] = (u_up[i] - u_dn[i]) / (2.0 * h_t);
+      dE_dlt_held[i][k] = (u_up[i] - u_dn[i]) / (2.0 * h_t);
     }
   }
   // Put the leaf back to the traits the value came from.
@@ -1212,8 +1215,8 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     }
     lt[k_beta2].dprofit = rows.dprofit_dbeta2;
     lt[k_cost_scale].dprofit = rows.dprofit_dcost_scale;
-    lt[k_beta2].dcollar = -rows.dmarginal_dbeta2 / curvature;
-    lt[k_cost_scale].dcollar = -rows.dmarginal_dcost_scale / curvature;
+    lt[k_beta2].dresidual = rows.dmarginal_dbeta2;
+    lt[k_cost_scale].dresidual = rows.dmarginal_dcost_scale;
 
     const int k_vcmax = 0, k_jmax = 8, k_a = 9, k_curv_elec = 10,
               k_curv_colim = 11, k_R_d = 13;
@@ -1236,23 +1239,22 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     lt[k_vcmax].dprofit = photo.dprofit_dvcmax_25;
     lt[k_jmax].dprofit = photo.dprofit_djmax_25;
     lt[k_R_d].dprofit = photo.dprofit_dR_d_25;
-    lt[k_a].dcollar = -photo.dmarginal_da / curvature;
-    lt[k_curv_elec].dcollar = -photo.dmarginal_dcurv_elec / curvature;
-    lt[k_curv_colim].dcollar = -photo.dmarginal_dcurv_colim / curvature;
-    lt[k_vcmax].dcollar = -photo.dmarginal_dvcmax_25 / curvature;
-    lt[k_jmax].dcollar = -photo.dmarginal_djmax_25 / curvature;
-    lt[k_R_d].dcollar = -photo.dmarginal_dR_d_25 / curvature;
+    lt[k_a].dresidual = photo.dmarginal_da;
+    lt[k_curv_elec].dresidual = photo.dmarginal_dcurv_elec;
+    lt[k_curv_colim].dresidual = photo.dmarginal_dcurv_colim;
+    lt[k_vcmax].dresidual = photo.dmarginal_dvcmax_25;
+    lt[k_jmax].dresidual = photo.dmarginal_djmax_25;
+    lt[k_R_d].dresidual = photo.dmarginal_dR_d_25;
   }
 
-  // Profit, carrying the envelope response, and the two channels stay apart
-  // because they are different objects: a soil term is a price times a supply
-  // derivative, and radiation moves no water at all.
+  // Profit records against its inputs and not against the collar below: its
+  // slope in the collar is zero at the optimum, which is the envelope theorem.
   std::vector<odelia::input_and_derivative<S>> against;
   against.reserve(2 + 2 * n_layer + n_leaf_trait);
   against.push_back({radiation, env.dprofit_dlight});
   against.push_back({conductance_max, dprofit_dkmax});
-  for (size_t a = 0; a < n_layer; ++a) {
-    against.push_back({root_carbon_per_leaf_area_[a], dprofit_drc[a]});
+  for (size_t k = 0; k < n_layer; ++k) {
+    against.push_back({root_carbon_per_leaf_area_[k], dprofit_drc[k]});
   }
   for (int k = 0; k < n_leaf_trait; ++k) {
     against.push_back({*lt[k].input, lt[k].dprofit});
@@ -1262,28 +1264,38 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   }
   leaf_profit_ = odelia::record_with_derivatives<S>(leaf.profit_, against);
 
-  // The collar's own response, then uptake. dE_i/d(radiation) at a frozen collar
-  // is exactly zero -- light moves no water -- so the whole of the light channel
-  // into the water arrives through the collar.
+  // Radiation's route into the marginal profit, which is its only route into the
+  // water: dE_i/d(radiation) at a held collar is exactly zero.
   const double dR_dlight =
       (marginal_at(radiation_value * (1.0 + 1e-6), psi_value) -
        marginal_at(radiation_value * (1.0 - 1e-6), psi_value)) /
       (2.0 * radiation_value * 1e-6);
   drive(radiation_value, psi_value, kmax_value);
   leaf.evaluate_root_collar_psi(collar);
-  static_cast<void>(marginal);
-
   if (!util::is_finite(dR_dlight)) {
     util::stop("TF24 gradient: the marginal profit's response to radiation is "
                "not finite, so the collar's light response has nothing to "
                "stand on");
   }
-  const double dcollar_dlight = -dR_dlight / curvature;
-  std::vector<double> dcollar_dpsi(n_layer, 0.0);
-  for (size_t j = 0; j < n_layer; ++j) {
-    dcollar_dpsi[j] =
-        -(a * dEup_dpsi[j] + b * d2Eup_dcollar_dpsi[j]) / curvature;
+
+  // The collar the solve left, carrying every input's route into it. Each uptake
+  // below reaches those inputs through this one value, so the theorem's quotient
+  // is taken once rather than once per layer per input.
+  against.clear();
+  against.push_back({radiation, dR_dlight});
+  against.push_back({conductance_max, dR_dkmax});
+  for (size_t k = 0; k < n_layer; ++k) {
+    against.push_back({root_carbon_per_leaf_area_[k], dresidual_drc[k]});
   }
+  for (int k = 0; k < n_leaf_trait; ++k) {
+    against.push_back({*lt[k].input, lt[k].dresidual});
+  }
+  for (size_t j = 0; j < n_layer; ++j) {
+    against.push_back(
+        {psi_soil[j], a * dEup_dpsi[j] + b * d2Eup_dcollar_dpsi[j]});
+  }
+  const S recorded_collar =
+      odelia::implicit_root<S>(collar, curvature, against);
 
   leaf_soil_consumption_.assign(psi_soil.size(), S(0.0));
   // The value below is soil_consumption_, in mol; every partial above it is
@@ -1292,29 +1304,20 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   const double to_mol = to_mol_flux;
   for (size_t i = 0; i < n_layer; ++i) {
     against.clear();
-    against.push_back({radiation, to_mol * dE_dcollar[i] * dcollar_dlight});
+    against.push_back({recorded_collar, to_mol * dE_dcollar[i]});
     // soil_consumption_ is already the mol quantity, so its own difference needs
     // no conversion; dE_dcollar is the kg one and does.
-    const double dE_dkmax_frozen =
-        (uptake_up[i] - uptake_dn[i]) / (2.0 * h_kmax);
     against.push_back({conductance_max,
-                       dE_dkmax_frozen +
-                         to_mol * dE_dcollar[i] * dcollar_dkmax});
-    for (size_t a = 0; a < n_layer; ++a) {
-      against.push_back({root_carbon_per_leaf_area_[a],
-                         dE_drc_frozen[i][a] +
-                           to_mol * dE_dcollar[i] * dcollar_drc[a]});
+                       (uptake_up[i] - uptake_dn[i]) / (2.0 * h_kmax)});
+    for (size_t k = 0; k < n_layer; ++k) {
+      against.push_back({root_carbon_per_leaf_area_[k], dE_drc_held[i][k]});
     }
     for (int k = 0; k < n_leaf_trait; ++k) {
-      against.push_back({*lt[k].input,
-                         dE_dlt_frozen[i][k] +
-                           to_mol * dE_dcollar[i] * lt[k].dcollar});
+      against.push_back({*lt[k].input, dE_dlt_held[i][k]});
     }
-    for (size_t j = 0; j < n_layer; ++j) {
-      const double frozen = (i == j) ? dEup_dpsi[i] : 0.0;
-      against.push_back({psi_soil[j],
-                         to_mol * (frozen + dE_dcollar[i] * dcollar_dpsi[j])});
-    }
+    // Its own layer only: every other layer's potential reaches this uptake
+    // through the collar and by no other route, and radiation has none at all.
+    against.push_back({psi_soil[i], to_mol * dEup_dpsi[i]});
     // The leaf reports uptake in mol and E_up in kg; soil_consumption_ is the
     // mol one, which is what the patch water balance reads.
     leaf_soil_consumption_[i] =
