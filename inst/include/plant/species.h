@@ -608,16 +608,22 @@ Species<T,E>::close_competition_and_slope(const competition_split& c,
 // below `height` contribute f = 0 at both ends, so including them costs time but
 // changes nothing. The scratch buffer is thread_local and reused, so the repeated
 // calls that build one spline do not each allocate.
+//
+// The grid is abscissa_of, as it is in the walk above, so the widths are positions
+// and not state. Sorting the nodes' own heights instead put a subtraction of two
+// live scalars in every width, and this reduction then carried a weight derivative
+// that the walk it stands in for structurally cannot have.
 template <typename T, typename E>
 std::pair<typename Species<T,E>::value_type,
           typename Species<T,E>::value_type>
 Species<T,E>::compute_competition_and_slope_unordered(double height,
                                                       bool include_boundary) const {
+  const bool birth_date = control().node_density_in_birth_date;
   // Cleared on entry, so no element outlives the call that made it.
   thread_local std::vector<
-    std::pair<value_type, std::pair<value_type, value_type>>> hfs;
-  hfs.clear();
-  hfs.reserve(size());
+    std::pair<double, std::pair<value_type, value_type>>> xfs;
+  xfs.clear();
+  xfs.reserve(size());
 
   for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
     const std::pair<value_type, value_type> fs =
@@ -625,23 +631,23 @@ Species<T,E>::compute_competition_and_slope_unordered(double height,
     if (!util::is_finite(fs.first) || !util::is_finite(fs.second)) {
       util::stop("Detected non-finite contribution");
     }
-    hfs.push_back({it->height(), fs});
+    xfs.push_back({abscissa_of(*it, birth_date), fs});
   }
-  std::sort(hfs.begin(), hfs.end(),
-            [](std::pair<value_type, std::pair<value_type, value_type>> const& a,
-               std::pair<value_type, std::pair<value_type, value_type>> const& b) {
-              return a.first > b.first;
+  std::sort(xfs.begin(), xfs.end(),
+            [](std::pair<double, std::pair<value_type, value_type>> const& a,
+               std::pair<double, std::pair<value_type, value_type>> const& b) {
+              return a.first < b.first;
             });
 
   value_type tot = 0.0, tot_slope = 0.0;
-  value_type h1 = hfs.front().first;
-  value_type f_h1 = hfs.front().second.first, s_h1 = hfs.front().second.second;
-  for (size_t j = 1; j < hfs.size(); ++j) {
-    const value_type h0 = hfs[j].first;
-    const value_type f_h0 = hfs[j].second.first, s_h0 = hfs[j].second.second;
-    tot       += (h1 - h0) * (f_h1 + f_h0);
-    tot_slope += (h1 - h0) * (s_h1 + s_h0);
-    h1   = h0;
+  double x1 = xfs.front().first;
+  value_type f_h1 = xfs.front().second.first, s_h1 = xfs.front().second.second;
+  for (size_t j = 1; j < xfs.size(); ++j) {
+    const double x0 = xfs[j].first;
+    const value_type f_h0 = xfs[j].second.first, s_h0 = xfs[j].second.second;
+    tot       += (x0 - x1) * (f_h1 + f_h0);
+    tot_slope += (x0 - x1) * (s_h1 + s_h0);
+    x1   = x0;
     f_h1 = f_h0;
     s_h1 = s_h0;
   }
@@ -649,9 +655,9 @@ Species<T,E>::compute_competition_and_slope_unordered(double height,
   if (include_boundary && (size() == 1 || f_h1 > 0)) {
     const std::pair<value_type, value_type> fs0 =
       new_node.compute_competition_and_slope(height);
-    const value_type h0 = new_node.height();
-    tot       += (h1 - h0) * (f_h1 + fs0.first);
-    tot_slope += (h1 - h0) * (s_h1 + fs0.second);
+    const double x0 = abscissa_of(new_node, birth_date);
+    tot       += (x0 - x1) * (f_h1 + fs0.first);
+    tot_slope += (x0 - x1) * (s_h1 + fs0.second);
   }
 
   return {tot / 2, tot_slope / 2};
@@ -788,11 +794,15 @@ Species<T,E>::consumption_rate(int i) const {
   // starting at new_node, which is where the size distribution starts. The
   // heights are the integration grid; the rates integrated over it are what the
   // uptake depends on.
-  std::vector<value_type> heights;
+  // The grid is read at its value, as the birth-date branch above reads its times
+  // and as abscissa_of reads the competition walk's: a width is a position and not
+  // state. Differencing the heights live gave this reduction a weight derivative
+  // that the walks it stands beside structurally cannot have.
+  std::vector<double> heights;
   heights.reserve(size() + 1);
-  heights.push_back(new_node.height());
+  heights.push_back(odelia::util::to_passive(new_node.height()));
   for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
-    heights.push_back(it->height());
+    heights.push_back(odelia::util::to_passive(it->height()));
   }
   std::vector<value_type> rates = consumption_rate_by_node_rev(i);
 
@@ -800,20 +810,16 @@ Species<T,E>::consumption_rate(int i) const {
   // so an inverted grid (#571) makes neighbouring trapezia cancel rather than
   // accumulate. Sort the pairs when the ordering has broken, as
   // the sorted fallback does; an already-ascending grid is untouched.
-  // The order is decided on the passive value: an ordering chosen on an active
-  // key would make the recorded computation depend on the state.
-  auto below = [](const value_type& a, const value_type& b) -> bool {
-    return odelia::util::to_passive(a) < odelia::util::to_passive(b);
-  };
-  if (!std::is_sorted(heights.begin(), heights.end(), below)) {
+  if (!std::is_sorted(heights.begin(), heights.end())) {
     std::vector<size_t> order(heights.size());
     for (size_t j = 0; j < order.size(); ++j) {
       order[j] = j;
     }
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) -> bool {
-      return below(heights[a], heights[b]);
+      return heights[a] < heights[b];
     });
-    std::vector<value_type> h_sorted, r_sorted;
+    std::vector<double> h_sorted;
+    std::vector<value_type> r_sorted;
     h_sorted.reserve(heights.size());
     r_sorted.reserve(rates.size());
     for (size_t j : order) {
