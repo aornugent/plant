@@ -485,14 +485,18 @@ test_that("ad_parameters and ad_parameter_names agree with the yml", {
   probe <- compile_tf24_ad_parameters()
   res <- probe()
 
-  # eta and root_depth_shape_eta reach an unguarded pow exponent; vcmax_25 and
-  # jmax_25 are cached under a key that does not cover them, so a changed value
-  # would not be recomputed; a_p1 and a_p2 belong to the light-response curve the
-  # Farquhar leaf replaced and beta1 is declared and unused, so all three are read
-  # by no equation and the test below is what says so.
-  omitted <- c("eta", "vcmax_25", "jmax_25", "root_depth_shape_eta",
-               "a_p1", "a_p2", "beta1", "S_D", "var_sapwood_volume_cost",
-               "nmass_l", "nmass_s", "nmass_b", "nmass_r", "dmass_dN", "p_50")
+  # The parameters with no gradient column. eta and root_depth_shape_eta reach an
+  # unguarded u^k exponent whose recorded derivative u^k*log(u) is 0*(-inf) at
+  # u == 0, where the guard returns a constant instead. a_p1 and a_p2 belong to the
+  # light-response curve the Farquhar leaf replaced. p_50 is read only by c's and
+  # b's default initialisers, so a value set afterwards reaches nothing.
+  # use_energy_balance is compared rather than differentiated and d has no row in
+  # the leaf's supplied Jacobian. The rest are declared and carried, and no
+  # equation here reads them.
+  omitted <- c("eta", "a_p1", "a_p2", "S_D", "p_50", "beta1",
+               "var_sapwood_volume_cost", "nmass_l", "nmass_s", "nmass_b",
+               "nmass_r", "dmass_dN", "root_depth_shape_eta",
+               "use_energy_balance", "d")
 
   # Sources, then the installed package: this check is what says the registered
   # parameter list and the declared one agree, so it should not go quiet because
@@ -506,7 +510,10 @@ test_that("ad_parameters and ad_parameter_names agree with the yml", {
   yml <- yaml::read_yaml(yml_cand[[1]])
   declared <- vapply(yml$TF24_Pars$list, function(x) names(x)[[1]], character(1))
   expect_setequal(declared, as.character(res$fields))
-  expect_identical(res$names, setdiff(declared, omitted))
+  # Set plus length, not sequence: the two lists are ordered independently, and
+  # requiring them to agree on order is a constraint neither side means.
+  expect_setequal(res$names, setdiff(declared, omitted))
+  expect_identical(length(res$names), length(setdiff(declared, omitted)))
   expect_identical(res$n_pointers, as.numeric(length(res$names)))
 
   # Every index reaches exactly the field its name denotes, and nothing else.
