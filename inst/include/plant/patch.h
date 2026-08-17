@@ -303,14 +303,6 @@ private:
 
   int idx = 0; // used to access environment cache for mutant runs
   void compute_environment(bool rescale);
-  // One field build, with every species' inflow boundary interval included or not.
-  void compute_environment_once(bool rescale, bool include_boundary);
-  // The competition profile with every species' boundary interval left off: a
-  // function of the ODE state alone.
-  value_type compute_competition_excl_boundary(double height) const;
-  // That same profile and its vertical derivative, from one pass over the species.
-  std::pair<value_type, value_type>
-  compute_competition_and_slope_excl_boundary(double height) const;
   void compute_rates();
 
   // The environment the rates are computed against: the patch's own on a
@@ -891,31 +883,6 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
   return ret;
 }
 
-// Pre-compute environment, as shaped by residents
-// The competition profile with every species' inflow boundary interval left off.
-template <typename T, typename E>
-typename Patch<T,E>::value_type
-Patch<T,E>::compute_competition_excl_boundary(double height) const {
-  value_type tot = 0.0;
-  for (size_t i = 0; i < size(); ++i) {
-    tot += species[i].compute_competition_excl_boundary(height) / area;
-  }
-  return tot;
-}
-
-template <typename T, typename E>
-std::pair<typename Patch<T,E>::value_type, typename Patch<T,E>::value_type>
-Patch<T,E>::compute_competition_and_slope_excl_boundary(double height) const {
-  value_type tot = 0.0, tot_slope = 0.0;
-  for (size_t i = 0; i < size(); ++i) {
-    const std::pair<value_type, value_type> fs =
-      species[i].compute_competition_and_slope_excl_boundary(height);
-    tot       += fs.first / area;
-    tot_slope += fs.second / area;
-  }
-  return {tot, tot_slope};
-}
-
 // Evaluate every species' inflow boundary condition in the field as it currently
 // stands. Owned by the field build rather than by compute_rates(), so that the
 // field reads a boundary density derived from this state instead of one carried
@@ -964,6 +931,15 @@ void Patch<T,E>::compute_environment(bool rescale) {
 // the point its closing trapezium would be added.
 template <typename T, typename E>
 void Patch<T,E>::compute_environment_excl_capturing(bool rescale) {
+  // The boundary node is one end of the birth-date quadrature and its birth date
+  // is the current time, so refresh it before the profile is built. Its own stamp
+  // is set in compute_rates(), which the stepper calls *after* the set_ode_state()
+  // that brings us here, so reading that stamp would use the previous derivs
+  // call's time and shorten the boundary interval by a Runge-Kutta stage. The
+  // measured effect is below 1e-6, but the interval is then a function of the step
+  // size, which the spatial quadrature has no business depending on, and the whole
+  // integral *is* that one segment while a species has a single node. No-op for
+  // the height coordinate, where this abscissa is the constant initial height.
   for (auto& s : species) {
     s.set_new_node_birth_date(environment.time);
   }
@@ -1019,50 +995,6 @@ void Patch<T,E>::compute_environment_closing(bool rescale) {
       environment.compute_environment(f, height_max(), rescale);
     } catch (const interpolator::refinement_failure& e) {
       util::stop(std::string(e.what()) + " " + describe_nodes_near(e.report.x_lo));
-    }
-  }
-}
-
-template <typename T, typename E>
-void Patch<T,E>::compute_environment_once(bool rescale, bool include_boundary) {
-
-  // The boundary node is one end of the birth-date quadrature and its birth date
-  // is the current time, so refresh it before the profile is built. Its own
-  // stamp is set in compute_rates(), which the stepper calls *after* the
-  // set_ode_state() that brings us here, so reading that stamp would use the
-  // previous derivs call's time and shorten the boundary interval by a
-  // Runge-Kutta stage. Measured effect on FF16 offspring production is below
-  // 1e-6 -- the boundary node carries almost no leaf area, so the segment it
-  // ends contributes little -- but the interval is then a function of the step
-  // size, which the spatial quadrature has no business depending on, and the
-  // whole integral *is* that one segment while a species has a single node.
-  // No-op for the height coordinate, where this abscissa is the constant
-  // initial height.
-  for (auto& s : species) {
-    s.set_new_node_birth_date(environment.time);
-  }
-
-  // The competition profile and its vertical derivative at x. The field carries a
-  // slope at every knot, so the build asks for the pair.
-  // Written as std::pair<double, double> this still compiles, taking the value
-  // of an active profile, and every knot value and slope in the field would then
-  // be a constant with nothing raised to say the cohorts had stopped reaching it.
-  auto f = [&](double x) -> std::pair<value_type, value_type> {
-    return include_boundary ? compute_competition_and_slope(x)
-                            : compute_competition_and_slope_excl_boundary(x);
-  };
-
-  if (size() > 0 & !is_mutant_run) {
-    try {
-      environment.compute_environment(f, height_max(), rescale);
-    } catch (const interpolator::refinement_failure& e) {
-      // The refiner can only say that the profile has a feature it cannot
-      // resolve, at some height. We know what is at that height, and it is
-      // usually the actual problem: cohorts stacked at one size put a step in
-      // the competition profile (#571). Say so rather than making the reader
-      // reconstruct the patch state by hand.
-      util::stop(std::string(e.what()) + " " +
-                 describe_nodes_near(e.report.x_lo));
     }
   }
 }

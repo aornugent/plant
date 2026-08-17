@@ -126,17 +126,6 @@ public:
   std::pair<value_type, value_type>
   compute_competition_and_slope(double height) const;
 
-  // The same reduction with the inflow boundary interval left off, so it is a
-  // function of the ODE state alone: it never reads new_node. The boundary
-  // condition n_b = birth_rate * pr_estab / g needs a field to be evaluated in,
-  // and evaluating it in this one is what breaks the cycle. See
-  // Patch::compute_environment.
-  value_type compute_competition_excl_boundary(double height) const;
-
-  // compute_competition_and_slope() with that same interval left off.
-  std::pair<value_type, value_type>
-  compute_competition_and_slope_excl_boundary(double height) const;
-
   // What the reduction accumulates before its closing trapezium, plus the node
   // it closed on. Holding this lets the field WITH the boundary interval be
   // formed from the field without it in one operation, rather than by a second
@@ -318,16 +307,6 @@ private:
   compute_competition_and_slope_unordered(double height,
                                           bool include_boundary) const;
 
-  // The fused reduction, with the closing boundary trapezium included or not.
-  std::pair<value_type, value_type>
-  compute_competition_and_slope_impl(double height, bool include_boundary) const;
-
-  // The reduction, with the closing boundary trapezium included or not. The
-  // included case is the arithmetic compute_competition() has always done, in one
-  // accumulator, so that path keeps its rounding exactly.
-  value_type compute_competition_impl(double height,
-                                      bool include_boundary) const;
-
   // Cache for scan_heights(). Every path that can change a node height must call
   // invalidate_height_scan(); a stale cache here would silently reintroduce the
   // wrong competition profile of #571, so the coverage of these calls was checked
@@ -506,21 +485,6 @@ typename Species<T,E>::HeightScan Species<T,E>::compute_height_scan() const {
 template <typename T, typename E>
 typename Species<T,E>::value_type
 Species<T,E>::compute_competition(double height) const {
-  return compute_competition_impl(height, true);
-}
-
-// The interior sum alone: never touches new_node, so it is a function of the ODE
-// state and the strategy only.
-template <typename T, typename E>
-typename Species<T,E>::value_type
-Species<T,E>::compute_competition_excl_boundary(double height) const {
-  return compute_competition_impl(height, false);
-}
-
-template <typename T, typename E>
-typename Species<T,E>::value_type
-Species<T,E>::compute_competition_impl(double height,
-                                       bool include_boundary) const {
   // The value is the fused reduction's first entry, and taking it from there is
   // what makes them equal rather than a test's business. The two walked the same
   // grid with the same early exit and the same closing trapezium, and a value
@@ -532,7 +496,7 @@ Species<T,E>::compute_competition_impl(double height,
   // path arrives here -- it takes compute_competition_and_slope_split() and
   // closes it -- so this serves the accessors, where the pair was already being
   // computed one call away.
-  return compute_competition_and_slope_impl(height, include_boundary).first;
+  return compute_competition_and_slope(height).first;
 }
 
 // The same trapezium integral as compute_competition(), and alongside it the
@@ -545,28 +509,8 @@ template <typename T, typename E>
 std::pair<typename Species<T,E>::value_type,
           typename Species<T,E>::value_type>
 Species<T,E>::compute_competition_and_slope(double height) const {
-  return compute_competition_and_slope_impl(height, true);
-}
-
-// The fused pair for the interior sum alone, so the field the boundary condition
-// is evaluated in is a function of the ODE state only.
-template <typename T, typename E>
-std::pair<typename Species<T,E>::value_type,
-          typename Species<T,E>::value_type>
-Species<T,E>::compute_competition_and_slope_excl_boundary(double height) const {
-  return compute_competition_and_slope_impl(height, false);
-}
-
-template <typename T, typename E>
-std::pair<typename Species<T,E>::value_type,
-          typename Species<T,E>::value_type>
-Species<T,E>::compute_competition_and_slope_impl(double height,
-                                                 bool include_boundary) const {
-  const competition_split c = compute_competition_and_slope_split(height);
-  if (!include_boundary) {
-    return c.excl;
-  }
-  return close_competition_and_slope(c, height);
+  return close_competition_and_slope(compute_competition_and_slope_split(height),
+                                     height);
 }
 
 // The reduction up to its closing trapezium. Everything the closing term needs
