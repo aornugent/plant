@@ -233,6 +233,53 @@ test_that("every clamp site is classified, and by a measured incidence", {
   expect_true(all(as.vector(stand_gradient(dry)$status) != "refused"))
 })
 
+test_that("phylloptim's root-vulnerability clamps stay out of reach, with a margin", {
+  # These are NOT counted, deliberately, and this is what stands in for a counter.
+  #
+  # Two clamps in the root curve are thresholds on a layer potential: the curve's
+  # argument is clamped into its knot domain at 6.8229 MPa, and the cumulative
+  # integral is capped past 7.3132. Both already carry matching derivative kills,
+  # so where they bind the row is an honest zero rather than a wrong number -- and
+  # the root_b row stays right under the cap by the homogeneity rather than in
+  # spite of it. So what is worth asserting is not a count but the DISTANCE, which
+  # a counter reading zero cannot report.
+  #
+  # Instrumenting them would need a phylloptim header edit, hence a reinstall,
+  # hence a near-full plant recompile: the cost is the build loop rather than the
+  # code. A threshold on a readable quantity does not need it.
+  last_knot <- 6.8229
+  integral_cap <- 7.3132
+
+  worst <- 0
+  for (d in list(list(rain = 2.00, name = "wet"),
+                 list(rain = 0.10, name = "drought"),
+                 list(rain = 0.05, name = "very-dry"))) {
+    scm <- incidence_stand(d$rain, 5)
+    e <- scm$patch$environment
+    nlayer <- e$get_soil_number_of_depths()
+    # Over the RECORDED steps, which is the set the sweep visits -- a terminal
+    # reading misses a layer that dried and rewetted, and those are the states the
+    # clamp would bind in.
+    for (r in scm$store_trajectory()) {
+      s <- r$state
+      n <- length(s)
+      theta <- s[(n - 3 - nlayer):(n - 4)]
+      if (length(theta) != nlayer || any(!is.finite(theta))) next
+      psi <- vapply(theta, function(x) e$psi_from_soil_moist(x), numeric(1))
+      if (any(!is.finite(psi))) next
+      worst <- max(worst, max(psi))
+    }
+  }
+  message(sprintf("  worst layer potential over three drivers: %.4f MPa, against %.4f and %.4f",
+                  worst, last_knot, integral_cap))
+  expect_lt(worst, last_knot)
+  expect_lt(worst, integral_cap)
+
+  # Non-vacuity: a run that dried nothing would pass the two bounds above while
+  # measuring nothing at all, so the drying has to be real.
+  expect_gt(worst, 1.0)
+})
+
 test_that("the curvature guard reports how close it came, not only that it held", {
   # A guard that held and a guard nothing reached report the same green, so the
   # distance to the floor is carried out of the run. The floor is a declared
