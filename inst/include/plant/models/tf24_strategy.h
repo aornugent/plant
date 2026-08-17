@@ -1287,18 +1287,20 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   double a = 0.0;
   if (!pinned) {
     const double base_rc = root_carbon_value_[anchor];
-    const double h_rc = base_rc * fit_step;
-    double m_rc_up = 0.0, m_rc_dn = 0.0;
-    for (int side = 0; side < 2; ++side) {
-      root_carbon_value_[anchor] = base_rc + (side == 0 ? h_rc : -h_rc);
-      rebuild_roots();
-      seat_at(radiation_value, psi_value, kmax_value, "root carbon");
-      (side == 0 ? m_rc_up : m_rc_dn) = leaf.dprofit_droot_collar_psi(collar);
-    }
+    // Through the same arm chooser as every other differenced family. This one
+    // rebuilds the root network per arm, so it is the most expensive of them --
+    // and it is also the one a drying stand crosses on: at rain 0.20 and below
+    // it was the family that refused.
+    const Difference rc_row = differenced(
+        base_rc, base_rc, "root carbon", [&](double v) -> bool {
+          root_carbon_value_[anchor] = v;
+          rebuild_roots();
+          return try_seat_at(radiation_value, psi_value, kmax_value);
+        });
     root_carbon_value_[anchor] = base_rc;
     rebuild_roots();
     seat_at(radiation_value, psi_value, kmax_value, "root carbon");
-    const double dR_drc_anchor = (m_rc_up - m_rc_dn) / (2.0 * h_rc);
+    const double dR_drc_anchor = rc_row.marginal;
 
     a = (dR_drc_anchor - b * d2Eup_drc[anchor]) / dEup_drc[anchor];
     if (!util::is_finite(a)) {
