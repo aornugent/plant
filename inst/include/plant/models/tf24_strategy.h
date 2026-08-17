@@ -560,6 +560,14 @@ public:
   void record_leaf_outputs(const S& radiation, const std::vector<S>& psi_soil,
                            const S& conductance_max,
                            Drive drive, Rebuild rebuild_roots);
+  // The rows at a shut operating point, where nothing is an argmax. Separate
+  // from record_leaf_outputs rather than a branch inside it because it shares
+  // none of it: no curvature, no envelope step, no bound, no collar.
+  template <typename Drive, typename Rebuild>
+  void record_zero_flux_outputs(const S& radiation,
+                                const std::vector<S>& psi_soil,
+                                const S& conductance_max, Drive drive,
+                                Rebuild rebuild_roots);
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
   // height state and the cached aux slots itself, so the generic Individual
   // does not need to know TF24's state/aux layout.
@@ -958,6 +966,270 @@ S TF24_Strategy<S>::evapotranspiration_dt(S area_leaf_, int soil_layer) {
 // about one part in 10^4, so a pair fitted from them fits every one of them and
 // still carries the wrong split between the two scalars into every other
 // direction. Root carbon is outside that span, which is why it anchors here.
+
+// The rows at a shut operating point: stomata closed, no flux, no gross
+// assimilation, and
+//
+//   profit = -R_d - C(psi_stem)
+//
+// with psi_stem the critical potential under hydraulic shutdown and the collar of
+// zero uptake under shade death. Nothing here is an argmax, so there is no
+// envelope step to take, no curvature to divide by and no bound the point rides:
+// every row is a difference of the solve itself, which lands on this state
+// directly.
+//
+// ⚠️ THE TWO KINDS ARE NOT THE SAME POINT, which is why the rows are differenced
+// rather than declared. Hydraulic shutdown holds the stem at psi_crit and zeroes
+// every layer, so its environment rows really are exactly zero. Shade death seats
+// BOTH potentials at the collar of zero uptake -- which is the wet bound -- so
+// profit reads the soil through it, and the per-layer consumptions are not zero
+// either: they sum to zero. Differencing gets both right without this code
+// having to know which it is on.
+template <typename S>
+template <typename Drive, typename Rebuild>
+void TF24_Strategy<S>::record_zero_flux_outputs(const S& radiation,
+                                                const std::vector<S>& psi_soil,
+                                                const S& conductance_max,
+                                                Drive drive,
+                                                Rebuild rebuild_roots) {
+  using odelia::util::to_passive;
+  const size_t n_layer = leaf.supply_psi_soil().size();
+  if (n_layer > psi_soil.size()) {
+    throw gradient_refusal("TF24 gradient: the leaf answered for " +
+               util::to_string(static_cast<int>(n_layer)) + " layers out of " +
+               util::to_string(static_cast<int>(psi_soil.size())));
+  }
+  const double radiation_value = to_passive(radiation);
+  const double kmax_value = to_passive(conductance_max);
+  const std::vector<double>& psi_value = psi_soil_value_;
+  const double fit_step = 1e-3;
+
+  // Re-supply and re-solve. The solve exits early on this branch, so an arm is
+  // cheaper here than anywhere else in the sweep -- and the branch is an OPEN
+  // condition, so a small enough step stays on it. An arm that does not is a
+  // kink in the model rather than an artefact of the step, and is refused.
+  auto resolve_at = [&](double rad, const std::vector<double>& psi,
+                        double kmax) -> bool {
+    drive(rad, psi, kmax);
+    leaf.find_root_collar_psi();
+    return leaf.zero_flux_operating_point();
+  };
+  struct Shut {
+    double profit = 0.0;
+    std::vector<double> uptake;
+  };
+  auto read_here = [&]() -> Shut {
+    Shut r;
+    r.profit = leaf.profit_;
+    r.uptake.assign(n_layer, 0.0);
+    for (size_t i = 0; i < n_layer; ++i) {
+      r.uptake[i] = leaf.soil_consumption_[i];
+    }
+    return r;
+  };
+  auto left_branch = [&](const char* what) -> gradient_refusal {
+    return gradient_refusal(std::string("TF24 gradient: perturbing ") + what +
+        " leaves the shut branch this point is on, so the two arms are not "
+        "differences of one function");
+  };
+  // Centred where both arms stay on the branch, one-sided and second order where
+  // one does not. The branch boundary is `assim_max_` crossing zero, and a trait
+  // that is LIVE here can still sit against it -- respiration is the instance,
+  // because assim_max_ is net of it -- so refusing on a crossing would refuse a
+  // row that exists. Same arrangement as the feasible interval's, for the same
+  // reason: the derivative is one-sided at a boundary, not absent.
+  auto differenced = [&](double base, double scale, const char* what,
+                         auto&& solve_with) -> Shut {
+    const double h = scale * fit_step;
+    std::vector<double> weight;
+    std::vector<Shut> read;
+    const bool up_ok = solve_with(base + h);
+    const Shut up = up_ok ? read_here() : Shut{};
+    const bool dn_ok = solve_with(base - h);
+    const Shut dn = dn_ok ? read_here() : Shut{};
+    if (up_ok && dn_ok) {
+      weight = {0.5 / h, -0.5 / h};
+      read = {up, dn};
+    } else if (up_ok || dn_ok) {
+      const double side = up_ok ? 1.0 : -1.0;
+      if (!solve_with(base + 2.0 * side * h)) { throw left_branch(what); }
+      const Shut far = read_here();
+      if (!solve_with(base)) { throw left_branch(what); }
+      weight = {-1.5 * side / h, 2.0 * side / h, -0.5 * side / h};
+      read = {read_here(), up_ok ? up : dn, far};
+    } else {
+      throw left_branch(what);
+    }
+    Shut out;
+    out.uptake.assign(n_layer, 0.0);
+    for (size_t t = 0; t < weight.size(); ++t) {
+      out.profit += weight[t] * read[t].profit;
+      for (size_t i = 0; i < n_layer; ++i) {
+        out.uptake[i] += weight[t] * read[t].uptake[i];
+      }
+    }
+    if (!util::is_finite(out.profit)) {
+      throw gradient_refusal(std::string("TF24 gradient: ") + what +
+                 " moves a shut leaf by an amount that is not finite");
+    }
+    return out;
+  };
+
+  // One entry per trait the leaf holds, on the same terms as the interior path's
+  // table: the value it is seated at, the active input its row is recorded
+  // against, the name a refusal reports it by, whether the row is declared rather
+  // than differenced, and the row itself. Nothing is keyed by position, so a
+  // trait added to the list cannot pair one trait's value with another's address.
+  //
+  // Gross assimilation is identically zero on this branch, so the traits that
+  // reach only assimilation reach nothing: profit is respiration plus a
+  // hydraulic cost, and neither reads them. `root_psi_crit` joins them because
+  // neither seated potential is it.
+  //
+  // ⚠️ DECLARED RATHER THAN DIFFERENCED, and not as an optimisation. A step in
+  // one of these moves `assim_max_`, which is the quantity DECIDING the branch,
+  // so differencing them refuses at a boundary their row does not depend on --
+  // measured, that is what a shaded stand refuses on.
+  //
+  // The rest are driven, including the ones the interior branch answers for in
+  // closed form: those closed forms are assimilation's and the hydraulic cost's
+  // at an OPTIMISED point, and this point is neither.
+  struct shut_trait {
+    double value;
+    const S* input;
+    const char* name;
+    bool zero_when_shut;
+    Shut row;
+  };
+  shut_trait lt[] = {
+      {to_passive(pars.vcmax_25), &pars.vcmax_25, "vcmax_25", true},
+      {to_passive(pars.c), &pars.c, "stem_c", false},
+      {to_passive(pars.b), &pars.b, "stem_b", false},
+      {to_passive(pars.psi_crit), &pars.psi_crit, "psi_crit", false},
+      {to_passive(pars.root_c), &pars.root_c, "root_c", false},
+      {to_passive(pars.root_b), &pars.root_b, "root_b", false},
+      {to_passive(pars.root_psi_crit), &pars.root_psi_crit, "root_psi_crit",
+       true},
+      {to_passive(pars.beta2), &pars.beta2, "beta2", false},
+      {to_passive(pars.jmax_25), &pars.jmax_25, "jmax_25", true},
+      {to_passive(pars.a), &pars.a, "a", true},
+      {to_passive(pars.curv_fact_elec_trans), &pars.curv_fact_elec_trans,
+       "curv_fact_elec_trans", true},
+      {to_passive(pars.curv_fact_colim), &pars.curv_fact_colim,
+       "curv_fact_colim", true},
+      {to_passive(pars.g1_TF24), &pars.g1_TF24, "g1_TF24", false},
+      {to_passive(pars.R_d_25), &pars.R_d_25, "R_d_25", false}};
+  const int n_leaf_trait = static_cast<int>(sizeof(lt) / sizeof(lt[0]));
+  // The setter takes them by position, so the order above is its argument list
+  // and not this file's to choose.
+  auto apply_leaf_traits = [&]() -> void {
+    leaf.set_traits(lt[0].value, lt[1].value, lt[2].value, lt[3].value,
+                    lt[4].value, lt[5].value, lt[6].value, lt[7].value,
+                    lt[8].value, lt[9].value, lt[10].value, lt[11].value,
+                    lt[12].value, lt[13].value);
+  };
+
+  // Radiation and the maximum conductance are exactly zero, and structurally so
+  // rather than measured: on this branch profit is respiration plus a cost at a
+  // potential neither of them appears in. Radiation decides WHICH branch the leaf
+  // is on, and that is a kink rather than a derivative.
+  std::vector<odelia::input_and_derivative<S>> against;
+  against.reserve(2 + 2 * n_layer + n_leaf_trait);
+  against.push_back({radiation, 0.0});
+  against.push_back({conductance_max, 0.0});
+
+  // The layer carbon. It reaches profit only through the collar this branch
+  // seats at, so it is zero under hydraulic shutdown and live under shade death,
+  // and neither the row nor this code has to know which.
+  std::vector<Shut> rc_rows(n_layer);
+  for (size_t k = 0; k < n_layer; ++k) {
+    rc_rows[k].uptake.assign(n_layer, 0.0);
+    if (!(root_carbon_value_[k] > 0.0)) {
+      continue;   // a layer with no roots moves no water, and that zero is model
+    }
+    const double base_rc = root_carbon_value_[k];
+    rc_rows[k] = differenced(base_rc, base_rc, "a layer's root carbon",
+                             [&](double v) -> bool {
+                               root_carbon_value_[k] = v;
+                               rebuild_roots();
+                               return resolve_at(radiation_value, psi_value,
+                                                 kmax_value);
+                             });
+    root_carbon_value_[k] = base_rc;
+    rebuild_roots();
+  }
+  for (size_t k = 0; k < n_layer; ++k) {
+    against.push_back({root_carbon_per_leaf_area_[k], rc_rows[k].profit});
+  }
+
+  for (int k = 0; k < n_leaf_trait; ++k) {
+    if (lt[k].zero_when_shut) {
+      lt[k].row.uptake.assign(n_layer, 0.0);
+      continue;
+    }
+    const double base_t = lt[k].value;
+    lt[k].row = differenced(base_t, std::max(std::abs(base_t), 1.0),
+                            lt[k].name, [&](double v) -> bool {
+                              lt[k].value = v;
+                              apply_leaf_traits();
+                              return resolve_at(radiation_value, psi_value,
+                                                kmax_value);
+                            });
+    lt[k].value = base_t;
+  }
+  apply_leaf_traits();
+  for (int k = 0; k < n_leaf_trait; ++k) {
+    against.push_back({*lt[k].input, lt[k].row.profit});
+  }
+
+  std::vector<Shut> psi_rows(n_layer);
+  std::vector<double> moved(psi_value);
+  for (size_t j = 0; j < n_layer; ++j) {
+    const double base_p = psi_value[j];
+    psi_rows[j] = differenced(base_p, std::max(std::abs(base_p), 1.0),
+                              "a soil layer", [&](double v) -> bool {
+                                moved = psi_value;
+                                moved[j] = v;
+                                return resolve_at(radiation_value, moved,
+                                                  kmax_value);
+                              });
+  }
+  for (size_t j = 0; j < n_layer; ++j) {
+    against.push_back({psi_soil[j], psi_rows[j].profit});
+  }
+  // Put the leaf back on the state its value was read at.
+  if (!resolve_at(radiation_value, psi_value, kmax_value)) {
+    throw gradient_refusal("TF24 gradient: the leaf did not return to the shut "
+               "branch its value was read on");
+  }
+  leaf_profit_ = odelia::record_with_derivatives<S>(leaf.profit_, against);
+
+  // Uptake, from the same arms. soil_consumption_ is in mol on both sides of
+  // every difference above, so unlike the interior path there is no conversion
+  // to apply here: this is a difference of the reported quantity itself.
+  leaf_soil_consumption_.assign(psi_soil.size(), S(0.0));
+  for (size_t i = 0; i < n_layer; ++i) {
+    against.clear();
+    against.push_back({radiation, 0.0});
+    against.push_back({conductance_max, 0.0});
+    for (size_t k = 0; k < n_layer; ++k) {
+      against.push_back({root_carbon_per_leaf_area_[k], rc_rows[k].uptake[i]});
+    }
+    for (int k = 0; k < n_leaf_trait; ++k) {
+      against.push_back({*lt[k].input, lt[k].row.uptake[i]});
+    }
+    for (size_t j = 0; j < n_layer; ++j) {
+      against.push_back({psi_soil[j], psi_rows[j].uptake[i]});
+    }
+    leaf_soil_consumption_[i] =
+        odelia::record_with_derivatives<S>(leaf.soil_consumption_[i], against);
+  }
+  for (size_t i = n_layer; i < psi_soil.size(); ++i) {
+    leaf_soil_consumption_[i] = S(0.0);
+  }
+}
+
+
 template <typename S>
 template <typename Drive, typename Rebuild>
 void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
@@ -966,6 +1238,16 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                                            Drive drive, Rebuild rebuild_roots) {
   using odelia::util::to_passive;
   namespace grad = phylloptim::gradient;
+
+  // A shut point is not an argmax. There is no stationarity to take an envelope
+  // step at, no curvature to divide by and no bound the point rides -- profit is
+  // respiration plus the hydraulic cost at a potential the solve lands on
+  // directly. Everything below this line assumes the opposite.
+  if (leaf.zero_flux_operating_point()) {
+    record_zero_flux_outputs(radiation, psi_soil, conductance_max, drive,
+                             rebuild_roots);
+    return;
+  }
 
   grad::ProfitEnvDerivatives env;
   grad::profit_env_derivatives(leaf, env);

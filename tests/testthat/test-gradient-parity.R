@@ -44,11 +44,12 @@ parity_stand <- function(rain, lifetime, k_I = 0.5, amplitude = 0) {
 # A refusal naming anything else is a regime that USED to answer, which is what
 # this file exists to catch.
 #
-# `shade-death` is governed by light rather than water, so no rainfall sweep
-# reaches it -- and its rows are not the "exactly zero" the corpus assumed: the
-# branch seats both potentials at the collar of zero uptake, which IS the wet
-# bound, so profit reads the soil through it.
-parity_known_gaps <- c("shade-death")
+# `shade-death` was on this list and is not any more: the shut branches answer.
+# What is left is the LIGHT FLOOR, which is a guard rather than a regime -- where
+# it binds, a cohort's radiation stops depending on any other cohort's height and
+# the row is severed by the clamp rather than by the model. It is reached at
+# k_I = 40 and above, which is eighty times the shipped value.
+parity_known_gaps <- c("light floor")
 
 parity_kinds <- c("answered", "zero-slack", "zero-structural", "zero-undeclared",
                   "refused")
@@ -69,7 +70,8 @@ parity_drivers <- list(
   list(name = "wet",      rain = 2.00, lifetime = 5),
   list(name = "drought",  rain = 0.10, lifetime = 5),
   list(name = "seasonal", rain = 1.00, lifetime = 5, amplitude = 1.0),
-  list(name = "shaded",   rain = 2.00, lifetime = 5, k_I = 20)
+  list(name = "shaded",   rain = 2.00, lifetime = 5, k_I = 20),
+  list(name = "clamped",  rain = 2.00, lifetime = 5, k_I = 40)
 )
 
 # Each driver is run and swept ONCE. The sweep is the whole cost here -- the run
@@ -172,6 +174,7 @@ test_that("each driver reaches the branch it is here for", {
   expect_gt(reach("drought", "pinned-dry-root-crit"), 0)
   expect_gt(reach("seasonal", "pinned-dry-root-crit"), 0)
   expect_gt(reach("shaded", "shade-death"), 0)
+  expect_gt(reach("clamped", "shade-death"), 0)
   # And the control has to be a control: the wet driver never leaves the branch
   # the gradient was first built for, which is what makes it the one fixture a
   # regression shows up against cleanly.
