@@ -12781,32 +12781,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// ladder_rhs_adjoint_timing_tf24
-Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<double> lambda_dydt, int reps);
-RcppExport SEXP _plant_ladder_rhs_adjoint_timing_tf24(SEXP obj_SEXP, SEXP lambda_dydtSEXP, SEXP repsSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< std::vector<double> >::type lambda_dydt(lambda_dydtSEXP);
-    Rcpp::traits::input_parameter< int >::type reps(repsSEXP);
-    rcpp_result_gen = Rcpp::wrap(ladder_rhs_adjoint_timing_tf24(obj_, lambda_dydt, reps));
-    return rcpp_result_gen;
-END_RCPP
-}
-// ladder_block_copy_cost_tf24
-Rcpp::List ladder_block_copy_cost_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, int node, int reps);
-RcppExport SEXP _plant_ladder_block_copy_cost_tf24(SEXP obj_SEXP, SEXP nodeSEXP, SEXP repsSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< int >::type node(nodeSEXP);
-    Rcpp::traits::input_parameter< int >::type reps(repsSEXP);
-    rcpp_result_gen = Rcpp::wrap(ladder_block_copy_cost_tf24(obj_, node, reps));
-    return rcpp_result_gen;
-END_RCPP
-}
 // ladder_rebind_matches_assign_tf24
 Rcpp::List ladder_rebind_matches_assign_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
 RcppExport SEXP _plant_ladder_rebind_matches_assign_tf24(SEXP obj_SEXP) {
@@ -14189,8 +14163,6 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ladder_block_direction_difference_tf24", (DL_FUNC) &_plant_ladder_block_direction_difference_tf24, 4},
     {"_plant_ladder_introduction_jacobian_tf24", (DL_FUNC) &_plant_ladder_introduction_jacobian_tf24, 4},
     {"_plant_ladder_rhs_trait_difference_tf24", (DL_FUNC) &_plant_ladder_rhs_trait_difference_tf24, 2},
-    {"_plant_ladder_rhs_adjoint_timing_tf24", (DL_FUNC) &_plant_ladder_rhs_adjoint_timing_tf24, 3},
-    {"_plant_ladder_block_copy_cost_tf24", (DL_FUNC) &_plant_ladder_block_copy_cost_tf24, 3},
     {"_plant_ladder_rebind_matches_assign_tf24", (DL_FUNC) &_plant_ladder_rebind_matches_assign_tf24, 1},
     {"_plant_FF16_oderunner_individual_internals", (DL_FUNC) &_plant_FF16_oderunner_individual_internals, 1},
     {"_plant_K93_oderunner_individual_internals", (DL_FUNC) &_plant_K93_oderunner_individual_internals, 1},

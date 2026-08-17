@@ -4537,14 +4537,6 @@ ladder_rhs_trait_difference_tf24 <- function(obj_, rel) {
     .Call('_plant_ladder_rhs_trait_difference_tf24', PACKAGE = 'plant', obj_, rel)
 }
 
-ladder_rhs_adjoint_timing_tf24 <- function(obj_, lambda_dydt, reps) {
-    .Call('_plant_ladder_rhs_adjoint_timing_tf24', PACKAGE = 'plant', obj_, lambda_dydt, reps)
-}
-
-ladder_block_copy_cost_tf24 <- function(obj_, node, reps) {
-    .Call('_plant_ladder_block_copy_cost_tf24', PACKAGE = 'plant', obj_, node, reps)
-}
-
 ladder_rebind_matches_assign_tf24 <- function(obj_) {
     .Call('_plant_ladder_rebind_matches_assign_tf24', PACKAGE = 'plant', obj_)
 }

@@ -1,6 +1,5 @@
 #include <plant.h>
 #include <XAD/XAD.hpp>
-#include <chrono>
 
 // The references the gradient is checked against, and the two objects they are
 // checked at. The two objects referee different claims, and reading them as one
@@ -61,10 +60,8 @@ size_t rhs_adjoint(patch_type& patch,
   std::vector<std::vector<double>> swept;
   std::vector<std::vector<double>> rows(
     1, std::vector<double>(patch.trait_adjoint_size(), 0.0));
-  // No recorded stage: a patch reached from R stands where its state put it,
-  // which is what the first evaluation of a step is taken at.
   const size_t recording = odelia::ode::rates_adjoint(
-    tape.get(), patch, state, patch.time(), -1, seeds, swept, rows);
+    tape.get(), patch, state, patch.time(), seeds, swept, rows);
   lambda_state = std::move(swept[0]);
   trait_adjoint = std::move(rows[0]);
   return recording;
@@ -875,113 +872,6 @@ Rcpp::NumericMatrix ladder_rhs_trait_difference_tf24(plant::RcppR6::RcppR6<plant
   }
   rates_at(up);
   return out;
-}
-
-// Where one whole right-hand-side adjoint spends its time.
-//
-// The stage is one recording swept once per metric, so there are no components
-// left to attribute between -- what used to be eight entries here were the
-// hand-written transposes it replaced. What is still separable is the forward
-// field build against the recording that repeats it at an active scalar, which
-// is the ratio that says what differentiating the stage costs over running it.
-// [[Rcpp::export]]
-Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
-                                          std::vector<double> lambda_dydt,
-                                          int reps) {
-  using clock = std::chrono::steady_clock;
-  patch_type& patch = *obj_;
-  plant::util::check_length(lambda_dydt.size(), patch.ode_size());
-  odelia::ode::scratch_tape tape;
-
-  double t_env = 0, t_total = 0;
-  double slots = 0;
-
-  for (int rep = 0; rep < reps; ++rep) {
-    auto t0 = clock::now();
-    patch.r_compute_environment();
-    auto t1 = clock::now();
-    t_env += std::chrono::duration<double>(t1 - t0).count();
-
-    t0 = clock::now();
-    std::vector<double> lambda_state, trait_adjoint;
-    slots = static_cast<double>(
-      rhs_adjoint(patch, tape, lambda_dydt, lambda_state, trait_adjoint));
-    t1 = clock::now();
-    t_total += std::chrono::duration<double>(t1 - t0).count();
-  }
-
-  const double r = static_cast<double>(reps);
-  return Rcpp::List::create(
-    Rcpp::_["compute_environment"] = t_env / r,
-    Rcpp::_["ode_rates_adjoint"] = t_total / r,
-    Rcpp::_["total"] = t_total / r,
-    Rcpp::_["block_recording_size"] = slots);
-}
-
-// What one recorded block pays before it records anything.
-//
-// cohort_block_adjoint builds a fresh active strategy and a fresh active
-// environment per cohort per stage, then registers 185 inputs and clears the
-// tape. None of that scales with the recorded operation count, so a block cost
-// that does not move with the quadrature rule is this rather than the tape. The
-// two are timed apart here because the fix differs: one is amortisable across a
-// stage, the other is not.
-// [[Rcpp::export]]
-Rcpp::List ladder_block_copy_cost_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
-                                       int node, int reps) {
-  using clock = std::chrono::steady_clock;
-  using ad_scalar = odelia::ode::active_scalar<double>;
-  using ad_strategy = plant::at_scalar<strategy_type, ad_scalar>;
-  using ad_environment = plant::at_scalar<environment_type, ad_scalar>;
-
-  patch_type& patch = *obj_;
-  const node_address at = locate(patch, static_cast<size_t>(node - 1));
-
-  const ad_strategy strategy_template =
-    patch.at_species(at.species).strategy_ptr()->template rebind_from<ad_scalar>();
-  const ad_environment environment_template =
-    patch.r_environment().template rebind_from<ad_scalar>();
-
-  double sink = 0.0;
-
-  // The strategy copy alone.
-  auto t0 = clock::now();
-  for (int i = 0; i < reps; ++i) {
-    auto s = std::make_shared<ad_strategy>(strategy_template);
-    sink += odelia::util::to_passive(s->pars.lma);
-  }
-  const double t_strategy =
-    std::chrono::duration<double>(clock::now() - t0).count() / reps;
-
-  // The environment copy alone.
-  t0 = clock::now();
-  for (int i = 0; i < reps; ++i) {
-    ad_environment e = environment_template;
-    sink += static_cast<double>(e.light_availability.spline.knots().size());
-  }
-  const double t_environment =
-    std::chrono::duration<double>(clock::now() - t0).count() / reps;
-
-  // A bare tape cycle over the same input count, recording nothing.
-  const size_t n_in = 185;
-  std::vector<double> in(n_in, 1.0), out_adjoint(12, 1.0), in_adjoint;
-  typename ad_scalar::tape_type tape(false);
-  auto nothing = [&](const std::vector<ad_scalar>& x,
-                     std::vector<ad_scalar>& y) -> void {
-    for (size_t j = 0; j < y.size(); ++j) y[j] = x[j];
-  };
-  t0 = clock::now();
-  for (int i = 0; i < reps; ++i) {
-    odelia::ode::vector_jacobian_product(tape, in, out_adjoint, nothing, in_adjoint);
-  }
-  const double t_tape =
-    std::chrono::duration<double>(clock::now() - t0).count() / reps;
-
-  return Rcpp::List::create(
-    Rcpp::_["strategy_copy"] = t_strategy,
-    Rcpp::_["environment_copy"] = t_environment,
-    Rcpp::_["empty_tape_cycle"] = t_tape,
-    Rcpp::_["sink"] = sink);
 }
 
 

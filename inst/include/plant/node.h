@@ -99,7 +99,7 @@ public:
   // Unfortunate, but need a get_ here because of name shadowing...
   value_type get_log_density() const {return log_density;}
   // exp(log_density); can overflow to +Inf when the SCM density equation runs
-  // away (see Patch::check_finite_node_densities).
+  // away (see Patch::check_finite_ode_state).
   value_type get_density() const {return density;}
   void set_log_density(const value_type& x) {
     log_density = x;
@@ -176,9 +176,9 @@ void Node<T,E>::compute_rates(const environment_type& environment,
   // NOTE: This must be called *after* compute_rates, but given we
   // need mortality_dt() that's always going to be the case.
   //
-  // The coordinate branch lives in Individual::log_density_rate, which is one of
-  // the cohort block's outputs, so the recorded block and this path cannot
-  // disagree about which coordinate they are on.
+  // The coordinate branch lives in Individual::log_density_rate, which the step
+  // recording reaches through this same call, so the recording and this path
+  // cannot disagree about which coordinate they are on.
   log_density_dt = individual.log_density_rate(environment);
   // survival_individual: converts from the mean of the poisson process (on
   // [0,Inf)) to a probability (on [0,1]).

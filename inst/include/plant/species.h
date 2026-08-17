@@ -335,7 +335,8 @@ private:
   // It is a position, so it is read at its value even where the height it comes
   // from is active: a quadrature grid is structure. On the birth-date coordinate
   // that is exact, the date being fixed at birth. On the height coordinate it
-  // drops the weights' own channel, which the transposes below supply by hand.
+  // drops the weights' own channel and nothing supplies it, which is why the
+  // reverse pass refuses that coordinate rather than answering on it.
   static double abscissa_of(const node_type& n, bool birth_date) {
     using odelia::util::to_passive;
     return birth_date ? to_passive(n.introduction_time())

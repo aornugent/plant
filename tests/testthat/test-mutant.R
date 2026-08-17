@@ -4,7 +4,7 @@
 ## The numbers are the specification for the replay pass that replaces it, so
 ## they are kept and skipped rather than deleted.
 skip_invasion <- function() {
-  skip("run_mutant awaits a replay pass; see report 09 section 14.5 item 6")
+  skip("run_mutant needs a pass that replays a recorded field, and nothing records one")
 }
 
 test_that("mutant method works", {
@@ -37,7 +37,7 @@ test_that("mutant method works", {
   types <- extract_RcppR6_template_types(pr1, "Parameters")
   scm <- do.call("SCM", types)(pr1, e, ctrl)
 
-  expect_error(scm$run_mutant(p0), "Run a resident first to generate a competitve landscape") 
+  expect_error(scm$run_mutant(p0), "nothing records one")
 
   # check mutant fitness against resindet and expected values
   scm <- run_scm(pr1, e, ctrl)

@@ -101,10 +101,10 @@ public:
 
   // The reverse pass runs on the birth-date coordinate only, and refuses the
   // other one here rather than answering it. On the height coordinate the
-  // abscissa is state, so the quadrature weights carry a derivative the
-  // reduction transposes omit and the density rate carries a compression term
-  // the recorded step does not compute: the sweep is then the transpose of a
-  // function the forward model is not evaluating. Nothing about the arithmetic
+  // abscissa is state, so the quadrature weights carry a derivative nothing
+  // supplies and the density rate carries a compression term the recorded step
+  // does not compute: the sweep is then the transpose of a function the forward
+  // model is not evaluating. Nothing about the arithmetic
   // complains, and the two coordinates are different functions rather than two
   // discretisations of one -- one census metric's trait sensitivity changes
   // sign between them -- so the answer would be finite, plausible and wrong.
@@ -205,13 +205,6 @@ public:
   // store twice and run twice.
   template <class Metrics, class Scalar, class Seed>
   std::vector<Scalar> replay_initial_state(size_t from_segment, Seed seed);
-
-  // The state and time a segment's first step ran from, with the solver's system
-  // left carrying that segment's width. Reached by replaying the introductions
-  // before it, since a widened state is not what any record holds.
-
-  // Where the recorded trajectory widens and which species widened it. Returns
-  // with the solver's system narrowed to the first segment's width.
 
   // The four Control entries that move the trajectory and so move the gradient,
   // in the order stand_gradient() compares them.
@@ -597,6 +590,8 @@ template <typename T, typename E> void SCM<T, E>::reset() {
   patch = solver.get_system_ref();
   history.clear();
   widenings.clear();
+  adjoint_segments = 0;
+  adjoint_at_first_state.clear();
 }
 
 
