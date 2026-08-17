@@ -97,10 +97,14 @@ test_that("the boundary's own term enters once per stage of every step", {
     expect_gt(m$steps, 1L)
     expect_gt(m$metrics, 1L)
 
-    # Once per stage, per step, per metric. A boundary term moved to act once per
-    # introduction instead would collapse this from hundreds to a handful, and a
-    # term applied once per step rather than once per stage would divide it by six.
-    expect_equal(m$evaluations, stages * m$steps * m$metrics)
+    # Once per stage of every step, and NOT once per metric: a step is recorded
+    # once and the recording swept per metric, so the model is evaluated as often
+    # for three metrics as for one. A boundary term moved to act once per
+    # introduction would collapse this from hundreds to a handful; a term applied
+    # once per step rather than once per stage would divide it by six; and a
+    # recording taken per metric instead of per step would multiply it by the
+    # metric count.
+    expect_equal(m$evaluations, stages * m$steps)
   }
 
   # Non-vacuity: the count has to be a count. A constant would satisfy every

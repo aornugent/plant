@@ -227,13 +227,13 @@ public:
   const patch_type &r_patch() const { return patch; }
   const std::vector<patch_type> &r_history() const { return history; }
 
-  // How many times the inflow boundary's own term entered the trait adjoint over
-  // one sweep. The condition is evaluated inside every stage recording and every
-  // sweep of one carries its row, so the number is the solver's count of stage
-  // transposes. A row that acts once per stage is multiplied by that count, so
+  // How many times the inflow boundary was evaluated over one sweep. It is
+  // evaluated once per rate evaluation, and a step is recorded once and swept
+  // per metric, so the count is six per step and does not scale with the metrics
+  // asked for. A row that acts once per stage is multiplied by that count, so
   // the count is part of the row and belongs beside its value.
-  size_t boundary_condition_evaluations() { return solver.stage_sweeps(); }
-  void clear_boundary_condition_evaluations() { solver.clear_stage_sweeps(); }
+  size_t boundary_condition_evaluations() { return solver.recorded_rates(); }
+  void clear_boundary_condition_evaluations() { solver.clear_recorded_rates(); }
   Rcpp::List r_get_state() const { return patch.r_get_state(); };
 
   // Fitness / reproduction

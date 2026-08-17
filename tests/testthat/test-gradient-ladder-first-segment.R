@@ -55,11 +55,12 @@ test_that("the sweep runs the range below the first widening", {
                   ranges, n_widening, counts$evaluations))
   expect_equal(ranges, (n_widening + 1) * counts$metrics)
 
-  # And the boundary's own row enters once per stage of every step swept. A walk
-  # that skipped the lowest range would divide this by the steps in it, which on
-  # a fixture that widens at its first step is nothing at all.
+  # And the boundary is evaluated once per stage of every step swept. A walk that
+  # skipped the lowest range would divide this by the steps in it, which on a
+  # fixture that widens at its first step is nothing at all. It does not scale
+  # with the metrics: a step is recorded once and the recording swept per metric.
   stages <- 6L
-  expect_equal(counts$evaluations, stages * steps * counts$metrics)
+  expect_equal(counts$evaluations, stages * steps)
 })
 
 test_that("the adjoint the walk ends holding is the census's sensitivity to the first recorded state", {

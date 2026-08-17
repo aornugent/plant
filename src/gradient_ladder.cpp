@@ -43,11 +43,11 @@ using adjoint = odelia::ode::active_scalar<double>;
 using adjoint_patch = plant::Patch<plant::at_scalar<strategy_type, adjoint>,
                                    plant::at_scalar<environment_type, adjoint>>;
 
-// One right-hand-side transpose, taken by the call the sweep takes: odelia assigns
-// the active_patch, records derivs() and sweeps the recording per seed. Returns the
-// recording's size. The active patch and the tape are the caller's, as they are the
-// solver's in a sweep, so a caller repeating the call pays for neither twice.
-size_t rhs_adjoint(patch_type& patch, adjoint_patch& active_patch,
+// One right-hand-side transpose, taken by the call the sweep takes: odelia lifts
+// the patch to the adjoint scalar, records derivs() and sweeps the recording per
+// seed. Returns the recording's size. The tape is the caller's, as it is the
+// solver's in a sweep, so a caller repeating the call does not pay for it twice.
+size_t rhs_adjoint(patch_type& patch,
                    odelia::ode::scratch_tape& tape,
                    const std::vector<double>& lambda_dydt,
                    std::vector<double>& lambda_state,
@@ -64,8 +64,7 @@ size_t rhs_adjoint(patch_type& patch, adjoint_patch& active_patch,
   // No recorded stage: a patch reached from R stands where its state put it,
   // which is what the first evaluation of a step is taken at.
   const size_t recording = odelia::ode::rates_adjoint(
-    tape.get(), patch, active_patch, state, patch.time(), -1, seeds, swept,
-    rows);
+    tape.get(), patch, state, patch.time(), -1, seeds, swept, rows);
   lambda_state = std::move(swept[0]);
   trait_adjoint = std::move(rows[0]);
   return recording;
@@ -434,11 +433,10 @@ Rcpp::NumericMatrix ladder_rhs_trait_jacobian_forward_tf24(plant::RcppR6::RcppR6
 Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                    std::vector<double> lambda_dydt) {
   patch_type& patch = *obj_;
-  adjoint_patch active_patch = patch.rebind_from<adjoint>();
   odelia::ode::scratch_tape tape;
   std::vector<double> lambda_y, trait_adjoint;
   const size_t recording =
-    rhs_adjoint(patch, active_patch, tape, lambda_dydt, lambda_y, trait_adjoint);
+    rhs_adjoint(patch, tape, lambda_dydt, lambda_y, trait_adjoint);
   // The knot halves are gone with the reduction transposes that produced them:
   // the field's rows are an intermediate of the stage recording now, so they are
   // in the state and trait rows rather than beside them.
@@ -795,11 +793,11 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
     seeds[r][r] = 1.0;
   }
   // The transpose the sweep takes at a widening, taken here on its own: the same
-  // active_patch, the same tape and the same product the solver's walk runs, with the
-  // trajectory and the segmentation left out so a disagreement is the map's.
+  // tape and the same product the solver's walk runs, with the trajectory and the
+  // segmentation left out so a disagreement is the map's.
   using ad_scalar = odelia::ode::active_scalar<double>;
-  auto active_patch = patch.template rebind_from<ad_scalar>();
-  auto widen = [&](std::vector<ad_scalar>::const_iterator x,
+  auto widen = [&](auto& active_patch,
+                   std::vector<ad_scalar>::const_iterator x,
                    std::vector<ad_scalar>& y) -> void {
     active_patch.widened_state(which, time_before, x, y);
   };
@@ -807,7 +805,7 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
   std::vector<std::vector<double>> trait_adjoint(
       n_out, std::vector<double>(n_trait, 0.0));
   ad_scalar::tape_type tape(false);
-  odelia::ode::state_and_parameter_adjoints(tape, active_patch, state_before, seeds,
+  odelia::ode::state_and_parameter_adjoints(tape, patch, state_before, seeds,
                                             widen, lambda_before,
                                             trait_adjoint);
 
@@ -893,7 +891,6 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
   using clock = std::chrono::steady_clock;
   patch_type& patch = *obj_;
   plant::util::check_length(lambda_dydt.size(), patch.ode_size());
-  adjoint_patch active_patch = patch.rebind_from<adjoint>();
   odelia::ode::scratch_tape tape;
 
   double t_env = 0, t_total = 0;
@@ -908,7 +905,7 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
     t0 = clock::now();
     std::vector<double> lambda_state, trait_adjoint;
     slots = static_cast<double>(
-      rhs_adjoint(patch, active_patch, tape, lambda_dydt, lambda_state, trait_adjoint));
+      rhs_adjoint(patch, tape, lambda_dydt, lambda_state, trait_adjoint));
     t1 = clock::now();
     t_total += std::chrono::duration<double>(t1 - t0).count();
   }

@@ -4,7 +4,7 @@
 ## The numbers are the specification for the replay pass that replaces it, so
 ## they are kept and skipped rather than deleted.
 skip_invasion <- function() {
-  skip("run_mutant awaits a replay pass; see report 09 section 14.5 item 5")
+  skip("run_mutant awaits a replay pass; see report 09 section 14.5 item 6")
 }
 
 test_that("mutant method works", {
