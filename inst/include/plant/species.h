@@ -229,8 +229,6 @@ public:
 
   void resize_consumption_rates(int i);
   value_type consumption_rate(int i) const;
-  std::vector<value_type> consumption_rate_by_node_rev(int i) const;
-  std::vector<value_type> consumption_rate_by_node(int i) const;
 
   template <typename It> It ode_aux(It it) const;
 
@@ -776,85 +774,46 @@ Species<T,E>::consumption_rate(int i) const {
   if (size() == 0) {
     return value_type(0.0);
   }
-  if (control().node_density_in_birth_date) {
-    // Introduction times are fixed at birth and nodes are appended in that
-    // order, so this grid is ascending however the heights behave -- there is no
-    // inverted case to sort. new_node's birth date is the current time, which is
-    // the newest, so it goes on the end rather than the front.
-    // The abscissa is double and the integrand is not: birth dates are fixed at
-    // birth and carry no derivative, so the quadrature weights are constants,
-    // while the rates are what the uptake's sensitivity runs through.
-    std::vector<double> times = node_times();
-    times.push_back(new_node.introduction_time());
-    std::vector<value_type> rates = consumption_rate_by_node(i);
-    rates.push_back(new_node.consumption_rate(i));
-    return util::trapezium(times, rates);
+  // The grid is abscissa_of, as the competition walk's is, so a width is a
+  // position and not state on either coordinate and no reduction has a route to
+  // an active one. Ascending in the abscissa is oldest first in birth date and
+  // tallest first in height, and the closing node is both the newest and the
+  // shortest, so it ends the grid either way.
+  const bool birth_date = control().node_density_in_birth_date;
+  std::vector<double> x;
+  std::vector<value_type> rates;
+  x.reserve(size() + 1);
+  rates.reserve(size() + 1);
+  for (auto& c : nodes) {
+    x.push_back(abscissa_of(c, birth_date));
+    rates.push_back(c.consumption_rate(i));
   }
-  // node heights are in descending order - we need ascending for integration,
-  // starting at new_node, which is where the size distribution starts. The
-  // heights are the integration grid; the rates integrated over it are what the
-  // uptake depends on.
-  // The grid is read at its value, as the birth-date branch above reads its times
-  // and as abscissa_of reads the competition walk's: a width is a position and not
-  // state. Differencing the heights live gave this reduction a weight derivative
-  // that the walks it stands beside structurally cannot have.
-  std::vector<double> heights;
-  heights.reserve(size() + 1);
-  heights.push_back(odelia::util::to_passive(new_node.height()));
-  for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
-    heights.push_back(odelia::util::to_passive(it->height()));
-  }
-  std::vector<value_type> rates = consumption_rate_by_node_rev(i);
+  x.push_back(abscissa_of(new_node, birth_date));
+  rates.push_back(new_node.consumption_rate(i));
 
-  // The node list is the quadrature grid here as it is in compute_competition,
-  // so an inverted grid (#571) makes neighbouring trapezia cancel rather than
-  // accumulate. Sort the pairs when the ordering has broken, as
-  // the sorted fallback does; an already-ascending grid is untouched.
-  if (!std::is_sorted(heights.begin(), heights.end())) {
-    std::vector<size_t> order(heights.size());
+  // Birth dates are strictly increasing by construction, so only the height
+  // coordinate can arrive crossed -- and there neighbouring trapezia would cancel
+  // instead of accumulating (#571).
+  if (!birth_date && !std::is_sorted(x.begin(), x.end())) {
+    std::vector<size_t> order(x.size());
     for (size_t j = 0; j < order.size(); ++j) {
       order[j] = j;
     }
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) -> bool {
-      return heights[a] < heights[b];
+      return x[a] < x[b];
     });
-    std::vector<double> h_sorted;
+    std::vector<double> x_sorted;
     std::vector<value_type> r_sorted;
-    h_sorted.reserve(heights.size());
+    x_sorted.reserve(x.size());
     r_sorted.reserve(rates.size());
     for (size_t j : order) {
-      h_sorted.push_back(heights[j]);
+      x_sorted.push_back(x[j]);
       r_sorted.push_back(rates[j]);
     }
-    heights.swap(h_sorted);
+    x.swap(x_sorted);
     rates.swap(r_sorted);
   }
-  return util::trapezium(heights, rates);
-}
-
-template <typename T, typename E>
-std::vector<typename Species<T,E>::value_type>
-Species<T,E>::consumption_rate_by_node_rev(int i) const {
-  std::vector<value_type> ret;
-  ret.reserve(size() + 1);
-  ret.push_back(new_node.consumption_rate(i));
-  for(auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
-    ret.push_back(it->consumption_rate(i));
-  }
-  return ret;
-}
-
-
-
-template <typename T, typename E>
-std::vector<typename Species<T,E>::value_type>
-Species<T,E>::consumption_rate_by_node(int i) const {
-  std::vector<value_type> ret;
-  ret.reserve(size());
-  for(auto& c : nodes) {
-    ret.push_back(c.consumption_rate(i));
-  }
-  return ret;
+  return util::trapezium(x, rates);
 }
 
 
