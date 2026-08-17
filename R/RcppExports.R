@@ -4545,6 +4545,10 @@ ladder_block_copy_cost_tf24 <- function(obj_, node, reps) {
     .Call('_plant_ladder_block_copy_cost_tf24', PACKAGE = 'plant', obj_, node, reps)
 }
 
+ladder_rebind_matches_assign_tf24 <- function(obj_) {
+    .Call('_plant_ladder_rebind_matches_assign_tf24', PACKAGE = 'plant', obj_)
+}
+
 FF16_oderunner_individual_internals <- function(obj) {
     .Call('_plant_FF16_oderunner_individual_internals', PACKAGE = 'plant', obj)
 }

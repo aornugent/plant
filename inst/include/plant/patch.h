@@ -52,14 +52,14 @@ public:
             class T2 = at_scalar<T, U>, class E2 = at_scalar<E, U>>
   Patch<T2,E2> rebind_from() const;
 
-  // The value half of rebind_from, written into a patch that already exists: the
+  // The values rebind_from copies, written into a patch that already exists: the
   // strategies, the environment, the node structure and its birth stamps, by the
   // same calls in the same order, so what is left is what a rebind would have
-  // returned. A twin holding what a recording wrote carries that recording's tape
+  // returned. An active patch holding what a recording wrote carries that recording's tape
   // slots into the next one, and the sweep comes back wrong with nothing raised,
-  // so a twin is seated before every recording rather than once per step.
+  // so it is assigned before every recording rather than once per step.
   template <typename T1, typename E1>
-  void seat_from(const Patch<T1,E1>& src);
+  void assign_from(const Patch<T1,E1>& src);
 
   // Every scalar's Patch is one class, so a rebind reaches the rebound patch's
   // members.
@@ -422,11 +422,11 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
 
 template <typename T, typename E>
 template <typename T1, typename E1>
-void Patch<T,E>::seat_from(const Patch<T1,E1>& src) {
+void Patch<T,E>::assign_from(const Patch<T1,E1>& src) {
   using U = value_type;
   if (species.size() != src.species.size()) {
-    util::stop("seat_from: this patch runs a different number of species from "
-               "the one it is seated from");
+    util::stop("assign_from: this patch runs a different number of species from "
+               "the one it is assigned from");
   }
 
   environment = src.environment.template rebind_from<U>();

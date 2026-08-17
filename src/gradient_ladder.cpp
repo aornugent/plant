@@ -43,11 +43,11 @@ using adjoint = odelia::ode::active_scalar<double>;
 using adjoint_patch = plant::Patch<plant::at_scalar<strategy_type, adjoint>,
                                    plant::at_scalar<environment_type, adjoint>>;
 
-// One right-hand-side transpose, taken by the call the sweep takes: odelia seats
-// the twin, records derivs() and sweeps the recording per seed. Returns the
-// recording's size. The twin and the tape are the caller's, as they are the
+// One right-hand-side transpose, taken by the call the sweep takes: odelia assigns
+// the active_patch, records derivs() and sweeps the recording per seed. Returns the
+// recording's size. The active patch and the tape are the caller's, as they are the
 // solver's in a sweep, so a caller repeating the call pays for neither twice.
-size_t rhs_adjoint(patch_type& patch, adjoint_patch& twin,
+size_t rhs_adjoint(patch_type& patch, adjoint_patch& active_patch,
                    odelia::ode::scratch_tape& tape,
                    const std::vector<double>& lambda_dydt,
                    std::vector<double>& lambda_state,
@@ -64,7 +64,7 @@ size_t rhs_adjoint(patch_type& patch, adjoint_patch& twin,
   // No recorded stage: a patch reached from R stands where its state put it,
   // which is what the first evaluation of a step is taken at.
   const size_t recording = odelia::ode::rates_adjoint(
-    tape.get(), patch, twin, state, patch.time(), -1, seeds, swept,
+    tape.get(), patch, active_patch, state, patch.time(), -1, seeds, swept,
     rows);
   lambda_state = std::move(swept[0]);
   trait_adjoint = std::move(rows[0]);
@@ -434,11 +434,11 @@ Rcpp::NumericMatrix ladder_rhs_trait_jacobian_forward_tf24(plant::RcppR6::RcppR6
 Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                    std::vector<double> lambda_dydt) {
   patch_type& patch = *obj_;
-  adjoint_patch twin = patch.rebind_from<adjoint>();
+  adjoint_patch active_patch = patch.rebind_from<adjoint>();
   odelia::ode::scratch_tape tape;
   std::vector<double> lambda_y, trait_adjoint;
   const size_t recording =
-    rhs_adjoint(patch, twin, tape, lambda_dydt, lambda_y, trait_adjoint);
+    rhs_adjoint(patch, active_patch, tape, lambda_dydt, lambda_y, trait_adjoint);
   // The knot halves are gone with the reduction transposes that produced them:
   // the field's rows are an intermediate of the stage recording now, so they are
   // in the state and trait rows rather than beside them.
@@ -482,7 +482,7 @@ Rcpp::List ladder_boundary_density_tangent_tf24(plant::RcppR6::RcppR6<plant::Pat
   }
   xad::derivative(*pars[static_cast<size_t>(index) - 1]) = 1.0;
 
-  // Seeded before the state is applied, because a twin derives the aux a state
+  // Seeded before the state is applied, because an active patch derives the aux a state
   // determines as it is built, which is before this seed exists. Leaf area at
   // fixed height would then carry no row, and neither would the field the
   // reduction builds from it -- so the two constants that set leaf area come back
@@ -795,19 +795,19 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
     seeds[r][r] = 1.0;
   }
   // The transpose the sweep takes at a widening, taken here on its own: the same
-  // twin, the same tape and the same product the solver's walk runs, with the
+  // active_patch, the same tape and the same product the solver's walk runs, with the
   // trajectory and the segmentation left out so a disagreement is the map's.
   using ad_scalar = odelia::ode::active_scalar<double>;
-  auto twin = patch.template rebind_from<ad_scalar>();
+  auto active_patch = patch.template rebind_from<ad_scalar>();
   auto widen = [&](std::vector<ad_scalar>::const_iterator x,
                    std::vector<ad_scalar>& y) -> void {
-    twin.widened_state(which, time_before, x, y);
+    active_patch.widened_state(which, time_before, x, y);
   };
   std::vector<std::vector<double>> lambda_before;
   std::vector<std::vector<double>> trait_adjoint(
       n_out, std::vector<double>(n_trait, 0.0));
   ad_scalar::tape_type tape(false);
-  odelia::ode::state_and_parameter_adjoints(tape, twin, state_before, seeds,
+  odelia::ode::state_and_parameter_adjoints(tape, active_patch, state_before, seeds,
                                             widen, lambda_before,
                                             trait_adjoint);
 
@@ -893,7 +893,7 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
   using clock = std::chrono::steady_clock;
   patch_type& patch = *obj_;
   plant::util::check_length(lambda_dydt.size(), patch.ode_size());
-  adjoint_patch twin = patch.rebind_from<adjoint>();
+  adjoint_patch active_patch = patch.rebind_from<adjoint>();
   odelia::ode::scratch_tape tape;
 
   double t_env = 0, t_total = 0;
@@ -908,7 +908,7 @@ Rcpp::List ladder_rhs_adjoint_timing_tf24(plant::RcppR6::RcppR6<plant::Patch<pla
     t0 = clock::now();
     std::vector<double> lambda_state, trait_adjoint;
     slots = static_cast<double>(
-      rhs_adjoint(patch, twin, tape, lambda_dydt, lambda_state, trait_adjoint));
+      rhs_adjoint(patch, active_patch, tape, lambda_dydt, lambda_state, trait_adjoint));
     t1 = clock::now();
     t_total += std::chrono::duration<double>(t1 - t0).count();
   }
@@ -987,3 +987,71 @@ Rcpp::List ladder_block_copy_cost_tf24(plant::RcppR6::RcppR6<plant::Patch<plant:
     Rcpp::_["sink"] = sink);
 }
 
+
+// A rebind and an assignment have to leave a patch holding the same thing: they
+// are one map reached two ways, and every comment in the tree says so. Nothing
+// checked it, and they had already drifted.
+//
+// The difference they drift by is structural rather than incidental. A rebind
+// hands back a fresh object, so a member it does not write is
+// default-constructed; an assignment writes into one that exists, so a member it
+// does not write keeps what it held. The light spline is the case that decides a
+// gradient: compute_environment refines it from whatever it already holds, and
+// its knot count is what n_cohort_reads() reports, so a stale one sets the width
+// of every recorded block.
+//
+// Comparing widths as well as values is therefore the point. A width that
+// disagrees is the failure that reaches furthest, and it is invisible in a
+// difference of two state vectors that are already the wrong length.
+// [[Rcpp::export]]
+Rcpp::List ladder_rebind_matches_assign_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  const patch_type& patch = *obj_;
+
+  adjoint_patch rebound = patch.template rebind_from<adjoint>();
+  adjoint_patch assigned = patch.template rebind_from<adjoint>();
+  assigned.assign_from(patch);
+
+  auto state_of = [](adjoint_patch& p) {
+    std::vector<double> out(p.ode_size());
+    std::vector<adjoint> raw(p.ode_size());
+    p.ode_state(raw.begin());
+    for (size_t i = 0; i < raw.size(); ++i) {
+      out[i] = odelia::util::to_passive(raw[i]);
+    }
+    return out;
+  };
+  auto parameters_of = [](adjoint_patch& p) {
+    std::vector<double> out;
+    for (const adjoint* q : p.ad_parameters()) {
+      out.push_back(odelia::util::to_passive(*q));
+    }
+    return out;
+  };
+  auto worst = [](const std::vector<double>& a, const std::vector<double>& b) {
+    if (a.size() != b.size()) {
+      return std::numeric_limits<double>::infinity();
+    }
+    double m = 0.0;
+    for (size_t i = 0; i < a.size(); ++i) {
+      const double d = std::abs(a[i] - b[i]);
+      if (d > m) { m = d; }
+    }
+    return m;
+  };
+
+  const std::vector<double> sr = state_of(rebound), sa = state_of(assigned);
+  const std::vector<double> pr = parameters_of(rebound), pa = parameters_of(assigned);
+
+  return Rcpp::List::create(
+    Rcpp::_["ode_size"] = Rcpp::IntegerVector::create((int) rebound.ode_size(),
+                                                      (int) assigned.ode_size()),
+    Rcpp::_["aux_size"] = Rcpp::IntegerVector::create((int) rebound.aux_size(),
+                                                      (int) assigned.aux_size()),
+    Rcpp::_["n_cohort_reads"] =
+      Rcpp::IntegerVector::create((int) rebound.r_environment().n_cohort_reads(),
+                                  (int) assigned.r_environment().n_cohort_reads()),
+    Rcpp::_["n_parameters"] = Rcpp::IntegerVector::create((int) pr.size(),
+                                                          (int) pa.size()),
+    Rcpp::_["state_gap"] = worst(sr, sa),
+    Rcpp::_["parameter_gap"] = worst(pr, pa));
+}
