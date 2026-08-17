@@ -196,18 +196,9 @@ public:
   // vector as given by ode_state
   Rcpp::List r_get_state() const;
 
-  // Set state of patch, based on estimate of future state estimated by the solver.
-  // The first is for resident runs and computes the environment as it goes.
-  //
-  // The second is for mutant runs, which read a cached environment by RK stage
-  // rather than computing one. **The solver has no route to it.** It is reached
-  // only through the stage-indexed derivs, which asks a System whether it has
-  // recorded field values, and this one does not record them -- so the stage index
-  // it writes is never written, and rate_environment() reads stage zero's
-  // environment for all six stages of a mutant step. Finishing the mutant path
-  // means recording the field, not calling this from somewhere else.
+  // Set state of patch, based on estimate of future state estimated by the solver,
+  // computing the environment as it goes.
   template <typename It> It set_ode_state(It it, double time);
-  template <typename It> It set_ode_state(It it, int index);
 
   // The state and the field: what set_ode_state establishes before it computes
   // rates.
@@ -251,15 +242,6 @@ public:
   // This is only here because it wraps a private function.
   void r_compute_environment() {compute_environment(false);}
 
-  // env. cache for assembly
-  std::vector<double> step_history{0.0};  // always start at zero
-  std::vector<std::vector<environment_type>> environment_history;
-  std::vector<environment_type> environment_cache;
-
-  void cache_ode_step();
-  void cache_RK45_step(int step);
-  void load_ode_step();
-
   // Per-accepted-step recording. Called by the stepper once a step is committed, so
   // the states it keeps are the run's own. The field is not kept with them: it is
   // rebuilt at the recorded positions, which is what lets its derivative flow.
@@ -270,16 +252,7 @@ public:
   // the solver's, filled in beside its own state once the run is over: the stepper
   // does not pass it here, and it cannot be differenced out of the times.
   std::vector<ode_step_record> trajectory;
-  
-  // used cache_ode_step for mutant runs
-  bool save_RK45_cache;
 
-  // used in load_ode_step for mutant runs
-  bool use_cached_environment = false;
-
-  bool is_mutant_run = false;
-
-  void set_mutant();
   void add_strategies(std::vector<strategy_type> strategies);
   void overwrite_strategies(std::vector<strategy_type> strategies);
 
@@ -301,19 +274,8 @@ private:
   void compute_environment_excl_capturing(bool rescale);
   void compute_environment_closing(bool rescale);
 
-  int idx = 0; // used to access environment cache for mutant runs
   void compute_environment(bool rescale);
   void compute_rates();
-
-  // The environment the rates are computed against: the patch's own on a
-  // resident run, and on a mutant step the one recorded for that step, which the
-  // mutant experiences rather than shapes. Derived from what the patch owns, so
-  // it still refers into the patch after the patch is copied.
-  environment_type& rate_environment() {
-    return use_cached_environment
-      ? environment_history.at(idx).at(cached_environment_index)
-      : environment;
-  }
 
   // Seed the patch from parameters.initial_state (nodes + birth bookkeeping)
   // when present; called from reset(). Sets environment.time = initial_time.
@@ -342,10 +304,6 @@ private:
   //TODO(#476): Move into environment?
   std::vector<value_type> resource_depletion;
 
-  // Which recorded environment a mutant step is evaluated against; see
-  // rate_environment(). Unused on a resident run.
-  int cached_environment_index = 0;
-
   Control control;
 
   // Per-species running max of the competition error per node, accumulated
@@ -359,12 +317,10 @@ Patch<T,E>::Patch(parameters_type p, environment_type e, Control c)
   : parameters(p),
     area(p.patch_area),
     environment(e),
-    control(c),
-    environment_cache(6) {  // length of odelia::ode::Step
-  
+    control(c) {
+
   parameters.validate();
 
-  save_RK45_cache = control.save_RK45_cache;
   // The validated member, not the argument: validate() derives the regime from
   // patch_type and max_patch_lifetime, so an argument whose lifetime was
   // assigned after its own construction still carries the regime of the lifetime
@@ -389,12 +345,10 @@ Patch<T,E>::Patch(parameters_type p, environment_type e, Control c,
   : parameters(p),
     area(p.patch_area),
     environment(e),
-    control(c),
-    environment_cache(6) {
+    control(c) {
 
   parameters.validate();
 
-  save_RK45_cache = control.save_RK45_cache;
   survival_weighting = parameters.disturbance;
 
   environment.set_shading_model(control.shading_model,
@@ -516,18 +470,6 @@ void Patch<T,E>::add_strategies(std::vector<strategy_type> strategies) {
     auto spec = Species<T,E>(s);
     species.push_back(spec);
   }
-}
-
-template <typename T, typename E>
-void Patch<T,E>::set_mutant() {
-    if (environment_history.empty()) {
-       util::stop("Run a resident first to generate a competitve landscape");
-    }
-
-    is_mutant_run = true;
-    save_RK45_cache = false;
-    use_cached_environment = true;
-  idx = 0;
 }
 
 template <typename T, typename E>
@@ -730,11 +672,9 @@ template <typename T, typename E>
 typename Patch<T,E>::value_type Patch<T,E>::height_max() const {
   value_type ret = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
-    if (!is_mutant_run) {
-      const value_type h = species[i].height_max();
-      if (h > ret) {
-        ret = h;
-      }
+    const value_type h = species[i].height_max();
+    if (h > ret) {
+      ret = h;
     }
   }
   return ret;
@@ -745,9 +685,7 @@ typename Patch<T,E>::value_type
 Patch<T,E>::compute_competition(double height) const {
   value_type tot = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
-    if (!is_mutant_run) {
-      tot += species[i].compute_competition(height) / area;
-    }
+    tot += species[i].compute_competition(height) / area;
   }
   return tot;
 }
@@ -757,12 +695,10 @@ std::pair<typename Patch<T,E>::value_type, typename Patch<T,E>::value_type>
 Patch<T,E>::compute_competition_and_slope(double z) const {
   value_type tot = 0.0, tot_slope = 0.0;
   for (size_t i = 0; i < species.size(); ++i) {
-    if (!is_mutant_run) {
-      const std::pair<value_type, value_type> fs =
-        species[i].compute_competition_and_slope(z);
-      tot       += fs.first / area;
-      tot_slope += fs.second / area;
-    }
+    const std::pair<value_type, value_type> fs =
+      species[i].compute_competition_and_slope(z);
+    tot       += fs.first / area;
+    tot_slope += fs.second / area;
   }
   return {tot, tot_slope};
 }
@@ -891,9 +827,6 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 // reads the patch's own, so it is not the mutant's condition to evaluate.
 template <typename T, typename E>
 void Patch<T,E>::compute_boundary_nodes() {
-  if (is_mutant_run) {
-    return;
-  }
   const double time_ = environment.time;
   const double pr_patch_survival = survival_weighting->pr_survival(time_);
   for (size_t i = 0; i < size(); ++i) {
@@ -919,7 +852,7 @@ void Patch<T,E>::compute_boundary_nodes() {
 // modulus, which is ~1e-3.
 template <typename T, typename E>
 void Patch<T,E>::compute_environment(bool rescale) {
-  if (!(size() > 0 && !is_mutant_run)) {
+  if (size() == 0) {
     return;
   }
   compute_environment_excl_capturing(rescale);
@@ -956,7 +889,7 @@ void Patch<T,E>::compute_environment_excl_capturing(bool rescale) {
     }
     return {tot, tot_slope};
   };
-  if (size() > 0 & !is_mutant_run) {
+  if (size() > 0) {
     try {
       environment.compute_environment(f, height_max(), rescale);
     } catch (const interpolator::refinement_failure& e) {
@@ -976,21 +909,19 @@ void Patch<T,E>::compute_environment_closing(bool rescale) {
   auto f = [&](double x) -> std::pair<value_type, value_type> {
     value_type tot = 0.0, tot_slope = 0.0;
     for (size_t i = 0; i < species.size(); ++i) {
-      if (!is_mutant_run) {
-        if (capture_at >= competition_capture[i].size()) {
-          util::stop("compute_environment_closing: the field without the "
-                     "boundary interval was built over a different knot set");
-        }
-        const std::pair<value_type, value_type> fs =
-          species[i].close_competition_and_slope(competition_capture[i][capture_at], x);
-        tot       += fs.first / area;
-        tot_slope += fs.second / area;
+      if (capture_at >= competition_capture[i].size()) {
+        util::stop("compute_environment_closing: the field without the "
+                   "boundary interval was built over a different knot set");
       }
+      const std::pair<value_type, value_type> fs =
+        species[i].close_competition_and_slope(competition_capture[i][capture_at], x);
+      tot       += fs.first / area;
+      tot_slope += fs.second / area;
     }
     ++capture_at;
     return {tot, tot_slope};
   };
-  if (size() > 0 & !is_mutant_run) {
+  if (size() > 0) {
     try {
       environment.compute_environment(f, height_max(), rescale);
     } catch (const interpolator::refinement_failure& e) {
@@ -1099,8 +1030,8 @@ template <typename T, typename E>
 void Patch<T,E>::compute_rates() {
 
   // Computes rates of change for the patch, including all the component species,
-  // against the environment the patch experiences (see rate_environment()).
-  environment_type& env = rate_environment();
+  // against the environment the patch experiences.
+  environment_type& env = environment;
   double time_ = env.time;
 
   double pr_patch_survival = survival_weighting->pr_survival(time_);
@@ -1254,79 +1185,6 @@ It Patch<T,E>::set_recorded_state(It it, double time) {
   it = set_ode_state_and_field(it, time);
   compute_boundary_nodes();
   return it;
-}
-
-// used for mutant runs
-// -- differs from above in that an index is passed in as argument
-// -- environments are loaded from ODE history, instead of being calculated 
-template <typename T, typename E>
-template <typename It>
-It Patch<T,E>::set_ode_state(It it, int index) {
-
-  it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
-
-  // Record which of this step's cached environments the rates are evaluated
-  // against; rate_environment() reads it back without copying the object.
-  cached_environment_index = index;
-  const environment_type& cached = rate_environment();
-  environment.time = cached.time;
-
-  // increment the iterator by an appropriate amount, but don't actually do anything in the env
-  for (size_t i = 0; i < cached.ode_size(); i++) {*it++;}
-
-  return it;
-}
-
-// called from ode_solver->cache
-// saves cached set of environments(6) from each ODE step to the step history
-template <typename T, typename E>
-void Patch<T,E>::cache_ode_step() {
-  if(save_RK45_cache) { 
-    step_history.push_back(time());
-    environment_history.push_back(environment_cache);
-  }
-}
-
-// called from ode_step->cache
-// saves environment at each RK45 step to the environment cache
-template <typename T, typename E>
-void Patch<T,E>::cache_RK45_step(int step) {
-  if(save_RK45_cache) {  
-    if(step == 0) {
-      environment_cache.clear();
-    }
-    environment_cache.push_back(environment);
-  }
-}
-
-// called from ode_solver->load, only gets called for mutant runs
-template <typename T, typename E>
-void Patch<T,E>::load_ode_step() {
-  if (use_cached_environment)
-  {
-    // Minor optimization to check the current and next index before doing a search, as the most common case is that the ODE solver is stepping through the cached environments in order. If the call sequence was not strictly sequential, we fallback to a search through the step history to find the correct environment.
-
-    const double t = time();
-    const size_t n = step_history.size();
-
-    // Fast path: step_to() advances through ode_times in order, so this is
-    // usually either the current cached step index or the next one.
-    if (static_cast<size_t>(idx) < n && util::identical(step_history[idx], t)) {
-      return;
-    }
-    if (static_cast<size_t>(idx + 1) < n &&
-        util::identical(step_history[idx + 1], t)) {
-      ++idx;
-      return;
-    }
-
-    // Fallback to search if the call sequence was not strictly sequential.
-    auto step = std::find(step_history.begin(), step_history.end(), t);
-    if (step == step_history.end()) {
-      util::stop("ODE time not found in step history");
-    }
-    idx = static_cast<int>(std::distance(step_history.begin(), step));
-  }
 }
 
 template <typename T, typename E>

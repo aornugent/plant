@@ -77,16 +77,12 @@ struct Control {
   // default) the SCM integrates residents with the adaptive, error-controlled
   // Cash-Karp RKCK solver.  When > 0 it instead uses plain forward Euler on a
   // uniform grid of this spacing (e.g. 1/365 for a daily step), the way
-  // industry-standard DGVMs are run.  Note: forward Euler is incompatible with
-  // the mutant-fitness replay path and with save_RK45_cache (the RK sub-step
-  // cache has no Euler analogue); the SCM errors clearly if combined.
+  // industry-standard DGVMs are run.
   double fixed_time_step;
 
   size_t schedule_nsteps;
   double schedule_eps;
   bool   schedule_verbose;
-
-  bool   save_RK45_cache;
 
     //TF24 control parameters
   double GSS_tol_abs;

@@ -369,7 +369,6 @@ template <> inline SEXP wrap(const plant::Control& x) {
   ret["schedule_nsteps"] = Rcpp::wrap(x.schedule_nsteps);
   ret["schedule_eps"] = Rcpp::wrap(x.schedule_eps);
   ret["schedule_verbose"] = Rcpp::wrap(x.schedule_verbose);
-  ret["save_RK45_cache"] = Rcpp::wrap(x.save_RK45_cache);
   ret["GSS_tol_abs"] = Rcpp::wrap(x.GSS_tol_abs);
   ret["vulnerability_curve_ncontrol"] = Rcpp::wrap(x.vulnerability_curve_ncontrol);
   ret["ci_abs_tol"] = Rcpp::wrap(x.ci_abs_tol);
@@ -430,8 +429,6 @@ template <> inline plant::Control as(SEXP x) {
   ret.schedule_eps = Rcpp::as<double >(xl["schedule_eps"]);
   // ret.schedule_verbose = Rcpp::as<decltype(retschedule_verbose) >(xl["schedule_verbose"]);
   ret.schedule_verbose = Rcpp::as<bool >(xl["schedule_verbose"]);
-  // ret.save_RK45_cache = Rcpp::as<decltype(retsave_RK45_cache) >(xl["save_RK45_cache"]);
-  ret.save_RK45_cache = Rcpp::as<bool >(xl["save_RK45_cache"]);
   // ret.GSS_tol_abs = Rcpp::as<decltype(retGSS_tol_abs) >(xl["GSS_tol_abs"]);
   ret.GSS_tol_abs = Rcpp::as<double >(xl["GSS_tol_abs"]);
   // ret.vulnerability_curve_ncontrol = Rcpp::as<decltype(retvulnerability_curve_ncontrol) >(xl["vulnerability_curve_ncontrol"]);

@@ -341,13 +341,6 @@ SCM<T, E>::SCM(parameters_type p, environment_type e, Control c)
     util::warning("We recommened keeping patch_area = 1 for the SCM, as need to check units for all other sizes");
   }
 
-  // Forward-Euler integration (control.fixed_time_step > 0) has no analogue for
-  // the RK sub-step environment cache used to replay residents for mutants, so
-  // refuse the combination up front rather than produce a wrong fitness.
-  if (control.fixed_time_step > 0.0 && control.save_RK45_cache) {
-    util::stop("fixed_time_step (forward Euler) is incompatible with "
-               "save_RK45_cache / the mutant-fitness replay path");
-  }
 }
 
 // Build a uniform grid {t0, t0 + dt, ..., t1} with spacing dt, starting exactly
@@ -495,29 +488,16 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
   return ret;
 }
 
+// An invader integrates against a field it does not move, so the run it needs is
+// one that replays a resident's field rather than rebuilding it. The recorder
+// that would supply it never ran: it was reached through hooks the solver stopped
+// calling, so the field it filled stayed empty and every call arrived here and
+// stopped. It is deleted rather than left standing, and what replaces it is
+// odelia's ReplaysField, against which this is to be written.
 template <typename T, typename E>
-void SCM<T, E>::run_mutant(parameters_type p) {
-
-  // Switch the patch to its cached (resident) environment.
-  patch.set_mutant();
-
-  // Destructive: overwrite the resident parameters with the mutant's.
-  parameters = p;
-
-  // Swap in the mutant strategies.
-  patch.overwrite_strategies(parameters.strategies);
-
-  // Rebuild the schedule for the new parameters, then pin its integration
-  // points to the resident's step history so the mutant sees the same
-  // environment trajectory.
-  node_schedule = make_node_schedule(parameters);
-  node_schedule.r_set_ode_times(patch.step_history);
-  node_schedule.r_set_use_ode_times(true);
-  node_schedule.reset();
-
-  // Re-initialise solver/patch and run.
-  reset();
-  run();
+void SCM<T, E>::run_mutant(parameters_type /* p */) {
+  util::stop("run_mutant needs a recorded resident field to integrate against, "
+             "and nothing records one");
 }
 
 template <typename T, typename E>

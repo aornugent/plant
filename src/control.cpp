@@ -49,7 +49,6 @@ Control::Control() {
   schedule_eps      = 2e-2;
   schedule_verbose  = false;
 
-  save_RK45_cache = false;
 
   // Bracket tolerance of the collar-potential search. It has only to land inside
   // the basin of the Newton polish, which sets the operating point returned.

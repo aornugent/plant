@@ -340,7 +340,6 @@ Control:
     - schedule_nsteps: size_t
     - schedule_eps: double
     - schedule_verbose: bool
-    - save_RK45_cache: bool
     - GSS_tol_abs: double
     - vulnerability_curve_ncontrol: double
     - ci_abs_tol: double
