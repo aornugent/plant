@@ -20,18 +20,9 @@ parity_stand <- function(rain, lifetime, k_I = 0.5, amplitude = 0) {
   tr <- c(lma = 0.0825, hmat = 5.13, k_I = k_I, a_l1 = 5.44, a_l2 = 0.306)
   p <- add_strategies(p, trait_matrix(unname(tr), names(tr)),
                       hyperpar = TF24_hyperpar, birth_rate = list(1.10))
-  env <- Environment("TF24")
-  env$set_soil_water_state(rep(0.428 * 0.5, 5))
-  if (amplitude == 0) {
-    env$extrinsic_drivers_set_constant("rainfall", rain)
-  } else {
-    # Knots per year rather than per run, so the seasonality a driver realises
-    # does not depend on the lifetime it is run for.
-    t <- seq(0, lifetime,
-             length.out = max(200L, as.integer(ceiling(lifetime * 48))))
-    env$extrinsic_drivers_set_variable("rainfall", t,
-                                       pmax(rain * (1 + amplitude * sin(2 * pi * t)), 0))
-  }
+  # One recipe for the drivers, shared with the reference capture, so a regime
+  # named in both places is the same regime.
+  env <- ladder_environment(rain, amplitude, lifetime)
   ctrl <- Control()
   ctrl$node_density_in_birth_date <- TRUE
   scm <- SCM("TF24", "TF24_Env")(p, env, ctrl)
@@ -83,14 +74,55 @@ parity_drivers <- list(
 # is free -- and three checks reading one sweep is the difference between a file
 # that costs a minute and one that costs four.
 parity_cache <- new.env(parent = emptyenv())
+
+# What the answer is a function of, and nothing else: the compiled object, and the
+# two files that define the fixture and reduce it. A key covering less than this
+# could not see a rebuild, and a gate that cannot see a rebuild can report green
+# for code that is gone -- which is the one failure a cache here must not have.
+parity_key <- function() {
+  dll <- getLoadedDLLs()[["plant"]][["path"]]
+  paste(tools::md5sum(c(dll,
+                        testthat::test_path("helper-gradient-ladder.R"),
+                        testthat::test_path("test-gradient-parity.R"))),
+        collapse = "-")
+}
+
+# Each regime is one forward run and one reverse sweep, and the five are
+# independent, so they go out to separate processes: the file costs the slowest
+# regime rather than their sum. Serial where forking is unavailable.
+parity_compute <- function() {
+  one <- function(d) {
+    scm <- parity_stand(d$rain, d$lifetime,
+                        k_I = if (is.null(d$k_I)) 0.5 else d$k_I,
+                        amplitude = if (is.null(d$amplitude)) 0 else d$amplitude)
+    c(list(name = d$name, census = stand_census(scm)), parity_of(scm))
+  }
+  n <- min(length(parity_drivers), max(1L, parallel::detectCores() - 1L))
+  if (.Platform$OS.type == "unix" && n > 1L) {
+    parallel::mclapply(parity_drivers, one, mc.cores = n)
+  } else {
+    lapply(parity_drivers, one)
+  }
+}
+
 parity_shared <- function() {
-  if (is.null(parity_cache$all)) {
-    parity_cache$all <- lapply(parity_drivers, function(d) {
-      scm <- parity_stand(d$rain, d$lifetime,
-                          k_I = if (is.null(d$k_I)) 0.5 else d$k_I,
-                          amplitude = if (is.null(d$amplitude)) 0 else d$amplitude)
-      c(list(name = d$name, census = stand_census(scm)), parity_of(scm))
-    })
+  if (!is.null(parity_cache$all)) {
+    return(parity_cache$all)
+  }
+  # On disk only where a directory is named, so a plain run writes nothing and
+  # the default behaviour is unchanged. The tiers run this file twice, and one
+  # build's answer serves both.
+  dir <- Sys.getenv("PLANT_TEST_CACHE", unset = "")
+  file <- if (nzchar(dir)) file.path(dir, paste0("parity-", parity_key(), ".rds"))
+          else ""
+  if (nzchar(file) && file.exists(file)) {
+    parity_cache$all <- readRDS(file)
+    return(parity_cache$all)
+  }
+  parity_cache$all <- parity_compute()
+  if (nzchar(file)) {
+    dir.create(dir, showWarnings = FALSE, recursive = TRUE)
+    saveRDS(parity_cache$all, file)
   }
   parity_cache$all
 }

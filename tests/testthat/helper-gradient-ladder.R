@@ -39,7 +39,7 @@ ladder_traits <- function() {
 }
 
 ladder_parameters <- function(species = "fast", birth_rate = NULL,
-                              lifetime = 2) {
+                              lifetime = 2, k_I = NULL) {
   traits <- ladder_traits()
   if (is.null(birth_rate)) {
     birth_rate <- c(fast = 1.10, slow = 0.83)[species]
@@ -48,6 +48,13 @@ ladder_parameters <- function(species = "fast", birth_rate = NULL,
   p$max_patch_lifetime <- lifetime
   for (i in seq_along(species)) {
     tr <- traits[[species[[i]]]]
+    # A shading regime is one extinction coefficient for the whole stand, not one
+    # per species: the two carry different values by default, so leaving one alone
+    # would make the regime a difference between the species as well as a change
+    # in the light.
+    if (!is.null(k_I)) {
+      tr[["k_I"]] <- k_I
+    }
     p <- add_strategies(p, trait_matrix(unname(tr), names(tr)),
                         hyperpar = TF24_hyperpar,
                         birth_rate = list(unname(birth_rate[[i]])))
@@ -445,9 +452,49 @@ ladder_stand_one <- function() {
   ladder_run(p)
 }
 
-ladder_run <- function(p, ctrl = NULL) {
+ladder_run <- function(p, ctrl = NULL, env = NULL) {
   if (is.null(ctrl)) ctrl <- ladder_control()
-  run_scm(p, Environment("TF24"), ctrl, collect = FALSE)
+  if (is.null(env)) env <- Environment("TF24")
+  run_scm(p, env, ctrl, collect = FALSE)
+}
+
+# The water a run is driven with. `rain = NULL` is the default environment, so a
+# fixture that does not ask for a regime is unchanged by this existing.
+#
+# The knots are per year rather than per run, so the seasonality a driver realises
+# does not depend on the lifetime it is run for -- at a fixed knot count a longer
+# run would realise a slower cycle and the regime would stop being the regime.
+ladder_environment <- function(rain = NULL, amplitude = 0, lifetime = 2) {
+  env <- Environment("TF24")
+  if (is.null(rain)) {
+    return(env)
+  }
+  env$set_soil_water_state(rep(0.428 * 0.5, 5))
+  if (amplitude == 0) {
+    env$extrinsic_drivers_set_constant("rainfall", rain)
+  } else {
+    t <- seq(0, lifetime,
+             length.out = max(200L, as.integer(ceiling(lifetime * 48))))
+    env$extrinsic_drivers_set_variable(
+      "rainfall", t, pmax(rain * (1 + amplitude * sin(2 * pi * t)), 0))
+  }
+  env
+}
+
+# The regimes a reference is captured over, and the reason each is here rather
+# than a sweep over rainfall: each one is chosen to reach a different kind of
+# operating point, and which kinds a regime actually reached is recorded beside
+# the numbers rather than assumed. The first three move the water and are what
+# reach an interior, a pinned and a shut point; the last two move the light and
+# are what reach the floor the clamp counter sees.
+ladder_reference_regimes <- function() {
+  list(
+    list(name = "wet",      rain = 2.00, amplitude = 0),
+    list(name = "drought",  rain = 0.10, amplitude = 0),
+    list(name = "seasonal", rain = 1.00, amplitude = 1.0),
+    list(name = "shaded",   rain = 2.00, amplitude = 0, k_I = 20),
+    list(name = "clamped",  rain = 2.00, amplitude = 0, k_I = 40)
+  )
 }
 
 # The lifetime a scale fixture runs, in years, or NA for none. Off unless asked
@@ -1478,11 +1525,19 @@ ladder_run_difference <- function(traits, name, rel = 1e-5, lifetime = 0.4,
 # reaching both is refused here as it is there.
 ladder_run_difference_pair <- function(name, species = 2L,
                                        steps = c(1e-6, 1e-5, 1e-4, 1e-3),
-                                       times = list(c(0, 0.63), c(0, 0.41))) {
+                                       times = list(c(0, 0.63), c(0, 0.41)),
+                                       regime = NULL) {
+  # A regime is drivers AND, where it names one, a stand-wide extinction
+  # coefficient, so it has to reach both halves of the build. Absent, this is the
+  # default environment and the species' own traits.
   build <- function() {
-    p <- ladder_parameters(c("fast", "slow"))
+    p <- ladder_parameters(c("fast", "slow"), k_I = regime$k_I)
     p$node_schedule_times <- times
     p
+  }
+  env_of <- function() {
+    ladder_environment(regime$rain, if (is.null(regime$amplitude)) 0
+                                   else regime$amplitude)
   }
   census_at <- function(value) {
     p <- build()
@@ -1493,7 +1548,7 @@ ladder_run_difference_pair <- function(name, species = 2L,
     strategies[[species]]$pars <- pars
     p$strategies <- strategies
     ladder_assert_one_parameter(before, unlist(p$strategies[[species]]$pars), name)
-    stand_census(ladder_run(p))
+    stand_census(ladder_run(p, env = env_of()))
   }
   value <- unlist(build()$strategies[[species]]$pars)[[name]]
   at <- function(r) {

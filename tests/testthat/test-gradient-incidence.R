@@ -6,21 +6,45 @@
 # these counters are the only route to "how often" -- and "how often" is what
 # decides whether a refused regime is a corner or most of the run.
 
-incidence_stand <- function(rain, lifetime, k_I = 0.5) {
+incidence_run <- function(rain, lifetime, k_I = 0.5) {
   p <- scm_base_parameters("TF24")
   p$max_patch_lifetime <- lifetime
   tr <- c(lma = 0.0825, hmat = 5.13, k_I = k_I, a_l1 = 5.44, a_l2 = 0.306)
   p <- add_strategies(p, trait_matrix(unname(tr), names(tr)),
                       hyperpar = TF24_hyperpar, birth_rate = list(1.10))
-  env <- Environment("TF24")
-  env$set_soil_water_state(rep(0.428 * 0.5, 5))
-  env$extrinsic_drivers_set_constant("rainfall", rain)
+  env <- ladder_environment(rain, 0, lifetime)
   ctrl <- Control()
   ctrl$node_density_in_birth_date <- TRUE
   scm <- SCM("TF24", "TF24_Env")(p, env, ctrl)
   census_clear_operating_point_counts_tf24(scm)
   scm$run()
   scm
+}
+
+# The stands are shared between blocks, and the sharing has a direction: a sweep
+# adds to the tallies a run leaves, so an object that has been swept cannot answer
+# for the run. `swept` is part of the key rather than something a caller does
+# afterwards, and the gradient is kept beside the stand it was taken on, so a
+# block needing both pays for one.
+incidence_cache <- new.env(parent = emptyenv())
+incidence_built <- function(rain, lifetime, k_I = 0.5, swept = FALSE) {
+  key <- paste(rain, lifetime, k_I, swept)
+  if (is.null(incidence_cache[[key]])) {
+    scm <- incidence_run(rain, lifetime, k_I)
+    incidence_cache[[key]] <-
+      list(scm = scm, gradient = if (swept) stand_gradient(scm) else NULL)
+  }
+  incidence_cache[[key]]
+}
+
+incidence_stand <- function(rain, lifetime, k_I = 0.5, swept = FALSE) {
+  incidence_built(rain, lifetime, k_I, swept)$scm
+}
+
+# The gradient of the swept stand for these drivers, and the stand it was taken
+# on is the one `incidence_stand(..., swept = TRUE)` returns.
+incidence_gradient <- function(rain, lifetime, k_I = 0.5) {
+  incidence_built(rain, lifetime, k_I, swept = TRUE)$gradient
 }
 
 incidence_of <- function(scm) {
@@ -210,11 +234,9 @@ test_that("every clamp site is classified, and by a measured incidence", {
     stats::setNames(census_clamp_counts_tf24(scm)[[1]], nm)
   }
 
-  wet <- incidence_stand(2.0, 5)
-  invisible(stand_gradient(wet))
+  wet <- incidence_stand(2.0, 5, swept = TRUE)
   wet_s <- swept_of(wet)
-  dry <- incidence_stand(0.10, 5)
-  invisible(stand_gradient(dry))
+  dry <- incidence_stand(0.10, 5, swept = TRUE)
   dry_s <- swept_of(dry)
   dry_f <- fwd_of(dry)
 
@@ -257,8 +279,8 @@ test_that("every clamp site is classified, and by a measured incidence", {
   # Both drivers still answer, carrying those declared zeros. A severance that
   # made the gradient wrong would have to show up as a refusal or as a
   # disagreement with a rebuilt difference, and neither is here.
-  expect_true(all(as.vector(stand_gradient(wet)$status) != "refused"))
-  expect_true(all(as.vector(stand_gradient(dry)$status) != "refused"))
+  expect_true(all(as.vector(incidence_gradient(2.0, 5)$status) != "refused"))
+  expect_true(all(as.vector(incidence_gradient(0.10, 5)$status) != "refused"))
 })
 
 test_that("phylloptim's root-vulnerability clamps stay out of reach, with a margin", {
@@ -313,8 +335,7 @@ test_that("the curvature guard reports how close it came, not only that it held"
   # distance to the floor is carried out of the run. The floor is a declared
   # Control entry for the same reason: it changes which rows exist, so two
   # gradients taken at different values are gradients of different functions.
-  wet <- incidence_stand(2.0, 5)
-  invisible(stand_gradient(wet))
+  wet <- incidence_stand(2.0, 5, swept = TRUE)
   margin <- census_curvature_margin_tf24(wet)[[1]]
   floor <- gradient_control(wet)[["gradient_curvature_floor"]]
   message(sprintf("  smallest curvature met: %.4g, against a floor of %.4g (%.0fx)",
