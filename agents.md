@@ -668,11 +668,16 @@ follow-up [#470] (LTO).
   detects an equidistant knot grid in `set_points()` and replaces the
   `std::lower_bound` binary search with direct index arithmetic. Falls back to
   binary search for adaptive/non-uniform grids. ([#435])
-- **Finite-difference gradient without reallocation.**
-  `Node::growth_rate_gradient()` ([node.h](inst/include/plant/node.h)) needs a
-  mutable `Individual` to perturb height on; it reuses a `thread_local` scratch
-  (copy-*assigned* each call, reusing vector storage) instead of
-  copy-constructing fresh `Internals` every call.
+- **Finite-difference gradient: a copy, and deliberately not a scratch.**
+  `Individual::growth_rate_gradient()`
+  ([individual.h](inst/include/plant/individual.h)) needs a mutable `Individual` to
+  perturb height on, and copy-constructs one per call. A `thread_local` scratch was
+  tried and removed: three arrangements measured within 1.5%, and the function has
+  since moved to `Individual` and become scalar-templated, so a cached scratch would
+  exist at the active type and carry tape slots across recordings — the aliasing
+  failure `scm.h` records, for 1.5%. **Do not reintroduce it.** The copy is also
+  absent from the gradient path entirely: `log_density_rate` calls this only on the
+  height coordinate, and the reverse pass runs on the birth-date one.
 
 **Templated headers & inlining (this build has _no_ LTO).** `src/Makevars` uses
 `CXX_STD = CXX20` with no `-flto` and `DESCRIPTION` has no `UseLTO`, so a
