@@ -296,44 +296,55 @@ public:
 
   std::vector<double> get_soil_mid_depths() const { return z_mid; }
 
-  // The same environment at scalar U.
+  // Another environment's values, written into this one.
+  //
+  // The light spline is not among them, and that is the same decision a rebind
+  // makes: it is derived from the state, and whoever sets a state rebuilds it.
+  // Its grid is 65 fixed fractions of the canopy top, so its count cannot drift
+  // with what it holds, and its positions stay double while its values and slopes
+  // carry the derivative.
+  template <class S1>
+  void assign_from(const TF24_Environment<S1>& src) {
+    static_cast<Environment&>(*this) = static_cast<const Environment&>(src);
+    vars = Internals<S>(src.vars.state_size, src.vars.aux_size,
+                        src.vars.resource_size);
+    for (size_t i = 0; i < src.vars.state_size; ++i) {
+      vars.states[i] = S(odelia::util::to_passive(src.vars.states[i]));
+    }
+    water_flux.assign(src.water_flux.size(), S(0.0));
+    resource_uptake.assign(src.resource_uptake.size(), S(0.0));
+    z = src.z;
+    z_mid = src.z_mid;
+    dz = src.dz;
+    initial_states = src.initial_states;
+    canopy_rescale_usually = src.canopy_rescale_usually;
+    soil_number_of_depths = src.soil_number_of_depths;
+    delta_z = src.delta_z;
+    depth = src.depth;
+    soil_moist_sat = src.soil_moist_sat;
+    K_sat = src.K_sat;
+    a_psi = src.a_psi;
+    n_psi = src.n_psi;
+    soil_moist_sat_layers = src.soil_moist_sat_layers;
+    K_sat_layers = src.K_sat_layers;
+    a_psi_layers = src.a_psi_layers;
+    n_psi_layers = src.n_psi_layers;
+    use_layered_soil_parameters = src.use_layered_soil_parameters;
+    a_infil = src.a_infil;
+    b_infil = src.b_infil;
+    soil_moist_residual = src.soil_moist_residual;
+    soil_psi_max_ = src.soil_psi_max_;
+    // Keyed on a value, so it cannot see a changed derivative behind one; it is
+    // emptied rather than carried.
+    psi_soil_cache_.assign(soil_number_of_depths, 0.0);
+    psi_soil_cache_state_.assign(soil_number_of_depths, 0.0);
+    psi_soil_cache_valid_ = false;
+  }
 
-  // This environment copied onto scalar U. Everything but the light spline is
-  // double; the spline is rebuilt by Patch::compute_environment.
   template <class U>
   TF24_Environment<U> rebind_from() const {
     TF24_Environment<U> out;
-    static_cast<Environment&>(out) = static_cast<const Environment&>(*this);
-    out.vars = Internals<U>(vars.state_size, vars.aux_size, vars.resource_size);
-    for (size_t i = 0; i < vars.state_size; ++i) {
-      out.vars.states[i] = U(odelia::util::to_passive(vars.states[i]));
-    }
-    out.water_flux.assign(water_flux.size(), U(0.0));
-    out.resource_uptake.assign(resource_uptake.size(), U(0.0));
-    out.z = z;
-    out.z_mid = z_mid;
-    out.dz = dz;
-    out.initial_states = initial_states;
-    out.canopy_rescale_usually = canopy_rescale_usually;
-    out.soil_number_of_depths = soil_number_of_depths;
-    out.delta_z = delta_z;
-    out.depth = depth;
-    out.soil_moist_sat = soil_moist_sat;
-    out.K_sat = K_sat;
-    out.a_psi = a_psi;
-    out.n_psi = n_psi;
-    out.soil_moist_sat_layers = soil_moist_sat_layers;
-    out.K_sat_layers = K_sat_layers;
-    out.a_psi_layers = a_psi_layers;
-    out.n_psi_layers = n_psi_layers;
-    out.use_layered_soil_parameters = use_layered_soil_parameters;
-    out.a_infil = a_infil;
-    out.b_infil = b_infil;
-    out.soil_moist_residual = soil_moist_residual;
-    out.soil_psi_max_ = soil_psi_max_;
-    out.psi_soil_cache_.assign(soil_number_of_depths, 0.0);
-    out.psi_soil_cache_state_.assign(soil_number_of_depths, 0.0);
-    out.psi_soil_cache_valid_ = false;
+    out.assign_from(*this);
     return out;
   }
 

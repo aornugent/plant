@@ -678,48 +678,68 @@ public:
 
   // The same strategy at scalar U.
 
-  // This strategy, already prepared, copied onto scalar U. prepare_strategy()
-  // is refused at an active scalar, so its results are carried, not rebuilt.
+  // Another strategy's values, written into this one. prepare_strategy() is
+  // refused at an active scalar, so what it produced is carried rather than
+  // rebuilt: the leaf, and the canopy shape below.
+  //
+  // A rebind hands back a fresh strategy, so anything it leaves default has to be
+  // set here rather than left alone -- an assignment writes into one that already
+  // exists, and a member it does not write keeps a previous state's working.
+  template <class S1>
+  void assign_from(const TF24_Strategy<S1>& src) {
+    // Qualified: these are the base's, and an unqualified name is not looked up
+    // in a dependent base.
+    this->birth_rate_x = src.birth_rate_x;
+    this->birth_rate_y = src.birth_rate_y;
+    this->is_variable_birth_rate = src.is_variable_birth_rate;
+    this->collect_all_auxiliary = src.collect_all_auxiliary;
+    this->size_0 = src.size_0;
+    this->control = src.control;
+    this->name = src.name;
+    this->extrinsic_drivers = src.extrinsic_drivers;
+
+    TF24_Pars<S1> from_pars = src.pars;
+    std::vector<S1*> from = from_pars.field_ptrs();
+    std::vector<S*> to = pars.field_ptrs();
+    // field_count is a literal, so it is what a new member gets added without;
+    // this is what says the two lists still describe the same struct.
+    util::check_length(from.size(), to.size());
+    util::check_length(to.size(), TF24_Pars<S>::field_count);
+    for (size_t i = 0; i < from.size(); ++i) {
+      *to[i] = S(odelia::util::to_passive(*from[i]));
+    }
+
+    shading_model_ = src.shading_model_;
+    eta_c = S(odelia::util::to_passive(src.eta_c));
+    canopy_shape.initialise(pars.eta, shading_model_);
+    height_0 = src.height_0;
+    area_leaf_0 = S(odelia::util::to_passive(src.area_leaf_0));
+    leaf = src.leaf;
+    storage_gate_width = src.storage_gate_width;
+    storage_prod_eps = src.storage_prod_eps;
+    newton_tol_abs = src.newton_tol_abs;
+    GSS_tol_abs = src.GSS_tol_abs;
+    vulnerability_curve_ncontrol = src.vulnerability_curve_ncontrol;
+    ci_abs_tol = src.ci_abs_tol;
+    ci_niter = src.ci_niter;
+    beta_R_H = src.beta_R_H;
+    beta_R_V = src.beta_R_V;
+    function_integrator = src.function_integrator;
+
+    // Sized, not copied: these hold one right-hand side's working, and are
+    // rewritten before they are read.
+    root_carbon_per_leaf_area_.assign(src.root_carbon_per_leaf_area_.size(),
+                                      S(0.0));
+
+    // The index maps and the slot numbers are a function of the names, so they
+    // are derived rather than carried.
+    refresh_indices();
+  }
+
   template <class U>
   TF24_Strategy<U> rebind_from() const {
     TF24_Strategy<U> out;
-    out.state_index = this->state_index;
-    out.aux_index = this->aux_index;
-    out.birth_rate_x = this->birth_rate_x;
-    out.birth_rate_y = this->birth_rate_y;
-    out.is_variable_birth_rate = this->is_variable_birth_rate;
-    out.collect_all_auxiliary = this->collect_all_auxiliary;
-    out.size_0 = this->size_0;
-    out.control = this->control;
-    out.name = this->name;
-    out.extrinsic_drivers = this->extrinsic_drivers;
-
-    TF24_Pars<S> src = pars;
-    std::vector<S*> from = src.field_ptrs();
-    std::vector<U*> to = out.pars.field_ptrs();
-    for (size_t i = 0; i < from.size(); ++i) {
-      *to[i] = U(*from[i]);
-    }
-
-    out.shading_model_ = shading_model_;
-    out.eta_c = U(eta_c);
-    out.canopy_shape.initialise(out.pars.eta, out.shading_model_);
-    out.height_0 = height_0;
-    out.area_leaf_0 = U(area_leaf_0);
-    out.leaf = leaf;
-    out.storage_gate_width = storage_gate_width;
-    out.storage_prod_eps = storage_prod_eps;
-    out.newton_tol_abs = newton_tol_abs;
-    out.GSS_tol_abs = GSS_tol_abs;
-    out.vulnerability_curve_ncontrol = vulnerability_curve_ncontrol;
-    out.ci_abs_tol = ci_abs_tol;
-    out.ci_niter = ci_niter;
-    out.beta_R_H = beta_R_H;
-    out.beta_R_V = beta_R_V;
-    out.function_integrator = function_integrator;
-    out.root_carbon_per_leaf_area_.assign(root_carbon_per_leaf_area_.size(),
-                                          U(0.0));
-    out.refresh_indices();
+    out.assign_from(*this);
     return out;
   }
 
