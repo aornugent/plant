@@ -169,7 +169,33 @@ clamp_class <- list(
   soil_conductivity      = "forward-only",
   soil_positivity        = "never",
   rainfall               = "never",
-  infiltration           = "never"
+  infiltration           = "never",
+  # Not a clamp: the collar coincided with a layer potential, where the supply
+  # kernels return not-a-number, and the rows were taken four kink tolerances off
+  # it. That recovers a row the model HAS -- the singularity there is arithmetic,
+  # since span/integral is analytic through the coincidence -- so this counts a
+  # recovery rather than a severance.
+  supply_kink_step_off   = "never",
+  # The leaf model's four, which are a different facility: the leaf solves in
+  # double on both paths, so these keep ONE tally and the forward share is the
+  # total less the delta measured across record_leaf_outputs. Every one of them
+  # already pairs its clamp with a matching derivative, so what is counted is the
+  # distance from a defect rather than one.
+  #
+  # ⚠️ THEIR NON-VACUITY PROOF IS NOT HERE, and cannot be. A stand cannot reach
+  # them: a layer has to be ROOTED to be evaluated and the plant has to be alive,
+  # so the wettest rooted layer stays wetter than psi_crit while these need a
+  # deeper one past 6.82 or 7.31 MPa -- a vertical gradient drainage opposes. The
+  # counters are exercised directly in phylloptim's own C++ suite, in
+  # test_root_vulnerability_is_bounded_past_its_grid, including that a copy counts
+  # into the tally the original reads.
+  root_vuln_integral_cap = "never",
+  root_vuln_argument     = "never",
+  # Behind use_energy_balance, which is off: Tleaf is the environment's own value.
+  leaf_temperature       = "never",
+  # Off TF24's differentiated path entirely -- profit_at_fixed_collar replaced it
+  # and refuses rather than clamping.
+  collar_potential       = "never"
 )
 
 test_that("every clamp site is classified, and by a measured incidence", {
@@ -199,7 +225,9 @@ test_that("every clamp site is classified, and by a measured incidence", {
   }
 
   # Never means never, on both paths and both drivers. A site in this class that
-  # starts firing is a regime the suite has never seen.
+  # starts firing is a regime the suite has never seen — including the two the
+  # gradient would RECOVER from rather than refuse on (the kink step-off) and the
+  # four the leaf owns, whose thresholds a stand cannot reach.
   for (s in names(clamp_class)[unlist(clamp_class) == "never"]) {
     expect_equal(wet_s[[s]], 0, label = paste(s, "fired on the wet driver"))
     expect_equal(dry_s[[s]], 0, label = paste(s, "fired on the drought driver"))

@@ -267,7 +267,19 @@ public:
     std::vector<std::vector<size_t>> ret;
     ret.reserve(live.size());
     for (size_t i = 0; i < live.size(); ++i) {
-      ret.push_back(live.at_species(i).strategy_ptr()->clamps.forward);
+      const auto s = live.at_species(i).strategy_ptr();
+      std::vector<size_t> row = s->clamps.forward;
+      // The leaf's own sites keep ONE tally across both paths, because the leaf
+      // solves in double on both and every rebound copy shares its storage. So the
+      // forward share is the total less what the sweep was measured to take.
+      const std::vector<std::size_t> leaf_total = s->leaf.clamp_counts();
+      const std::vector<size_t>& swept = *s->clamps.differentiated;
+      for (std::size_t k = 0; k < leaf_total.size(); ++k) {
+        const std::size_t at = CLAMP_LEAF_FIRST + k;
+        if (at >= CLAMP_SITE_COUNT) { break; }
+        row[at] += leaf_total[k] > swept[at] ? leaf_total[k] - swept[at] : 0;
+      }
+      ret.push_back(row);
     }
     add_environment_clamps(ret, live.environment_clamps().forward);
     return ret;
@@ -305,6 +317,7 @@ public:
         live.at_species(i).strategy_ptr()->operating_point_counts;
       c.assign(c.size(), 0);
       live.at_species(i).strategy_ptr()->clamps.clear();
+      live.at_species(i).strategy_ptr()->leaf.clear_clamp_counts();
       *live.at_species(i).strategy_ptr()->curvature_margin = -1.0;
     }
     live.environment_clamps().clear();

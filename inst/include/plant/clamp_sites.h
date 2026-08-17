@@ -39,6 +39,22 @@ enum clamp_site {
   // Rooting depth capped: where it binds, the root profile stops responding to
   // height, which is a state row rather than a numeric guard.
   CLAMP_ROOTING_DEPTH,
+  // Not a clamp but the same reading: the collar coincided with a layer potential,
+  // where the supply kernels return not-a-number, and the rows were taken a few
+  // kink tolerances off it instead. The singularity there is arithmetic rather than
+  // the model's, so stepping off recovers the row -- and counting says how often,
+  // because a row taken 4e-8 away is not the row at the point.
+  CLAMP_SUPPLY_KINK_STEP_OFF,
+  // The leaf model's own sites, in phylloptim's enum order so that the two lists
+  // fold by offset rather than by a name lookup. They are counted differently from
+  // everything above: the leaf solves in double on BOTH paths, so which path a
+  // clamp fired on is a question of WHEN rather than of the scalar, and the answer
+  // comes from a delta taken across record_leaf_outputs.
+  CLAMP_LEAF_FIRST,
+  CLAMP_ROOT_VULN_INTEGRAL_CAP = CLAMP_LEAF_FIRST,
+  CLAMP_ROOT_VULN_ARGUMENT,
+  CLAMP_LEAF_TEMPERATURE,
+  CLAMP_COLLAR_POTENTIAL,
   CLAMP_SITE_COUNT
 };
 
@@ -55,6 +71,11 @@ inline const char* clamp_site_name(int site) {
   case CLAMP_STORAGE_FLOOR:          return "storage_floor";
   case CLAMP_RESERVE_CEILING:        return "reserve_ceiling";
   case CLAMP_ROOTING_DEPTH:          return "rooting_depth";
+  case CLAMP_SUPPLY_KINK_STEP_OFF:   return "supply_kink_step_off";
+  case CLAMP_ROOT_VULN_INTEGRAL_CAP: return "root_vuln_integral_cap";
+  case CLAMP_ROOT_VULN_ARGUMENT:     return "root_vuln_argument";
+  case CLAMP_LEAF_TEMPERATURE:       return "leaf_temperature";
+  case CLAMP_COLLAR_POTENTIAL:       return "collar_potential";
   }
   return "unknown";
 }

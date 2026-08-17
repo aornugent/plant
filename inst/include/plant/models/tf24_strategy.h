@@ -1311,6 +1311,26 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     }
   };
 
+  // The leaf's clamps fire in double on both paths, so a scalar test cannot say
+  // which path they belong to and a delta across this function can. Everything
+  // below re-supplies and re-solves the leaf many times; anything it clamps is the
+  // gradient's, and the forward run's share is the total less this.
+  const std::vector<std::size_t> leaf_clamps_before = leaf.clamp_counts();
+  struct leaf_clamp_delta {
+    const std::vector<std::size_t>& before;
+    const decltype(leaf)& leaf;
+    std::vector<size_t>& into;
+    ~leaf_clamp_delta() {
+      const std::vector<std::size_t> after = leaf.clamp_counts();
+      for (std::size_t s = 0; s < after.size(); ++s) {
+        const std::size_t at = CLAMP_LEAF_FIRST + s;
+        if (at < CLAMP_SITE_COUNT && after[s] > before[s]) {
+          into[at] += after[s] - before[s];
+        }
+      }
+    }
+  } record_leaf_clamps{leaf_clamps_before, leaf, *clamps.differentiated};
+
   // A shut point is not an argmax. There is no stationarity to take an envelope
   // step at, no curvature to divide by and no bound the point rides -- profit is
   // respiration plus the hydraulic cost at a potential the solve lands on
@@ -1420,15 +1440,47 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
 
   // How total uptake and its collar sensitivity respond to each layer, in closed
   // form. These are what the two scalars multiply.
+  //
+  // ⚠️ A NON-FINITE READ HERE MEANS "STEP OFF THE COINCIDENCE", NOT "NO DERIVATIVE
+  // EXISTS", and refusing on it threw away rows the model has. The supply kernels
+  // return not-a-number inside a window of width `kink_tol` where the collar
+  // coincides with a layer potential, with that potential plus the layer's gravity
+  // head, or with zero. At the first of those the layer's resistance is
+  // r_R_H_min * span / integral, and span/integral is (psi difference)/(G
+  // difference) -- which is 1/f_r at coincidence and ANALYTIC through it, because
+  // the two signs cancel and the same expression serves both sides. So the
+  // singularity is arithmetic (0/0), not a property of the model.
+  //
+  // The treatment that follows from that: evaluate just OUTSIDE the window. A
+  // displacement of a few kink tolerances changes a smooth derivative by order the
+  // displacement -- 1e-8 here, orders below the solve's own floor and below every
+  // tolerance the model carries -- where refusing costs the whole water channel.
+  // Retried in both directions because stepping off one layer's coincidence can
+  // land on another's.
   std::vector<double> dEup_dpsi, d2Eup_dcollar_dpsi, dE_dcollar;
-  leaf.dE_from_soil_dpsi_soil(collar, psi_value, dEup_dpsi);
-  leaf.roots_.d2uptake_dpsi_dpsi_soil(collar, psi_value, d2Eup_dcollar_dpsi);
-  leaf.dE_from_soil_dpsi_collar_by_layer(collar, psi_value, dE_dcollar);
-  for (size_t j = 0; j < n_layer; ++j) {
-    if (!util::is_finite(dEup_dpsi[j]) || !util::is_finite(d2Eup_dcollar_dpsi[j]) ||
-        !util::is_finite(dE_dcollar[j])) {
-      lose_uptake_rows("TF24 gradient: layer " + util::to_string(static_cast<int>(j)) +
-                 " sits on a branch kink, so its water response does not exist");
+  auto supply_rows_at = [&](double at) -> bool {
+    leaf.dE_from_soil_dpsi_soil(at, psi_value, dEup_dpsi);
+    leaf.roots_.d2uptake_dpsi_dpsi_soil(at, psi_value, d2Eup_dcollar_dpsi);
+    leaf.dE_from_soil_dpsi_collar_by_layer(at, psi_value, dE_dcollar);
+    for (size_t j = 0; j < n_layer; ++j) {
+      if (!util::is_finite(dEup_dpsi[j]) ||
+          !util::is_finite(d2Eup_dcollar_dpsi[j]) ||
+          !util::is_finite(dE_dcollar[j])) {
+        return false;
+      }
+    }
+    return true;
+  };
+  if (!supply_rows_at(collar)) {
+    // Four kink tolerances: enough to clear a window of one, and small enough that
+    // the row is the same to eight significant figures.
+    const double step_off = 4e-8;
+    if (!supply_rows_at(collar + step_off) && !supply_rows_at(collar - step_off)) {
+      lose_uptake_rows("TF24 gradient: a layer sits on a branch kink and the water "
+                 "response is still not finite four kink tolerances either side, "
+                 "so it is the model's rather than the coincidence's");
+    } else {
+      note_clamp(CLAMP_SUPPLY_KINK_STEP_OFF);
     }
   }
 
@@ -1920,15 +1972,31 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // for.
   double dR_dlight = 0.0;
   if (!pinned) {
+    // The leaf temperature is clamped to a physical range, and where it binds the
+    // Arrhenius block stops reading radiation. That clamp kills its own analytic
+    // slope, which keeps every ANALYTIC row honest -- and can do nothing for the
+    // difference below: two arms both on the clamp return the same temperature, so
+    // the difference reports no thermal channel at all and reports it as a finite
+    // number that no feasibility test can question. The count is the only thing
+    // that distinguishes it, so it is read across the two arms.
+    const std::size_t temp_clamps_before =
+        leaf.clamp_count(phylloptim::CLAMP_LEAF_TEMPERATURE);
     dR_dlight = (marginal_at(radiation_value * (1.0 + 1e-6), psi_value) -
                  marginal_at(radiation_value * (1.0 - 1e-6), psi_value)) /
                 (2.0 * radiation_value * 1e-6);
+    const bool temperature_pinned =
+        leaf.clamp_count(phylloptim::CLAMP_LEAF_TEMPERATURE) > temp_clamps_before;
     drive(radiation_value, psi_value, kmax_value);
     leaf.evaluate_root_collar_psi(collar);
     if (!util::is_finite(dR_dlight)) {
       lose_uptake_rows("TF24 gradient: the marginal profit's response to radiation is "
                  "not finite, so the collar's light response has nothing to "
                  "stand on");
+    }
+    if (temperature_pinned) {
+      lose_uptake_rows("TF24 gradient: the leaf temperature is held at its clamp over "
+                 "the radiation difference, so the collar's light response is "
+                 "missing the thermal channel rather than measuring it");
     }
   }
 
