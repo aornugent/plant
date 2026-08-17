@@ -758,6 +758,13 @@ public:
     beta_R_H = src.beta_R_H;
     beta_R_V = src.beta_R_V;
     function_integrator = src.function_integrator;
+    // Shared, not copied: a clamp on this path fires inside a per-unit copy that
+    // is then discarded, so the count has to land in storage the run still owns.
+    // The missing-row flag is shared for the same reason.
+    clamps.differentiated = src.clamps.differentiated;
+    curvature_margin = src.curvature_margin;
+    uptake_rows_unavailable = src.uptake_rows_unavailable;
+    uptake_rows_reason = src.uptake_rows_reason;
 
     // Sized, not copied: these hold one right-hand side's working, and are
     // rewritten before they are read.
@@ -805,11 +812,59 @@ public:
   double storage_gate_width = 0.1;
   double storage_prod_eps   = 1e-4;
 
-  // The clamp sites this strategy counts. One so far -- the light floor, which
-  // is the site defect #4 names -- and the enum is what a second one is added
-  // to rather than a second counter.
-  enum clamp_site { CLAMP_LIGHT_FLOOR = 0, CLAMP_SITE_COUNT };
-  std::vector<size_t> clamp_counts = std::vector<size_t>(CLAMP_SITE_COUNT, 0);
+  // The clamp sites this strategy reaches; the list itself is shared with the
+  // environment, which reaches the others.
+  clamp_counter clamps;
+
+  // Count a clamp against the path it fired on. Which path this is is a property
+  // of the scalar, so it is decided at compile time.
+  void note_clamp(int site) {
+    if constexpr (std::is_same_v<S, double>) {
+      ++clamps.forward[site];
+    } else {
+      ++(*clamps.differentiated)[site];
+    }
+  }
+
+  // How close the interior derivation came to dividing by nothing. The guard
+  // below refuses on a floor, and a floor nothing approaches and a floor nothing
+  // reaches report the same green -- so the margin is carried out beside the
+  // count rather than left to be assumed. Shared for the same reason the counts
+  // are: the copy that measures it is discarded.
+  std::shared_ptr<double> curvature_margin = std::make_shared<double>(-1.0);
+  void note_curvature(double value) {
+    const double m = std::abs(value);
+    if (*curvature_margin < 0.0 || m < *curvature_margin) {
+      *curvature_margin = m;
+    }
+  }
+
+  // Below this the collar's own response is amplification rather than an answer.
+  // It lives on Control because it moves which states answer, so two gradients
+  // taken at different values are gradients of different functions and
+  // stand_gradient() has to be able to say so.
+  //
+  // The units are the profit's, so a reparameterisation that rescales profit
+  // needs it re-measured -- which is what curvature_margin is for.
+  double curvature_floor() const { return this->control.gradient_curvature_floor; }
+
+  // Set where a row the UPTAKE outputs need does not exist. The profit row is
+  // built by the envelope theorem and reads no curvature, so it survives every
+  // degeneracy the water rows do not -- and the values still do too, so the
+  // recording carries them on and leaves the missing rows off the tape.
+  //
+  // Recorded rather than thrown because a throw from here is a refusal of the
+  // whole recording, and this one is a refusal of two of its outputs. The sweep
+  // reads it once it is over and turns it into the run's status.
+  //
+  // Shared for the reason the clamp counts are: the strategy that measures it is
+  // a per-unit copy the sweep discards, so a flag on the copy is a flag nothing
+  // can read. The first reason is kept and later ones dropped, and the sweep
+  // clears it before it starts -- so this latches for one gradient call rather
+  // than for one operating point.
+  std::shared_ptr<bool> uptake_rows_unavailable = std::make_shared<bool>(false);
+  std::shared_ptr<std::string> uptake_rows_reason =
+      std::make_shared<std::string>();
 
   // How many leaf solves landed in each operating-point kind, indexed by the
   // enum. Diagnostic and deliberately outside rebind_from: a block copies the
@@ -912,10 +967,17 @@ S TF24_Strategy<S>::compute_average_light_environment(
 // NOTE: the light environment is clamped to a small positive floor (1e-4)
 // rather than allowed to reach 0 (original rationale was never recorded;
 // preserved as-is).
-
+//
+// Counted, because this is where the floor binds first: the mean this feeds is
+// an integral of already-floored values against a shape that integrates to one,
+// so a floored point here cannot lower the mean below the floor and the read
+// downstream sees nothing.
      using std::max;
-     return max(environment.get_environment_at_height(z), S(0.0001)) *
-       canopy_shape.q_from_height(z, height);
+     const S light = environment.get_environment_at_height(z);
+     if (light < S(0.0001)) {
+       note_clamp(CLAMP_LIGHT_FLOOR_CROWN);
+     }
+     return max(light, S(0.0001)) * canopy_shape.q_from_height(z, height);
 }
 
 // assumes optimise_psi_stem_TF has been run for optimal psi_stem
@@ -1239,6 +1301,16 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   using odelia::util::to_passive;
   namespace grad = phylloptim::gradient;
 
+  // A row the water outputs need and the profit output does not. The first
+  // reason is kept: a later one is a consequence of the same degeneracy, and the
+  // reader wants what went first.
+  auto lose_uptake_rows = [this](const std::string& why) {
+    if (!*uptake_rows_unavailable) {
+      *uptake_rows_unavailable = true;
+      *uptake_rows_reason = why;
+    }
+  };
+
   // A shut point is not an argmax. There is no stationarity to take an envelope
   // step at, no curvature to divide by and no bound the point rides -- profit is
   // respiration plus the hydraulic cost at a potential the solve lands on
@@ -1323,10 +1395,18 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     const double marginal_hi = leaf.dprofit_droot_collar_psi(collar + h_collar);
     const double marginal_lo = leaf.dprofit_droot_collar_psi(collar - h_collar);
     curvature = (marginal_hi - marginal_lo) / (2.0 * h_collar);
-    if (!util::is_finite(curvature) || curvature >= 0.0) {
-      throw gradient_refusal("TF24 gradient: the leaf's profit has no usable curvature at "
-                 "this operating point, so the collar's own response has nothing "
-                 "to stand on");
+    note_curvature(curvature);
+    // The sign is the fold and the magnitude is the amplification, and only the
+    // second was left unguarded: every collar response divides by this, so a
+    // curvature approaching zero returns a large finite number rather than
+    // refusing. Both are one test because both make the quotient meaningless.
+    if (!util::is_finite(curvature) || curvature >= 0.0 ||
+        std::abs(curvature) < curvature_floor()) {
+      lose_uptake_rows("TF24 gradient: the leaf's profit curvature at this operating "
+                       "point is " + util::to_string(curvature) +
+                       ", against a floor of " + util::to_string(curvature_floor()) +
+                       ", so the collar's own response is amplification rather "
+                       "than an answer");
     }
   }
   // What the implicit function theorem divides by: the slope, IN THE COLLAR, of
@@ -1347,7 +1427,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   for (size_t j = 0; j < n_layer; ++j) {
     if (!util::is_finite(dEup_dpsi[j]) || !util::is_finite(d2Eup_dcollar_dpsi[j]) ||
         !util::is_finite(dE_dcollar[j])) {
-      throw gradient_refusal("TF24 gradient: layer " + util::to_string(static_cast<int>(j)) +
+      lose_uptake_rows("TF24 gradient: layer " + util::to_string(static_cast<int>(j)) +
                  " sits on a branch kink, so its water response does not exist");
     }
   }
@@ -1559,15 +1639,18 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     }
   }
   if (anchor == n_layer) {
-    throw gradient_refusal("TF24 gradient: no layer's root carbon reaches total uptake, so "
-               "the water response has no direction to be read along");
+    lose_uptake_rows("TF24 gradient: no layer's root carbon reaches total uptake, so "
+                     "the water response has no direction to be read along");
   }
 
   // The first coefficient exists to turn a state direction into the collar's
   // response, and at a pin the bound's row is that response already -- so the fit
   // is skipped there along with the two rebuilds and three re-seats it costs.
+  // `anchor` is a layer index only when one was found; where none was, the rows
+  // this fit serves are already gone and the two rebuilds it costs would be spent
+  // on nothing.
   double a = 0.0;
-  if (!pinned) {
+  if (!pinned && anchor < n_layer) {
     const double base_rc = root_carbon_value_[anchor];
     // Through the same arm chooser as every other differenced family. This one
     // rebuilds the root network per arm, so it is the most expensive of them --
@@ -1586,7 +1669,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
 
     a = (dR_drc_anchor - b * d2Eup_drc[anchor]) / dEup_drc[anchor];
     if (!util::is_finite(a)) {
-      throw gradient_refusal("TF24 gradient: the first coefficient of the water response is "
+      lose_uptake_rows("TF24 gradient: the first coefficient of the water response is "
                  "not finite -- dR/drc=" + util::to_string(dR_drc_anchor) +
                  " b=" + util::to_string(b) +
                  " dEup/drc=" + util::to_string(dEup_drc[anchor]));
@@ -1843,10 +1926,30 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     drive(radiation_value, psi_value, kmax_value);
     leaf.evaluate_root_collar_psi(collar);
     if (!util::is_finite(dR_dlight)) {
-      throw gradient_refusal("TF24 gradient: the marginal profit's response to radiation is "
+      lose_uptake_rows("TF24 gradient: the marginal profit's response to radiation is "
                  "not finite, so the collar's light response has nothing to "
                  "stand on");
     }
+  }
+
+  // Where a row the water outputs need does not exist, the VALUES still do -- the
+  // leaf solved, and the water balance downstream is a forward quantity. So they
+  // are carried as constants and the rows they would have had are left off the
+  // tape, which makes them exactly zero. A zero row and an absent one are the same
+  // number, so nothing here may read as an answer: the flag says the difference
+  // and the sweep turns it into a refusal for the metrics that touch these
+  // outputs.
+  //
+  // Ahead of the collar's recording rather than after it, because the recording is
+  // where the quotient is taken: odelia refuses a residual slope of zero with a
+  // stop rather than a status, and the whole point of the flag is that this
+  // degeneracy is not the profit row's problem.
+  leaf_soil_consumption_.assign(psi_soil.size(), S(0.0));
+  if (*uptake_rows_unavailable) {
+    for (size_t i = 0; i < n_layer; ++i) {
+      leaf_soil_consumption_[i] = S(leaf.soil_consumption_[i]);
+    }
+    return;
   }
 
   // The collar the solve left, carrying every input's route into it. Each uptake
@@ -1871,7 +1974,6 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   const S recorded_collar =
       odelia::implicit_root<S>(collar, residual_slope, against);
 
-  leaf_soil_consumption_.assign(psi_soil.size(), S(0.0));
   // The value below is soil_consumption_, in mol; every partial above it is
   // built from the leaf's kg-based flux accessors. The two are different units
   // by design, so the rows carry the same conversion the value already did.
@@ -2065,11 +2167,21 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
   // relative reserves rather than instantaneous net production -- so a trough
   // draws reserves down and death is gradual, instead of the growth cutoff and
   // ~1e32 mortality spike that caused the #550 blow-up.
+  // Counted: below zero the pool stops being a function of its own state, so
+  // every rate the gate scales loses its route to the reserve.
+  if (vars.state(state_idx_storage) < S(0.0)) {
+    note_clamp(CLAMP_STORAGE_FLOOR);
+  }
   const S storage     = std::max(vars.state(state_idx_storage), S(0.0));
   const S storage_max = storage_capacity(area_leaf_, height);
   using std::exp;
   using std::min;
   using std::sqrt;
+  // And at capacity the gate's argument stops reading the pool, which is the
+  // same severance at the other end.
+  if (storage_max > 0.0 && storage > storage_max) {
+    note_clamp(CLAMP_RESERVE_CEILING);
+  }
   const S r           = storage_max > 0.0 ? min(storage / storage_max, S(1.0)) : S(0.0);
   // Reserve-gated growth (#517), following Daniel's intuition that a plant
   // should not grow unless it has ample carbon in storage. Growth and
@@ -2299,6 +2411,12 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   root_carbon_per_leaf_area_.assign(soil_number_of_depths_, 0.0);
   root_carbon_value_.assign(soil_number_of_depths_, 0.0);
 
+  // Counted, and this one severs a state row rather than smoothing a number:
+  // above the cap the whole root profile stops depending on height, so every
+  // layer's carbon -- and the uptake built on it -- reads a constant.
+  if (height > pars.rooting_depth_max) {
+    note_clamp(CLAMP_ROOTING_DEPTH);
+  }
   const S rooting_depth = std::min(height, pars.rooting_depth_max);
   const S root_mass_scale = root_mass_carbon_scale * pars.a_r1;
 
@@ -2385,23 +2503,14 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
     // severed by the guard rather than by the model -- and the field is smooth
     // underneath. An uncounted severance is indistinguishable from a true zero.
     if (light < S(0.0001)) {
-      ++clamp_counts[CLAMP_LIGHT_FLOOR];
       // Below the floor the radiation this cohort receives stops depending on
-      // any other cohort's height, so the light coupling is severed -- and the
-      // field is SMOOTH here, so the severance is the guard's rather than the
-      // model's. Returning the clamped value would hand back a row that is zero
-      // for a reason no measurement reveals.
-      //
-      // The forward model must keep running: the floor is what keeps the light
-      // sane, and a stand is not wrong for reaching it. So this refuses on the
-      // differentiated path alone -- a compile-time choice, because which path
-      // this is is a property of the scalar and not of the state.
-      if constexpr (!std::is_same_v<S, double>) {
-        throw gradient_refusal(
-            "TF24 gradient: the light floor binds here, so this cohort's "
-            "radiation no longer depends on any other cohort's height and its "
-            "light row is severed by the guard rather than by the model");
-      }
+      // any other cohort's height. The row is therefore exactly zero for the
+      // model AS EVALUATED -- every light below the floor gives a bit-identical
+      // census -- so the zero is the derivative of the function on the tape and
+      // not an answer withheld. What makes it readable rather than silent is the
+      // count, which is taken on this path because it is the only one a clamp
+      // severs anything on.
+      note_clamp(CLAMP_LIGHT_FLOOR);
     }
     return pars.k_I * std::max(light, S(0.0001)) * PPFD;
   };

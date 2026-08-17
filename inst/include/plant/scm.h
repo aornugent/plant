@@ -213,11 +213,13 @@ public:
   template <class Metrics, class Scalar, class Seed>
   std::vector<Scalar> replay_initial_state(size_t from_segment, Seed seed);
 
-  // The four Control entries that move the trajectory and so move the gradient,
-  // in the order stand_gradient() compares them.
+  // The Control entries that move the trajectory or move which states answer,
+  // and so move the gradient, in the order stand_gradient() compares them. The
+  // curvature floor is here for the second reason rather than the first: it
+  // changes no forward number and still decides which rows exist.
   std::vector<double> gradient_control() const {
     return {control.GSS_tol_abs, control.ci_abs_tol, control.node_gradient_eps,
-            control.schedule_eps};
+            control.schedule_eps, control.gradient_curvature_floor};
   }
 
   // ---- R interface -------------------------------------------------------
@@ -230,6 +232,19 @@ public:
   // column per operating-point kind. Read off the live system rather than
   // r_patch(), which is a snapshot the run copies out and whose counters are
   // whatever they were when it was taken.
+  // One environment serves every species, so its tally has no species of its
+  // own; it lands on the first row rather than being dropped or duplicated.
+  static void add_environment_clamps(std::vector<std::vector<size_t>>& ret,
+                                     const std::vector<size_t>& env) {
+    if (ret.empty()) {
+      ret.push_back(env);
+      return;
+    }
+    for (size_t s = 0; s < env.size() && s < ret[0].size(); ++s) {
+      ret[0][s] += env[s];
+    }
+  }
+
   std::vector<std::vector<size_t>> operating_point_counts() {
     const patch_type& live = solver.get_system_ref();
     std::vector<std::vector<size_t>> ret;
@@ -241,12 +256,44 @@ public:
   }
   // The same for the clamp sites, which are counted for the same reason: a
   // clamped row and a true zero are the same number.
+  //
+  // The sites live in two objects and the list is one, so the environment's
+  // tally is ADDED to the species' rather than reported beside it -- a caller
+  // asking how often a site fired is asking about the site, not about which
+  // object happened to reach it. The environment is one, so its counts land on
+  // the first row.
   std::vector<std::vector<size_t>> clamp_counts() {
     const patch_type& live = solver.get_system_ref();
     std::vector<std::vector<size_t>> ret;
     ret.reserve(live.size());
     for (size_t i = 0; i < live.size(); ++i) {
-      ret.push_back(live.at_species(i).strategy_ptr()->clamp_counts);
+      ret.push_back(live.at_species(i).strategy_ptr()->clamps.forward);
+    }
+    add_environment_clamps(ret, live.environment_clamps().forward);
+    return ret;
+  }
+  // And the same sites counted where the sweep runs, which is the only path a
+  // clamp severs a row on. The forward tally cannot stand in for this one: the
+  // sweep visits the recorded steps rather than every solve.
+  std::vector<std::vector<size_t>> clamp_counts_differentiated() {
+    const patch_type& live = solver.get_system_ref();
+    std::vector<std::vector<size_t>> ret;
+    ret.reserve(live.size());
+    for (size_t i = 0; i < live.size(); ++i) {
+      ret.push_back(*live.at_species(i).strategy_ptr()->clamps.differentiated);
+    }
+    add_environment_clamps(ret, *live.environment_clamps().differentiated);
+    return ret;
+  }
+  // The smallest profit curvature the differentiated path met, one per species.
+  // A guard that held and a guard nothing reached report the same green, so the
+  // distance to the floor is carried out beside the refusals it did not raise.
+  std::vector<double> curvature_margins() {
+    const patch_type& live = solver.get_system_ref();
+    std::vector<double> ret;
+    ret.reserve(live.size());
+    for (size_t i = 0; i < live.size(); ++i) {
+      ret.push_back(*live.at_species(i).strategy_ptr()->curvature_margin);
     }
     return ret;
   }
@@ -257,10 +304,10 @@ public:
       std::vector<size_t>& c =
         live.at_species(i).strategy_ptr()->operating_point_counts;
       c.assign(c.size(), 0);
-      std::vector<size_t>& cl =
-        live.at_species(i).strategy_ptr()->clamp_counts;
-      cl.assign(cl.size(), 0);
+      live.at_species(i).strategy_ptr()->clamps.clear();
+      *live.at_species(i).strategy_ptr()->curvature_margin = -1.0;
     }
+    live.environment_clamps().clear();
   }
   const std::vector<patch_type> &r_history() const { return history; }
 
@@ -956,6 +1003,14 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
 
   adjoint_segments = 0;
   adjoint_at_first_state.clear();
+  // The missing-row flag latches, and it is shared storage rather than a member
+  // of the copy that sets it -- so it is cleared where the call that reads it
+  // starts, and a previous call's degeneracy cannot refuse this one.
+  for (size_t i = 0; i < live.size(); ++i) {
+    const auto s = live.at_species(i).strategy_ptr();
+    *s->uptake_rows_unavailable = false;
+    s->uptake_rows_reason->clear();
+  }
   // The seeds and the direct term are on the gradient path too, and a refusal
   // raised while forming them has no sweep to be caught in -- so it escaped as
   // an error while every refusal from the sweep itself came back as a status.
@@ -1033,6 +1088,28 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
     refused = true;
     adjoint_segments = 0;
     adjoint_at_first_state.clear();
+  }
+  // A row the water outputs need can go missing without any refusal being
+  // thrown: the recording carries the values on and leaves those rows off the
+  // tape, which makes them exactly zero, and a zero row and an absent one are
+  // the same number. So the leaf records the loss instead of throwing, and it is
+  // read here -- the one place in this call where a refusal has somewhere to go.
+  //
+  // The strategy that measured it is a per-unit copy the sweep discards, so the
+  // flag lives in storage the run still owns, shared through the rebind exactly
+  // as the clamp counts are.
+  if (!refused) {
+    for (size_t i = 0; i < live.size(); ++i) {
+      const auto s = live.at_species(i).strategy_ptr();
+      if (!*s->uptake_rows_unavailable) {
+        continue;
+      }
+      refusal.kind = gradient_status::Kind::refused;
+      refusal.reason = *s->uptake_rows_reason;
+      refusal.species = static_cast<int>(i + 1);
+      refused = true;
+      break;
+    }
   }
 
   census_gradient ret;

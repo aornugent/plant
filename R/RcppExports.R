@@ -4445,8 +4445,16 @@ census_clamp_counts_tf24 <- function(obj_) {
     .Call('_plant_census_clamp_counts_tf24', PACKAGE = 'plant', obj_)
 }
 
+census_clamp_counts_differentiated_tf24 <- function(obj_) {
+    .Call('_plant_census_clamp_counts_differentiated_tf24', PACKAGE = 'plant', obj_)
+}
+
 census_clamp_names_tf24 <- function() {
     .Call('_plant_census_clamp_names_tf24', PACKAGE = 'plant')
+}
+
+census_curvature_margin_tf24 <- function(obj_) {
+    .Call('_plant_census_curvature_margin_tf24', PACKAGE = 'plant', obj_)
 }
 
 node_schedule_default__Parameters___FF16__FF16_Env <- function(p) {

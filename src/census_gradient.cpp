@@ -201,8 +201,39 @@ census_clamp_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<d
   return ret;
 }
 
-// The clamp sites, in the order the counts are reported.
+// The same sites counted where the sweep runs. A clamp only severs a row on the
+// differentiated path, so this is the tally that says whether a gradient carries
+// a severance -- the forward one says only that the guard is reachable.
+// [[Rcpp::export]]
+std::vector<std::vector<double>>
+census_clamp_counts_differentiated_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  const std::vector<std::vector<size_t>> counts = obj_->clamp_counts_differentiated();
+  std::vector<std::vector<double>> ret;
+  ret.reserve(counts.size());
+  for (const std::vector<size_t>& row : counts) {
+    ret.push_back(std::vector<double>(row.begin(), row.end()));
+  }
+  return ret;
+}
+
+// The clamp sites, in the order the counts are reported. Read from the enum so a
+// site cannot be counted under its neighbour's name.
 // [[Rcpp::export]]
 std::vector<std::string> census_clamp_names_tf24() {
-  return {"light_floor"};
+  std::vector<std::string> ret;
+  ret.reserve(plant::CLAMP_SITE_COUNT);
+  for (int i = 0; i < plant::CLAMP_SITE_COUNT; ++i) {
+    ret.push_back(plant::clamp_site_name(i));
+  }
+  return ret;
+}
+
+// The smallest profit curvature the differentiated path met, one per species, or
+// -1 where it met none. The guard on it refuses a row rather than returning
+// amplification, and a guard that held reports the same green as a guard nothing
+// reached -- so the distance to the floor is reported rather than assumed.
+// [[Rcpp::export]]
+std::vector<double>
+census_curvature_margin_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  return obj_->curvature_margins();
 }

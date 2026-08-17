@@ -3,11 +3,13 @@
 #ifndef PLANT_PLANT_TF24_ENVIRONMENT_H_
 #define PLANT_PLANT_TF24_ENVIRONMENT_H_
 
+#include <plant/clamp_sites.h>
 #include <plant/environment.h>
 #include <plant/resource_spline.h>
 #include <odelia/interpolator.hpp>
 #include <limits>
 #include <cmath>
+#include <type_traits>
 
 using namespace Rcpp;
 
@@ -336,6 +338,9 @@ public:
     b_infil = src.b_infil;
     soil_moist_residual = src.soil_moist_residual;
     soil_psi_max_ = src.soil_psi_max_;
+    // Shared, not copied, for the reason the strategy's is: this copy is the one
+    // the sweep runs on and it is discarded afterwards.
+    clamps.differentiated = src.clamps.differentiated;
     // Keyed on a value, so it cannot see a changed derivative behind one; it is
     // emptied rather than carried.
     psi_soil_cache_.assign(soil_number_of_depths, 0.0);
@@ -427,6 +432,20 @@ public:
   // physically while keeping the numerics finite under extreme drought.
   double soil_psi_max_ = 1e3;
 
+  // The clamp sites the water balance reaches. The site list is shared with the
+  // strategy's, so a tally reads the same however the site is reached; the
+  // differentiated half is shared through rebind_from for the same reason.
+  // Mutable because it is a tally and not state: the reads that clamp are const,
+  // and a clamp changes what they return to nobody.
+  mutable clamp_counter clamps;
+  void note_clamp(int site) const {
+    if constexpr (std::is_same_v<S, double>) {
+      ++clamps.forward[site];
+    } else {
+      ++(*clamps.differentiated)[site];
+    }
+  }
+
   // Ability to prescribe a fixed value
   // TODO: add setting to set other variables like water
   void set_fixed_environment(S value, S height_max) {
@@ -506,12 +525,20 @@ public:
     // remedy is not to spline an intermittent series; run
     // `check_driver_interpolation()` on any such driver, which reports the
     // undershoot area and warns.
-    double rainfall = std::max(0.0, extrinsic_drivers.evaluate("rainfall", time));
+    const double rainfall_raw = extrinsic_drivers.evaluate("rainfall", time);
+    if (rainfall_raw < 0.0) {
+      note_clamp(CLAMP_RAINFALL);
+    }
+    double rainfall = std::max(0.0, rainfall_raw);
     const double soil_moist_sat_0 =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
-    S infiltration = rainfall * max(
-      S(0.0),
-      S(1) - a_infil * pow(vars.state(0) / soil_moist_sat_0, b_infil));
+    const S excess = S(1) - a_infil * pow(vars.state(0) / soil_moist_sat_0, b_infil);
+    // Counted: where the top layer is wet enough that this goes negative, the
+    // infiltrated fraction stops reading that layer's state at all.
+    if (excess < S(0.0)) {
+      note_clamp(CLAMP_INFILTRATION);
+    }
+    S infiltration = rainfall * max(S(0.0), excess);
     S total_resource_depletion = 0.0;
 
 
@@ -549,6 +576,9 @@ public:
       // > 0.0)` is true for NaN and for rate <= 0, so only genuine rewetting is
       // allowed and NaN/negative rates are clamped to 0.
       if (theta <= soil_moist_residual && !(rate > 0.0)) {
+        // Counted: a layer held here reads no uptake and no flux, so every route
+        // from a trait to this layer's state is cut for as long as it holds.
+        note_clamp(CLAMP_SOIL_POSITIVITY);
         rate = 0.0;
       }
       vars.set_rate(i, rate);
@@ -580,6 +610,9 @@ public:
     const double soil_moist_sat_layer =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
     const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
+    if (theta < S(0.0) || theta > S(soil_moist_sat_layer)) {
+      note_clamp(CLAMP_SOIL_CONDUCTIVITY);
+    }
     const S t = min(max(theta, S(0.0)), S(soil_moist_sat_layer));
     return k_sat_layer * pow(t / soil_moist_sat_layer, 2 * n_psi_layer + 3);
   }
@@ -598,6 +631,9 @@ public:
     // diverges to +inf as theta->0, so an empty layer would otherwise yield a
     // non-finite potential. At/below theta_r the potential is large but finite
     // and the plant's root vulnerability curve has already shut uptake to ~0.
+    if (soil_moist_ < S(soil_moist_residual)) {
+      note_clamp(CLAMP_SOIL_MOISTURE_FLOOR);
+    }
     const S t = max(soil_moist_, S(soil_moist_residual));
     const double a_psi_layer = soil_parameter_value(a_psi_layers, a_psi, layer);
     const double soil_moist_sat_layer =
@@ -610,6 +646,9 @@ public:
     // corrupts the soil feedback. Root conductance is already ~0 far below this
     // (psi_crit ~ few MPa), so clamping to soil_psi_max_ leaves uptake at ~0
     // while keeping every downstream calculation finite.
+    if (psi > S(soil_psi_max_)) {
+      note_clamp(CLAMP_SOIL_POTENTIAL_CEILING);
+    }
     return min(psi, S(soil_psi_max_));
   }
 

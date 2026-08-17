@@ -81,36 +81,174 @@ test_that("the dry pins are a small minority, and the run answers over them", {
   expect_true(any(is.finite(g$gradient[[1]])))
 })
 
-test_that("the light floor is counted, and does not bind at shipped values", {
+test_that("the light floor is counted on both paths, and binds at neither shipped value", {
   # Where this clamp binds, a cohort's radiation stops depending on any other
-  # cohort's height and the row is severed by the guard rather than by the model.
-  # Both halves are asserted, because a counter that never fires and a counter
-  # that always fires are equally uninformative.
+  # cohort's height. Both halves are asserted, because a counter that never fires
+  # and a counter that always fires are equally uninformative.
+  #
+  # ⚠️ THE FLOOR IS TWO SITES, NOT ONE, and the uncounted one bound first. The
+  # crown site floors each quadrature point of the mean-light integrand; the
+  # radiation site floors the mean those points make. Since the shape integrates
+  # to one, a floored point cannot pull the mean below the floor -- so on the
+  # shipped shading model the crown site fires ~150x more often, and reading the
+  # radiation site alone under-reports the severance by that factor.
+  # Scoped to the two light sites: the other clamps have their own regimes and
+  # their own block below, and several of them do bind at shipped values.
+  nm <- census_clamp_names_tf24()
+  light <- match(c("light_floor", "light_floor_crown"), nm)
   shipped <- census_clamp_counts_tf24(incidence_stand(2.0, 5, k_I = 0.5))[[1]]
-  expect_equal(shipped[[1]], 0)
+  expect_true(all(shipped[light] == 0))
 
   # k_I is a free parameter a gradient-driven search walks, and walking it up is
   # what walks the field into the floor. Eighty times the shipped value.
   walked <- incidence_stand(2.0, 5, k_I = 40)
-  fired <- census_clamp_counts_tf24(walked)[[1]][[1]]
+  fired <- census_clamp_counts_tf24(walked)[[1]]
   solves <- sum(incidence_of(walked))
-  message(sprintf("  light floor at k_I = 40: %.0f of %.0f solves (%.1f%%)",
-                  fired, solves, 100 * fired / solves))
-  expect_gt(fired, 0)
+  message(sprintf("  at k_I = 40, over %.0f solves: %s", solves,
+                  paste(sprintf("%s %.0f (%.1f%%)", nm[light], fired[light],
+                                100 * fired[light] / solves), collapse = "  ")))
+  expect_true(all(fired[light] > 0))
+  # The crown site binds first, so it cannot be the smaller of the two.
+  expect_gt(fired[[light[[2]]]], fired[[light[[1]]]])
 
-  # The forward model must keep running where the gradient stops, or the guard
-  # has been turned into a model change. That half is the one worth asserting:
-  # the census is still a number here.
+  # The forward model keeps running AND the gradient answers: below the floor the
+  # census is not a function of light at all, so the row is exactly zero for the
+  # model as evaluated rather than a row withheld.
   expect_gt(stand_census(walked)[[1]], 0)
   g <- stand_gradient(walked)
-  expect_true(all(g$status == "refused"))
+  expect_true(all(g$status != "refused"))
+  expect_true(all(is.finite(g$gradient)))
 
-  # ⚠️ NOT asserted: that the refusal names the light floor. It does not, on any
-  # configuration reached so far. The floor only binds once the canopy has
-  # closed, and by then some operating point has also left the interior branch,
-  # so the gate refuses first and wins the race. The floor's own refusal is
-  # implemented and unexercised -- treat it as a guard nothing has yet fired,
-  # the same standing as the graft's input test.
+  # And the severance is readable rather than silent, which is the whole basis on
+  # which the zero is declared instead of refused. The forward tally cannot stand
+  # in for this: it counts every solve, where the sweep visits only the recorded
+  # steps.
+  swept <- census_clamp_counts_differentiated_tf24(walked)[[1]]
+  message(sprintf("  the sweep's own severances: %s",
+                  paste(sprintf("%s %.0f", nm[light], swept[light]),
+                        collapse = "  ")))
+  expect_true(all(swept[light] > 0))
+  # A counter a rebind drops reports zero however often the clamp fires, which is
+  # what this one did before the storage was shared. And the sweep visits the
+  # recorded steps rather than every solve, so its tally is the smaller.
+  expect_lt(swept[[light[[1]]]], fired[[light[[1]]]])
+  expect_lt(swept[[light[[2]]]], fired[[light[[2]]]])
 
-  expect_identical(census_clamp_names_tf24(), "light_floor")
+  # Named from the enum, so a site cannot be counted under its neighbour's name.
+  expect_true(all(c("light_floor", "light_floor_crown") %in% nm))
+  expect_length(fired, length(nm))
+  expect_length(swept, length(nm))
+})
+
+# Every clamp site, classified by what its incidence says rather than by what
+# reading the code suggests. The classification lives here rather than in a
+# document because a document cannot fail.
+#
+# ⚠️ THE TEST IS THREE-WAY AND THE FIRST CASE SPLITS IN TWO, which reading the
+# code does not reveal:
+#
+#   the model's own zero   the clamp IS a modelling statement, so the census
+#                          genuinely does not depend on what it masks. Declared,
+#                          and NOT a candidate for removal -- rooting_depth is
+#                          this, and it is the largest severance in the model.
+#   a guard's zero         a numerical floor, and the census is bit-identical
+#                          either side of it, so the row is exactly zero for the
+#                          model as evaluated. Declared, and a candidate for
+#                          removal by changing the FORWARD model.
+#   never binds            counted, and reported as never having fired, which is
+#                          the only thing that separates a guard that held from
+#                          one nothing reached.
+clamp_class <- list(
+  rooting_depth          = "model",
+  light_floor            = "guard",
+  light_floor_crown      = "guard",
+  storage_floor          = "guard",
+  reserve_ceiling        = "guard",
+  soil_moisture_floor    = "forward-only",
+  soil_potential_ceiling = "forward-only",
+  soil_conductivity      = "forward-only",
+  soil_positivity        = "never",
+  rainfall               = "never",
+  infiltration           = "never"
+)
+
+test_that("every clamp site is classified, and by a measured incidence", {
+  nm <- census_clamp_names_tf24()
+  # A site with no classification is the drift this list exists to prevent.
+  expect_setequal(nm, names(clamp_class))
+
+  swept_of <- function(scm) {
+    stats::setNames(census_clamp_counts_differentiated_tf24(scm)[[1]], nm)
+  }
+  fwd_of <- function(scm) {
+    stats::setNames(census_clamp_counts_tf24(scm)[[1]], nm)
+  }
+
+  wet <- incidence_stand(2.0, 5)
+  invisible(stand_gradient(wet))
+  wet_s <- swept_of(wet)
+  dry <- incidence_stand(0.10, 5)
+  invisible(stand_gradient(dry))
+  dry_s <- swept_of(dry)
+  dry_f <- fwd_of(dry)
+
+  message(sprintf("  %-24s %10s %10s", "site", "wet", "drought"))
+  for (s in nm) {
+    message(sprintf("  %-24s %10.0f %10.0f  [%s]", s, wet_s[[s]], dry_s[[s]],
+                    clamp_class[[s]]))
+  }
+
+  # Never means never, on both paths and both drivers. A site in this class that
+  # starts firing is a regime the suite has never seen.
+  for (s in names(clamp_class)[unlist(clamp_class) == "never"]) {
+    expect_equal(wet_s[[s]], 0, label = paste(s, "fired on the wet driver"))
+    expect_equal(dry_s[[s]], 0, label = paste(s, "fired on the drought driver"))
+    expect_equal(dry_f[[s]], 0, label = paste(s, "fired forward on drought"))
+  }
+
+  # Forward-only means the sweep never met it, which is a weaker claim than
+  # never and has to be kept separate: the guard is reachable, so a longer run
+  # or a finer schedule could put it on a recorded step.
+  for (s in names(clamp_class)[unlist(clamp_class) == "forward-only"]) {
+    expect_equal(dry_s[[s]], 0,
+                 label = paste(s, "reached the differentiated path"))
+  }
+
+  # The model's own zero binds on EVERY driver including the control, which is
+  # what says it is the model rather than a corner.
+  expect_gt(wet_s[["rooting_depth"]], 0)
+  expect_gt(dry_s[["rooting_depth"]], 0)
+
+  # And a guard's zero binds where its own regime is reached and not on the
+  # control, which is what makes it a guard rather than the model.
+  expect_gt(dry_s[["storage_floor"]], 0)
+  expect_equal(wet_s[["storage_floor"]], 0)
+  expect_equal(wet_s[["light_floor"]], 0)
+  expect_equal(wet_s[["light_floor_crown"]], 0)
+
+  # Both drivers still answer, carrying those declared zeros. A severance that
+  # made the gradient wrong would have to show up as a refusal or as a
+  # disagreement with a rebuilt difference, and neither is here.
+  expect_true(all(as.vector(stand_gradient(wet)$status) != "refused"))
+  expect_true(all(as.vector(stand_gradient(dry)$status) != "refused"))
+})
+
+test_that("the curvature guard reports how close it came, not only that it held", {
+  # A guard that held and a guard nothing reached report the same green, so the
+  # distance to the floor is carried out of the run. The floor is a declared
+  # Control entry for the same reason: it changes which rows exist, so two
+  # gradients taken at different values are gradients of different functions.
+  wet <- incidence_stand(2.0, 5)
+  invisible(stand_gradient(wet))
+  margin <- census_curvature_margin_tf24(wet)[[1]]
+  floor <- gradient_control(wet)[["gradient_curvature_floor"]]
+  message(sprintf("  smallest curvature met: %.4g, against a floor of %.4g (%.0fx)",
+                  margin, floor, margin / floor))
+  # Non-vacuity both ways: a margin of -1 means the interior branch was never
+  # reached, so the reading would say nothing.
+  expect_gt(margin, 0)
+  expect_gt(margin, floor)
+  # And the floor is in the set stand_gradient compares, or two gradients taken
+  # at different floors would read as comparable.
+  expect_true("gradient_curvature_floor" %in% names(gradient_control(wet)))
 })
