@@ -340,6 +340,7 @@ Control:
     - schedule_nsteps: size_t
     - schedule_eps: double
     - schedule_verbose: bool
+    - gradient_curvature_floor: double
     - GSS_tol_abs: double
     - vulnerability_curve_ncontrol: double
     - ci_abs_tol: double

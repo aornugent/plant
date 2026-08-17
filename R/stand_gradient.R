@@ -31,20 +31,23 @@ stand_census_state_adjoint <- function(scm) {
   out
 }
 
-##' The four \code{Control} entries a census gradient depends on.
+##' The \code{Control} entries a census gradient depends on.
 ##'
-##' Each of these moves the trajectory the gradient is taken along, so two
+##' The first four move the trajectory the gradient is taken along, so two
 ##' gradients taken at different values of any of them are gradients of
-##' different functions. \code{stand_gradient} records them and
+##' different functions. \code{gradient_curvature_floor} is here for a second
+##' reason: it moves no forward number at all and still decides which rows
+##' exist, by refusing a collar response the profit curvature is too small to
+##' support. \code{stand_gradient} records them and
 ##' \code{stand_gradient_compare} refuses a pair that disagrees.
 ##'
 ##' @param scm A run \code{SCM} object for the TF24 strategy.
-##' @return A named numeric vector of length four.
+##' @return A named numeric vector of length five.
 ##' @export
 gradient_control <- function(scm) {
   stats::setNames(gradient_control_tf24(scm),
                   c("GSS_tol_abs", "ci_abs_tol", "node_gradient_eps",
-                    "schedule_eps"))
+                    "schedule_eps", "gradient_curvature_floor"))
 }
 
 ##' Traits the sweep reaches no equation for, and so refuses by name.

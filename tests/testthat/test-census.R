@@ -242,15 +242,20 @@ test_that("G6: no census metric has an all-zero state sensitivity", {
   }
 })
 
-test_that("the Control a gradient is taken at is the four that move it", {
+test_that("the Control a gradient is taken at is the entries that move it", {
+  # Four move the TRAJECTORY the gradient is taken along. The fifth moves no
+  # forward number at all and still decides which rows exist, by refusing a
+  # collar response the profit curvature is too small to support -- so two
+  # gradients taken at different floors are gradients of different functions for a
+  # different reason, and both reasons belong in the same comparison.
   scm <- solved_stand()
   expect_equal(names(gradient_control(scm)),
                c("GSS_tol_abs", "ci_abs_tol", "node_gradient_eps",
-                 "schedule_eps"))
+                 "schedule_eps", "gradient_curvature_floor"))
   ctrl <- Control()
   expect_equal(unname(gradient_control(scm)),
                c(ctrl$GSS_tol_abs, ctrl$ci_abs_tol, ctrl$node_gradient_eps,
-                 ctrl$schedule_eps))
+                 ctrl$schedule_eps, ctrl$gradient_curvature_floor))
 })
 
 test_that("the trait gradient entry point is reachable", {

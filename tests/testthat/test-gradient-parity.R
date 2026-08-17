@@ -44,12 +44,13 @@ parity_stand <- function(rain, lifetime, k_I = 0.5, amplitude = 0) {
 # A refusal naming anything else is a regime that USED to answer, which is what
 # this file exists to catch.
 #
-# `shade-death` was on this list and is not any more: the shut branches answer.
-# What is left is the LIGHT FLOOR, which is a guard rather than a regime -- where
-# it binds, a cohort's radiation stops depending on any other cohort's height and
-# the row is severed by the clamp rather than by the model. It is reached at
-# k_I = 40 and above, which is eighty times the shipped value.
-parity_known_gaps <- c("light floor")
+# ⚠️ THIS LIST IS EMPTY, so any refusal at all fails the coverage check below.
+# `shade-death` left it when the shut branches answered; the LIGHT FLOOR left it
+# when the row it severs was found to be exactly zero for the model as evaluated
+# -- every light below the floor gives a bit-identical census, so the honest row
+# is the zero rather than a refusal, and what makes the zero readable is the
+# clamp counter rather than a name in this list.
+parity_known_gaps <- character(0)
 
 parity_kinds <- c("answered", "zero-slack", "zero-structural", "zero-undeclared",
                   "refused")
@@ -63,6 +64,10 @@ parity_of <- function(scm) {
   list(status = st, gradient = g, refused = any(st == "refused"),
        reason = if (is.null(g$refusal[[1]])) NA_character_ else g$refusal[[1]]$reason,
        refusal = g$refusal[[1]],
+       # Read after the sweep, so it is the sweep's own severances and not the
+       # forward run's -- the two differ, and the forward one cannot say whether
+       # a gradient carries a declared zero.
+       clamp = census_clamp_counts_differentiated_tf24(scm)[[1]],
        kinds = counts[counts > 0])
 }
 
@@ -153,10 +158,57 @@ test_that("every refusal names a branch that has never answered", {
                   length(answered), length(parity_shared()),
                   if (length(refused)) paste(refused, collapse = ", ") else "none"))
 
-  # Non-vacuity, both ways. A sweep where nothing answers satisfies the gate
-  # above, and one where nothing refuses leaves the known-gap list untested.
-  expect_gt(length(answered), 0)
-  expect_gt(length(refused), 0)
+  # Non-vacuity. Every driver answering is the end point this file was built to
+  # reach, so "something still refuses" can no longer be the guard against a
+  # vacuous pass -- and dropping it without a replacement would leave a sweep
+  # that answers by doing nothing indistinguishable from one that answers by
+  # covering the regimes.
+  expect_equal(length(answered), length(parity_shared()))
+  expect_length(refused, 0)
+})
+
+test_that("the driver that answers through a clamp says so", {
+  # What replaces the refusal as this file's non-vacuity guard. The `clamped`
+  # driver answers, and the reason that is not vacuous is that it reaches the
+  # light floor and reports the severance rather than being quietly unaffected by
+  # it: an answered gradient carrying a declared zero and one carrying no clamp
+  # at all are the same numbers, and only the count separates them.
+  by_name <- stats::setNames(parity_shared(), vapply(parity_shared(),
+                                                     function(r) r$name, ""))
+  nm <- census_clamp_names_tf24()
+  at <- function(driver, site) by_name[[driver]]$clamp[[match(site, nm)]]
+  for (d in names(by_name)) {
+    c_d <- by_name[[d]]$clamp
+    message(sprintf("  %-9s %s", d,
+                    paste(sprintf("%s=%.0f", nm[c_d > 0], c_d[c_d > 0]),
+                          collapse = " ")))
+  }
+
+  # Every driver, including the control, severs its light-independent root rows:
+  # above the rooting-depth cap the root profile stops reading height, and that
+  # is the model rather than a guard. It is the non-vacuity guard because it
+  # holds everywhere -- a build reporting zero here has lost the counter, not
+  # found a cleaner stand.
+  for (d in names(by_name)) {
+    expect_gt(at(d, "rooting_depth"), 0)
+  }
+
+  # The light floor is the driver-specific one: the shaded driver reaches it and
+  # the control does not, so these counts measure the driver rather than the
+  # machinery. Both sites, because the crown one is where it binds first.
+  expect_gt(at("clamped", "light_floor"), 0)
+  expect_gt(at("clamped", "light_floor_crown"), 0)
+  expect_gt(at("clamped", "light_floor_crown"), at("clamped", "light_floor"))
+  expect_equal(at("wet", "light_floor"), 0)
+  expect_equal(at("wet", "light_floor_crown"), 0)
+
+  # And three sites fire on no driver at all, which is the guard census's own
+  # entry and a different statement from "it held".
+  for (s in c("soil_positivity", "rainfall", "infiltration")) {
+    for (d in names(by_name)) {
+      expect_equal(at(d, s), 0)
+    }
+  }
 })
 
 test_that("each driver reaches the branch it is here for", {

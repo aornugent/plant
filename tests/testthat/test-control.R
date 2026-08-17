@@ -28,6 +28,12 @@ test_that("Defaults", {
     schedule_eps      = 2e-2,
     schedule_verbose  = FALSE,
     
+    # The smallest profit curvature the reverse-mode collar response will divide
+    # by. Measured rather than chosen: the smallest magnitude over 1351 solved
+    # interior leaf states is 0.0623, so this sits sixty times below the range the
+    # model occupies.
+    gradient_curvature_floor = 1e-3,
+
     GSS_tol_abs = 1e-1,
     vulnerability_curve_ncontrol = 1e2,
     ci_abs_tol = 1e-3,

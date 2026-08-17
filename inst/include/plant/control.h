@@ -84,6 +84,13 @@ struct Control {
   double schedule_eps;
   bool   schedule_verbose;
 
+  // The smallest profit curvature the interior derivation will divide by. Every
+  // collar response is a quotient over it, so a curvature approaching zero
+  // returns amplification rather than a derivative -- and returns it finite,
+  // which is the shape nothing catches. Below this the water rows are refused
+  // and the profit row, which reads no curvature, is emitted anyway.
+  double gradient_curvature_floor;
+
     //TF24 control parameters
   double GSS_tol_abs;
   double vulnerability_curve_ncontrol;
