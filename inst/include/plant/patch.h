@@ -5,6 +5,7 @@
 #include <plant/parameters.h>
 #include <plant/species.h>
 #include <plant/util.h>
+#include <plant/clamp_sites.h>
 #include <plant/gradient_status.h>
 #include <odelia/ode_interface.hpp>
 #include <odelia/gradient.hpp>
@@ -180,6 +181,11 @@ public:
   std::vector<std::string> trait_adjoint_names() const;
   // What an exactly-zero entry in each column would mean, same order and width.
   std::vector<gradient_status::Kind> trait_adjoint_zero_classes() const;
+
+  // The environment's own clamp tally. The site list is shared with the
+  // strategy's, so a caller adds the two rather than reading them apart; this is
+  // the one route to it, because the environment itself is not the caller's.
+  clamp_counter& environment_clamps() const { return environment.clamps; }
 
   // The widening map's whole Jacobian, by forward tangent: one row per widened state entry
   // and one column per input, the state's entries first and the traits after.

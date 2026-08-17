@@ -83,6 +83,24 @@ ladder_patch_one <- function(parameters = NULL) {
 #
 # `factor` is how far down; the default is the first value at which the refusal
 # fires, so a check on it is measuring the branch and not a deep extrapolation.
+# The one-cohort patch with the curvature floor raised above every curvature the
+# model produces, so the guard that separates the two output kinds fires at a
+# state the model actually reaches.
+#
+# It is an INJECTION and it has to be, which is the finding rather than a
+# shortcut. Sweeping 5625 solved leaf states found 1351 interior ones, every one
+# strictly concave and the smallest magnitude 0.0623: the folds are real -- at
+# stem_c 0.4, 40% of the feasible interval is non-concave -- but the solve pins
+# rather than landing on one, and at a pin the curvature is never computed. So no
+# fixture reaches this guard by being driven there, and raising the floor is the
+# only way to establish that it does what its name says.
+ladder_patch_fold <- function(floor = 1e3) {
+  ladder_patch(species = "fast",
+               heights = list(4.73),
+               log_densities = list(-0.39),
+               control = ladder_control(gradient_curvature_floor = floor))
+}
+
 ladder_patch_shutdown <- function(factor = 0.5) {
   heights <- list(4.73)
   densities <- list(-0.39)
@@ -215,9 +233,11 @@ ladder_patch_two_by_two <- function(cross = TRUE, parameters = NULL) {
 # about birth-date order unanswerable.
 ladder_patch <- function(species, heights, log_densities,
                          relative_reserve = 0.12, time = 1.37,
-                         birth_dates = NULL, parameters = NULL) {
+                         birth_dates = NULL, parameters = NULL,
+                         control = NULL) {
   p <- if (is.null(parameters)) ladder_parameters(species) else parameters
-  patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), ladder_control())
+  ctrl <- if (is.null(control)) ladder_control() else control
+  patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), ctrl)
   if (is.null(birth_dates)) {
     offset <- c(0, 0.17, 0.11)
     birth_dates <- lapply(seq_along(heights), function(i) {

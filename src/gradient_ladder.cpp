@@ -1,3 +1,4 @@
+#include <limits>
 #include <plant.h>
 #include <XAD/XAD.hpp>
 
@@ -430,15 +431,43 @@ Rcpp::NumericMatrix ladder_rhs_trait_jacobian_forward_tf24(plant::RcppR6::RcppR6
 Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                    std::vector<double> lambda_dydt) {
   patch_type& patch = *obj_;
+  // The flag latches for as long as the storage behind it lives, so it is cleared
+  // where this evaluation starts rather than trusted to be clean.
+  for (size_t i = 0; i < patch.size(); ++i) {
+    const auto s = patch.at_species(i).strategy_ptr();
+    *s->uptake_rows_unavailable = false;
+    s->uptake_rows_reason->clear();
+  }
   odelia::ode::scratch_tape tape;
   std::vector<double> lambda_y, trait_adjoint;
   const size_t recording =
     rhs_adjoint(patch, tape, lambda_dydt, lambda_y, trait_adjoint);
+  // A recording that left its water rows off the tape returns zeros for them, and
+  // a zero row and a severed one are the same number -- which is the one thing
+  // this whole channel exists to prevent. So the numbers go not-a-number, the way
+  // a refused metric's do, and the reason travels beside them.
+  bool refused = false;
+  std::string reason;
+  for (size_t i = 0; i < patch.size(); ++i) {
+    const auto s = patch.at_species(i).strategy_ptr();
+    if (*s->uptake_rows_unavailable) {
+      refused = true;
+      reason = *s->uptake_rows_reason;
+      break;
+    }
+  }
+  if (refused) {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    lambda_y.assign(lambda_y.size(), nan);
+    trait_adjoint.assign(trait_adjoint.size(), nan);
+  }
   // The knot halves are gone with the reduction transposes that produced them:
   // the field's rows are an intermediate of the stage recording now, so they are
   // in the state and trait rows rather than beside them.
   return Rcpp::List::create(Rcpp::_["state"] = lambda_y,
                             Rcpp::_["trait"] = trait_adjoint,
+                            Rcpp::_["refused"] = refused,
+                            Rcpp::_["reason"] = reason,
                             Rcpp::_["block_recording_size"] =
                               static_cast<double>(recording));
 }

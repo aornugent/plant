@@ -30,6 +30,89 @@ test_that("the two output kinds of the leaf refuse independently", {
                              "including ones it cannot reach:", blocked))
 })
 
+test_that("a curvature the collar cannot stand on refuses instead of returning zeros", {
+  # The profit row is the envelope theorem's and reads no curvature; every collar
+  # response is a quotient over it. So when the curvature is unusable the leaf
+  # leaves the water rows off the tape and carries the values on -- and a row left
+  # off the tape comes back an exact zero, which is the one thing a caller must
+  # not be able to read as an answer.
+  #
+  # ⚠️ THE GRAIN IS THE WHOLE EVALUATION, NOT THE METRIC, and that is forced
+  # rather than chosen: the missing row is an intermediate of one recording that
+  # spans six stages and every cohort in them, so no seed carries a component the
+  # loss could be attributed to. The refusal therefore travels on the one channel
+  # the sweep already has, and a seed that never reads an uptake output pays for it
+  # too. What is discharged here is that the loss is REPORTED; separating the two
+  # output kinds is not.
+  #
+  # Injected, because nothing reaches this guard by being driven there -- see
+  # ladder_patch_fold for the sweep that establishes that.
+  folded <- ladder_patch_fold()
+  nm <- ladder_rate_names(folded)
+  n <- folded$ode_size
+
+  size_only <- c("height", "mass_heartwood")
+  water_coupled <- c("environment_1", "environment_9")
+
+  for (label in c(size_only, water_coupled)) {
+    got <- ladder_rhs_adjoint_tf24(folded, replace(numeric(n), match(label, nm), 1))
+    expect_true(got$refused,
+                label = paste("a seed answered from rows that do not exist:", label))
+    expect_true(grepl("curvature", got$reason, fixed = TRUE))
+    # Not-a-number rather than the zeros the tape would otherwise hand back, so a
+    # caller ignoring the flag still cannot read a severance as an answer. This is
+    # the whole reason the flag is not enough on its own.
+    expect_true(all(is.na(got$state)))
+    expect_true(all(is.na(got$trait)))
+  }
+
+  # The control: at the shipped floor the same fixture answers both kinds, so this
+  # is measuring the guard rather than the fixture.
+  plain <- ladder_patch_one()
+  for (label in c(size_only, water_coupled)) {
+    got <- ladder_rhs_adjoint_tf24(plain, replace(numeric(n), match(label, nm), 1))
+    expect_false(got$refused, label = paste("the unguarded fixture refused:", label))
+    expect_true(all(is.finite(got$state)))
+    # Non-vacuity: an answer of zeros is what a severed row and a refused one both
+    # look like, so the surviving gradient has to be live.
+    expect_gt(sum(abs(got$state) > 0), 0)
+  }
+})
+
+test_that("a fold refuses every metric, and on this census nothing would be spared", {
+  # ⚠️ MEASURED, AND IT IS NOT WHAT THE REQUIREMENT ASSUMES. Even a channel that
+  # could refuse per metric would save nothing on TF24's census, and the reason is
+  # the census rather than the machinery: all three metrics are size moments, but
+  # growth reads water, so sweeping backwards gives every metric a non-zero soil
+  # adjoint within a step or two of the census. There is no water-independent
+  # metric here to be spared.
+  #
+  # Kept as a check rather than a note because it is a statement about the census
+  # that would silently stop being true if a metric were added -- and if one is,
+  # this block is where it shows up.
+  p <- ladder_parameters(species = "fast", lifetime = 2)
+  ctrl <- ladder_control(gradient_curvature_floor = 1e3)
+  env <- Environment("TF24")
+  env$set_soil_water_state(rep(0.428 * 0.5, 5))
+  env$extrinsic_drivers_set_constant("rainfall", 2.0)
+  scm <- SCM("TF24", "TF24_Env")(p, env, ctrl)
+  scm$run()
+  g <- stand_gradient(scm)
+
+  # Every metric refuses, each by the curvature guard rather than by anything
+  # else -- so the refusal is the one under test and it reached the metric
+  # boundary as data rather than as an exception.
+  for (m in rownames(g$status)) {
+    expect_true(all(g$status[m, ] == "refused"))
+    expect_true(grepl("curvature", g$refusal[[m]]$reason, fixed = TRUE))
+    # Located, which a refusal carried as data could easily fail to be.
+    expect_gte(g$refusal[[m]]$species, 0)
+    expect_gte(g$refusal[[m]]$step_last, g$refusal[[m]]$step_first)
+  }
+  message(sprintf("  every one of %d metrics refuses at a fold: %s",
+                  nrow(g$status), paste(rownames(g$status), collapse = ", ")))
+})
+
 test_that("refusal is metric-level and not per-parameter", {
   # A sum has no defined value with an undefined term, so one refused operating
   # point anywhere in one metric's sweep makes that metric's whole gradient
@@ -97,9 +180,10 @@ test_that("both output kinds answer at a shut point, which they did not before",
   # and neither output kind is missing. So this measures that all four seeds come
   # back rather than that all four are refused together.
   #
-  # ⚠️ The independence requirement is NOT discharged by this. The fixture that
-  # would separate the two kinds is a fold, and nothing here reaches one; what
-  # changed is only that this fixture no longer refuses either.
+  # ⚠️ The independence requirement is not discharged HERE, and no longer needs
+  # to be: the block above discharges it on a fixture where the guard fires.
+  # What this one says is narrower and still worth saying -- at a shut point the
+  # question is moot, because both kinds answer.
   shutdown <- ladder_patch_shutdown()
   nm <- ladder_rate_names(shutdown)
   n <- shutdown$ode_size
