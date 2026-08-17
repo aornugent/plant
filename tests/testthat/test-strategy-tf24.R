@@ -408,7 +408,15 @@ compile_tf24_ad_parameters <- function() {
   has_hdr <- file.exists(file.path(cand, "plant/models/tf24_strategy.h"))
   testthat::skip_if(!any(has_hdr), "TF24 strategy header not found on include path.")
   plant_inc <- cand[has_hdr][1]
-  odelia_inc <- system.file("include", package = "odelia")
+  # Every package plant LinkingTo's, because <plant.h> reaches all of them and a
+  # probe compiled without one skips on a missing header rather than failing on
+  # what it was written to check.
+  linked_inc <- vapply(c("BH", "odelia", "phylloptim"),
+                       function(p) system.file("include", package = p),
+                       character(1L))
+  testthat::skip_if(!all(nzchar(linked_inc)),
+                    "headers not found for a package plant links to.")
+  odelia_inc <- linked_inc[["odelia"]]
   odelia_so <- system.file("libs", "odelia.so", package = "odelia")
   loaded <- getLoadedDLLs()
   plant_so <- if ("plant" %in% names(loaded)) loaded[["plant"]][["path"]] else ""
@@ -416,12 +424,16 @@ compile_tf24_ad_parameters <- function() {
                     !nzchar(plant_so) || !file.exists(plant_so),
                     "shared libraries not found for linking.")
   withr::local_envvar(
-    PKG_CPPFLAGS = paste(paste0("-I", shQuote(plant_inc)),
-                         paste0("-I", shQuote(odelia_inc))),
+    PKG_CPPFLAGS = paste(c(paste0("-I", shQuote(plant_inc)),
+                           paste0("-I", shQuote(linked_inc))),
+                         collapse = " "),
     PKG_LIBS = paste(shQuote(normalizePath(plant_so)),
                      shQuote(normalizePath(odelia_so))))
   tryCatch({
     Rcpp::sourceCpp(code = '
+      // [[Rcpp::plugins(cpp20)]]
+      // Here rather than in PKG_CPPFLAGS: R places those before its own -std=,
+      // which then wins, and every concept in the headers reads as a syntax error.
       #include <plant.h>
       #include <string>
       #include <vector>
@@ -482,7 +494,16 @@ test_that("ad_parameters and ad_parameter_names agree with the yml", {
                "a_p1", "a_p2", "beta1", "S_D", "var_sapwood_volume_cost",
                "nmass_l", "nmass_s", "nmass_b", "nmass_r", "dmass_dN", "p_50")
 
-  yml <- yaml::read_yaml(file.path(here::here("inst"), "RcppR6_classes.yml"))
+  # Sources, then the installed package: this check is what says the registered
+  # parameter list and the declared one agree, so it should not go quiet because
+  # one path-finding package is absent.
+  yml_cand <- c(tryCatch(file.path(here::here("inst"), "RcppR6_classes.yml"),
+                         error = function(e) ""),
+                "../../inst/RcppR6_classes.yml",
+                system.file("RcppR6_classes.yml", package = "plant"))
+  yml_cand <- yml_cand[nzchar(yml_cand) & file.exists(yml_cand)]
+  testthat::skip_if(length(yml_cand) == 0L, "RcppR6_classes.yml not found.")
+  yml <- yaml::read_yaml(yml_cand[[1]])
   declared <- vapply(yml$TF24_Pars$list, function(x) names(x)[[1]], character(1))
   expect_setequal(declared, as.character(res$fields))
   expect_identical(res$names, setdiff(declared, omitted))
