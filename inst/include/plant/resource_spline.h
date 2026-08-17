@@ -16,6 +16,11 @@ namespace plant {
 
 // Templated on the scalar S the resource values carry; the knot positions stay
 // double. S = double is production.
+// A vector of active scalars assigned element by element keeps each target's tape
+// slot, and a slot outlives the recording that handed it out. Every write of the
+// knots below therefore hands over a fresh buffer rather than copying into the
+// one already there: moved where the source is a local that is finished with,
+// copy-constructed where it is a caller's.
 template <typename S = double>
 class ResourceSpline {
 public:
@@ -57,8 +62,8 @@ public:
     std::vector<S> m = {S(0.0), S(0.0), S(0.0)};
     spline.clear();
     spline.init(x, y, m);
-    knot_values_ = y;
-    knot_slopes_ = m;
+    knot_values_ = std::move(y);
+    knot_slopes_ = std::move(m);
   }
 
   // Restores the open field rather than leaving no field at all: every query
@@ -104,8 +109,8 @@ public:
     std::vector<S> state_y(it + state_n, it + 2 * state_n);
     std::vector<S> state_m(it + 2 * state_n, state.end());
     spline.init(state_x, state_y, state_m);
-    knot_values_ = state_y;
-    knot_slopes_ = state_m;
+    knot_values_ = std::move(state_y);
+    knot_slopes_ = std::move(state_m);
   }
 
   // Knots the run places, fixed by the fractions and not by any build.
@@ -120,8 +125,8 @@ public:
   // set_data length-checks, so injecting into an unbuilt field throws.
   void set_knot_data(const std::vector<S>& y, const std::vector<S>& m) {
     spline.set_data(y, m);
-    knot_values_ = y;
-    knot_slopes_ = m;
+    knot_values_ = std::vector<S>(y);
+    knot_slopes_ = std::vector<S>(m);
   }
 
   // Resource availability as a function of size, carrying a value and a slope at
@@ -185,8 +190,8 @@ private:
       m[k] = vs.second;
     }
     spline.set_data(y, m);
-    knot_values_ = y;
-    knot_slopes_ = m;
+    knot_values_ = std::move(y);
+    knot_slopes_ = std::move(m);
   }
 
   // Chosen from the re-blessing tolerance: the crown-mean light shift against an

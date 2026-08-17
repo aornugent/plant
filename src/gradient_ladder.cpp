@@ -1011,7 +1011,19 @@ Rcpp::List ladder_rebind_matches_assign_tf24(plant::RcppR6::RcppR6<plant::Patch<
   const double t = patch.time();
 
   adjoint_patch rebound = patch.template rebind_from<adjoint>();
+
+  // Assigned into a patch that has already been used, because that is the only
+  // patch the sweep ever assigns into: one holding the last recording's state,
+  // its field, and scalars carrying that recording's tape slots. Assigning into a
+  // fresh one tests the easy half and passes while the real path is wrong.
   adjoint_patch assigned = patch.template rebind_from<adjoint>();
+  {
+    std::vector<adjoint> used(y.size());
+    for (size_t i = 0; i < y.size(); ++i) { used[i] = adjoint(y[i] * 1.01); }
+    assigned.set_ode_state_and_field(used.begin(), t + 1.0);
+    std::vector<adjoint> scratch(assigned.ode_size());
+    assigned.ode_rates(scratch.begin());
+  }
   assigned.assign_from(patch);
 
   std::vector<adjoint> x(y.size());
