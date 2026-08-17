@@ -1017,7 +1017,7 @@ Rcpp::List ladder_rebind_matches_assign_tf24(plant::RcppR6::RcppR6<plant::Patch<
   {
     std::vector<adjoint> used(y.size());
     for (size_t i = 0; i < y.size(); ++i) { used[i] = adjoint(y[i] * 1.01); }
-    assigned.set_ode_state_and_field(used.begin(), t + 1.0);
+    assigned.set_ode_state(used.begin(), t + 1.0);
     std::vector<adjoint> scratch(assigned.ode_size());
     assigned.ode_rates(scratch.begin());
   }
@@ -1025,8 +1025,8 @@ Rcpp::List ladder_rebind_matches_assign_tf24(plant::RcppR6::RcppR6<plant::Patch<
 
   std::vector<adjoint> x(y.size());
   for (size_t i = 0; i < y.size(); ++i) { x[i] = adjoint(y[i]); }
-  rebound.set_ode_state_and_field(x.begin(), t);
-  assigned.set_ode_state_and_field(x.begin(), t);
+  rebound.set_ode_state(x.begin(), t);
+  assigned.set_ode_state(x.begin(), t);
 
   auto values = [](const std::vector<adjoint>& v) {
     std::vector<double> out(v.size());

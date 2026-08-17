@@ -200,16 +200,12 @@ public:
   // computing the environment as it goes.
   template <typename It> It set_ode_state(It it, double time);
 
-  // The state and the field: what set_ode_state establishes before it computes
-  // rates.
-  template <typename It> It set_ode_state_and_field(It it, double time);
-
-  // A recorded state loaded as the run itself carries it. set_ode_state_and_field
-  // evaluates the inflow condition in the field that leaves the boundary interval
-  // off, then rebuilds the field including it; the run then rates the nodes and
-  // evaluates the condition a second time, in that second field. It is the second
-  // value an introduced node inherits and the census reads, so reloading a state
-  // without it linearises a boundary node the trajectory never carried.
+  // A recorded state loaded as the run itself carries it. set_ode_state evaluates
+  // the inflow condition in the field that leaves the boundary interval off, then
+  // rebuilds the field including it; the run then rates the nodes and evaluates
+  // the condition a second time, in that second field. It is the second value an
+  // introduced node inherits and the census reads, so reloading a state without it
+  // linearises a boundary node the trajectory never carried.
   template <typename It> It set_recorded_state(It it, double time);
 
   // The inflow condition alone, in the field as it now stands. Public because the
@@ -413,7 +409,7 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
                                     control.ppa_layer_optical_depth,
                                     control.ppa_layer_smoothing);
   // The field and the boundary node are left to the caller. Every caller sets a
-  // state through set_ode_state_and_field or set_recorded_state before reading
+  // state through set_ode_state or set_recorded_state before reading
   // either, and both rebuild the field and re-evaluate the inflow condition, so
   // computing them here solves the boundary leaf twice per right-hand side and
   // then discards it. A caller that reads before setting gets an unbuilt field.
@@ -1146,10 +1142,9 @@ double Patch<T,E>::ode_time() const {
   return time();
 }
 
-// First set_ode_state function is for resident runs. Second is for mutant runs
 template <typename T, typename E>
 template <typename It>
-It Patch<T,E>::set_ode_state_and_field(It it, double time) {
+It Patch<T,E>::set_ode_state(It it, double time) {
 
   // Set ode states
   it = odelia::ode::set_ode_state(species.begin(), species.end(), it);
@@ -1169,20 +1164,12 @@ It Patch<T,E>::set_ode_state_and_field(It it, double time) {
   return it;
 }
 
-template <typename T, typename E>
-template <typename It>
-It Patch<T,E>::set_ode_state(It it, double time) {
-  it = set_ode_state_and_field(it, time);
-
-  return it;
-}
-
 // The second evaluation of the inflow condition, in the field the first one was
 // folded into. See the declaration for why a reloaded state needs it.
 template <typename T, typename E>
 template <typename It>
 It Patch<T,E>::set_recorded_state(It it, double time) {
-  it = set_ode_state_and_field(it, time);
+  it = set_ode_state(it, time);
   compute_boundary_nodes();
   return it;
 }

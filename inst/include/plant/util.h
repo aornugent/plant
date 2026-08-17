@@ -40,13 +40,12 @@ inline bool is_finite(double x) {
   return std::isfinite(x);
 }
 
-// A scalar that records its computation, as against a built-in number.
+// The same test on a scalar carrying derivative layers: the answer picks a
+// branch and carries no derivative, so it is taken at the value. Constrained
+// away from the built-in numbers only so the overload above keeps them; nothing
+// here is a property worth naming.
 template <typename T>
-concept RecordingScalar = !std::is_arithmetic_v<std::remove_cvref_t<T>>;
-
-// The answer picks a branch and carries no derivative, so it is taken at the
-// value.
-template <RecordingScalar T>
+  requires (!std::is_arithmetic_v<std::remove_cvref_t<T>>)
 bool is_finite(const T& x) {
   return std::isfinite(odelia::util::to_passive(x));
 }

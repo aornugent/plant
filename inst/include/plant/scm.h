@@ -507,6 +507,11 @@ std::vector<ode_step_record> SCM<T, E>::store_trajectory() {
   // silently absent -- the member is satisfied by name, not by declaration.
   static_assert(odelia::ode::RecordsSteps<patch_type>,
                 "Patch must satisfy RecordsSteps or the stepper records nothing");
+  // And what the sweep does with the store: every walk over the widenings takes
+  // the patch through these, and each was reached by name until it was said here.
+  static_assert(odelia::ode::WidensState<patch_type>,
+                "Patch must satisfy WidensState or the segment walk cannot "
+                "narrow, widen or reload the recording it sweeps");
   patch.record_steps = true;
   run();
   patch.record_steps = false;
@@ -999,7 +1004,7 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   odelia::ode::narrow_all(solver.get_system_ref(), widenings, states);
 
   patch_type& live = solver.get_system_ref();
-  live.set_ode_state_and_field(states[0].begin(), trajectory[0].time);
+  live.set_ode_state(states[0].begin(), trajectory[0].time);
   auto active = live.template rebind_from<tangent>();
 
   // Seeded before the state is set: the quantities a state determines read the
@@ -1016,7 +1021,7 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   for (size_t i = 0; i < x0.size(); ++i) {
     x0[i] = states[0][i];
   }
-  active.set_ode_state_and_field(x0.begin(), trajectory[0].time);
+  active.set_ode_state(x0.begin(), trajectory[0].time);
 
   odelia::ode::Solver<decltype(active)> forward(active, make_ode_control(control));
   forward.set_collect(false);
@@ -1092,7 +1097,7 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
 
   std::vector<Scalar> x0(base.size());
   seed(x0, base);
-  active.set_ode_state_and_field(x0.begin(), t0);
+  active.set_ode_state(x0.begin(), t0);
 
   odelia::ode::Solver<decltype(active)> forward(active, make_ode_control(control));
   forward.set_collect(false);
