@@ -253,7 +253,9 @@ public:
 
   // A cohort reads the light field and its own layers' water potentials. The
   // order is knot values, then knot slopes, then one potential per soil layer.
-  size_t n_cohort_reads() const override {
+  // The count and the two fills below are declared together, so a reader that
+  // gets the count from this class gets the fill from it too.
+  size_t n_cohort_reads() const {
     return 2 * light_availability.knot_count() +
            static_cast<size_t>(soil_number_of_depths);
   }

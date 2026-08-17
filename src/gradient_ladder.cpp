@@ -938,7 +938,12 @@ Rcpp::List ladder_rebind_matches_assign_tf24(plant::RcppR6::RcppR6<plant::Patch<
   auto field_of = [&](adjoint_patch& p) {
     const auto env = p.r_environment();
     std::vector<adjoint> raw(env.n_cohort_reads());
-    env.cohort_reads(raw.begin());
+    // Held against the width rather than discarded: the buffer starts at zero, so
+    // a fill that writes nothing reads the same as one that writes zeros, and the
+    // comparison this feeds would pass on two buffers neither side had filled.
+    const auto end = env.cohort_reads(raw.begin());
+    plant::util::check_length(
+      static_cast<size_t>(std::distance(raw.begin(), end)), raw.size());
     return values(raw);
   };
   auto parameters_of = [](adjoint_patch& p) {
