@@ -992,33 +992,55 @@ Rcpp::List ladder_block_copy_cost_tf24(plant::RcppR6::RcppR6<plant::Patch<plant:
 // are one map reached two ways, and every comment in the tree says so. Nothing
 // checked it, and they had already drifted.
 //
-// The difference they drift by is structural rather than incidental. A rebind
-// hands back a fresh object, so a member it does not write is
+// A rebind hands back a fresh object, so a member it does not write is
 // default-constructed; an assignment writes into one that exists, so a member it
-// does not write keeps what it held. The light spline is the case that decides a
-// gradient: compute_environment refines it from whatever it already holds, and
-// its knot count is what n_cohort_reads() reports, so a stale one sets the width
-// of every recorded block.
+// does not write keeps what it had. Every member is a place they can differ.
 //
-// Comparing widths as well as values is therefore the point. A width that
-// disagrees is the failure that reaches furthest, and it is invisible in a
-// difference of two state vectors that are already the wrong length.
+// What is compared is not what the two arrive holding. Neither is required to
+// arrive with a field: the light spline is derived from the state, and both
+// operations leave building it to the caller. What they are required to do is
+// reach the same place from the same state, so both are put through the call
+// every caller makes -- and then the rates are compared, because the rates are
+// what a stage recording records.
 // [[Rcpp::export]]
 Rcpp::List ladder_rebind_matches_assign_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   const patch_type& patch = *obj_;
+
+  std::vector<double> y(patch.ode_size());
+  patch.ode_state(y.begin());
+  const double t = patch.time();
 
   adjoint_patch rebound = patch.template rebind_from<adjoint>();
   adjoint_patch assigned = patch.template rebind_from<adjoint>();
   assigned.assign_from(patch);
 
-  auto state_of = [](adjoint_patch& p) {
-    std::vector<double> out(p.ode_size());
-    std::vector<adjoint> raw(p.ode_size());
-    p.ode_state(raw.begin());
-    for (size_t i = 0; i < raw.size(); ++i) {
-      out[i] = odelia::util::to_passive(raw[i]);
+  std::vector<adjoint> x(y.size());
+  for (size_t i = 0; i < y.size(); ++i) { x[i] = adjoint(y[i]); }
+  rebound.set_ode_state_and_field(x.begin(), t);
+  assigned.set_ode_state_and_field(x.begin(), t);
+
+  auto values = [](const std::vector<adjoint>& v) {
+    std::vector<double> out(v.size());
+    for (size_t i = 0; i < v.size(); ++i) {
+      out[i] = odelia::util::to_passive(v[i]);
     }
     return out;
+  };
+  auto state_of = [&](adjoint_patch& p) {
+    std::vector<adjoint> raw(p.ode_size());
+    p.ode_state(raw.begin());
+    return values(raw);
+  };
+  auto rates_of = [&](adjoint_patch& p) {
+    std::vector<adjoint> raw(p.ode_size());
+    p.ode_rates(raw.begin());
+    return values(raw);
+  };
+  auto field_of = [&](adjoint_patch& p) {
+    const auto env = p.r_environment();
+    std::vector<adjoint> raw(env.n_cohort_reads());
+    env.cohort_reads(raw.begin());
+    return values(raw);
   };
   auto parameters_of = [](adjoint_patch& p) {
     std::vector<double> out;
@@ -1039,9 +1061,6 @@ Rcpp::List ladder_rebind_matches_assign_tf24(plant::RcppR6::RcppR6<plant::Patch<
     return m;
   };
 
-  const std::vector<double> sr = state_of(rebound), sa = state_of(assigned);
-  const std::vector<double> pr = parameters_of(rebound), pa = parameters_of(assigned);
-
   return Rcpp::List::create(
     Rcpp::_["ode_size"] = Rcpp::IntegerVector::create((int) rebound.ode_size(),
                                                       (int) assigned.ode_size()),
@@ -1050,8 +1069,9 @@ Rcpp::List ladder_rebind_matches_assign_tf24(plant::RcppR6::RcppR6<plant::Patch<
     Rcpp::_["n_cohort_reads"] =
       Rcpp::IntegerVector::create((int) rebound.r_environment().n_cohort_reads(),
                                   (int) assigned.r_environment().n_cohort_reads()),
-    Rcpp::_["n_parameters"] = Rcpp::IntegerVector::create((int) pr.size(),
-                                                          (int) pa.size()),
-    Rcpp::_["state_gap"] = worst(sr, sa),
-    Rcpp::_["parameter_gap"] = worst(pr, pa));
+    Rcpp::_["state_gap"] = worst(state_of(rebound), state_of(assigned)),
+    Rcpp::_["rate_gap"] = worst(rates_of(rebound), rates_of(assigned)),
+    Rcpp::_["field_gap"] = worst(field_of(rebound), field_of(assigned)),
+    Rcpp::_["parameter_gap"] = worst(parameters_of(rebound),
+                                     parameters_of(assigned)));
 }

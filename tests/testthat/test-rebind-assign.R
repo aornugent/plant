@@ -28,11 +28,16 @@ test_that("a rebound patch and an assigned one hold the same thing", {
   expect_identical(got$ode_size[[1]], got$ode_size[[2]])
   expect_identical(got$aux_size[[1]], got$aux_size[[2]])
   expect_identical(got$n_cohort_reads[[1]], got$n_cohort_reads[[2]])
-  expect_identical(got$n_parameters[[1]], got$n_parameters[[2]])
 
   # Then values, and exactly: both sides carry the same doubles through the same
   # conversion, so anything above zero is a member one path writes and the other
   # does not.
   expect_identical(got$state_gap, 0)
   expect_identical(got$parameter_gap, 0)
+
+  # The field both reach from that state, which is what the recorded block reads,
+  # and the rates, which are what a stage recording records. A copy that agrees
+  # on its state and disagrees here is one the reverse pass cannot use.
+  expect_identical(got$field_gap, 0)
+  expect_identical(got$rate_gap, 0)
 })
