@@ -110,18 +110,18 @@ test_that("no driver the forward model answers leaves the reverse unnamed", {
       # status channel replaced.
       expect_true(is.character(r$reason) && nchar(r$reason) > 0)
 
-      # Located, or honestly unlocated -- never half. A refusal raised in the
-      # SWEEP carries species, node and a step range; one raised while forming
-      # the census SEEDS has no node loop to be caught in and carries none of
-      # them. Both are readable; a partly-filled location is the shape that
-      # reads as an answer, so that is what fails here.
-      where <- c(r$refusal$species, r$refusal$node,
-                 r$refusal$step_first, r$refusal$step_last)
-      expect_true(all(where >= 0) || all(where == -1))
-      if (all(where >= 0)) {
-        expect_gte(r$refusal$step_last, r$refusal$step_first)
-      } else {
-        message(sprintf("      unlocated: raised forming the census seeds, not in the sweep"))
+      # Located as far as the grain allows, and unlocated below that rather than
+      # partly filled. One recording spans six stages and every cohort in them,
+      # so a row it could not supply has no node to name; the segment boundaries
+      # are inside the solver's walk, so it has no step range either. What can
+      # survive is the species, and only where the frame that raised it knew one
+      # -- a refusal thrown from inside the recording does not.
+      expect_equal(r$refusal$node, -1)
+      expect_equal(r$refusal$step_first, -1)
+      expect_equal(r$refusal$step_last, -1)
+      expect_true(r$refusal$species == -1 || r$refusal$species >= 1)
+      if (r$refusal$species == -1) {
+        message("      unlocated: raised inside the recording, which names no species")
       }
       # And an undefined metric must not read as a zero one -- the distinction
       # the status channel exists for, asserted at the boundary rather than

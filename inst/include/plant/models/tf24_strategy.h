@@ -1318,7 +1318,11 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   const std::vector<std::size_t> leaf_clamps_before = leaf.clamp_counts();
   struct leaf_clamp_delta {
     const std::vector<std::size_t>& before;
-    const decltype(leaf)& leaf;
+    // Spelled as the type rather than decltype(leaf): a member named for the one
+    // it binds to would otherwise change what `leaf` means inside its own
+    // declaration, which is ill-formed and only diagnosed where the enclosing
+    // template is instantiated -- so the package built and a probe did not.
+    const Leaf& leaf;
     std::vector<size_t>& into;
     ~leaf_clamp_delta() {
       const std::vector<std::size_t> after = leaf.clamp_counts();
