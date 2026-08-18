@@ -234,7 +234,7 @@ public:
   // environment that changes its resource count calls this and the two cannot
   // disagree.
   void resize_resource_uptake() {
-    resource_uptake.assign(n_resources(), S(0.0));
+    resource_uptake.assign(n_resources(), 0.0);
   }
 
   // The values of an active vector, for the R boundary and for the state a run
@@ -316,7 +316,7 @@ public:
       vars.states[i] = S(odelia::util::to_passive(src.vars.states[i]));
     }
     water_flux.assign(src.water_flux.size(), S(0.0));
-    resource_uptake.assign(src.resource_uptake.size(), S(0.0));
+    resource_uptake.assign(src.resource_uptake.size(), 0.0);
     z = src.z;
     z_mid = src.z_mid;
     dz = src.dz;
@@ -357,7 +357,10 @@ public:
 
   // The state the solver integrates, and the uptake compute_rates received.
   Internals<S> vars;
-  std::vector<S> resource_uptake;
+  // Double: this is the uptake read back out through the R-facing aux interface,
+  // never an input to a rate, so holding it at the working scalar was a slot per
+  // layer per stage for a reading.
+  std::vector<double> resource_uptake;
 
   // TODO: should we use auxilliary in internals
   std::vector<S> water_flux;
@@ -582,7 +585,7 @@ public:
         rate = 0.0;
       }
       vars.set_rate(i, rate);
-      resource_uptake[i] = resource_depletion[i];
+      resource_uptake[i] = odelia::util::to_passive(resource_depletion[i]);
       total_resource_depletion += resource_depletion[i];
     }
       vars.set_rate(soil_number_of_depths, rainfall);

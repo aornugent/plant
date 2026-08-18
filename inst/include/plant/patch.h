@@ -658,10 +658,14 @@ void Patch<T,E>::check_finite_ode_state() const {
   // Mode (2): a non-finite environment state, read through the ODE interface so
   // an environment with no integrated state contributes an empty loop rather
   // than a special case. For TF24 these are the per-depth soil-water states.
-  std::vector<value_type> env_state(environment.ode_size());
+  // Double, not the working scalar: this reads the state to test it for
+  // finiteness and never differentiates it, and the iterator write converts on
+  // the way out. Held at the working scalar it was a slot per entry per stage
+  // for a value flattened on the next line.
+  std::vector<double> env_state(environment.ode_size());
   environment.ode_state(env_state.begin());
   for (size_t i = 0; i < env_state.size(); ++i) {
-    const double state_i = odelia::util::to_passive(env_state[i]);
+    const double state_i = env_state[i];
     if (!util::is_finite(state_i)) {
       util::stop("Non-finite environment state (index " + util::to_string(i) +
                  " = " + util::to_string(state_i) + ") at time=" +
@@ -883,7 +887,13 @@ void Patch<T,E>::compute_environment_excl_capturing(bool rescale) {
   for (auto& s : species) {
     s.set_new_node_birth_date(environment.time);
   }
-  competition_capture.assign(size(), {});
+  // Cleared without dropping capacity: assign() would, and the reallocation that
+  // follows copies active scalars, which each cost a slot to register and another
+  // to release.
+  competition_capture.resize(size());
+  for (auto& c : competition_capture) {
+    c.clear();
+  }
   capture_at = 0;
   auto f = [&](double x) -> std::pair<value_type, value_type> {
     value_type tot = 0.0, tot_slope = 0.0;
