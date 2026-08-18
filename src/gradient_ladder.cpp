@@ -291,8 +291,11 @@ Rcpp::NumericMatrix ladder_block_jacobian_reverse_tf24(plant::RcppR6::RcppR6<pla
     active_individual individual(strategy);
     active_environment environment = environment_template;
 
-    std::vector<double> seed(n_out, 0.0), row;
-    seed[r] = 1.0;
+    // A batch of one, deliberately: this reference takes the Jacobian a row at a
+    // time so that what it checks is one recording swept by one unit adjoint.
+    std::vector<std::vector<double>> seed(1, std::vector<double>(n_out, 0.0));
+    seed[0][r] = 1.0;
+    std::vector<std::vector<double>> row;
     auto block = [&](const std::vector<scalar>& x,
                      std::vector<scalar>& y) -> void {
       individual.set_block_inputs(x.begin(), environment);
@@ -300,7 +303,7 @@ Rcpp::NumericMatrix ladder_block_jacobian_reverse_tf24(plant::RcppR6::RcppR6<pla
       individual.block_outputs(y.begin(), environment);
     };
     odelia::ode::vector_jacobian_product(tape, in, seed, block, row);
-    rows.push_back(row);
+    rows.push_back(row[0]);
   }
   return to_matrix(rows, n_in);
 }

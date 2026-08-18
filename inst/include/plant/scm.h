@@ -867,40 +867,39 @@ std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
 
   std::vector<std::vector<double>> ret(n_metric,
                                        std::vector<double>(n_state, 0.0));
+  // One patch, one tape, one recording, and a seed per metric. The recording does
+  // not depend on which metric is being asked for -- it writes every metric into y
+  // and only the seed picks one out -- so a recording per metric was a recording
+  // repeated.
+  //
+  // What made that repetition look necessary is real and is worth stating, because
+  // it is the trap next door. Clearing a tape returns its derivative-slot counter
+  // to zero, so an active value built outside a sweep loop and read inside it
+  // refers, after the first clear, to a slot that now belongs to something else.
+  // Measured when that was live: the second and third metrics' seeds were wrong by
+  // three orders and their heartwood columns read exactly zero -- the first metric
+  // correct and lending its credibility to the rest. The answer is not a patch per
+  // metric, it is to clear once and record once, which is what sweeping a batch
+  // does: the clear happens before the recording, and between sweeps only the
+  // derivative slots are returned to zero.
+  typename scalar::tape_type tape(false);
+  auto active = patch.template rebind_from<scalar>();
+  auto reduce = [&](const std::vector<scalar>& x,
+                    std::vector<scalar>& y) -> void {
+    active.set_recorded_state(x.begin(), time());
+    size_t at = 0;
+    std::apply(
+        [&](auto... psi) -> void {
+          ((y[at++] = census_over(active, psi)), ...);
+        },
+        Metrics{});
+  };
+  std::vector<std::vector<double>> seeds(n_metric,
+                                         std::vector<double>(n_metric, 0.0));
   for (size_t m = 0; m < n_metric; ++m) {
-    // The active patch and the tape are built inside the loop, one per metric,
-    // and that is a correctness requirement rather than tidiness.
-    //
-    // Clearing a tape returns its derivative-slot counter to zero, so an active
-    // value constructed OUTSIDE the sweep loop and read inside it refers, after
-    // the first clear, to a slot that now belongs to something else. Hoisting
-    // the patch out of the loop is the tempting economy -- rebinding it is not
-    // free -- and it is the worst failure shape available here: the first metric
-    // comes back correct and lends its credibility to the rest, while every
-    // later one reads unrelated storage. Measured before this was closed, the
-    // second and third metrics' seeds were wrong by three orders and their
-    // heartwood columns read exactly zero.
-    //
-    // Recording once and sweeping many is what a shared tape would buy, and this
-    // reduction cannot express it: the states are re-set inside the recording,
-    // so each metric's recording is a different one. The saving is not available
-    // and pretending otherwise is what produced the defect.
-    typename scalar::tape_type tape(false);
-    auto active = patch.template rebind_from<scalar>();
-    auto reduce = [&](const std::vector<scalar>& x,
-                      std::vector<scalar>& y) -> void {
-      active.set_recorded_state(x.begin(), time());
-      size_t at = 0;
-      std::apply(
-          [&](auto... psi) -> void {
-            ((y[at++] = census_over(active, psi)), ...);
-          },
-          Metrics{});
-    };
-    std::vector<double> seed(n_metric, 0.0);
-    seed[m] = 1.0;
-    odelia::ode::vector_jacobian_product(tape, in, seed, reduce, ret[m]);
+    seeds[m][m] = 1.0;
   }
+  odelia::ode::vector_jacobian_product(tape, in, seeds, reduce, ret);
   return ret;
 }
 
@@ -932,33 +931,36 @@ std::vector<std::vector<double>> SCM<T, E>::census_trait_direct() {
 
   std::vector<std::vector<double>> ret(n_metric,
                                        std::vector<double>(in.size(), 0.0));
-  for (size_t m = 0; m < n_metric; ++m) {
-    typename scalar::tape_type tape(false);
-    auto active = patch.template rebind_from<scalar>();
-    auto reduce = [&](const std::vector<scalar>& x,
-                      std::vector<scalar>& y) -> void {
-      size_t at = 0;
-      for (size_t i = 0; i < active.size(); ++i) {
-        std::vector<scalar*> pars =
-          active.at_species(i).strategy_ptr()->ad_parameters();
-        for (size_t p = 0; p < pars.size(); ++p) {
-          *pars[p] = x[at++];
-        }
+  // One recording, a seed per metric: the recording writes every metric into y and
+  // does not depend on which one is asked for, so one per metric was one repeated.
+  typename scalar::tape_type tape(false);
+  auto active = patch.template rebind_from<scalar>();
+  auto reduce = [&](const std::vector<scalar>& x,
+                    std::vector<scalar>& y) -> void {
+    size_t at = 0;
+    for (size_t i = 0; i < active.size(); ++i) {
+      std::vector<scalar*> pars =
+        active.at_species(i).strategy_ptr()->ad_parameters();
+      for (size_t p = 0; p < pars.size(); ++p) {
+        *pars[p] = x[at++];
       }
-      util::check_length(at, x.size());
-      // The state is handed in at its value, which is what holds it fixed.
-      active.set_recorded_state(state.begin(), time());
-      at = 0;
-      std::apply(
-          [&](auto... psi) -> void {
-            ((y[at++] = census_over(active, psi)), ...);
-          },
-          Metrics{});
-    };
-    std::vector<double> seed(n_metric, 0.0);
-    seed[m] = 1.0;
-    odelia::ode::vector_jacobian_product(tape, in, seed, reduce, ret[m]);
+    }
+    util::check_length(at, x.size());
+    // The state is handed in at its value, which is what holds it fixed.
+    active.set_recorded_state(state.begin(), time());
+    at = 0;
+    std::apply(
+        [&](auto... psi) -> void {
+          ((y[at++] = census_over(active, psi)), ...);
+        },
+        Metrics{});
+  };
+  std::vector<std::vector<double>> seeds(n_metric,
+                                         std::vector<double>(n_metric, 0.0));
+  for (size_t m = 0; m < n_metric; ++m) {
+    seeds[m][m] = 1.0;
   }
+  odelia::ode::vector_jacobian_product(tape, in, seeds, reduce, ret);
   return ret;
 }
 
