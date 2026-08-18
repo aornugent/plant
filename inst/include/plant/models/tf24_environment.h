@@ -202,14 +202,14 @@ public:
 
   template <typename It> It ode_state(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
-      *it++ = util::as_iterator_scalar<It>(vars.states[i]);
+      util::write_iterator_scalar(it, vars.states[i]);
     }
     return it;
   }
 
   template <typename It> It ode_rates(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
-      *it++ = util::as_iterator_scalar<It>(vars.rates[i]);
+      util::write_iterator_scalar(it, vars.rates[i]);
     }
     return it;
   }
@@ -217,7 +217,7 @@ public:
   template <typename It> It ode_aux(It it) const {
     util::check_length(resource_uptake.size(), aux_size());
     for (size_t i = 0; i < aux_size(); i++) {
-      *it++ = util::as_iterator_scalar<It>(resource_uptake[i]);
+      util::write_iterator_scalar(it, resource_uptake[i]);
     }
     return it;
   }
@@ -268,14 +268,14 @@ public:
     util::check_length(y.size(), light_availability.knot_count());
     util::check_length(m.size(), light_availability.knot_count());
     for (size_t k = 0; k < y.size(); ++k) {
-      *it++ = util::as_iterator_scalar<It>(y[k]);
+      util::write_iterator_scalar(it, y[k]);
     }
     for (size_t k = 0; k < m.size(); ++k) {
-      *it++ = util::as_iterator_scalar<It>(m[k]);
+      util::write_iterator_scalar(it, m[k]);
     }
     const std::vector<S>& psi = get_soil_water_potential_state();
     for (int i = 0; i < soil_number_of_depths; ++i) {
-      *it++ = util::as_iterator_scalar<It>(psi[i]);
+      util::write_iterator_scalar(it, psi[i]);
     }
     return it;
   }

@@ -45,10 +45,13 @@ public:
   std::vector<S> auxs;
   std::vector<S> consumption_rates;  // not quite as pithy
 
-  S state(int i) const { return states[i]; }
-  S rate(int i) const { return rates[i]; }
-  S aux(int i) const { return auxs[i]; }
-  S consumption_rate(int i) const { return consumption_rates[i]; }
+  // By reference, and at an active scalar that is not a style preference: copying
+  // an active scalar registers a tape slot and records an operation, so a read
+  // returned by value costs a slot per read per stage for a value nothing writes.
+  const S& state(int i) const { return states[i]; }
+  const S& rate(int i) const { return rates[i]; }
+  const S& aux(int i) const { return auxs[i]; }
+  const S& consumption_rate(int i) const { return consumption_rates[i]; }
 
   void set_state(int i, const S& v) { states[i] = v; }
   void set_rate(int i, const S& v) { rates[i] = v; }

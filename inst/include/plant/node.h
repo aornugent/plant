@@ -304,20 +304,20 @@ template <typename T, typename E>
 template <typename It>
 It Node<T,E>::ode_state(It it) const {
   for (size_t i = 0; i < individual.ode_size(); i++) {
-    *it++ = util::as_iterator_scalar<It>(individual.state(i));
+    util::write_iterator_scalar(it, individual.state(i));
   }
-  *it++ = util::as_iterator_scalar<It>(offspring_produced_survival_weighted);
-  *it++ = util::as_iterator_scalar<It>(log_density);
+  util::write_iterator_scalar(it, offspring_produced_survival_weighted);
+  util::write_iterator_scalar(it, log_density);
   return it;
 }
 template <typename T, typename E>
 template <typename It>
 It Node<T,E>::ode_rates(It it) const {
   for (size_t i = 0; i < individual.ode_size(); i++) {
-    *it++ = util::as_iterator_scalar<It>(individual.rate(i));
+    util::write_iterator_scalar(it, individual.rate(i));
   }
-  *it++ = util::as_iterator_scalar<It>(offspring_produced_survival_weighted_dt);
-  *it++ = util::as_iterator_scalar<It>(log_density_dt);
+  util::write_iterator_scalar(it, offspring_produced_survival_weighted_dt);
+  util::write_iterator_scalar(it, log_density_dt);
   return it;
 }
 
@@ -325,7 +325,7 @@ template <typename T, typename E>
 template <typename It>
 It Node<T,E>::ode_aux(It it) const {
   for (size_t i = 0; i < individual.aux_size(); i++) {
-    *it++ = util::as_iterator_scalar<It>(individual.aux(i));
+    util::write_iterator_scalar(it, individual.aux(i));
   }
   return it;
 }

@@ -38,16 +38,16 @@ public:
   }
   
   // useage: state(HEIGHT_INDEX)
-  value_type state(std::string name) const {
+  const value_type& state(std::string name) const {
     return vars.state(strategy->state_index.at(name));
   }
-  value_type state(int i) const { return vars.state(i); }
+  const value_type& state(int i) const { return vars.state(i); }
   
   // useage:_rate("area_heartwood")
-  value_type rate(std::string name) const {
+  const value_type& rate(std::string name) const {
     return vars.rate(strategy->state_index.at(name));
   }
-  value_type rate(int i) const { return vars.rate(i); }
+  const value_type& rate(int i) const { return vars.rate(i); }
 
   // useage: set_state("height", 2.0)
   void set_state(std::string name, const value_type& v) {
@@ -61,16 +61,16 @@ public:
   }
 
   // aux vars by name and index
-  value_type aux(std::string name) const {
+  const value_type& aux(std::string name) const {
     return vars.aux(strategy->aux_index.at(name));
   }
-  value_type aux(int i) const { return vars.aux(i); }
+  const value_type& aux(int i) const { return vars.aux(i); }
 
   // set # consumable resources based on env. variables
   void resize_consumption_rates(int i) {
     vars.resize_consumption_rates(i);
   }
-  value_type consumption_rate(int i) const { return vars.consumption_rate(i); }
+  const value_type& consumption_rate(int i) const { return vars.consumption_rate(i); }
 
   value_type compute_competition(const value_type& z) const {
     return strategy->compute_competition(z, vars);
@@ -137,20 +137,20 @@ public:
   }
   template <typename It> It ode_state(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
-      *it++ = util::as_iterator_scalar<It>(vars.states[i]);
+      util::write_iterator_scalar(it, vars.states[i]);
     }
     return it;
   }
   template <typename It> It ode_rates(It it) const {
     for (size_t i = 0; i < vars.state_size; i++) {
-      *it++ = util::as_iterator_scalar<It>(vars.rates[i]);
+      util::write_iterator_scalar(it, vars.rates[i]);
     }
     return it;
   }
 
   template <typename It> It ode_aux(It it) const {
     for (size_t i = 0; i < vars.aux_size; i++) {
-      *it++ = util::as_iterator_scalar<It>(vars.auxs[i]);
+      util::write_iterator_scalar(it, vars.auxs[i]);
     }
     return it;
   }
@@ -188,7 +188,7 @@ public:
     it = ode_state(it);
     it = environment.cohort_reads(it);
     for (const value_type* p : strategy->ad_parameters()) {
-      *it++ = util::as_iterator_scalar<It>(*p);
+      util::write_iterator_scalar(it, *p);
     }
     return it;
   }
@@ -220,9 +220,9 @@ public:
   template <typename It>
   It block_outputs(It it, const environment_type& environment) const {
     it = ode_rates(it);
-    *it++ = util::as_iterator_scalar<It>(log_density_rate(environment));
+    util::write_iterator_scalar(it, log_density_rate(environment));
     for (size_t i = 0; i < vars.resource_size; ++i) {
-      *it++ = util::as_iterator_scalar<It>(vars.consumption_rates[i]);
+      util::write_iterator_scalar(it, vars.consumption_rates[i]);
     }
     return it;
   }

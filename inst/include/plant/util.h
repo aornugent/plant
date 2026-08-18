@@ -139,14 +139,18 @@ void warning(const std::string &);
 // What the destination iterator holds decides what a serialiser writes: an
 // R-facing double takes the passive value, an active buffer takes the value
 // itself. Only double crosses the R boundary, and this is where it converts.
+//
+// Writes through the iterator rather than returning, because returning meant
+// returning by value: at an active scalar that copy registers a tape slot and
+// records an operation, once per element per stage, for a value the caller was
+// about to assign anyway.
 template <typename It, typename S>
-typename std::iterator_traits<It>::value_type
-as_iterator_scalar(const S& value) {
+void write_iterator_scalar(It& it, const S& value) {
   if constexpr (std::floating_point<
                   typename std::iterator_traits<It>::value_type>) {
-    return odelia::util::to_passive(value);
+    *it++ = odelia::util::to_passive(value);
   } else {
-    return value;
+    *it++ = value;
   }
 }
 
