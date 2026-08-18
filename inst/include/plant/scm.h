@@ -64,6 +64,13 @@ public:
   // attempts.
   std::vector<ode_step_record> store_trajectory();
 
+  // Set before run() to keep the state at every accepted step. The reverse pass
+  // needs those states and cannot recover them from a finished run, so a run that
+  // did not keep them has to be repeated -- one whole forward integration. Off by
+  // default because the store is one double per state entry per step and a forward
+  // run has no use for it.
+  bool record_trajectory = false;
+
   // Adaptively refine the node-introduction schedule entirely in C++:
   // repeatedly run, flag nodes whose combined error exceeds schedule_eps,
   // and bisect the interval below each flagged node (upwind scheme), up to
@@ -465,6 +472,10 @@ std::vector<double> SCM<T, E>::uniform_euler_times(double t0, double t1,
 // ---- Simulation lifecycle ------------------------------------------------
 
 template <typename T, typename E> void SCM<T, E>::run() {
+  // Before reset(), which records the initial state and then copies the patch
+  // into the solver: set after it, that first record is missed and the store is
+  // one short of the step sizes it is read beside.
+  patch.record_steps = record_trajectory;
   reset();
   // The solver owns the live patch system; operate on it directly during the
   // run and avoid per-step copies into the `patch` member.
@@ -609,14 +620,28 @@ std::vector<ode_step_record> SCM<T, E>::store_trajectory() {
   static_assert(odelia::ode::WidensState<patch_type>,
                 "Patch must satisfy WidensState or the segment walk cannot "
                 "narrow, widen or reload the recording it sweeps");
-  patch.record_steps = true;
-  run();
-  patch.record_steps = false;
+  // Repeat the run only if it did not keep its states. reset() clears the store
+  // and run() resets first, so a store that has anything in it is this run's --
+  // there is no key to check and none to get wrong. What a repeat costs is a whole
+  // forward integration, which is why record_trajectory exists.
+  if (patch.trajectory.empty()) {
+    const bool recorded = record_trajectory;
+    record_trajectory = true;
+    run();
+    record_trajectory = recorded;
+  }
 
-  // The solver holds the size of the step that reached each state, one per record
-  // including the initial NaN, so each size lands beside the state it reached.
+  // Taken out of the store rather than read in place, and that is what keeps the
+  // pairing below honest: the sweep this feeds advances the solver, so a store left
+  // behind would be read against step sizes from a later run than the one that
+  // filled it. Emptying it means the next caller repeats the run instead.
   std::vector<ode_step_record> ret = std::move(patch.trajectory);
   patch.trajectory.clear();
+
+  // The solver holds the size of the step that reached each state, one per record
+  // including the initial NaN, so each size lands beside the state it reached. It
+  // comes from the solver rather than the record and survives the run, so a repeat
+  // is paid for the states alone.
   const std::vector<double> sizes = solver.step_sizes();
   util::check_length(sizes.size(), ret.size());
   for (size_t i = 0; i < ret.size(); ++i) {
@@ -1003,8 +1028,9 @@ census_gradient
 SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
                                  const std::vector<size_t>& which_metrics) {
   require_birth_date_coordinate("census_trait_gradient");
-  // The sweep needs the state at every accepted step, and store_trajectory()
-  // re-runs to record them, so the seeds below are taken after it.
+  // The sweep needs the state at every accepted step. store_trajectory() repeats
+  // the run to get them unless record_trajectory kept them the first time, and
+  // either way it may run, so the seeds below are taken after it.
   const std::vector<ode_step_record> trajectory = store_trajectory();
   std::vector<std::vector<double>> states;
   states.reserve(trajectory.size());

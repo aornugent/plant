@@ -834,6 +834,7 @@ SCM:
     # Collection toggles (bound directly to the public members)
     collect: {type: bool, access: field}
     collect_refinement_errors: {type: bool, access: field}
+    record_trajectory: {type: bool, access: field}
 
 StochasticSpecies:
   name_cpp: "plant::StochasticSpecies<T,E>"

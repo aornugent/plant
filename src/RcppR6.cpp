@@ -3139,6 +3139,15 @@ void SCM___FF16__FF16_Env__collect_refinement_errors__set(plant::RcppR6::RcppR6<
   obj_->collect_refinement_errors = value;
 }
 
+// [[Rcpp::export]]
+bool SCM___FF16__FF16_Env__record_trajectory__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->record_trajectory;
+}
+// [[Rcpp::export]]
+void SCM___FF16__FF16_Env__record_trajectory__set(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_, bool value) {
+  obj_->record_trajectory = value;
+}
+
 
 // [[Rcpp::export]]
 plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > SCM___TF24__TF24_Env__ctor(plant::Parameters<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > parameters, plant::TF24_Environment<double> environment, plant::Control control) {
@@ -3251,6 +3260,15 @@ bool SCM___TF24__TF24_Env__collect_refinement_errors__get(plant::RcppR6::RcppR6<
 // [[Rcpp::export]]
 void SCM___TF24__TF24_Env__collect_refinement_errors__set(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, bool value) {
   obj_->collect_refinement_errors = value;
+}
+
+// [[Rcpp::export]]
+bool SCM___TF24__TF24_Env__record_trajectory__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->record_trajectory;
+}
+// [[Rcpp::export]]
+void SCM___TF24__TF24_Env__record_trajectory__set(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, bool value) {
+  obj_->record_trajectory = value;
 }
 
 
@@ -3367,6 +3385,15 @@ void SCM___TF24f__TF24_Env__collect_refinement_errors__set(plant::RcppR6::RcppR6
   obj_->collect_refinement_errors = value;
 }
 
+// [[Rcpp::export]]
+bool SCM___TF24f__TF24_Env__record_trajectory__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->record_trajectory;
+}
+// [[Rcpp::export]]
+void SCM___TF24f__TF24_Env__record_trajectory__set(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_, bool value) {
+  obj_->record_trajectory = value;
+}
+
 
 // [[Rcpp::export]]
 plant::SCM<plant::K93_Strategy,plant::K93_Environment> SCM___K93__K93_Env__ctor(plant::Parameters<plant::K93_Strategy,plant::K93_Environment> parameters, plant::K93_Environment environment, plant::Control control) {
@@ -3479,6 +3506,15 @@ bool SCM___K93__K93_Env__collect_refinement_errors__get(plant::RcppR6::RcppR6<pl
 // [[Rcpp::export]]
 void SCM___K93__K93_Env__collect_refinement_errors__set(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_, bool value) {
   obj_->collect_refinement_errors = value;
+}
+
+// [[Rcpp::export]]
+bool SCM___K93__K93_Env__record_trajectory__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->record_trajectory;
+}
+// [[Rcpp::export]]
+void SCM___K93__K93_Env__record_trajectory__set(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_, bool value) {
+  obj_->record_trajectory = value;
 }
 
 
