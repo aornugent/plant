@@ -1381,21 +1381,19 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
   // rate's input rather than a reading of it.
   vars.set_aux(aux_idx_net_mass_production_dt, net_mass_production_dt_);
 
-  // The rest are readings, not inputs: their only consumers are r_internals and
-  // ode_aux, both R-facing, so no recorded path reads them and no sweep touches
-  // them. Written at double alone, because at an active scalar each is a
-  // derivative slot registered, unregistered, and zeroed once per seed per step
-  // for a number nothing differentiates.
-  if constexpr (std::is_same_v<S, double>) {
-    vars.set_aux(aux_idx_root_mass, mass_root(area_leaf_));
-    vars.set_aux(aux_idx_opt_psi_stem, leaf.opt_psi_stem_);
-    vars.set_aux(aux_idx_opt_root_psi, leaf.opt_root_psi_);
-    vars.set_aux(aux_idx_transpiration, leaf.transpiration_);
-    vars.set_aux(aux_idx_E_up, leaf.E_up_);
-    vars.set_aux(aux_idx_profit, leaf.profit_);
-    vars.set_aux(aux_idx_stom_cond_CO2, leaf.stom_cond_CO2_);
-    vars.set_aux(aux_idx_assimilation, leaf.assim_colimited_);
-  }
+  // The rest are readings: their only consumers are r_internals and ode_aux,
+  // both R-facing. Writing them at double alone was tried and measured at no
+  // difference, because a store into a slot the vector already holds pushes a
+  // statement and registers nothing -- it is a newly constructed active scalar
+  // that costs a slot, not a write to a live one.
+  vars.set_aux(aux_idx_root_mass, mass_root(area_leaf_));
+  vars.set_aux(aux_idx_opt_psi_stem, leaf.opt_psi_stem_);
+  vars.set_aux(aux_idx_opt_root_psi, leaf.opt_root_psi_);
+  vars.set_aux(aux_idx_transpiration, leaf.transpiration_);
+  vars.set_aux(aux_idx_E_up, leaf.E_up_);
+  vars.set_aux(aux_idx_profit, leaf.profit_);
+  vars.set_aux(aux_idx_stom_cond_CO2, leaf.stom_cond_CO2_);
+  vars.set_aux(aux_idx_assimilation, leaf.assim_colimited_);
 
 
 
