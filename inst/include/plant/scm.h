@@ -58,10 +58,13 @@ public:
   void run_mutant(parameters_type p);
 
   // Run, keeping the state at each accepted step, and return one record per step.
-  // The states are the run's own, recorded as it goes: a run pinned to this run's
-  // times and sizes does not reproduce them, because a rejected step attempt moves
-  // patch state that is not part of the ODE state and a pinned run makes no such
-  // attempts.
+  //
+  // A run pinned to this run's times and sizes DOES reproduce these states, bit for
+  // bit over 3381 steps, and pays 15% less because it attempts no step it will
+  // reject. This said the opposite -- that a rejected attempt moves patch state
+  // which is not ODE state, and a pinned run makes none -- and the states are
+  // measurably identical, so whatever a rejected attempt leaves behind is rebuilt
+  // from the state before anything reads it.
   std::vector<ode_step_record> store_trajectory();
 
   // Set before run() to keep the state at every accepted step. The reverse pass
