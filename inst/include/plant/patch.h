@@ -741,14 +741,14 @@ typename Patch<T,E>::value_type Patch<T,E>::height_max() const {
   return ret;
 }
 
+// The pair's first entry, which is what the pair is built to be. Nothing on the
+// field's path arrives here -- that takes the split reduction and closes it -- so
+// this is an accessor, and an accessor paying one extra crown evaluation per node
+// is better than a second loop that can disagree with the one below it.
 template <typename T, typename E>
 typename Patch<T,E>::value_type
 Patch<T,E>::compute_competition(double height) const {
-  value_type tot = 0.0;
-  for (size_t i = 0; i < species.size(); ++i) {
-    tot += species[i].compute_competition(height) / area;
-  }
-  return tot;
+  return compute_competition_and_slope(height).first;
 }
 
 template <typename T, typename E>

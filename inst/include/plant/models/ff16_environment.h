@@ -134,20 +134,12 @@ public:
             );
   }
 
-  // Pre-compute resources available in the environment, as a function of height
+  // The light a height is left with, from the competition profile above it.
   template <typename Function>
-  void compute_environment(Function f_compute_competition_and_slope, double height_max, bool rescale) {
-
-    // Beer's law on the competition profile A, whose extinction coefficient the
-    // strategy has already applied: E = exp(-A) and dE/dz = -A' exp(-A).
-    auto f_light_availability = [&](double height) -> std::pair<double, double>
-    {
-      const std::pair<double, double> as = f_compute_competition_and_slope(height);
-      const double E = exp(-as.first);
-      return {E, -(as.second * E)};
-    };
-
-    light_availability.compute_environment(f_light_availability, height_max, rescale);
+  void compute_environment(Function f_compute_competition_and_slope, double height_max,
+                           bool rescale) {
+    build_extinction_field(light_availability, f_compute_competition_and_slope,
+                           height_max, rescale);
   }
 
   virtual void clear_environment() {

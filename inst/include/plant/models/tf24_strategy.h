@@ -778,7 +778,9 @@ public:
 
   // The competition contribution and its vertical derivative from one pass, so
   // u^eta is evaluated once. The first entry is bit-for-bit the one
-  // compute_competition() returns.
+  // compute_competition() returns, and both read the shading model's own profile:
+  // the value used to read the smooth one directly, so under a flat-top profile
+  // the two disagreed while a comment said they could not.
   std::pair<S, S> compute_competition_and_slope(const S& z, const Internals<S>& vars) const {
     const S& area_leaf_ = vars.aux(aux_idx_competition_effect);
     const S height_inverse = vars.aux(aux_idx_height_inverse);
@@ -2261,7 +2263,7 @@ S TF24_Strategy<S>::compute_competition(const S& z, const S& height) const {
 template <typename S>
 S TF24_Strategy<S>::compute_competition(const S& z, const S& area_leaf_,
                                           const S& height_inverse) const {
-  return pars.k_I * area_leaf_ * canopy_shape.Q(z * height_inverse);
+  return pars.k_I * area_leaf_ * canopy_shape.leaf_area_above(z * height_inverse);
 }
 
 // [eqn 10] Cumulative fraction of a quantity distributed over an extent with

@@ -16,12 +16,6 @@ namespace plant {
 
 class Environment {
 public:
-  template <typename Function>
-  void compute_environment(Function f, double height_max, bool rescale);
-
-  void set_fixed_environment(double value, double height_max);
-  void set_fixed_environment(double value);
-
   // Configure the crown shading model for the light profile. Default: no-op;
   // only FF16_Environment builds an alternative (stepped) profile. Called once
   // from the Patch constructor with the run's Control settings.

@@ -111,7 +111,7 @@ public:
   double compute_competition_by_ratio(double z_over_size,
                                       double whole_plant_competition) const {
     // Competition only felt if plant bigger than target size z.
-    return whole_plant_competition * canopy_shape.Q(z_over_size);
+    return whole_plant_competition * canopy_shape.leaf_area_above(z_over_size);
   }
   // Strategy-agnostic entry point used by Individual<K93> (#266): reads the
   // cached competition_effect and height_inverse aux slots itself.
@@ -122,7 +122,9 @@ public:
 
   // The competition contribution and its vertical derivative from one pass, so
   // u^eta is evaluated once. The first entry is bit-for-bit the one
-  // compute_competition() returns.
+  // compute_competition() returns, and both read the shading model's own profile:
+  // the value used to read the smooth one directly, so under a flat-top profile
+  // the two disagreed while a comment said they could not.
   std::pair<double, double>
   compute_competition_and_slope(double z, const Internals<double>& vars) const {
     const double whole_plant_competition = vars.aux(COMPETITION_EFFECT_AUX_INDEX);

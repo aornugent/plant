@@ -189,6 +189,26 @@ private:
   };
 
 
+// Beer's law on a cumulative extinction profile: a resource left at a height is
+// E = exp(-A) where A is the amount intercepted above it, so dE/dz = -A' exp(-A).
+// One place, because the arithmetic is the same whatever else an environment holds
+// and it was written out once per environment.
+//
+// The lambda declares its return type: an active E returned through a deduced one
+// hands the field an expression template referencing operands that die here.
+template <typename Field, typename Function, typename S>
+void build_extinction_field(Field& field, Function f_competition_and_slope,
+                            S height_max, bool rescale) {
+  using value_type = typename Field::value_type;
+  field.compute_environment(
+    [&](double height) -> std::pair<value_type, value_type> {
+      const std::pair<value_type, value_type> as = f_competition_and_slope(height);
+      const value_type E = exp(-as.first);
+      return {E, -(as.second * E)};
+    },
+    height_max, rescale);
+}
+
 } // plant namespace
 
 #endif
