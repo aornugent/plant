@@ -255,13 +255,12 @@ ladder_patch <- function(species, heights, log_densities,
     data.frame(species = i, time = birth_dates[[i]])
   }))
   for (k in order(events$time)) {
-    # A node takes its birth date from the boundary node, and the boundary node
-    # takes it from the clock on an environment build. Introducing without one
-    # leaves every node of a species sharing a date, and the abscissa the
-    # birth-date coordinate integrates over is then tied.
+    # The birth date is the inserter's own argument. Routed through the clock
+    # instead, every node of a species shares a date and the abscissa the
+    # birth-date coordinate integrates over is tied.
     patch$set_time(events$time[[k]])
     patch$compute_environment()
-    patch$introduce_new_node(events$species[[k]])
+    patch$introduce_new_node(events$species[[k]], events$time[[k]])
   }
   ladder_condition(patch, heights, log_densities, relative_reserve, time)
 }

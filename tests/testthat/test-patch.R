@@ -73,13 +73,13 @@ for (x in names(strategy_types)) {
     patch$compute_environment()
     expect_identical(patch$compute_competition(0), 0)
     
-    expect_error(patch$introduce_new_node(0), "Invalid value")
-    expect_error(patch$introduce_new_node(2), "out of bounds")
+    expect_error(patch$introduce_new_node(0, 0), "Invalid value")
+    expect_error(patch$introduce_new_node(2, 0), "out of bounds")
     
     # introduce a node and expect different results
     node_size <- Node(x, e)(s)$ode_size
     ode_size = node_size + env_size
-    patch$introduce_new_node(1)
+    patch$introduce_new_node(1, 0)
     expect_equal(patch$node_ode_size, node_size)
     expect_equal(patch$ode_size, ode_size)
     if (x == "FF16") {
@@ -241,7 +241,7 @@ for (x in names(strategy_types)) {
     pa <- Patch(x, e)(p, Environment(x), Control())
     expect_equal(length(pa$ode_aux), n_resources)
     for (n in 1:2) {
-      pa$introduce_new_node(1)
+      pa$introduce_new_node(1, n * 1.0)
       expect_equal(length(pa$ode_aux), n * per_node + n_resources)
     }
   })
@@ -254,7 +254,7 @@ test_that("TF24 patch aux reports the per-layer uptake", {
   p <- Parameters("TF24", "TF24_Env")(strategies = list(s),
                                       patch_type = "meta-population")
   patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), Control())
-  patch$introduce_new_node(1)
+  patch$introduce_new_node(1, 0)
 
   # A node at its birth height takes up nothing measurable, so grow it and give
   # it a density before reading the uptake.
@@ -306,7 +306,7 @@ test_that("TF24 patch aux goes back the way it came", {
   p <- Parameters("TF24", "TF24_Env")(strategies = list(s),
                                       patch_type = "meta-population")
   patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), Control())
-  patch$introduce_new_node(1)
+  patch$introduce_new_node(1, 0)
   patch$set_ode_state(patch$ode_state, 1.0)
 
   aux <- patch$ode_aux

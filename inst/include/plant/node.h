@@ -54,14 +54,6 @@ public:
   value_type growth_rate() const {return individual.rate(HEIGHT_INDEX);}
   value_type mortality_rate() const {return individual.rate(MORTALITY_INDEX);}
 
-  // Bookkeeping recorded at the moment the node is introduced, so that
-  // lifetime-fitness calculations need not look these up after the run.
-  // patch_density_at_birth is the (unnormalised) probability density of a
-  // patch having the node's introduction age, i.e. survival_weighting->density.
-  void set_introduction(double time, double patch_density) {
-    node_introduction_time = time;
-    patch_density_at_birth = patch_density;
-  }
   // The height growth rate this node was born at, i.e. |dh/dtau| exactly, at
   // birth. Current only for the boundary node (re-evaluated every step); frozen
   // at its own birth for an introduced one. Zero for a node loaded from an
@@ -148,7 +140,7 @@ private:
   value_type offspring_produced_survival_weighted_dt;
   double pr_patch_survival_at_birth;
 
-  // Recorded at introduction (see set_introduction).
+  // Recorded at introduction (see set_birth_state).
   double node_introduction_time;
   double patch_density_at_birth;
   // |dh/dtau| at birth; see growth_rate_at_birth().

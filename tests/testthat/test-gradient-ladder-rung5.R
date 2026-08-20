@@ -177,7 +177,7 @@ test_that("the introduction map's whole Jacobian agrees entry by entry", {
                     ncol(j$forward)))
     ladder_report_margin(sprintf("  introduction Jacobian, widening %d", k),
                          gap, 1e-12)
-    for (i in who) patch$introduce_new_node(i)
+    for (i in who) patch$introduce_new_node(i, times[[b]])
   }
 })
 
@@ -208,7 +208,7 @@ test_that("the state a segment resumes from is the one the introduction made", {
     held <- unlist(lapply(who, function(i) patch$species[[i]]$new_node$ode_state))
     before <- vapply(seq_len(length(patch$species)),
                      function(i) patch$species[[i]]$ode_size, numeric(1))
-    for (i in who) patch$introduce_new_node(i)
+    for (i in who) patch$introduce_new_node(i, times[[b]])
     post <- patch$ode_state
 
     stride <- length(held) / length(who)
@@ -277,7 +277,7 @@ test_that("the newcomer depends on the state it was introduced into", {
     for (i in 1:2) {
       patch$set_time(0)
       patch$compute_environment()
-      patch$introduce_new_node(i)
+      patch$introduce_new_node(i, 0)
     }
     patch
   }

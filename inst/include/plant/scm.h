@@ -70,9 +70,6 @@ public:
   // default because the store is one double per state entry per step and a forward
   // run has no use for it.
   bool record_trajectory = false;
-  // Whether the record has been read since the run that filled it. See
-  // store_trajectory for why a second reader repeats the run rather than reading it.
-  bool trajectory_taken = false;
 
   // Adaptively refine the node-introduction schedule entirely in C++:
   // repeatedly run, flag nodes whose combined error exceeds schedule_eps,
@@ -481,7 +478,6 @@ template <typename T, typename E> void SCM<T, E>::run() {
   patch.recording = record_trajectory;
   // Set before reset(), which records the state the run starts from.
   solver.set_keep_states(record_trajectory);
-  trajectory_taken = false;
   // The choices this run's rate evaluations make are the same recording as its
   // states, so they start over together. Cleared HERE and not in the patch's own
   // reset, which a rebound patch runs on the shared strategies mid-sweep.
@@ -560,7 +556,7 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
     }
   }
 
-  sys.widen(ret);
+  sys.introduce_nodes(ret, e.time_introduction());
   // Declared where it happens. Read back off the state's width afterwards it
   // cannot be wrong, because the width is what the reading is derived from.
   if (record_trajectory) {
@@ -624,26 +620,14 @@ std::vector<ode_step_record> SCM<T, E>::store_trajectory() {
   // the patch through these, and each was reached by name until it was said here.
   static_assert(odelia::ode::WidensState<patch_type>,
                 "Patch must satisfy WidensState or the segment walk cannot "
-                "narrow, widen or reload the recording it sweeps");
-  // Repeat the run unless this is the first consumer since it. What a repeat costs
-  // is a whole forward integration, which is why record_trajectory exists.
-  //
-  // ⚠️ AND THE REPEAT IS LOAD-BEARING FOR A REASON THAT IS NOT THE RECORD. The record
-  // itself survives any number of readings now that the state, the time and the size
-  // are one object -- they used to be two stores and the states had to be emptied as
-  // they were read, which is the reason this comment used to give. The real one is
-  // that a SWEEP is not re-entrant: it restores the width it borrowed but the node
-  // bookkeeping that is not ODE state does not come back with it, so a second sweep
-  // over the same record introduces a unit at a coordinate one already occupies and
-  // the reduction refuses. The repeat has been hiding that, and the round-trip guard
-  // in the walk cannot see it -- it compares the state, which is exactly what this
-  // bookkeeping is not. Until that is fixed the repeat stays, and it is 22% of a
-  // gradient.
-  if (!solver.keeps_states() || trajectory_taken) {
+                "put it on a recorded step or transpose an insertion");
+  // Run only if this run kept no states to read. Reading does not consume them,
+  // and a walk puts the patch back on the last recorded step when it is done, so
+  // a second consumer reads the same record rather than repeating the run.
+  if (!solver.keeps_states()) {
     record_trajectory = true;
     run();
   }
-  trajectory_taken = true;
 
   // Read in place, because the state, the time it was reached at and the size that
   // reached it are now one record on the solver. They used to be two stores, and
@@ -1200,7 +1184,10 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   }
 
   // Leave the system at the width the run left it, so this call is repeatable.
-  odelia::ode::widen_all(live, widenings, states, recorded_times(trajectory));
+  odelia::ode::be_at_step(live, odelia::ode::insertions_of(
+                              widenings, recorded_times(trajectory)),
+                          states, recorded_times(trajectory),
+                          states.size() - 1);
   return ret;
 }
 
@@ -1229,10 +1216,10 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   for (const ode_step_record& record : trajectory) {
     states.push_back(record.state);
   }
-  odelia::ode::narrow_all(solver.get_system_ref(), widenings, states);
-
+  const std::vector<double> times = recorded_times(trajectory);
+  const auto insertions = odelia::ode::insertions_of(widenings, times);
   patch_type& live = solver.get_system_ref();
-  live.set_ode_state(states[0].begin(), trajectory[0].time);
+  odelia::ode::be_at_step(live, insertions, states, times, 0);
   auto active = live.template rebind_from<tangent>();
 
   // Seeded before the state is set: the quantities a state determines read the
@@ -1260,12 +1247,12 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   for (const ode_step_record& record : trajectory) {
     sizes.push_back(record.step_size);
   }
-  odelia::ode::advance_over_widenings(forward, widenings, sizes, 0, 0);
+  odelia::ode::advance_over_widenings(forward, insertions, sizes, 0, 0);
 
   // Leave the double system where the run left it, so this call is repeatable
   // beside the sweep that shares its trajectory.
-  odelia::ode::widen_all(solver.get_system_ref(), widenings, states,
-                         recorded_times(trajectory));
+  odelia::ode::be_at_step(solver.get_system_ref(), insertions, states, times,
+                          states.size() - 1);
 
   std::vector<double> ret;
   ret.reserve(std::tuple_size<Metrics>::value);
@@ -1292,13 +1279,13 @@ std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
   }
   patch_type& live = solver.get_system_ref();
   const std::vector<double> times = recorded_times(trajectory);
-  odelia::ode::narrow_all(live, widenings, states);
+  const auto insertions = odelia::ode::insertions_of(widenings, times);
 
   std::vector<double> base;
   size_t start = 0;
-  odelia::ode::state_at_segment(live, widenings, states, times, segment, base,
+  odelia::ode::state_at_segment(live, insertions, states, times, segment, base,
                                 start);
-  odelia::ode::widen_all(live, widenings, states, times, segment);
+  odelia::ode::be_at_step(live, insertions, states, times, states.size() - 1);
   return base;
 }
 
@@ -1314,11 +1301,11 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   }
   patch_type& live = solver.get_system_ref();
   const std::vector<double> times = recorded_times(trajectory);
-  odelia::ode::narrow_all(live, widenings, states);
+  const auto insertions = odelia::ode::insertions_of(widenings, times);
 
   std::vector<double> base;
   size_t start = 0;
-  const double t0 = odelia::ode::state_at_segment(live, widenings, states, times,
+  const double t0 = odelia::ode::state_at_segment(live, insertions, states, times,
                                                   from_segment, base, start);
 
   auto active = live.template rebind_from<Scalar>();
@@ -1336,12 +1323,12 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   for (const ode_step_record& record : trajectory) {
     sizes.push_back(record.step_size);
   }
-  odelia::ode::advance_over_widenings(forward, widenings, sizes, from_segment, start);
+  odelia::ode::advance_over_widenings(forward, insertions, sizes, from_segment,
+                                     start);
 
   // Leave the double system where the run left it, so this call is repeatable
   // beside the sweep that shares its trajectory.
-  odelia::ode::widen_all(live, widenings, states, recorded_times(trajectory),
-                         from_segment);
+  odelia::ode::be_at_step(live, insertions, states, times, states.size() - 1);
 
   std::vector<Scalar> out;
   out.reserve(std::tuple_size<Metrics>::value);

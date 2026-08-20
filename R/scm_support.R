@@ -53,6 +53,13 @@ scm_base_parameters <- function(type = NA, env = environment_type(type)) {
 ##' @param refine_schedule Should the node-introduction schedule be adaptively
 ##'   refined before/while running (using \code{schedule_eps} and
 ##'   \code{schedule_nsteps} from \code{ctrl})?
+##' @param record_trajectory Should the run keep the state at every accepted
+##'   step? A gradient sweeps those states and cannot recover them from a
+##'   finished run, so a run that did not keep them is repeated -- one whole
+##'   forward integration. Asked for here because the flag has to be set before
+##'   the run that fills it, and this function is where that run happens. With
+##'   \code{refine_schedule = TRUE} the refinement's own runs do not keep them;
+##'   only the final run does.
 ##' @param collect Should tidied results be collected at every step and
 ##'   returned (instead of the \code{SCM} object)?
 ##' @param use_ode_times Should ODE times be used?
@@ -71,6 +78,7 @@ scm_base_parameters <- function(type = NA, env = environment_type(type)) {
 run_scm <- function(p, env = NULL,
                     ctrl = control(),
                     refine_schedule = FALSE, collect = FALSE,
+                    record_trajectory = FALSE,
                     use_ode_times = FALSE, ode_step_sizes = NULL) {
 
   types <- extract_RcppR6_template_types(p, "Parameters")
@@ -93,8 +101,15 @@ run_scm <- function(p, env = NULL,
   }
 
   if (refine_schedule) {
+    # Refinement's runs are bisected against and discarded, so they keep no
+    # states; the run a sweep walks is one more, after the schedule settles.
     scm$refine_schedule()
+    if (record_trajectory) {
+      scm$record_trajectory <- TRUE
+      scm$run()
+    }
   } else {
+    scm$record_trajectory <- record_trajectory
     scm$run()
   }
 

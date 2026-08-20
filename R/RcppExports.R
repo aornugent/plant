@@ -2193,8 +2193,8 @@ Patch___FF16__FF16_Env__ctor <- function(parameters, environment, control) {
     .Call('_plant_Patch___FF16__FF16_Env__ctor', PACKAGE = 'plant', parameters, environment, control)
 }
 
-Patch___FF16__FF16_Env__introduce_new_node <- function(obj_, species_index) {
-    invisible(.Call('_plant_Patch___FF16__FF16_Env__introduce_new_node', PACKAGE = 'plant', obj_, species_index))
+Patch___FF16__FF16_Env__introduce_new_node <- function(obj_, species_index, time) {
+    invisible(.Call('_plant_Patch___FF16__FF16_Env__introduce_new_node', PACKAGE = 'plant', obj_, species_index, time))
 }
 
 Patch___FF16__FF16_Env__compute_environment <- function(obj_) {
@@ -2313,8 +2313,8 @@ Patch___TF24__TF24_Env__ctor <- function(parameters, environment, control) {
     .Call('_plant_Patch___TF24__TF24_Env__ctor', PACKAGE = 'plant', parameters, environment, control)
 }
 
-Patch___TF24__TF24_Env__introduce_new_node <- function(obj_, species_index) {
-    invisible(.Call('_plant_Patch___TF24__TF24_Env__introduce_new_node', PACKAGE = 'plant', obj_, species_index))
+Patch___TF24__TF24_Env__introduce_new_node <- function(obj_, species_index, time) {
+    invisible(.Call('_plant_Patch___TF24__TF24_Env__introduce_new_node', PACKAGE = 'plant', obj_, species_index, time))
 }
 
 Patch___TF24__TF24_Env__compute_environment <- function(obj_) {
@@ -2433,8 +2433,8 @@ Patch___TF24f__TF24_Env__ctor <- function(parameters, environment, control) {
     .Call('_plant_Patch___TF24f__TF24_Env__ctor', PACKAGE = 'plant', parameters, environment, control)
 }
 
-Patch___TF24f__TF24_Env__introduce_new_node <- function(obj_, species_index) {
-    invisible(.Call('_plant_Patch___TF24f__TF24_Env__introduce_new_node', PACKAGE = 'plant', obj_, species_index))
+Patch___TF24f__TF24_Env__introduce_new_node <- function(obj_, species_index, time) {
+    invisible(.Call('_plant_Patch___TF24f__TF24_Env__introduce_new_node', PACKAGE = 'plant', obj_, species_index, time))
 }
 
 Patch___TF24f__TF24_Env__compute_environment <- function(obj_) {
@@ -2553,8 +2553,8 @@ Patch___K93__K93_Env__ctor <- function(parameters, environment, control) {
     .Call('_plant_Patch___K93__K93_Env__ctor', PACKAGE = 'plant', parameters, environment, control)
 }
 
-Patch___K93__K93_Env__introduce_new_node <- function(obj_, species_index) {
-    invisible(.Call('_plant_Patch___K93__K93_Env__introduce_new_node', PACKAGE = 'plant', obj_, species_index))
+Patch___K93__K93_Env__introduce_new_node <- function(obj_, species_index, time) {
+    invisible(.Call('_plant_Patch___K93__K93_Env__introduce_new_node', PACKAGE = 'plant', obj_, species_index, time))
 }
 
 Patch___K93__K93_Env__compute_environment <- function(obj_) {

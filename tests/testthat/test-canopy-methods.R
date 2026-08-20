@@ -414,7 +414,7 @@ slope_patch <- function(eta, n = 6) {
                                       patch_type = "meta-population")
   patch <- Patch("FF16", "FF16_Env")(p, Environment("FF16"), Control())
   for (i in seq_len(n)) {
-    patch$introduce_new_node(1)
+    patch$introduce_new_node(1, i * 1.0)
     y <- patch$ode_state
     y[1] <- y[1] + 0.7 * i
     patch$set_ode_state(y, i * 1.0)
@@ -466,7 +466,7 @@ test_that("the fused value tracks the association the value reduction uses", {
   patch <- Patch("FF16", "FF16_Env")(p, Environment("FF16"), Control())
   n1 <- Node("FF16", "FF16_Env")(p$strategies[[1]])$ode_size
   for (i in 1:5) {
-    for (k in 1:3) patch$introduce_new_node(k)
+    for (k in 1:3) patch$introduce_new_node(k, i * 1.0)
     y <- patch$ode_state
     y[1]          <- y[1] + 0.70 * i
     y[1 + n1]     <- y[1 + n1] + 0.31 * i
@@ -505,6 +505,6 @@ test_that("the vertical slope is refused for the hard-step shading model", {
     patch <- Patch("FF16", "FF16_Env")(p, Environment("FF16"), ctrl)
     # Introducing a node builds the light field, and the field now asks for a
     # slope at every knot, so the refusal arrives at the introduction.
-    expect_error(patch$introduce_new_node(1), "no vertical slope")
+    expect_error(patch$introduce_new_node(1, 0), "no vertical slope")
   }
 })

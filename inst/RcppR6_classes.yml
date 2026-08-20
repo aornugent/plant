@@ -701,7 +701,7 @@ Patch:
   methods:
     introduce_new_node:
       return_type: void
-      args: [species_index: "plant::util::index"]
+      args: [species_index: "plant::util::index", time: double]
       name_cpp: r_introduce_new_node
     compute_environment:
       return_type: void

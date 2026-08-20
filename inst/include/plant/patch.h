@@ -124,27 +124,31 @@ public:
   // species. An all-NA node yields -Inf. Drives schedule refinement.
   std::vector<std::vector<double>> refinement_error_by_node() const;
 
-  void introduce_new_node(size_t species_index);
-
   // One entry per species gaining a node. This is what the solver carries back to
   // the patch when it walks a recording it widened, and it never reads it.
   using widening = std::vector<size_t>;
 
-  // Widen the state by one node per species named, and bring what the width
-  // changed up to date: the field, and the rates that describe neither once it
-  // moves. narrow() is the exact inverse, dropping each species' NEWEST node --
-  // so a sequence of widenings must be undone in reverse, which nothing in the
-  // signature can say and only a round trip can check.
-  void widen(const widening& species_index);
-  void narrow(const widening& species_index);
+  // The one insertion. One node per species named, stamped with the time it is
+  // introduced at -- the time is an argument because it is the schedule's, and a
+  // patch that reads it off its own clock inserts whatever the last load left
+  // there. Brings the field and the rates up to date, because a node changes both.
+  void introduce_nodes(const widening& species_index, double time);
 
-  // The widening as a map: the state before it in, the whole widened state out,
+  // One species, for a caller building a patch by hand. The time is an argument
+  // for the same reason: routed through the clock instead, every node of a
+  // species shares a date and the grid the birth-date coordinate integrates over
+  // is tied.
+  void r_introduce_new_node(util::index species_index, double time) {
+    introduce_nodes(widening{species_index.check_bounds(size())}, time);
+  }
+
+  // The insertion as a map: the state before it in, the whole widened state out,
   // and nothing rebuilt. This is the one the sweep transposes, so it runs at
   // whatever scalar it is called on and loads the state itself rather than
   // asking the caller to. It leaves this patch holding what it added.
-  template <typename It>
-  void widened_state(const widening& species_index, double time, It x,
-                     std::vector<value_type>& y);
+  template <typename Widening, typename It>
+  void widened_state(const odelia::ode::recorded_insertion<Widening>& insertion,
+                     It x, std::vector<value_type>& y);
 
   // Open to better ways to test whether nodes have been introduced
   int node_ode_size() const {
@@ -236,6 +240,23 @@ public:
   // linearises a boundary node the trajectory never carried.
   template <typename It> It set_recorded_state(It it, double time);
 
+  // The same, at the node structure the record describes: whatever the patch was
+  // seeded with, plus one node per species named by each of the first `applied`
+  // insertions, each stamped with the recorded time it was inserted at.
+  //
+  // A reconciliation rather than a sequence of insertions and removals, so it is
+  // idempotent: being at a recorded step twice is being there once, and a walk
+  // can be run again over a recording it has already walked. Every node the
+  // structure gains carries three numbers that are not ODE state -- its birth
+  // date, and the patch density and survival there -- and all three are functions
+  // of the time it was inserted at, which is why the record needs to hold only
+  // WHICH species gained a node after which step.
+  template <typename Widening>
+  void set_recorded_state(
+      const std::vector<value_type>& y, double time,
+      const std::vector<odelia::ode::recorded_insertion<Widening>>& insertions,
+      size_t applied);
+
   // The inflow condition alone, in the field as it now stands. Public because the
   // two evaluations above have to be taken one at a time to be told apart.
   void compute_boundary_nodes();
@@ -268,9 +289,6 @@ public:
                    const std::vector<double>& state,
                    const std::vector<size_t>& n,
                    const std::vector<double>& light_availability);
-  void r_introduce_new_node(util::index species_index) {
-    introduce_new_node(species_index.check_bounds(size()));
-  }
   species_type r_at(util::index species_index) const {
     return species[species_index.check_bounds(size())];
   }
@@ -321,6 +339,11 @@ private:
   // silently out of the integral. Reached by a schedule carrying a repeated time
   // and by a patch whose nodes were seeded or imported without per-node times.
   void check_birth_dates_distinct() const;
+
+  // One node per species named, stamped from the time alone. The insertion and
+  // the reconciling loader share it, so a node the run made and a node a walk
+  // rebuilt are stamped by the same expression.
+  void push_nodes(const widening& species_index, double time);
 
   parameters_type parameters;
 
@@ -1003,22 +1026,8 @@ void Patch<T,E>::compute_rates() {
 // seedling's height change. The knot fractions are fixed, so a narrower rebuild
 // would write a subrange of the same positions.
 template <typename T, typename E>
-void Patch<T,E>::introduce_new_node(size_t species_index) {
-  
-  species[species_index].introduce_new_node();
-
-  compute_environment(false);
-}
-
-template <typename T, typename E>
-void Patch<T,E>::widen(const widening& species_index) {
-  // Record introduction time and patch-age density on each node as it is
-  // introduced, so lifetime-fitness calcs need not look these up later.
-  const double t = time();
-  const double patch_density = survival_weighting->density(t);
-  for (size_t i : species_index) {
-    species[i].introduce_new_node(t, patch_density);
-  }
+void Patch<T,E>::introduce_nodes(const widening& species_index, double time) {
+  push_nodes(species_index, time);
 
   // A schedule carrying the same time twice for one species stamps two nodes
   // with it, and the grid both reductions integrate over is those times.
@@ -1032,13 +1041,21 @@ void Patch<T,E>::widen(const widening& species_index) {
   compute_rates();
 }
 
+// The three numbers a node carries that the ODE state does not: its birth date,
+// and the patch density and survival there. All three are functions of the time
+// it is introduced at, which is what lets a record hold only the time.
 template <typename T, typename E>
-void Patch<T,E>::narrow(const widening& species_index) {
+void Patch<T,E>::push_nodes(const widening& species_index, double time) {
+  const double patch_density = survival_weighting->density(time);
+  const double pr_survival = survival_weighting->pr_survival(time);
   for (size_t i : species_index) {
-    species[i].remove_newest_node();
+    if (i >= species.size()) {
+      util::stop("introduce_nodes: species " +
+                 util::to_string(static_cast<int>(i)) + " of a patch holding " +
+                 util::to_string(static_cast<int>(species.size())));
+    }
+    species[i].introduce_new_node(time, patch_density, pr_survival);
   }
-  compute_environment(false);
-  compute_rates();
 }
 
 
@@ -1258,15 +1275,65 @@ Patch<T,E>::trait_adjoint_zero_classes() const {
 }
 
 template <typename T, typename E>
-template <typename It>
-void Patch<T,E>::widened_state(const widening& species_index, double time, It x,
-                               std::vector<value_type>& y) {
-  set_recorded_state(x, time);
-  for (size_t i : species_index) {
-    species[i].introduce_new_node();
+template <typename Widening, typename It>
+void Patch<T,E>::widened_state(
+    const odelia::ode::recorded_insertion<Widening>& insertion, It x,
+    std::vector<value_type>& y) {
+  set_recorded_state(x, insertion.time);
+  push_nodes(insertion.what, insertion.time);
+  y.assign(ode_size(), value_type(0.0));
+  ode_state(y.begin());
+}
+
+template <typename T, typename E>
+template <typename Widening>
+void Patch<T,E>::set_recorded_state(
+    const std::vector<value_type>& y, double time,
+    const std::vector<odelia::ode::recorded_insertion<Widening>>& insertions,
+    size_t applied) {
+  // What the patch was seeded with is the structure no insertion accounts for;
+  // everything above it is one node per species named by the insertions so far.
+  const size_t n_species = species.size();
+  const bool seeded = !parameters.initial_state.empty();
+  std::vector<std::vector<double>> when(n_species);
+  for (size_t j = 0; j < applied; ++j) {
+    for (size_t i : insertions.at(j).what) {
+      if (i >= n_species) {
+        util::stop("set_recorded_state: insertion " +
+                   util::to_string(static_cast<int>(j)) + " names species " +
+                   util::to_string(static_cast<int>(i)) +
+                   " of a patch holding " +
+                   util::to_string(static_cast<int>(n_species)));
+      }
+      when[i].push_back(insertions[j].time);
+    }
+  }
+
+  bool moved = false;
+  for (size_t i = 0; i < n_species; ++i) {
+    const size_t base = seeded ? parameters.n_initial_cohorts.at(i) : 0;
+    const size_t target = base + when[i].size();
+    while (species[i].size() > target) {
+      species[i].remove_newest_node();
+      moved = true;
+    }
+    if (species[i].size() < target) {
+      // The values a pushed node carries are the state's and arrive with the
+      // load below; only its stamps are its own, and those are set here.
+      widening one{i};
+      while (species[i].size() < target) {
+        push_nodes(one, when[i][species[i].size() - base]);
+        moved = true;
+      }
+    }
+  }
+  if (moved) {
+    check_birth_dates_distinct();
+    compute_environment(false);
+    compute_rates();
   }
   util::check_length(y.size(), ode_size());
-  ode_state(y.begin());
+  set_recorded_state(y.begin(), time);
 }
 
 // One tangent seed per input column, over the same map. The node the map pushes is
@@ -1306,7 +1373,9 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
     }
     util::check_length(at, x.size());
     std::vector<tangent> y(n_out);
-    active.widened_state(species_index, time_before, x.begin(), y);
+    active.widened_state(
+        odelia::ode::recorded_insertion<widening>{species_index, 0, time_before},
+        x.begin(), y);
     for (size_t r = 0; r < n_out; ++r) {
       ret[r][c] = xad::derivative(y[r]);
     }

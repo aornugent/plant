@@ -109,7 +109,10 @@ public:
   void introduce_new_node();
   // Introduce a node, stamping it with the introduction time and patch-age
   // density at birth (called by Patch, which knows the time and disturbance).
-  void introduce_new_node(double time, double patch_density);
+  // The canonical insertion: a node carries three numbers the ODE state does not,
+  // and all three are set here so no caller can push a node missing one.
+  void introduce_new_node(double time, double patch_density,
+                          double pr_patch_survival);
   // Drop the node introduce_new_node pushed last, which is the newest: the width
   // a reverse sweep needs before an introduction.
   void remove_newest_node();
@@ -705,12 +708,13 @@ Species<T,E>::growth_rate_gradient(std::size_t i) const {
 }
 
 template <typename T, typename E>
-void Species<T,E>::introduce_new_node(double time, double patch_density) {
+void Species<T,E>::introduce_new_node(double time, double patch_density,
+                                      double pr_patch_survival) {
   invalidate_height_scan();
   // Stamp the pushed copy (not new_node) so the member stays pristine for
   // the no-arg introduction paths.
   nodes.push_back(new_node);
-  nodes.back().set_introduction(time, patch_density);
+  nodes.back().set_birth_state(time, patch_density, pr_patch_survival);
 }
 
 template <typename T, typename E>
