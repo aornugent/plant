@@ -448,9 +448,20 @@ test_that("the census's sensitivity to a segment's starting state is refereed", 
 
   # The replay has to reach the same census the tangent reports, or the two are
   # differentiating different functions.
+  #
+  # ⚠️ THE BUDGET IS 1e-9 AND IT IS THE SAME CLAIM THIS FILE MAKES ONE TEST ABOVE,
+  # where it reads 9.78e-13 against 1e-9. It was 1e-12 here, fitted to a reading of
+  # 1.24e-15, and that reading was luck rather than a property: the two routes are
+  # one function at two scalars, so with a zero seed they differ only by whatever a
+  # nested root-find's iterate count does with a 1e-16 input difference -- which
+  # nothing on either route controls, and which reshuffles whenever the curve the
+  # find walks changes shape. Measured on that curve's two forms: 1.24e-15 with the
+  # conductivity on its own table, 4.4e-13 with it read as the integral's slope,
+  # 1.36e-12 with the integral read as a quintic. The tangent-against-difference
+  # checks below -- which are what this file is for -- are unmoved by all three.
   replayed <- ladder_census_initial_state_replay_tf24(stand, base, 0L)
   ladder_report_margin("the initial-state replay reaches the run's census",
-                       max(abs(replayed - none$value) / abs(none$value)), 1e-12)
+                       max(abs(replayed - none$value) / abs(none$value)), 1e-9)
 
   for (i in seq_along(base)) {
     d <- replace(numeric(length(base)), i, 1)
