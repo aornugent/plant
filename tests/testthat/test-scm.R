@@ -137,8 +137,7 @@ test_that("Run SCM", {
 
     ## Pull the times out of the SCM and set them in the schedule:
     sched <- scm$node_schedule
-    sched$ode_times <- scm$ode_times
-    sched$use_ode_times <- TRUE
+    sched$set_ode_steps(scm$ode_times, scm$ode_step_sizes)
     scm$reset() # must reset
     scm$node_schedule <- sched
 
@@ -178,11 +177,8 @@ test_that("A pinned replay of a run's own steps reproduces it", {
       scm <- SCM(x, environment_types[[x]])(p, env, Control())
       sched <- scm$node_schedule
       sched$all_times <- free$node_schedule$all_times
-      sched$ode_times <- free$ode_times
-      if (with_sizes) {
-        sched$ode_step_sizes <- free$ode_step_sizes
-      }
-      sched$use_ode_times <- TRUE
+      sched$set_ode_steps(free$ode_times,
+                          if (with_sizes) free$ode_step_sizes else numeric(0))
       scm$node_schedule <- sched
       scm$run()
       scm
@@ -201,24 +197,38 @@ test_that("A pinned replay of a run's own steps reproduces it", {
   }
 })
 
-test_that("ode_step_sizes must match the times they were recorded with", {
+test_that("an ODE schedule is installed whole or refused", {
   p <- scm_base_parameters("FF16")
   p <- add_strategies(p, trait_matrix(0.0825, "lma"))
   scm <- SCM("FF16", "FF16_Env")(p, Environment("FF16"), Control())
   scm$run()
   sched <- scm$node_schedule
-  expect_error(sched$ode_step_sizes <- scm$ode_step_sizes,
-               "Set ode_times before ode_step_sizes")
-  sched$ode_times <- scm$ode_times
-  expect_error(sched$ode_step_sizes <- scm$ode_step_sizes[-1],
+
+  ## The times and the sizes are two halves of one schedule, so they go in
+  ## together: there is no setter that takes one and keeps the other, and so no
+  ## way to end up holding a size recorded against a different time.
+  expect_error(sched$ode_step_sizes <- scm$ode_step_sizes, "read-only")
+  expect_error(sched$ode_times <- scm$ode_times, "read-only")
+
+  expect_error(sched$set_ode_steps(scm$ode_times, scm$ode_step_sizes[-1]),
                "same length as ode_times")
-  expect_error(sched$ode_step_sizes <- c(0, scm$ode_step_sizes[-1]),
+  expect_error(sched$set_ode_steps(scm$ode_times, c(0, scm$ode_step_sizes[-1])),
                "First step size must be NaN")
-  sched$ode_step_sizes <- scm$ode_step_sizes
+
+  sched$set_ode_steps(scm$ode_times, scm$ode_step_sizes)
+  expect_true(sched$using_ode_steps)
+  expect_identical(sched$ode_times, scm$ode_times)
   expect_identical(sched$ode_step_sizes, scm$ode_step_sizes)
-  ## The sizes belong to those times, so replacing the times drops them.
-  sched$ode_times <- scm$ode_times
-  expect_identical(sched$ode_step_sizes, numeric(0))
+
+  ## Times with no sizes is a grid to stop at rather than a run to replay, and a
+  ## schedule holding either uses it.
+  sched$set_ode_steps(scm$ode_times, numeric(0))
+  expect_true(sched$using_ode_steps)
+  expect_true(all(is.na(sched$ode_step_sizes)))
+
+  sched$clear_ode_steps()
+  expect_false(sched$using_ode_steps)
+  expect_identical(sched$ode_times, numeric(0))
 })
 
 test_that("schedule setting", {

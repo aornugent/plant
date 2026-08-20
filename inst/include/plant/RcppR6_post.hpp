@@ -562,6 +562,7 @@ template <> inline SEXP wrap(const plant::Parameters<plant::FF16_Strategy,plant:
   ret["node_schedule_times_default"] = Rcpp::wrap(x.node_schedule_times_default);
   ret["node_schedule_times"] = Rcpp::wrap(x.node_schedule_times);
   ret["ode_times"] = Rcpp::wrap(x.ode_times);
+  ret["ode_step_sizes"] = Rcpp::wrap(x.ode_step_sizes);
   ret["initial_state"] = Rcpp::wrap(x.initial_state);
   ret["n_initial_cohorts"] = Rcpp::wrap(x.n_initial_cohorts);
   ret["initial_node_times"] = Rcpp::wrap(x.initial_node_times);
@@ -598,6 +599,8 @@ template <> inline plant::Parameters<plant::FF16_Strategy,plant::FF16_Environmen
   ret.node_schedule_times = Rcpp::as<std::vector<std::vector<double> > >(xl["node_schedule_times"]);
   // ret.ode_times = Rcpp::as<decltype(retode_times) >(xl["ode_times"]);
   ret.ode_times = Rcpp::as<std::vector<double> >(xl["ode_times"]);
+  // ret.ode_step_sizes = Rcpp::as<decltype(retode_step_sizes) >(xl["ode_step_sizes"]);
+  ret.ode_step_sizes = Rcpp::as<std::vector<double> >(xl["ode_step_sizes"]);
   // ret.initial_state = Rcpp::as<decltype(retinitial_state) >(xl["initial_state"]);
   ret.initial_state = Rcpp::as<std::vector<double> >(xl["initial_state"]);
   // ret.n_initial_cohorts = Rcpp::as<decltype(retn_initial_cohorts) >(xl["n_initial_cohorts"]);
@@ -625,6 +628,7 @@ template <> inline SEXP wrap(const plant::Parameters<plant::TF24_Strategy<double
   ret["node_schedule_times_default"] = Rcpp::wrap(x.node_schedule_times_default);
   ret["node_schedule_times"] = Rcpp::wrap(x.node_schedule_times);
   ret["ode_times"] = Rcpp::wrap(x.ode_times);
+  ret["ode_step_sizes"] = Rcpp::wrap(x.ode_step_sizes);
   ret["initial_state"] = Rcpp::wrap(x.initial_state);
   ret["n_initial_cohorts"] = Rcpp::wrap(x.n_initial_cohorts);
   ret["initial_node_times"] = Rcpp::wrap(x.initial_node_times);
@@ -661,6 +665,8 @@ template <> inline plant::Parameters<plant::TF24_Strategy<double> ,plant::TF24_E
   ret.node_schedule_times = Rcpp::as<std::vector<std::vector<double> > >(xl["node_schedule_times"]);
   // ret.ode_times = Rcpp::as<decltype(retode_times) >(xl["ode_times"]);
   ret.ode_times = Rcpp::as<std::vector<double> >(xl["ode_times"]);
+  // ret.ode_step_sizes = Rcpp::as<decltype(retode_step_sizes) >(xl["ode_step_sizes"]);
+  ret.ode_step_sizes = Rcpp::as<std::vector<double> >(xl["ode_step_sizes"]);
   // ret.initial_state = Rcpp::as<decltype(retinitial_state) >(xl["initial_state"]);
   ret.initial_state = Rcpp::as<std::vector<double> >(xl["initial_state"]);
   // ret.n_initial_cohorts = Rcpp::as<decltype(retn_initial_cohorts) >(xl["n_initial_cohorts"]);
@@ -688,6 +694,7 @@ template <> inline SEXP wrap(const plant::Parameters<plant::TF24f_Strategy<doubl
   ret["node_schedule_times_default"] = Rcpp::wrap(x.node_schedule_times_default);
   ret["node_schedule_times"] = Rcpp::wrap(x.node_schedule_times);
   ret["ode_times"] = Rcpp::wrap(x.ode_times);
+  ret["ode_step_sizes"] = Rcpp::wrap(x.ode_step_sizes);
   ret["initial_state"] = Rcpp::wrap(x.initial_state);
   ret["n_initial_cohorts"] = Rcpp::wrap(x.n_initial_cohorts);
   ret["initial_node_times"] = Rcpp::wrap(x.initial_node_times);
@@ -724,6 +731,8 @@ template <> inline plant::Parameters<plant::TF24f_Strategy<double> ,plant::TF24_
   ret.node_schedule_times = Rcpp::as<std::vector<std::vector<double> > >(xl["node_schedule_times"]);
   // ret.ode_times = Rcpp::as<decltype(retode_times) >(xl["ode_times"]);
   ret.ode_times = Rcpp::as<std::vector<double> >(xl["ode_times"]);
+  // ret.ode_step_sizes = Rcpp::as<decltype(retode_step_sizes) >(xl["ode_step_sizes"]);
+  ret.ode_step_sizes = Rcpp::as<std::vector<double> >(xl["ode_step_sizes"]);
   // ret.initial_state = Rcpp::as<decltype(retinitial_state) >(xl["initial_state"]);
   ret.initial_state = Rcpp::as<std::vector<double> >(xl["initial_state"]);
   // ret.n_initial_cohorts = Rcpp::as<decltype(retn_initial_cohorts) >(xl["n_initial_cohorts"]);
@@ -751,6 +760,7 @@ template <> inline SEXP wrap(const plant::Parameters<plant::K93_Strategy,plant::
   ret["node_schedule_times_default"] = Rcpp::wrap(x.node_schedule_times_default);
   ret["node_schedule_times"] = Rcpp::wrap(x.node_schedule_times);
   ret["ode_times"] = Rcpp::wrap(x.ode_times);
+  ret["ode_step_sizes"] = Rcpp::wrap(x.ode_step_sizes);
   ret["initial_state"] = Rcpp::wrap(x.initial_state);
   ret["n_initial_cohorts"] = Rcpp::wrap(x.n_initial_cohorts);
   ret["initial_node_times"] = Rcpp::wrap(x.initial_node_times);
@@ -787,6 +797,8 @@ template <> inline plant::Parameters<plant::K93_Strategy,plant::K93_Environment>
   ret.node_schedule_times = Rcpp::as<std::vector<std::vector<double> > >(xl["node_schedule_times"]);
   // ret.ode_times = Rcpp::as<decltype(retode_times) >(xl["ode_times"]);
   ret.ode_times = Rcpp::as<std::vector<double> >(xl["ode_times"]);
+  // ret.ode_step_sizes = Rcpp::as<decltype(retode_step_sizes) >(xl["ode_step_sizes"]);
+  ret.ode_step_sizes = Rcpp::as<std::vector<double> >(xl["ode_step_sizes"]);
   // ret.initial_state = Rcpp::as<decltype(retinitial_state) >(xl["initial_state"]);
   ret.initial_state = Rcpp::as<std::vector<double> >(xl["initial_state"]);
   // ret.n_initial_cohorts = Rcpp::as<decltype(retn_initial_cohorts) >(xl["n_initial_cohorts"]);

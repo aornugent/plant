@@ -68,9 +68,9 @@ test_that("fixed_time_step is rejected on the mutant-replay paths", {
   p <- add_strategies(p0, trait_matrix(0.08, "lma"), birth_rate = 1.0)
   env <- Environment(x)
 
-  ## Pinned ode-time replay (use_ode_times) is refused mid-run.
+  ## A pinned ODE schedule is refused with forward Euler.
   p$ode_times <- run_scm(p, env, Control())$ode_times
   expect_error(
-    run_scm(p, env, Control(fixed_time_step = 0.5), use_ode_times = TRUE),
-    "not supported for ode-time replay")
+    run_scm(p, env, Control(fixed_time_step = 0.5)),
+    "not supported for a pinned ODE schedule")
 })

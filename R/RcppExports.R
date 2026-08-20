@@ -789,8 +789,12 @@ NodeSchedule__clear_times <- function(obj_, species_index) {
     invisible(.Call('_plant_NodeSchedule__clear_times', PACKAGE = 'plant', obj_, species_index))
 }
 
-NodeSchedule__clear_ode_times <- function(obj_) {
-    invisible(.Call('_plant_NodeSchedule__clear_ode_times', PACKAGE = 'plant', obj_))
+NodeSchedule__set_ode_steps <- function(obj_, times, sizes) {
+    invisible(.Call('_plant_NodeSchedule__set_ode_steps', PACKAGE = 'plant', obj_, times, sizes))
+}
+
+NodeSchedule__clear_ode_steps <- function(obj_) {
+    invisible(.Call('_plant_NodeSchedule__clear_ode_steps', PACKAGE = 'plant', obj_))
 }
 
 NodeSchedule__set_times <- function(obj_, times, species_index) {
@@ -841,24 +845,12 @@ NodeSchedule__ode_times__get <- function(obj_) {
     .Call('_plant_NodeSchedule__ode_times__get', PACKAGE = 'plant', obj_)
 }
 
-NodeSchedule__ode_times__set <- function(obj_, value) {
-    invisible(.Call('_plant_NodeSchedule__ode_times__set', PACKAGE = 'plant', obj_, value))
-}
-
 NodeSchedule__ode_step_sizes__get <- function(obj_) {
     .Call('_plant_NodeSchedule__ode_step_sizes__get', PACKAGE = 'plant', obj_)
 }
 
-NodeSchedule__ode_step_sizes__set <- function(obj_, value) {
-    invisible(.Call('_plant_NodeSchedule__ode_step_sizes__set', PACKAGE = 'plant', obj_, value))
-}
-
-NodeSchedule__use_ode_times__get <- function(obj_) {
-    .Call('_plant_NodeSchedule__use_ode_times__get', PACKAGE = 'plant', obj_)
-}
-
-NodeSchedule__use_ode_times__set <- function(obj_, value) {
-    invisible(.Call('_plant_NodeSchedule__use_ode_times__set', PACKAGE = 'plant', obj_, value))
+NodeSchedule__using_ode_steps__get <- function(obj_) {
+    .Call('_plant_NodeSchedule__using_ode_steps__get', PACKAGE = 'plant', obj_)
 }
 
 NodeSchedule__all_times__get <- function(obj_) {

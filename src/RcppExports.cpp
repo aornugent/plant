@@ -2243,13 +2243,25 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
-// NodeSchedule__clear_ode_times
-void NodeSchedule__clear_ode_times(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_);
-RcppExport SEXP _plant_NodeSchedule__clear_ode_times(SEXP obj_SEXP) {
+// NodeSchedule__set_ode_steps
+void NodeSchedule__set_ode_steps(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_, std::vector<double> times, std::vector<double> sizes);
+RcppExport SEXP _plant_NodeSchedule__set_ode_steps(SEXP obj_SEXP, SEXP timesSEXP, SEXP sizesSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::NodeSchedule> >::type obj_(obj_SEXP);
-    NodeSchedule__clear_ode_times(obj_);
+    Rcpp::traits::input_parameter< std::vector<double> >::type times(timesSEXP);
+    Rcpp::traits::input_parameter< std::vector<double> >::type sizes(sizesSEXP);
+    NodeSchedule__set_ode_steps(obj_, times, sizes);
+    return R_NilValue;
+END_RCPP
+}
+// NodeSchedule__clear_ode_steps
+void NodeSchedule__clear_ode_steps(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_);
+RcppExport SEXP _plant_NodeSchedule__clear_ode_steps(SEXP obj_SEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::NodeSchedule> >::type obj_(obj_SEXP);
+    NodeSchedule__clear_ode_steps(obj_);
     return R_NilValue;
 END_RCPP
 }
@@ -2385,17 +2397,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// NodeSchedule__ode_times__set
-void NodeSchedule__ode_times__set(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_, std::vector<double> value);
-RcppExport SEXP _plant_NodeSchedule__ode_times__set(SEXP obj_SEXP, SEXP valueSEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::NodeSchedule> >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< std::vector<double> >::type value(valueSEXP);
-    NodeSchedule__ode_times__set(obj_, value);
-    return R_NilValue;
-END_RCPP
-}
 // NodeSchedule__ode_step_sizes__get
 std::vector<double> NodeSchedule__ode_step_sizes__get(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_);
 RcppExport SEXP _plant_NodeSchedule__ode_step_sizes__get(SEXP obj_SEXP) {
@@ -2407,37 +2408,15 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// NodeSchedule__ode_step_sizes__set
-void NodeSchedule__ode_step_sizes__set(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_, std::vector<double> value);
-RcppExport SEXP _plant_NodeSchedule__ode_step_sizes__set(SEXP obj_SEXP, SEXP valueSEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::NodeSchedule> >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< std::vector<double> >::type value(valueSEXP);
-    NodeSchedule__ode_step_sizes__set(obj_, value);
-    return R_NilValue;
-END_RCPP
-}
-// NodeSchedule__use_ode_times__get
-bool NodeSchedule__use_ode_times__get(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_);
-RcppExport SEXP _plant_NodeSchedule__use_ode_times__get(SEXP obj_SEXP) {
+// NodeSchedule__using_ode_steps__get
+bool NodeSchedule__using_ode_steps__get(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_);
+RcppExport SEXP _plant_NodeSchedule__using_ode_steps__get(SEXP obj_SEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::NodeSchedule> >::type obj_(obj_SEXP);
-    rcpp_result_gen = Rcpp::wrap(NodeSchedule__use_ode_times__get(obj_));
+    rcpp_result_gen = Rcpp::wrap(NodeSchedule__using_ode_steps__get(obj_));
     return rcpp_result_gen;
-END_RCPP
-}
-// NodeSchedule__use_ode_times__set
-void NodeSchedule__use_ode_times__set(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_, bool value);
-RcppExport SEXP _plant_NodeSchedule__use_ode_times__set(SEXP obj_SEXP, SEXP valueSEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::NodeSchedule> >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< bool >::type value(valueSEXP);
-    NodeSchedule__use_ode_times__set(obj_, value);
-    return R_NilValue;
 END_RCPP
 }
 // NodeSchedule__all_times__get
@@ -13392,7 +13371,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_NodeSchedule__ctor", (DL_FUNC) &_plant_NodeSchedule__ctor, 1},
     {"_plant_NodeSchedule__expand", (DL_FUNC) &_plant_NodeSchedule__expand, 3},
     {"_plant_NodeSchedule__clear_times", (DL_FUNC) &_plant_NodeSchedule__clear_times, 2},
-    {"_plant_NodeSchedule__clear_ode_times", (DL_FUNC) &_plant_NodeSchedule__clear_ode_times, 1},
+    {"_plant_NodeSchedule__set_ode_steps", (DL_FUNC) &_plant_NodeSchedule__set_ode_steps, 3},
+    {"_plant_NodeSchedule__clear_ode_steps", (DL_FUNC) &_plant_NodeSchedule__clear_ode_steps, 1},
     {"_plant_NodeSchedule__set_times", (DL_FUNC) &_plant_NodeSchedule__set_times, 3},
     {"_plant_NodeSchedule__times", (DL_FUNC) &_plant_NodeSchedule__times, 2},
     {"_plant_NodeSchedule__reset", (DL_FUNC) &_plant_NodeSchedule__reset, 1},
@@ -13405,11 +13385,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_NodeSchedule__max_time__get", (DL_FUNC) &_plant_NodeSchedule__max_time__get, 1},
     {"_plant_NodeSchedule__max_time__set", (DL_FUNC) &_plant_NodeSchedule__max_time__set, 2},
     {"_plant_NodeSchedule__ode_times__get", (DL_FUNC) &_plant_NodeSchedule__ode_times__get, 1},
-    {"_plant_NodeSchedule__ode_times__set", (DL_FUNC) &_plant_NodeSchedule__ode_times__set, 2},
     {"_plant_NodeSchedule__ode_step_sizes__get", (DL_FUNC) &_plant_NodeSchedule__ode_step_sizes__get, 1},
-    {"_plant_NodeSchedule__ode_step_sizes__set", (DL_FUNC) &_plant_NodeSchedule__ode_step_sizes__set, 2},
-    {"_plant_NodeSchedule__use_ode_times__get", (DL_FUNC) &_plant_NodeSchedule__use_ode_times__get, 1},
-    {"_plant_NodeSchedule__use_ode_times__set", (DL_FUNC) &_plant_NodeSchedule__use_ode_times__set, 2},
+    {"_plant_NodeSchedule__using_ode_steps__get", (DL_FUNC) &_plant_NodeSchedule__using_ode_steps__get, 1},
     {"_plant_NodeSchedule__all_times__get", (DL_FUNC) &_plant_NodeSchedule__all_times__get, 1},
     {"_plant_NodeSchedule__all_times__set", (DL_FUNC) &_plant_NodeSchedule__all_times__set, 2},
     {"_plant_Control__ctor", (DL_FUNC) &_plant_Control__ctor, 0},

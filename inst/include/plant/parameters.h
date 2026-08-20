@@ -60,6 +60,11 @@ struct Parameters {
   std::vector<double> node_schedule_times_default;
   std::vector<std::vector<double> > node_schedule_times;
   std::vector<double> ode_times;
+  // The size of the step that reached each of ode_times, NaN first. Recorded
+  // beside the times because a schedule replayed by times alone takes different
+  // steps: a size differenced back out of two recorded times is not the size
+  // that was taken. A run carrying both replays itself exactly.
+  std::vector<double> ode_step_sizes;
 
   // Initial patch state. When initial_state is non-empty the patch is seeded
   // with these nodes at reset() instead of starting empty -- used to resume an

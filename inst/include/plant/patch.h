@@ -423,6 +423,7 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
   p2.node_schedule_times_default = parameters.node_schedule_times_default;
   p2.node_schedule_times = parameters.node_schedule_times;
   p2.ode_times = parameters.ode_times;
+  p2.ode_step_sizes = parameters.ode_step_sizes;
   p2.initial_time = parameters.initial_time;
   p2.strategy_default = parameters.strategy_default.template rebind_from<U>();
 

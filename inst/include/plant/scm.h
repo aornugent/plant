@@ -528,9 +528,9 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
   // below is unchanged. The next call will then introduce at e's time.
   if (e.time_introduction() > t0) {
     solver.set_state_from_system();
-    if (node_schedule.using_ode_times()) {
+    if (node_schedule.using_ode_steps()) {
       util::stop("Resuming from an initial state is not supported for "
-                 "ode-time replay / mutant runs");
+                 "replaying a recorded run");
     } else if (control.fixed_time_step > 0.0) {
       solver.advance_euler(
           uniform_euler_times(t0, e.time_introduction(), control.fixed_time_step));
@@ -574,23 +574,30 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
   //  - fixed-step forward Euler (control.fixed_time_step > 0): walk a uniform
   //    sub-grid between this event and the next introduction;
   //  - otherwise: adaptive, error-controlled RKCK to the next event time.
-  if (node_schedule.using_ode_times()) {
+  if (node_schedule.using_ode_steps()) {
     if (control.fixed_time_step > 0.0) {
-      // The mutant replay path relies on the RK sub-step environment cache,
-      // which forward Euler does not populate. Refuse rather than mis-integrate.
-      util::stop("fixed_time_step (forward Euler) is not supported for "
-                 "ode-time replay / mutant runs");
+      // The replay relies on the RK sub-step environment cache, which forward
+      // Euler does not populate. Refuse rather than mis-integrate.
+      util::stop("fixed_time_step (forward Euler) is not supported for a pinned "
+                 "ODE schedule");
     }
-    if (e.step_sizes.empty()) {
-      solver.advance_fixed(e.times);
-    } else {
-      // fl(fl(t + h) - t) != h, so a size differenced back out of the recorded
-      // times is not the size that was taken; step by the recorded sizes and
-      // difference only the last step, which is where the free run itself
-      // landed on the interval end rather than accumulating.
-      solver.advance_fixed_steps(e.step_sizes);
-      solver.advance_fixed({solver.time(), e.times.back()});
+    // Each recorded step carries the size it took and the time it reached, so a
+    // replay lands where the run landed rather than a rounding short of it.
+    // Stepping to the times instead would take different steps, because a size
+    // differenced back out of two recorded times is not the size that was taken.
+    //
+    // A size is NaN where the schedule is a grid rather than a recording, and
+    // the step is taken TO that time instead. The schedule holds no step at an
+    // interval's own end -- a run stops there by clamping its last step to the
+    // boundary, and the step below does the same arithmetic.
+    // An interval with no step inside it is one the schedule crosses in a single
+    // step, so there is nothing to replay before the step to its end. Deciding
+    // that per interval rather than per schedule is what silently integrated
+    // those intervals adaptively.
+    if (!e.steps.empty()) {
+      solver.advance_recorded(e.steps);
     }
+    solver.advance_fixed({solver.time(), e.times.back()});
   } else if (control.fixed_time_step > 0.0) {
     solver.advance_euler(
         uniform_euler_times(t0, e.time_end(), control.fixed_time_step));
@@ -702,6 +709,7 @@ void SCM<T, E>::refine_schedule() {
   // ode times from the final run (mirrors build_schedule.R).
   parameters.node_schedule_times = node_schedule.get_times();
   parameters.ode_times = r_ode_times();
+  parameters.ode_step_sizes = solver.step_sizes();
 }
 
 // NOTE: solver.reset() sets the solver's internal time to zero. There is
@@ -1245,12 +1253,12 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   forward.set_collect(false);
   forward.set_state_from_system();
 
-  std::vector<double> sizes;
-  sizes.reserve(trajectory.size());
+  std::vector<odelia::ode::recorded_step> steps;
+  steps.reserve(trajectory.size());
   for (const ode_step_record& record : trajectory) {
-    sizes.push_back(record.step_size);
+    steps.push_back({record.time, record.step_size});
   }
-  odelia::ode::advance_over_widenings(forward, insertions, sizes, 0, 0);
+  odelia::ode::advance_over_widenings(forward, insertions, steps, 0, 0);
 
   // Leave the double system where the run left it, so this call is repeatable
   // beside the sweep that shares its trajectory.
@@ -1321,12 +1329,12 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   forward.set_collect(false);
   forward.set_state_from_system();
 
-  std::vector<double> sizes;
-  sizes.reserve(trajectory.size());
+  std::vector<odelia::ode::recorded_step> steps;
+  steps.reserve(trajectory.size());
   for (const ode_step_record& record : trajectory) {
-    sizes.push_back(record.step_size);
+    steps.push_back({record.time, record.step_size});
   }
-  odelia::ode::advance_over_widenings(forward, insertions, sizes, from_segment,
+  odelia::ode::advance_over_widenings(forward, insertions, steps, from_segment,
                                      start);
 
   // Leave the double system where the run left it, so this call is repeatable

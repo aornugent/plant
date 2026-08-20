@@ -874,8 +874,12 @@ void NodeSchedule__clear_times(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_, 
   obj_->clear_times(species_index);
 }
 // [[Rcpp::export]]
-void NodeSchedule__clear_ode_times(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_) {
-  obj_->r_clear_ode_times();
+void NodeSchedule__set_ode_steps(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_, std::vector<double> times, std::vector<double> sizes) {
+  obj_->r_set_ode_steps(times, sizes);
+}
+// [[Rcpp::export]]
+void NodeSchedule__clear_ode_steps(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_) {
+  obj_->r_clear_ode_steps();
 }
 // [[Rcpp::export]]
 void NodeSchedule__set_times(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_, std::vector<double> times, plant::util::index species_index) {
@@ -930,27 +934,15 @@ void NodeSchedule__max_time__set(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_
 std::vector<double> NodeSchedule__ode_times__get(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_) {
   return obj_->r_ode_times();
 }
-// [[Rcpp::export]]
-void NodeSchedule__ode_times__set(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_, std::vector<double> value) {
-  obj_->r_set_ode_times(value);
-}
 
 // [[Rcpp::export]]
 std::vector<double> NodeSchedule__ode_step_sizes__get(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_) {
   return obj_->r_ode_step_sizes();
 }
-// [[Rcpp::export]]
-void NodeSchedule__ode_step_sizes__set(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_, std::vector<double> value) {
-  obj_->r_set_ode_step_sizes(value);
-}
 
 // [[Rcpp::export]]
-bool NodeSchedule__use_ode_times__get(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_) {
-  return obj_->using_ode_times();
-}
-// [[Rcpp::export]]
-void NodeSchedule__use_ode_times__set(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_, bool value) {
-  obj_->r_set_use_ode_times(value);
+bool NodeSchedule__using_ode_steps__get(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_) {
+  return obj_->using_ode_steps();
 }
 
 // [[Rcpp::export]]

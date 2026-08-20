@@ -9,7 +9,7 @@ drain_schedule <- function(sched) {
                   e$time_end)
     sched$pop()
   }
-  if (!sched$use_ode_times) {
+  if (!sched$using_ode_steps) {
     if (!all(sapply(cmp, length) == 5)) {
       stop("Expected exactly five elements for each schedule")
     }
@@ -45,7 +45,7 @@ test_that("Empty NodeSchedule", {
   expect_equal(sched$remaining, 0)
   expect_equal(sched$max_time, Inf)
   expect_error(sched$next_event)
-  expect_false(sched$use_ode_times)
+  expect_false(sched$using_ode_steps)
   expect_equal(sched$ode_times, numeric(0))
 })
 
@@ -81,7 +81,7 @@ test_that("Set times (one species)", {
 
   species_index <- 1
   expect_equal(sched$times(species_index), t1)
-  expect_false(sched$use_ode_times)
+  expect_false(sched$using_ode_steps)
   e <- sched$next_event
   expect_identical(e$time_introduction, t1[[1]])
   expect_equal(e$species_index, species_index)
@@ -219,19 +219,23 @@ test_that("ode_times", {
   sched$set_times(t2, 2L)
   sched$max_time <- max_t
 
-  sched$ode_times <- numeric(0)
-  expect_identical(sched$ode_times, numeric(0))
+  none <- numeric(0)
+  sched$set_ode_steps(none, none)
+  expect_identical(sched$ode_times, none)
 
   ## Too few values:
-  expect_error(sched$ode_times <- c(0.0), "Need at least two times")
+  expect_error(sched$set_ode_steps(c(0.0), none), "Need at least two times")
   ## Does not start at 0
-  expect_error(sched$ode_times <- c(1, 2, 3), "First time must be exactly zero")
+  expect_error(sched$set_ode_steps(c(1, 2, 3), none),
+               "First time must be exactly zero")
   ## Does not finish at time_max
-  expect_error(sched$ode_times <- c(0.0, 2, 3), "Last time must be exactly max_time")
+  expect_error(sched$set_ode_steps(c(0.0, 2, 3), none),
+               "Last time must be exactly max_time")
   ## Is not sorted:
-  expect_error(sched$ode_times <- sched$max_time * c(0, .5, .3, 1), "ode_times must be sorted")
+  expect_error(sched$set_ode_steps(sched$max_time * c(0, .5, .3, 1), none),
+               "ode_times must be sorted")
   ## ...and check that none of these caused the times to be set
-  expect_false(sched$use_ode_times)
+  expect_false(sched$using_ode_steps)
   expect_equal(sched$ode_times, numeric(0))
 
   ## So, now, manually get the times set up.  For a real challenge, we
@@ -257,12 +261,12 @@ test_that("ode_times", {
   sched$set_times(t1, 1L)
   sched$set_times(t2, 2L)
   sched$max_time <- max_t
-  sched$ode_times <- t_ode
-
-  expect_false(sched$use_ode_times)
+  # A grid: times with no sizes, so the solver steps to each of them. A schedule
+  # holding one uses it -- there is nothing to switch on.
+  sched$set_ode_steps(t_ode, numeric(0))
+  expect_true(sched$using_ode_steps)
   expect_identical(sched$ode_times, t_ode)
-  sched$use_ode_times <- TRUE
-  expect_true(sched$use_ode_times)
+  expect_true(all(is.na(sched$ode_step_sizes)))
 
   cmp <- drain_schedule(sched)
 
@@ -273,13 +277,13 @@ test_that("ode_times", {
   expect_equal(lapply(cmp, function(x) x[3:(length(x) - 1)]), expected_ode)
 
   ## check we can clear times:
-  sched$clear_ode_times()
-  expect_false(sched$use_ode_times)
+  sched$clear_ode_steps()
+  expect_false(sched$using_ode_steps)
   expect_equal(sched$ode_times, numeric(0))
 
   sched$max_time <- Inf
-  sched$ode_times <- t_ode
-  expect_false(sched$use_ode_times)
+  sched$set_ode_steps(t_ode, numeric(0))
+  expect_true(sched$using_ode_steps)
   expect_identical(sched$ode_times, t_ode)
   expect_identical(sched$max_time, max(t_ode))
 })

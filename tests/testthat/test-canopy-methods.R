@@ -285,8 +285,7 @@ test_that("adaptive and fixed-schedule PPA agree (well-behaved integration)", {
   ctrl <- Control(); ctrl$shading_model <- "ppa"
   adaptive <- run_scm(p1, Environment("FF16"), ctrl)$offspring_production
   pf <- p1; pf$ode_times <- seq(0, p0$max_patch_lifetime, length.out = 800)
-  fixed <- run_scm(pf, Environment("FF16"), ctrl,
-                   use_ode_times = TRUE)$offspring_production
+  fixed <- run_scm(pf, Environment("FF16"), ctrl)$offspring_production
   expect_equal(adaptive, fixed, tolerance = 1e-2)
 })
 

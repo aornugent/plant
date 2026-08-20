@@ -4,6 +4,7 @@
 
 #include <RcppCommon.h> // SEXP
 #include <plant/util.h>
+#include <odelia/ode_interface.hpp>
 
 // The "times" methods (set_times, times) refer to the *introduction*
 // times.  As such, this really needs that at least one species has an
@@ -34,10 +35,10 @@ public:
 
   size_t species_index;
   std::vector<double> times;
-  // The recorded size of the step that reached each of times, excluding the
-  // last; NaN leads, for the introduction, which no step reached. Empty unless
-  // the schedule carries ode step sizes.
-  std::vector<double> step_sizes;
+  // The ODE steps a recorded run took inside this interval, each carrying the
+  // time it reached and the size that reached it. Empty unless the schedule
+  // holds a recording.
+  std::vector<odelia::ode::recorded_step> steps;
 };
 
 class NodeSchedule {
@@ -58,7 +59,7 @@ public:
 
   double get_max_time() const;
   std::vector<std::vector<double> > get_times() const;
-  bool using_ode_times() const;
+  bool using_ode_steps() const { return !ode_steps.empty(); }
 
   // * R interface:
   void r_clear_times(util::index species_index);
@@ -66,11 +67,11 @@ public:
   void r_set_times(std::vector<double> times_, util::index species_index);
   void r_set_max_time(double x);
   std::vector<double> r_ode_times() const;
-  void r_set_ode_times(std::vector<double> x);
   std::vector<double> r_ode_step_sizes() const;
-  void r_set_ode_step_sizes(std::vector<double> x);
-  void r_clear_ode_times();
-  void r_set_use_ode_times(bool x);
+  // The two halves of one recording, installed together: apart, they can be
+  // paired across different runs and nothing says so.
+  void r_set_ode_steps(std::vector<double> times, std::vector<double> sizes);
+  void r_clear_ode_steps();
   SEXP r_all_times() const;
   void r_set_all_times(SEXP x);
   NodeSchedule r_copy() const;
@@ -81,18 +82,17 @@ private:
 
   events_iterator add_time(double times, size_t species_index,
                            events_iterator it);
-  void distribute_ode_times();
+  void distribute_ode_steps();
 
   size_t n_species;
   std::list<Event> events;
   std::list<Event> queue;
   double max_time;
-  std::vector<double> ode_times;
-  // The size of the step that reached each of ode_times, NaN first. Empty when
-  // the pinned times are a grid rather than a recorded run; setting ode_times
-  // clears it, so the two can never be paired across different runs.
-  std::vector<double> ode_step_sizes;
-  bool use_ode_times;
+  // The run this schedule replays, if it holds one. A schedule with a recording
+  // replays it; there is no third state and so no flag. What used to be two
+  // vectors and a bool was one recording split three ways, held together by a
+  // rule about which setter cleared which.
+  std::vector<odelia::ode::recorded_step> ode_steps;
 };
 
 }
