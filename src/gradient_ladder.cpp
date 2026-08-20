@@ -627,9 +627,18 @@ Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<pla
   obj_->clear_boundary_condition_evaluations();
   const plant::census_gradient result =
     obj_->census_trait_gradient<plant::tf24_census>();
+  // And how many operating points the sweep placed rather than searched for. A
+  // record that engages and one that quietly does not produce the same numbers, so
+  // this is the only thing that tells them apart.
+  double placed = 0.0;
+  for (size_t i = 0; i < obj_->r_patch().size(); ++i) {
+    placed += static_cast<double>(
+      obj_->r_patch().at_species(i).strategy_ptr()->leaf_placements());
+  }
   return Rcpp::List::create(
     Rcpp::_["evaluations"] =
       static_cast<double>(obj_->boundary_condition_evaluations()),
+    Rcpp::_["placements"] = placed,
     Rcpp::_["metrics"] = static_cast<int>(result.gradient.size()));
 }
 

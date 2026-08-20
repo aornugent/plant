@@ -35,7 +35,11 @@ test_that("Defaults", {
     gradient_curvature_floor = 1e-3,
 
     GSS_tol_abs = 1e-1,
-    vulnerability_curve_ncontrol = 1e2,
+    # Read rather than restated: this is the leaf's choice, and it lived as four
+    # separate numbers -- here, plant's Control, phylloptim's Leaf and
+    # phylloptim's R control -- of which plant's was the one every stand ran on.
+    vulnerability_curve_ncontrol =
+      phylloptim::leaf_control()$vulnerability_curve_ncontrol,
     ci_abs_tol = 1e-3,
     ci_niter = 1000
   )

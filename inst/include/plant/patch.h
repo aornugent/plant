@@ -21,6 +21,18 @@ using namespace Rcpp;
 
 namespace plant {
 
+// A strategy whose inner solve makes a choice the state leaves open, and which keeps
+// what it chose so a pass re-running the model over the same states places it rather
+// than searching for it again. The patch hands down the address of the rate
+// evaluation now running; a strategy with no such solve declares neither member and
+// the forwarding compiles away.
+template <typename T>
+concept KeepsSolvedChoices =
+  requires(T& s, odelia::ode::recorded_stage at, bool keeping) {
+    s.begin_stage(at, keeping);
+    s.end_stage();
+  };
+
 // A strategy or environment named at scalar U: the type its own rebind returns.
 // Named from the factory rather than from a second alias beside it, so there is
 // one answer to "what is this at another scalar" and a type that cannot rebind
@@ -204,6 +216,18 @@ public:
   // computing the environment as it goes.
   template <typename It> It set_ode_state(It it, double time);
 
+  // The state, and the address of the choices the run made at the rate evaluation
+  // this one stands in for. The third of the family: nothing completes the state on
+  // the plain loader, the inflow condition's second evaluation on the recorded one,
+  // and here what an inner solve chose that the state leaves open.
+  //
+  // The address is opened HERE and not at the rates, because the inflow condition's
+  // own leaf solves happen inside the field build below; it is closed where the rates
+  // are read, so one rate evaluation is one address and a solve outside a step
+  // neither keeps nor places.
+  template <typename It>
+  It set_ode_state(It it, double time, odelia::ode::recorded_stage at);
+
   // A recorded state loaded as the run itself carries it. set_ode_state evaluates
   // the inflow condition in the field that leaves the boundary interval off, then
   // rebuilds the field including it; the run then rates the nodes and evaluates
@@ -215,6 +239,17 @@ public:
   // The inflow condition alone, in the field as it now stands. Public because the
   // two evaluations above have to be taken one at a time to be told apart.
   void compute_boundary_nodes();
+
+  // Forget what every species' inner solve chose. The run calls it where it starts,
+  // because the record outlives this patch: it is shared with every copy and every
+  // rebound version of it, which is what lets a sweep read what the run wrote.
+  void clear_solved_choices() {
+    if constexpr (KeepsSolvedChoices<strategy_type>) {
+      for (species_type& s : species) {
+        s.strategy_ptr()->leaf_points->clear();
+      }
+    }
+  }
 
   // * R interface
   // Data accessors:
@@ -242,16 +277,10 @@ public:
   // This is only here because it wraps a private function.
   void r_compute_environment() {compute_environment(false);}
 
-  // Per-accepted-step recording. Called by the stepper once a step is committed, so
-  // the states it keeps are the run's own. The field is not kept with them: it is
-  // rebuilt at the recorded positions, which is what lets its derivative flow.
-  void record_ode_step();
-
-  bool record_steps = false;
-  // One record per accepted step, the first being the initial state. The step size is
-  // the solver's, filled in beside its own state once the run is over: the stepper
-  // does not pass it here, and it cannot be differenced out of the times.
-  std::vector<ode_step_record> trajectory;
+  // Whether this run is the one whose choices a later pass reads back. The states
+  // are the SOLVER's record now, beside the times and the sizes; what is left here
+  // is the one bit the loader needs, and the run sets it.
+  bool recording = false;
 
   void add_strategies(std::vector<strategy_type> strategies);
   void overwrite_strategies(std::vector<strategy_type> strategies);
@@ -500,9 +529,6 @@ void Patch<T,E>::reset() {
   // clear accumulated per-node competition error
   competition_error_by_node.assign(species.size(), {});
 
-  trajectory.clear();
-  // No step reached the initial time, so it records no size.
-  record_ode_step();
 }
 
 // Seed the patch from parameters.initial_state. Introduces the requested number
@@ -1087,6 +1113,19 @@ It Patch<T,E>::set_ode_state(It it, double time) {
   return it;
 }
 
+// The same load, with the choices the run made at this rate evaluation reachable by
+// every species that keeps any. See the declaration for where it is closed.
+template <typename T, typename E>
+template <typename It>
+It Patch<T,E>::set_ode_state(It it, double time, odelia::ode::recorded_stage at) {
+  if constexpr (KeepsSolvedChoices<strategy_type>) {
+    for (species_type& s : species) {
+      s.strategy_ptr()->begin_stage(at, recording);
+    }
+  }
+  return set_ode_state(it, time);
+}
+
 // The second evaluation of the inflow condition, in the field the first one was
 // folded into. See the declaration for why a reloaded state needs it.
 template <typename T, typename E>
@@ -1103,17 +1142,6 @@ It Patch<T,E>::ode_state(It it) const {
   it = odelia::ode::ode_state(species.begin(), species.end(), it);
   it = environment.ode_state(it);
   return it;
-}
-
-template <typename T, typename E>
-void Patch<T,E>::record_ode_step() {
-  if (!record_steps) {
-    return;
-  }
-  ode_step_record record{time(), std::numeric_limits<double>::quiet_NaN(),
-                         std::vector<double>(ode_size())};
-  ode_state(record.state.begin());
-  trajectory.push_back(std::move(record));
 }
 
 template <typename T, typename E>
@@ -1139,6 +1167,13 @@ It Patch<T,E>::ode_rates(It it) {
   compute_rates();
   it = odelia::ode::ode_rates(species.begin(), species.end(), it);
   it = environment.ode_rates(it);
+  // One rate evaluation is one address: what a solve outside a step chooses belongs
+  // to no recorded stage, so nothing is open to keep it in or place it from.
+  if constexpr (KeepsSolvedChoices<strategy_type>) {
+    for (species_type& s : species) {
+      s.strategy_ptr()->end_stage();
+    }
+  }
   return it;
 }
 

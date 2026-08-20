@@ -194,12 +194,14 @@ clamp_class <- list(
   soil_positivity        = "never",
   rainfall               = "never",
   infiltration           = "never",
-  # Not a clamp: the collar coincided with a layer potential, where the supply
-  # kernels return not-a-number, and the rows were taken four kink tolerances off
-  # it. That recovers a row the model HAS -- the singularity there is arithmetic,
-  # since span/integral is analytic through the coincidence -- so this counts a
-  # recovery rather than a severance.
-  supply_kink_step_off   = "never",
+  # `supply_kink_step_off` WAS here, reported "never", and could not have reported
+  # anything else: its only note_clamp site went with record_leaf_outputs and the
+  # behaviour it named went with it. At a coincident collar the supply kernels
+  # still return not-a-number, but nothing steps four kink tolerances off it any
+  # more -- the marginal profit falls back to a central difference at the same
+  # collar, and a row built on a NaN supply derivative is differenced instead of
+  # read. Neither is a clamp, so neither is counted here. A site that cannot fire
+  # reporting "never" is the one reading this list must not produce.
   # The leaf model's four, which are a different facility: the leaf solves in
   # double on both paths, so these keep ONE tally and the forward share is the
   # total less the delta measured across record_leaf_outputs. Every one of them

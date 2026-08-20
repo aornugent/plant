@@ -465,7 +465,23 @@ test_that("the census's sensitivity to a segment's starting state is refereed", 
     fine <- along(1e-6)
     scale <- max(abs(fine))
     if (scale == 0) {
-      message(sprintf("  component %d moves no census metric", i))
+      # ⚠️ NOT A SKIP, AND IT WAS ONE. The difference says this component reaches
+      # no census metric, and the tangent has to say the same: a live tangent
+      # beside a dead difference is a channel one route has and the other does
+      # not, which is the disagreement this file exists to find. As a `next` it
+      # asserted nothing at all, so a wrong non-zero tangent passed -- and the
+      # count is how it hid: the file went 104 passes to 103 when one more
+      # component joined this branch, with a message rather than a failure.
+      # ⚠️ THE BOUND IS THE CENSUS'S RESOLUTION, NOT ZERO, and the difference
+      # between the two readings is what this measures. Components 6 to 9 come
+      # back EXACTLY 0.00e+00 -- structurally dead, no channel at all. Component 4
+      # comes back 2.2e-11 of the census: a live channel whose response is below
+      # what a replayed difference can carry, so the difference reads a hard zero
+      # and lands here. Holding it to 1e-12 would report the census's own last
+      # bits as a disagreement between the two routes.
+      ladder_report_margin(
+        sprintf("d(census)/d(segment 0 state %d) is zero on both routes", i),
+        max(abs(tangent)) / max(abs(none$value)), 1e-9)
       next
     }
     floor <- max(max(abs(coarse - fine)) / scale, 4 * .Machine$double.eps)

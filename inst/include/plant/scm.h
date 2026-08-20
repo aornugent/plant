@@ -70,6 +70,9 @@ public:
   // default because the store is one double per state entry per step and a forward
   // run has no use for it.
   bool record_trajectory = false;
+  // Whether the record has been read since the run that filled it. See
+  // store_trajectory for why a second reader repeats the run rather than reading it.
+  bool trajectory_taken = false;
 
   // Adaptively refine the node-introduction schedule entirely in C++:
   // repeatedly run, flag nodes whose combined error exceeds schedule_eps,
@@ -475,7 +478,14 @@ template <typename T, typename E> void SCM<T, E>::run() {
   // Before reset(), which records the initial state and then copies the patch
   // into the solver: set after it, that first record is missed and the store is
   // one short of the step sizes it is read beside.
-  patch.record_steps = record_trajectory;
+  patch.recording = record_trajectory;
+  // Set before reset(), which records the state the run starts from.
+  solver.set_keep_states(record_trajectory);
+  trajectory_taken = false;
+  // The choices this run's rate evaluations make are the same recording as its
+  // states, so they start over together. Cleared HERE and not in the patch's own
+  // reset, which a rebound patch runs on the shared strategies mid-sweep.
+  patch.clear_solved_choices();
   reset();
   // The solver owns the live patch system; operate on it directly during the
   // run and avoid per-step copies into the `patch` member.
@@ -553,8 +563,8 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
   sys.widen(ret);
   // Declared where it happens. Read back off the state's width afterwards it
   // cannot be wrong, because the width is what the reading is derived from.
-  if (sys.record_steps) {
-    widenings.push_back({sys.trajectory.size() - 1, ret});
+  if (record_trajectory) {
+    widenings.push_back({solver.recorded_steps() - 1, ret});
   }
   solver.set_state_from_system();
 
@@ -610,42 +620,43 @@ void SCM<T, E>::run_mutant(parameters_type /* p */) {
 
 template <typename T, typename E>
 std::vector<ode_step_record> SCM<T, E>::store_trajectory() {
-  // The stepper calls record_ode_step() only for a System it recognises as
-  // recording, so this is what makes the store's mechanism present rather than
-  // silently absent -- the member is satisfied by name, not by declaration.
-  static_assert(odelia::ode::RecordsSteps<patch_type>,
-                "Patch must satisfy RecordsSteps or the stepper records nothing");
-  // And what the sweep does with the store: every walk over the widenings takes
+  // What the sweep does with the store: every walk over the widenings takes
   // the patch through these, and each was reached by name until it was said here.
   static_assert(odelia::ode::WidensState<patch_type>,
                 "Patch must satisfy WidensState or the segment walk cannot "
                 "narrow, widen or reload the recording it sweeps");
-  // Repeat the run only if it did not keep its states. reset() clears the store
-  // and run() resets first, so a store that has anything in it is this run's --
-  // there is no key to check and none to get wrong. What a repeat costs is a whole
-  // forward integration, which is why record_trajectory exists.
-  if (patch.trajectory.empty()) {
-    const bool recorded = record_trajectory;
+  // Repeat the run unless this is the first consumer since it. What a repeat costs
+  // is a whole forward integration, which is why record_trajectory exists.
+  //
+  // ⚠️ AND THE REPEAT IS LOAD-BEARING FOR A REASON THAT IS NOT THE RECORD. The record
+  // itself survives any number of readings now that the state, the time and the size
+  // are one object -- they used to be two stores and the states had to be emptied as
+  // they were read, which is the reason this comment used to give. The real one is
+  // that a SWEEP is not re-entrant: it restores the width it borrowed but the node
+  // bookkeeping that is not ODE state does not come back with it, so a second sweep
+  // over the same record introduces a unit at a coordinate one already occupies and
+  // the reduction refuses. The repeat has been hiding that, and the round-trip guard
+  // in the walk cannot see it -- it compares the state, which is exactly what this
+  // bookkeeping is not. Until that is fixed the repeat stays, and it is 22% of a
+  // gradient.
+  if (!solver.keeps_states() || trajectory_taken) {
     record_trajectory = true;
     run();
-    record_trajectory = recorded;
   }
+  trajectory_taken = true;
 
-  // Taken out of the store rather than read in place, and that is what keeps the
-  // pairing below honest: the sweep this feeds advances the solver, so a store left
-  // behind would be read against step sizes from a later run than the one that
-  // filled it. Emptying it means the next caller repeats the run instead.
-  std::vector<ode_step_record> ret = std::move(patch.trajectory);
-  patch.trajectory.clear();
-
-  // The solver holds the size of the step that reached each state, one per record
-  // including the initial NaN, so each size lands beside the state it reached. It
-  // comes from the solver rather than the record and survives the run, so a repeat
-  // is paid for the states alone.
+  // Read in place, because the state, the time it was reached at and the size that
+  // reached it are now one record on the solver. They used to be two stores, and
+  // pairing them was only honest while the states were emptied as they were read --
+  // which is why every consumer after the first repeated the whole run. One record
+  // cannot be mispaired, so nothing is emptied and nothing is repeated.
+  const std::vector<double> times = solver.times();
   const std::vector<double> sizes = solver.step_sizes();
-  util::check_length(sizes.size(), ret.size());
-  for (size_t i = 0; i < ret.size(); ++i) {
-    ret[i].step_size = sizes[i];
+  util::check_length(sizes.size(), times.size());
+  std::vector<ode_step_record> ret;
+  ret.reserve(times.size());
+  for (size_t i = 0; i < times.size(); ++i) {
+    ret.push_back({times[i], sizes[i], solver.recorded_state(i)});
   }
   return ret;
 }

@@ -1041,7 +1041,16 @@ test_that("dprofit_droot_collar_psi matches a finite difference (AD/IFT gradient
   # Reuse the standard single-layer leaf setup from "Basic functions".
   vcmax_25 = 100; jmax_25 = vcmax_25 * 167; c = 2.04; b = 3; psi_crit = 5
   theta = 0.000157; K_s = 1; h = 5; beta2 = 1;   curv_fact_elec_trans = 0.7; a = 0.3; curv_fact_colim = 0.99; g1_TF24 = 46.32995
-  GSS_tol_abs = 1e-8; vulnerability_curve_ncontrol = 100; ci_abs_tol = 1e-6
+  GSS_tol_abs = 1e-8; ci_abs_tol = 1e-6
+  # ⚠️ THE KNOT COUNT IS THE MODEL'S AND NOT THIS TEST'S. What is asserted below is
+  # an identity between an analytic derivative and a difference of the function it
+  # differentiates, and the transport's derivatives are the vulnerability curve
+  # taken exactly while its VALUE is tabulated -- so the two agree to whatever the
+  # tabulation resolves. At the count the model ships that is 2.5e-10; at the 100
+  # this test used to name it is 2.4e-06, and the tolerance is 1e-06. So a
+  # hardcoded count here tested a grid nothing runs on, and failed on it.
+  vulnerability_curve_ncontrol <-
+    phylloptim::leaf_control()$vulnerability_curve_ncontrol
   ci_niter = 1000; root_c = 2.65; root_b = 1.29
   root_psi_crit = root_b * (log(1.0 / 0.05))^(1.0 / root_c)
   l <- Leaf(vcmax_25 = vcmax_25, jmax_25 = jmax_25, c = c, b = b, psi_crit = psi_crit,

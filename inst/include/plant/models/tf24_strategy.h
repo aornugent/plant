@@ -283,6 +283,76 @@ static_assert(sizeof(TF24_Pars<double>) ==
 // Templated on the scalar S the state, the traits and everything derived from
 // them carry; double is production. The embedded Leaf, the Control tolerances
 // and the extrinsic drivers stay double.
+// The operating points a run's leaf solves found, held against the rate evaluation
+// that found them and in the order it found them -- which is the order the same
+// evaluation finds them in again, because it runs at the same state.
+//
+// A rejected step's attempt writes the same slot as the retry that replaces it, so
+// nothing here has to commit a step of its own.
+class leaf_solved_points {
+public:
+  // The evaluation about to run. `keeping` is the run that fills the record; a pass
+  // that is not it reads the slot instead, and finds nothing where the run addressed
+  // no evaluation there.
+  void begin_stage(odelia::ode::recorded_stage at, bool keeping) {
+    solved = 0;
+    slot = nullptr;
+    filling = keeping;
+    const size_t stage = static_cast<size_t>(at.stage);
+    if (keeping) {
+      if (kept.size() <= at.step) {
+        kept.resize(at.step + 1);
+      }
+      if (kept[at.step].size() <= stage) {
+        kept[at.step].resize(stage + 1);
+      }
+      slot = &kept[at.step][stage];
+      slot->clear();
+    } else if (at.step < kept.size() && stage < kept[at.step].size()) {
+      slot = &kept[at.step][stage];
+    }
+  }
+
+  // One evaluation is one address, so this ends where the rates are read. A solve
+  // outside a step then keeps nothing and places nothing.
+  void end_stage() {
+    solved = 0;
+    slot = nullptr;
+  }
+
+  // The next point in the open slot, or one holding nothing.
+  Leaf::SolvedPoint next() {
+    if (filling || slot == nullptr || solved >= slot->size()) {
+      return Leaf::SolvedPoint();
+    }
+    ++placed;
+    return (*slot)[solved++];
+  }
+
+  // How many points this record placed. Counted because a record that engages and
+  // one that quietly does not are the same green suite: every number a placement
+  // produces is the number a search produces, so nothing else can tell them apart.
+  size_t placements() const { return placed; }
+
+  void keep(const Leaf::SolvedPoint& point) {
+    if (filling && slot != nullptr) {
+      slot->push_back(point);
+    }
+  }
+
+  void clear() {
+    kept.clear();
+    end_stage();
+  }
+
+private:
+  std::vector<std::vector<std::vector<Leaf::SolvedPoint>>> kept;
+  std::vector<Leaf::SolvedPoint>* slot = nullptr;
+  bool filling = false;
+  size_t solved = 0;
+  size_t placed = 0;
+};
+
 template <typename S = double>
 class TF24_Strategy: public Strategy<TF24_Environment<S>> {
 public:
@@ -806,6 +876,7 @@ public:
     curvature_margin = src.curvature_margin;
     uptake_rows_unavailable = src.uptake_rows_unavailable;
     uptake_rows_reason = src.uptake_rows_reason;
+    leaf_points = src.leaf_points;
 
     // Sized, not copied: these hold one right-hand side's working, and are
     // rewritten before they are read.
@@ -993,6 +1064,20 @@ public:
     }
   }
 
+  // What this species' leaf solves found, kept against the rate evaluation that
+  // found them so a pass re-running the model over the same states places the point
+  // instead of searching for it again. The patch hands the address down.
+  //
+  // Shared, not copied, for the reason the clamp counts are: the pass that reads the
+  // record runs on a rebound strategy.
+  std::shared_ptr<leaf_solved_points> leaf_points =
+      std::make_shared<leaf_solved_points>();
+  void begin_stage(odelia::ode::recorded_stage at, bool keeping) {
+    leaf_points->begin_stage(at, keeping);
+  }
+  void end_stage() { leaf_points->end_stage(); }
+  size_t leaf_placements() const { return leaf_points->placements(); }
+
   // The leaf's two outputs on the active chain, carrying its supplied Jacobian.
   // Written by net_mass_production_dt before compute_rates reads either.
   S leaf_profit_;
@@ -1141,8 +1226,11 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                                  n_input};
   grad::Rows rows;
   try {
-    rows = grad::rows_at(leaf, theta, leaf_drivers_, request,
-                         leaf_row_settings());
+    // `rows_at` is the read and takes the leaf and the request alone; this is the
+    // entry that also differences whatever the read refuses, which is one branch --
+    // a shade death whose wet bound has no derivative.
+    rows = grad::rows_differenced(leaf, theta, leaf_drivers_, request,
+                                  leaf_row_settings());
   } catch (const std::runtime_error& e) {
     note_leaf_clamps(clamps_before);
     throw gradient_refusal(std::string("TF24 gradient: ") + e.what());
@@ -1173,23 +1261,59 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // interior optimum is whole without a point at all -- which is the envelope
   // theorem, and is why it survives the degeneracy that costs the water rows
   // theirs.
+  //
+  // ⚠️ AND WHATEVER IS MISSING IS NAMED HERE. The row layer names an input whose
+  // row it refused, but a number can also arrive non-finite from a channel that
+  // reported no refusal -- and this pass is the only place that sees it. Reporting
+  // `rows.message` alone lets that case through as a refusal with an empty reason,
+  // which is the one shape a refusal must never take: it tells a reader the
+  // gradient stopped and nothing about where.
   std::vector<bool> whole(output.size(), true);
+  const int n_layer_named = n_layer;
+  auto missing = [&](std::size_t j, const char* what, int input_index) -> std::string {
+    std::string out = std::string("`") + grad::output_name(output[j], n_layer_named) +
+                      "`'s " + what;
+    if (input_index >= 0) {
+      out += " in `" + grad::par_name(input[std::size_t(input_index)],
+                                      n_layer_named) + "`";
+    }
+    out += " is not a number at a point the solve called " +
+           std::string(Leaf::operating_point_kind_name(rows.kind));
+    if (!rows.message.empty()) {
+      out += "; " + rows.message;
+    }
+    return out;
+  };
   for (std::size_t j = 0; j < output.size(); ++j) {
+    std::string why;
     bool ok = util::is_finite(rows.dy_dp[j]);
+    if (!ok) {
+      why = missing(j, "channel into the operating point", -1);
+    }
     for (std::size_t i = 0; i < n_input && ok; ++i) {
       ok = util::is_finite(rows.held[j * n_input + i]);
+      if (!ok) {
+        why = missing(j, "held row", int(i));
+      }
     }
     if (ok && rows.dy_dp[j] != 0.0) {
       ok = util::is_finite(rows.residual_slope) && rows.residual_slope != 0.0;
+      if (!ok) {
+        why = missing(j, "curvature", -1) + " (" +
+              util::to_string(rows.residual_slope) + ")";
+      }
       for (std::size_t i = 0; i < n_input && ok; ++i) {
         ok = util::is_finite(rows.dresidual[i]);
+        if (!ok) {
+          why = missing(j, "condition gradient", int(i));
+        }
       }
     }
     if (!ok) {
       if (j == 0) {
-        throw gradient_refusal("TF24 gradient: " + rows.message);
+        throw gradient_refusal("TF24 gradient: " + why);
       }
-      lose_uptake_rows("TF24 gradient: " + rows.message);
+      lose_uptake_rows("TF24 gradient: " + why);
     }
     whole[j] = ok;
   }
@@ -1231,11 +1355,18 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                   ? leaf_profit_
                   : leaf_soil_consumption_[static_cast<std::size_t>(
                         output[j] - grad::out_uptake_first)];
+    // The value is the LEAF's, not the row layer's: the read moves nothing, so the
+    // solved leaf is still holding it and a second copy could only disagree.
+    const double value =
+        output[j] == grad::out_profit
+            ? leaf.profit_
+            : leaf.soil_consumption_[static_cast<std::size_t>(
+                  output[j] - grad::out_uptake_first)];
     if (!whole[j]) {
       // The VALUE survives a missing row and the patch balance still needs it, so
       // it is carried as a constant and the rows left off the tape -- which is
       // what the flag says, against a zero row saying the opposite.
-      into = S(rows.value[output[j]]);
+      into = S(value);
       continue;
     }
     against.clear();
@@ -1245,7 +1376,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     for (std::size_t i = 0; i < n_input; ++i) {
       against.push_back({*at[i], rows.held[j * n_input + i]});
     }
-    into = odelia::record_with_derivatives<S>(rows.value[output[j]], against);
+    into = odelia::record_with_derivatives<S>(value, against);
   }
 }
 
@@ -1858,10 +1989,15 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   return net_mass_production_dt_A(assimilation_, respiration_, turnover_);
 }
 
-// Base TF24: optimise the root-collar water potential from scratch each call.
+// Base TF24: place the operating point the run found at this rate evaluation, or
+// optimise the root-collar water potential where it kept none -- a branch that exited
+// on feasibility, or an evaluation the run addressed no record against.
 template <typename S>
 void TF24_Strategy<S>::solve_leaf() {
-  leaf.find_root_collar_psi();
+  if (!leaf.place_solved_point(leaf_points->next())) {
+    leaf.find_root_collar_psi();
+  }
+  leaf_points->keep(leaf.solved_point());
   // The classification is decided by the branch taken and then overwritten by
   // the next plant, so without a tally the only route to its incidence is a
   // refusal message -- which reports the FIRST non-interior point and nothing

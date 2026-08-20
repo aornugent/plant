@@ -1,4 +1,5 @@
 #include <plant/control.h>
+#include <phylloptim/leaf_model.hpp>
 
 namespace plant {
 
@@ -61,7 +62,10 @@ Control::Control() {
   // Bracket tolerance of the collar-potential search. It has only to land inside
   // the basin of the Newton polish, which sets the operating point returned.
   GSS_tol_abs = 1e-1;
-  vulnerability_curve_ncontrol = 1e2;
+  // The leaf's own choice, read rather than restated: this was 1e2 while
+  // phylloptim's default was sixteen times finer, and since every stand builds its
+  // leaf through here, that number was the one the whole reverse sweep ran on.
+  vulnerability_curve_ncontrol = phylloptim::Leaf::ncontrol_default;
   ci_abs_tol = 1e-3;
   ci_niter = 1e3;
 }

@@ -137,8 +137,26 @@ test_that("the marginal profit's factorisation is measured, not assumed", {
   # built from it carries fit_step^2 times a dimensionless third-derivative ratio.
   # The factor of ten is the headroom the anchoring column below is held to, at
   # the same step and by the same argument.
+  #
+  # ⚠️ AND THE REFERENCE HAS TO RESOLVE AN ENTRY BEFORE IT CAN ADJUDICATE IT. The
+  # old filter asked only that the coarsest step be within 10% of the reference,
+  # which is four orders looser than the bound enforced -- so an entry whose three
+  # steps disagreed at 1e-04 passed it and was then held to 1e-05. That stayed
+  # invisible while the rows disagreed by more than the reference did, and became
+  # the whole of this statistic once they did not: measured at the entry that
+  # failed, the row agrees with the 1e-05 step to 8.5e-08 and with the 1e-07 step
+  # to 5.2e-06, while the 1e-06 step used as the reference differs from BOTH its
+  # neighbours by 2.3e-04. The statistic was reading the reference's own step, and
+  # every per-layer residual was 1e-08 at the same time.
+  #
+  # So an entry is comparable where the reference resolves it to better than the
+  # bound, which is the same standard the per-layer statistic already applies, and
+  # what that drops is counted rather than assumed small.
   fit_step <- 1e-3
-  converged <- abs(steps[[1]] - reference) < 0.1 * abs(reference)
+  own_spread <- pmax(abs(steps[[1]] - steps[[2]]), abs(steps[[2]] - steps[[3]]))
+  converged <- own_spread < (10 * fit_step^2) * abs(reference)
+  message("  entrywise: ", sum(converged), " of ", length(converged),
+          " entries the reference resolves to better than the bound")
   expect_gt(sum(converged), length(residual))
   ladder_report_margin(
     "the water rows entrywise, where the reference converged",
