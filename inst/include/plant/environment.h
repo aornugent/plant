@@ -3,8 +3,6 @@
 #define PLANT_PLANT_ENVIRONMENT_H_
 
 #include <plant/control.h>
-#include <odelia/interpolator.hpp>
-#include <plant/adaptive_interpolator.h>
 #include <odelia/ode_interface.hpp>
 #include <plant/internals.h>
 #include <plant/util.h>

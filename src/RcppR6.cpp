@@ -4557,48 +4557,6 @@ Rcpp::NumericMatrix ResourceSpline__state__get(plant::RcppR6::RcppR6<plant::Reso
 
 
 // [[Rcpp::export]]
-odelia::interpolator::Interpolator Interpolator__ctor() {
-  return odelia::interpolator::Interpolator();
-}
-// [[Rcpp::export]]
-void Interpolator__init(plant::RcppR6::RcppR6<odelia::interpolator::Interpolator> obj_, const std::vector<double>& x, const std::vector<double>& y) {
-  obj_->init(x, y);
-}
-// [[Rcpp::export]]
-std::vector<double> Interpolator__eval(plant::RcppR6::RcppR6<odelia::interpolator::Interpolator> obj_, std::vector<double> x) {
-  return obj_->r_eval(x);
-}
-// [[Rcpp::export]]
-void Interpolator__set_extrapolate(plant::RcppR6::RcppR6<odelia::interpolator::Interpolator> obj_, bool e) {
-  obj_->set_extrapolate(e);
-}
-// [[Rcpp::export]]
-std::vector<double> Interpolator__x__get(plant::RcppR6::RcppR6<odelia::interpolator::Interpolator> obj_) {
-  return obj_->get_x();
-}
-
-// [[Rcpp::export]]
-std::vector<double> Interpolator__y__get(plant::RcppR6::RcppR6<odelia::interpolator::Interpolator> obj_) {
-  return obj_->get_y();
-}
-
-// [[Rcpp::export]]
-size_t Interpolator__size__get(plant::RcppR6::RcppR6<odelia::interpolator::Interpolator> obj_) {
-  return obj_->size();
-}
-
-// [[Rcpp::export]]
-double Interpolator__min__get(plant::RcppR6::RcppR6<odelia::interpolator::Interpolator> obj_) {
-  return obj_->min();
-}
-
-// [[Rcpp::export]]
-double Interpolator__max__get(plant::RcppR6::RcppR6<odelia::interpolator::Interpolator> obj_) {
-  return obj_->max();
-}
-
-
-// [[Rcpp::export]]
 plant::Disturbance_Regime Disturbance_Regime__ctor() {
   return plant::Disturbance_Regime();
 }

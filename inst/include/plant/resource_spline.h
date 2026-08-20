@@ -3,7 +3,7 @@
 #ifndef PLANT_PLANT_RESOURCE_SPLINE_H_
 #define PLANT_PLANT_RESOURCE_SPLINE_H_
 
-#include <odelia/hermite_interpolator.hpp>
+#include <odelia/interpolator.hpp>
 #include <odelia/ode_util.hpp>
 #include <odelia/ode_interface.hpp>
 #include <plant/util.h>
@@ -16,11 +16,11 @@ namespace plant {
 
 // Templated on the scalar S the resource values carry; the knot positions stay
 // double. S = double is production.
-// A vector of active scalars assigned element by element keeps each target's tape
-// slot, and a slot outlives the recording that handed it out. Every write of the
-// knots below therefore hands over a fresh buffer rather than copying into the
-// one already there: moved where the source is a local that is finished with,
-// copy-constructed where it is a caller's.
+//
+// The knot values and slopes live on the interpolant and are read back from it.
+// They were mirrored here once, on the ground that a slope recovered from a span
+// is not bit-identical -- true of a span, and not of what set_data was handed,
+// which the interpolant keeps unchanged.
 template <typename S = double>
 class ResourceSpline {
 public:
@@ -62,8 +62,6 @@ public:
     std::vector<S> m = {S(0.0), S(0.0), S(0.0)};
     spline.clear();
     spline.init(x, y, m);
-    knot_values_ = std::move(y);
-    knot_slopes_ = std::move(m);
   }
 
   // Restores the open field rather than leaving no field at all: every query
@@ -109,24 +107,19 @@ public:
     std::vector<S> state_y(it + state_n, it + 2 * state_n);
     std::vector<S> state_m(it + 2 * state_n, state.end());
     spline.init(state_x, state_y, state_m);
-    knot_values_ = std::move(state_y);
-    knot_slopes_ = std::move(state_m);
   }
 
   // Knots the run places, fixed by the fractions and not by any build.
   size_t knot_count() const { return knot_fractions_.size(); }
 
-  // The data the field was last built from, held rather than read back out of
-  // the interpolant: a knot slope recovered from a span is not bit-identical.
-  const std::vector<S>& knot_values() const { return knot_values_; }
-  const std::vector<S>& knot_slopes() const { return knot_slopes_; }
+  // The data the field was last built from, as the interpolant was handed it.
+  const std::vector<S>& knot_values() const { return spline.values(); }
+  const std::vector<S>& knot_slopes() const { return spline.slopes(); }
 
   // Rebuild the spans from supplied data, leaving the knot positions alone.
   // set_data length-checks, so injecting into an unbuilt field throws.
   void set_knot_data(const std::vector<S>& y, const std::vector<S>& m) {
     spline.set_data(y, m);
-    knot_values_ = std::vector<S>(y);
-    knot_slopes_ = std::vector<S>(m);
   }
 
   // Resource availability as a function of size, carrying a value and a slope at
@@ -138,10 +131,6 @@ public:
   // fixed for the run. Nothing may reassign them: a rebuild places knots at
   // u_k * height_max, and that is what makes the positions run-constant.
   std::vector<double> knot_fractions_;
-
-  // Mirrors of the interpolant's data, kept as the pack's source of truth.
-  std::vector<S> knot_values_;
-  std::vector<S> knot_slopes_;
 
   // Knot heights, values and slopes, read back out of the spline that holds them.
   Rcpp::NumericMatrix r_get_state() const
@@ -190,8 +179,6 @@ private:
       m[k] = vs.second;
     }
     spline.set_data(y, m);
-    knot_values_ = std::move(y);
-    knot_slopes_ = std::move(m);
   }
 
   // Chosen from the re-blessing tolerance: the crown-mean light shift against an

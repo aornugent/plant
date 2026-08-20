@@ -4009,42 +4009,6 @@ ResourceSpline__state__get <- function(obj_) {
     .Call('_plant_ResourceSpline__state__get', PACKAGE = 'plant', obj_)
 }
 
-Interpolator__ctor <- function() {
-    .Call('_plant_Interpolator__ctor', PACKAGE = 'plant')
-}
-
-Interpolator__init <- function(obj_, x, y) {
-    invisible(.Call('_plant_Interpolator__init', PACKAGE = 'plant', obj_, x, y))
-}
-
-Interpolator__eval <- function(obj_, x) {
-    .Call('_plant_Interpolator__eval', PACKAGE = 'plant', obj_, x)
-}
-
-Interpolator__set_extrapolate <- function(obj_, e) {
-    invisible(.Call('_plant_Interpolator__set_extrapolate', PACKAGE = 'plant', obj_, e))
-}
-
-Interpolator__x__get <- function(obj_) {
-    .Call('_plant_Interpolator__x__get', PACKAGE = 'plant', obj_)
-}
-
-Interpolator__y__get <- function(obj_) {
-    .Call('_plant_Interpolator__y__get', PACKAGE = 'plant', obj_)
-}
-
-Interpolator__size__get <- function(obj_) {
-    .Call('_plant_Interpolator__size__get', PACKAGE = 'plant', obj_)
-}
-
-Interpolator__min__get <- function(obj_) {
-    .Call('_plant_Interpolator__min__get', PACKAGE = 'plant', obj_)
-}
-
-Interpolator__max__get <- function(obj_) {
-    .Call('_plant_Interpolator__max__get', PACKAGE = 'plant', obj_)
-}
-
 Disturbance_Regime__ctor <- function() {
     .Call('_plant_Disturbance_Regime__ctor', PACKAGE = 'plant')
 }
@@ -4403,10 +4367,6 @@ TF24_Environment__soil__get <- function(obj_) {
 
 TF24f_Strategy__ctor <- function() {
     .Call('_plant_TF24f_Strategy__ctor', PACKAGE = 'plant')
-}
-
-test_adaptive_interpolator <- function(f, a, b, atol = 1e-6, rtol = 1e-6, nbase = 17L, max_depth = 16L) {
-    .Call('_plant_test_adaptive_interpolator', PACKAGE = 'plant', f, a, b, atol, rtol, nbase, max_depth)
 }
 
 census_metric_names_tf24 <- function() {

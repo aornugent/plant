@@ -160,8 +160,6 @@ template <> SEXP wrap(const plant::StochasticPatchRunner<plant::K93_Strategy,pla
 template <> plant::StochasticPatchRunner<plant::K93_Strategy,plant::K93_Environment> as(SEXP);
 template <> SEXP wrap(const plant::ResourceSpline<double>&);
 template <> plant::ResourceSpline<double> as(SEXP);
-template <> SEXP wrap(const odelia::interpolator::Interpolator&);
-template <> odelia::interpolator::Interpolator as(SEXP);
 template <> SEXP wrap(const plant::Disturbance_Regime&);
 template <> plant::Disturbance_Regime as(SEXP);
 template <> SEXP wrap(const plant::No_Disturbance&);

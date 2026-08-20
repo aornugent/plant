@@ -45,14 +45,19 @@ compile_ff16_resident_ad <- function() {
       S resident_net(S a_l1, S k_I, const plant::FF16ProdPars<S>& p,
                      double a_l2, double height, double density,
                      std::vector<double> xk, std::vector<double> qfrac_knot,
+                     std::vector<double> dqfrac_knot,
                      std::vector<double> z, std::vector<double> wq) {
         S area_leaf = plant::ff16_area_leaf<S>(a_l1, S(a_l2), S(height));
         // Resident light spline: Beer\'s law over its own competition.
-        std::vector<S> yk(xk.size());
-        for (size_t i = 0; i < xk.size(); ++i)
-          yk[i] = exp(-density * k_I * area_leaf * qfrac_knot[i]);
-        odelia::interpolator::basic_interpolator<S> light;
-        light.init(xk, yk);
+        // Value and slope at every knot, as the resident field carries them.
+        std::vector<S> yk(xk.size()), mk(xk.size());
+        for (size_t i = 0; i < xk.size(); ++i) {
+          const S tau = density * k_I * area_leaf;
+          yk[i] = exp(-tau * qfrac_knot[i]);
+          mk[i] = -tau * dqfrac_knot[i] * yk[i];
+        }
+        odelia::interpolator::hermite_interpolator<S> light;
+        light.init(xk, yk, mk);
         S assim = plant::ff16_assimilation_deep_crown_replay<S>(
             p.a_p1, p.a_p2, area_leaf, z, wq,
             [&](double zz){ return light.eval(zz); });
@@ -71,22 +76,24 @@ compile_ff16_resident_ad <- function() {
       // [[Rcpp::export]]
       Rcpp::NumericVector resident_grad(double a_l1, double k_I, std::vector<double> v,
           double a_l2, double height, double density, std::vector<double> xk,
-          std::vector<double> qfrac_knot, std::vector<double> z, std::vector<double> wq) {
+          std::vector<double> qfrac_knot, std::vector<double> dqfrac_knot,
+          std::vector<double> z, std::vector<double> wq) {
         xad::adj<double>::tape_type tape;
         adt al1 = a_l1, ki = k_I;
         tape.registerInput(al1); tape.registerInput(ki);
         tape.newRecording();
         adt y = resident_net<adt>(al1, ki, mkpod<adt>(v), a_l2, height, density,
-                                  xk, qfrac_knot, z, wq);
+                                  xk, qfrac_knot, dqfrac_knot, z, wq);
         tape.registerOutput(y); xad::derivative(y) = 1.0; tape.computeAdjoints();
         return Rcpp::NumericVector::create(xad::derivative(al1), xad::derivative(ki));
       }
       // [[Rcpp::export]]
       double resident_value(double a_l1, double k_I, std::vector<double> v,
           double a_l2, double height, double density, std::vector<double> xk,
-          std::vector<double> qfrac_knot, std::vector<double> z, std::vector<double> wq) {
+          std::vector<double> qfrac_knot, std::vector<double> dqfrac_knot,
+          std::vector<double> z, std::vector<double> wq) {
         return resident_net<double>(a_l1, k_I, mkpod<double>(v), a_l2, height, density,
-                                    xk, qfrac_knot, z, wq);
+                                    xk, qfrac_knot, dqfrac_knot, z, wq);
       }', verbose = FALSE)
     NULL
   }, error = function(e) e)
@@ -105,6 +112,7 @@ testthat::test_that("FF16 resident self-shading coupling differentiates end-to-e
   H <- 8; density <- 1.5
   xk <- seq(0, H, length.out = 11)
   qfrac_knot <- pmax(0, 1 - xk / H)        # leaf-above fraction at each spline knot
+  dqfrac_knot <- rep(-1 / H, length(xk))   # its slope in height, which the field needs
   nq <- 41; z <- seq(0, H, length.out = nq); dz <- H / (nq - 1)
   simp <- ifelse(seq_len(nq) %in% c(1, nq), 1, ifelse(seq_len(nq) %% 2 == 0, 4, 2))
   q <- pmax(0, 1 - z / H)
@@ -114,9 +122,10 @@ testthat::test_that("FF16 resident self-shading coupling differentiates end-to-e
   v <- c(0.1978791, 608, 0.0002141786, 0.17, 0.07, 0.5805, 151.177, 0.204,
          0.01979, 0.0859, 0.04, 0.2086, 0.4565, 0.2, 0.0, 1.0, 0.0245, 0.7)
 
-  g <- resident_grad(a_l1, k_I, v, a_l2, H, density, xk, qfrac_knot, z, wq)
+  g <- resident_grad(a_l1, k_I, v, a_l2, H, density, xk, qfrac_knot,
+                     dqfrac_knot, z, wq)
   f <- function(al1, ki) resident_value(al1, ki, v, a_l2, H, density, xk,
-                                        qfrac_knot, z, wq)
+                                        qfrac_knot, dqfrac_knot, z, wq)
   h <- 1e-6
   g_al1_fd <- (f(a_l1 + h, k_I) - f(a_l1 - h, k_I)) / (2 * h)
   g_kI_fd  <- (f(a_l1, k_I + h) - f(a_l1, k_I - h)) / (2 * h)

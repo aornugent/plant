@@ -6,7 +6,6 @@
 #include <plant/clamp_sites.h>
 #include <plant/environment.h>
 #include <plant/resource_spline.h>
-#include <odelia/interpolator.hpp>
 #include <limits>
 #include <cmath>
 #include <type_traits>

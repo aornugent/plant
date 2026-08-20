@@ -7,8 +7,6 @@
 #include <plant/qk.h>
 #include <plant/qag.h>
 
-#include <odelia/interpolator.hpp>
-#include <plant/adaptive_interpolator.h>
 
 #include <odelia/ode_control.hpp>
 #include <odelia/ode_step.hpp>
