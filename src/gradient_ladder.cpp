@@ -486,7 +486,7 @@ Rcpp::List ladder_trajectory_tangent_tf24(plant::RcppR6::RcppR6<plant::SCM<plant
                                           std::vector<double> direction) {
   std::vector<double> value;
   const std::vector<double> tangent =
-    obj_->census_trait_tangent<plant::tf24_census>(direction, value);
+    obj_->census_trait_tangent(direction, value);
   return Rcpp::List::create(Rcpp::_["value"] = value,
                             Rcpp::_["tangent"] = tangent);
 }
@@ -584,7 +584,7 @@ Rcpp::List ladder_census_initial_state_tangent_tf24(plant::RcppR6::RcppR6<plant:
                                                     int segment) {
   std::vector<double> value;
   const std::vector<double> tangent =
-    obj_->census_initial_state_tangent<plant::tf24_census>(
+    obj_->census_initial_state_tangent(
       direction, value, static_cast<size_t>(segment));
   return Rcpp::List::create(Rcpp::_["value"] = value,
                             Rcpp::_["tangent"] = tangent);
@@ -606,7 +606,7 @@ std::vector<double> ladder_segment_base_state_tf24(plant::RcppR6::RcppR6<plant::
 std::vector<double> ladder_census_initial_state_replay_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                                             std::vector<double> state0,
                                                             int segment) {
-  return obj_->census_initial_state_replay<plant::tf24_census>(
+  return obj_->census_initial_state_replay(
     state0, static_cast<size_t>(segment));
 }
 
@@ -626,7 +626,7 @@ std::vector<double> ladder_census_initial_state_replay_tf24(plant::RcppR6::RcppR
 Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   obj_->clear_boundary_condition_evaluations();
   const plant::census_gradient result =
-    obj_->census_trait_gradient<plant::tf24_census>();
+    obj_->census_trait_gradient();
   // And how many operating points the sweep placed rather than searched for. A
   // record that engages and one that quietly does not produce the same numbers, so
   // this is the only thing that tells them apart.

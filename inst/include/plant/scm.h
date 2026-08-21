@@ -95,17 +95,30 @@ public:
   std::vector<double> net_reproduction_ratios() const { return patch.net_reproduction_ratios(); }
   std::vector<double> offspring_production() const { return patch.offspring_production(); }
 
-  // Each metric of `Metrics`, summed over the species, in tuple order. The
-  // codomain is the tuple's size.
-  template <class Metrics> std::vector<double> census() const;
+  // Every metric the strategy declares, summed over the species, in the order it
+  // declares them. The codomain is the list's length.
+  std::vector<double> census() const;
+
+  // What a census of this model reads, at whatever scalar `P` carries. The one
+  // place a strategy is asked, and the one place the question is refused for a
+  // strategy that does not answer it: a census over a list nothing declared
+  // would otherwise fail inside whichever loop reached for it.
+  template <class P>
+  static std::vector<census_metric<typename P::strategy_type>> metrics_of() {
+    static_assert(Censusable<typename P::strategy_type>,
+                  "a census of this model is being taken, so its strategy must "
+                  "declare census_metrics()");
+    return P::strategy_type::census_metrics();
+  }
 
   // One metric summed over every species of `p`. Templated on the patch so the
   // value and its derivative are the same reduction at two scalars.
-  template <class P, class Psi>
-  static typename P::value_type census_over(const P& p, Psi psi) {
+  template <class P>
+  static typename P::value_type census_over(
+      const P& p, const census_metric<typename P::strategy_type>& metric) {
     typename P::value_type tot = 0.0;
     for (size_t i = 0; i < p.size(); ++i) {
-      tot += p.at_species(i).census(psi);
+      tot += p.at_species(i).census(metric);
     }
     return tot;
   }
@@ -130,13 +143,11 @@ public:
 
   // d(census)/d(ODE state) at the current time, one row per metric and one
   // column per ODE state entry. This is what the reverse pass is seeded with.
-  template <class Metrics>
   odelia::ode::row_batch census_state_adjoint() const;
 
   // d(census)/d(trait) at the state held, which no sweep produces: a metric
   // reads the traits itself, and the boundary node's own quantities are rebuilt
   // when the state is set. One row per metric, columns as census_trait_gradient.
-  template <class Metrics>
   odelia::ode::row_batch census_trait_direct();
 
   // The same quantity differenced, by moving the prepared strategy exactly where
@@ -145,7 +156,6 @@ public:
   // census twice. A difference that rebuilt from Parameters would re-run
   // preparation and carry the birth-size channel the differentiated path imposes
   // to zero, so this one perturbs in place.
-  template <class Metrics>
   std::vector<std::vector<double>> census_trait_difference(double rel);
 
   // d(census)/d(trait), one row per metric and one column per trait in each
@@ -164,14 +174,13 @@ public:
   // anywhere in a metric's sweep makes that metric's whole gradient undefined,
   // and an exact zero is more often a slot nothing reached than a sensitivity
   // the model means.
-  template <class Metrics>
   census_gradient
   // `which_metrics` names the rows to sweep, empty meaning every one. A metric
   // not asked for is not seeded and not swept, so asking for one costs one --
   // which is what a caller differentiating a single census wants and what
   // computing all of them and subsetting the answer does not give.
   census_trait_gradient(const std::vector<size_t>& extra_splits = {},
-                        const std::vector<size_t>& which_metrics = {});
+                        const std::vector<std::string>& which_metrics = {});
 
   // One exact directional derivative of the census, by a forward tangent of the
   // same trajectory stepped at the sizes the run recorded. `direction` carries
@@ -180,7 +189,6 @@ public:
   // contraction. Returns one tangent per metric, and writes the metrics the
   // replay itself reached: a reference whose value disagrees with the model is a
   // reference to a different function, and the gap is this check's own floor.
-  template <class Metrics>
   std::vector<double> census_trait_tangent(const std::vector<double>& direction,
                                            std::vector<double>& value);
 
@@ -195,7 +203,6 @@ public:
   // which on this coordinate holds the environment and no cohort, and `j` is the
   // state the run reached just after the jth introduction. A cohort's own birth
   // height is seedable only from `j >= 1`, because that is where it first exists.
-  template <class Metrics>
   std::vector<double>
   census_initial_state_tangent(const std::vector<double>& direction,
                                std::vector<double>& value,
@@ -205,7 +212,6 @@ public:
   // `state0`. Differencing it moves the state the tangent above seeds, through
   // the same steps and the same introductions, so the two differentiate one
   // function and a disagreement is the propagation's own.
-  template <class Metrics>
   std::vector<double>
   census_initial_state_replay(const std::vector<double>& state0,
                               size_t segment = 0);
@@ -220,7 +226,7 @@ public:
   // Storing a trajectory runs the model, so the seeding is handed in rather than
   // applied by the caller: a caller reading the recorded state for itself would
   // store twice and run twice.
-  template <class Metrics, class Scalar, class Seed>
+  template <class Scalar, class Seed>
   std::vector<Scalar> replay_initial_state(size_t from_segment, Seed seed);
 
   // The Control entries that move the trajectory or move which states answer,
@@ -837,15 +843,13 @@ Rcpp::List SCM<T, E>::r_store_trajectory() {
 }
 
 template <typename T, typename E>
-template <class Metrics>
 std::vector<double> SCM<T, E>::census() const {
+  const std::vector<census_metric<T>> metrics = metrics_of<patch_type>();
   std::vector<double> ret;
-  ret.reserve(std::tuple_size<Metrics>::value);
-  std::apply(
-      [&](auto... psi) -> void {
-        (ret.push_back(odelia::util::to_passive(census_over(patch, psi))), ...);
-      },
-      Metrics{});
+  ret.reserve(metrics.size());
+  for (const census_metric<T>& metric : metrics) {
+    ret.push_back(odelia::util::to_passive(census_over(patch, metric)));
+  }
   return ret;
 }
 
@@ -861,11 +865,9 @@ std::vector<double> SCM<T, E>::census() const {
 // with nothing thrown. Loading it with set_ode_state alone leaves the condition at
 // its first evaluation, which is not the one census() reads.
 template <typename T, typename E>
-template <class Metrics>
 odelia::ode::row_batch SCM<T, E>::census_state_adjoint() const {
   require_birth_date_coordinate("census_state_adjoint");
   using scalar = odelia::ode::active_scalar<double>;
-  const size_t n_metric = std::tuple_size<Metrics>::value;
   const size_t n_state = patch.ode_size();
 
   std::vector<double> in(n_state);
@@ -889,18 +891,16 @@ odelia::ode::row_batch SCM<T, E>::census_state_adjoint() const {
   // derivative slots are returned to zero.
   typename scalar::tape_type tape(false);
   auto active = patch.template rebind_from<scalar>();
+  const auto metrics = metrics_of<decltype(active)>();
   auto reduce = [&](const std::vector<scalar>& x,
                     std::vector<scalar>& y) -> void {
     active.set_recorded_state(x.begin(), time());
-    size_t at = 0;
-    std::apply(
-        [&](auto... psi) -> void {
-          ((y[at++] = census_over(active, psi)), ...);
-        },
-        Metrics{});
+    for (size_t m = 0; m < metrics.size(); ++m) {
+      y[m] = census_over(active, metrics[m]);
+    }
   };
   const odelia::ode::row_batch seeds =
-      odelia::ode::row_batch::all_rows(n_metric);
+      odelia::ode::row_batch::all_rows(metrics.size());
   odelia::ode::vector_jacobian_product(tape, in, seeds, reduce, ret);
   return ret;
 }
@@ -915,11 +915,9 @@ odelia::ode::row_batch SCM<T, E>::census_state_adjoint() const {
 // differentiated and a metric added in species.h needs no edit here. One patch
 // and one tape per metric, for the reason census_state_adjoint gives.
 template <typename T, typename E>
-template <class Metrics>
 odelia::ode::row_batch SCM<T, E>::census_trait_direct() {
   require_birth_date_coordinate("census_trait_direct");
   using scalar = odelia::ode::active_scalar<double>;
-  const size_t n_metric = std::tuple_size<Metrics>::value;
 
   std::vector<double> state(patch.ode_size());
   patch.ode_state(state.begin());
@@ -936,6 +934,7 @@ odelia::ode::row_batch SCM<T, E>::census_trait_direct() {
   // does not depend on which one is asked for, so one per metric was one repeated.
   typename scalar::tape_type tape(false);
   auto active = patch.template rebind_from<scalar>();
+  const auto metrics = metrics_of<decltype(active)>();
   auto reduce = [&](const std::vector<scalar>& x,
                     std::vector<scalar>& y) -> void {
     size_t at = 0;
@@ -949,15 +948,12 @@ odelia::ode::row_batch SCM<T, E>::census_trait_direct() {
     util::check_length(at, x.size());
     // The state is handed in at its value, which is what holds it fixed.
     active.set_recorded_state(state.begin(), time());
-    at = 0;
-    std::apply(
-        [&](auto... psi) -> void {
-          ((y[at++] = census_over(active, psi)), ...);
-        },
-        Metrics{});
+    for (size_t m = 0; m < metrics.size(); ++m) {
+      y[m] = census_over(active, metrics[m]);
+    }
   };
   const odelia::ode::row_batch seeds =
-      odelia::ode::row_batch::all_rows(n_metric);
+      odelia::ode::row_batch::all_rows(metrics.size());
   odelia::ode::vector_jacobian_product(tape, in, seeds, reduce, ret);
   return ret;
 }
@@ -965,11 +961,11 @@ odelia::ode::row_batch SCM<T, E>::census_trait_direct() {
 // The census twice per trait, at the state held, with the strategy moved in place.
 // See the declaration for why it perturbs rather than rebuilds.
 template <typename T, typename E>
-template <class Metrics>
 std::vector<std::vector<double>>
 SCM<T, E>::census_trait_difference(double rel) {
   require_birth_date_coordinate("census_trait_difference");
-  const size_t n_metric = std::tuple_size<Metrics>::value;
+  const std::vector<census_metric<T>> metrics = metrics_of<patch_type>();
+  const size_t n_metric = metrics.size();
   const size_t n_state = patch.ode_size();
 
   std::vector<double> state(n_state);
@@ -989,11 +985,9 @@ SCM<T, E>::census_trait_difference(double rel) {
   auto census_at = [&](std::vector<double>& out) -> void {
     patch.set_recorded_state(state.begin(), time_);
     out.clear();
-    std::apply(
-        [&](auto... psi) -> void {
-          (out.push_back(odelia::util::to_passive(census_over(patch, psi))), ...);
-        },
-        Metrics{});
+    for (const census_metric<T>& metric : metrics) {
+      out.push_back(odelia::util::to_passive(census_over(patch, metric)));
+    }
   };
 
   std::vector<std::vector<double>> ret(n_metric,
@@ -1023,11 +1017,42 @@ SCM<T, E>::census_trait_difference(double rel) {
 // once the sweep is done. It is the solver's system that accumulates: `patch` is
 // a snapshot the run copies out, and reading its accumulator gives zeros.
 template <typename T, typename E>
-template <class Metrics>
 census_gradient
 SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
-                                 const std::vector<size_t>& which_metrics) {
+                                 const std::vector<std::string>& which_metrics) {
   require_birth_date_coordinate("census_trait_gradient");
+  // Which rows to sweep, resolved against the strategy's own list before
+  // anything runs, so the shape of the answer is known on the refusal path too.
+  // Named rather than positional: a caller indexing by position gets a different
+  // metric's gradient when the list changes, and nothing says so.
+  const std::vector<census_metric<T>> metrics = metrics_of<patch_type>();
+  std::vector<size_t> rows;
+  if (which_metrics.empty()) {
+    rows.resize(metrics.size());
+    for (size_t m = 0; m < rows.size(); ++m) {
+      rows[m] = m;
+    }
+  } else {
+    for (const std::string& want : which_metrics) {
+      size_t at = metrics.size();
+      for (size_t m = 0; m < metrics.size(); ++m) {
+        if (want == metrics[m].name) {
+          at = m;
+          break;
+        }
+      }
+      if (at == metrics.size()) {
+        std::string known;
+        for (const census_metric<T>& metric : metrics) {
+          known += known.empty() ? "" : ", ";
+          known += metric.name;
+        }
+        util::stop("census_trait_gradient: this model has no census metric `" +
+                   want + "`; it has " + known);
+      }
+      rows.push_back(at);
+    }
+  }
   // The sweep needs the state at every accepted step. store_trajectory() repeats
   // the run to get them unless record_trajectory kept them the first time, and
   // either way it may run, so the seeds below are taken after it.
@@ -1058,33 +1083,18 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // themselves. Nothing is restored: the walk that borrows the width runs below.
   odelia::ode::row_batch all_seeds, all_direct;
   try {
-    all_seeds = census_state_adjoint<Metrics>();
-    all_direct = census_trait_direct<Metrics>();
+    all_seeds = census_state_adjoint();
+    all_direct = census_trait_direct();
   } catch (gradient_refusal& e) {
     const size_t width = live.trait_adjoint_size();
-    const size_t rows = which_metrics.empty()
-                            ? std::tuple_size<Metrics>::value
-                            : which_metrics.size();
     census_gradient ret;
-    for (size_t m = 0; m < rows; ++m) {
+    for (size_t m = 0; m < rows.size(); ++m) {
       ret.gradient.push_back(std::vector<double>(
           width, std::numeric_limits<double>::quiet_NaN()));
       ret.status.push_back(std::vector<gradient_status>(width, e.status));
     }
     return ret;
   }
-  // Which rows to sweep. Empty is every one, and a named row outside the census
-  // is refused rather than clamped: a caller indexing by position would
-  // otherwise get a different metric's gradient back.
-  std::vector<size_t> rows = which_metrics;
-  if (rows.empty()) {
-    rows.resize(all_seeds.rows());
-    for (size_t m = 0; m < rows.size(); ++m) {
-      rows[m] = m;
-    }
-  }
-  // Named rather than clamped, and by the batch that holds them, so a caller
-  // indexing by position cannot be handed a different metric's row.
   const odelia::ode::row_batch seeds = all_seeds.select(rows);
   const odelia::ode::row_batch direct = all_direct.select(rows);
   // Every metric's sweep visits the same trajectory and differs only in its
@@ -1200,7 +1210,6 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
 // differenced back out of two recorded times is not the size that was taken,
 // since fl(fl(t + h) - t) != h.
 template <typename T, typename E>
-template <class Metrics>
 std::vector<double>
 SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
                                 std::vector<double>& value) {
@@ -1250,17 +1259,20 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   odelia::ode::be_at_step(solver.get_system_ref(), insertions, states, times,
                           states.size() - 1);
 
-  std::vector<double> ret;
-  ret.reserve(std::tuple_size<Metrics>::value);
-  value.clear();
-  value.reserve(std::tuple_size<Metrics>::value);
   const auto& reached = forward.get_system_ref();
-  std::apply(
-      [&](auto... psi) -> void {
-        ((ret.push_back(xad::derivative(census_over(reached, psi))),
-          value.push_back(xad::value(census_over(reached, psi)))), ...);
-      },
-      Metrics{});
+  const auto metrics = metrics_of<std::decay_t<decltype(reached)>>();
+  std::vector<double> ret;
+  ret.reserve(metrics.size());
+  value.clear();
+  value.reserve(metrics.size());
+  // Reduced ONCE per metric, and its value read off the same tangent as its
+  // derivative. Two reductions would be two evaluations of one function, which is
+  // the shape this whole check exists to catch elsewhere.
+  for (const auto& metric : metrics) {
+    const tangent reached_metric = census_over(reached, metric);
+    ret.push_back(xad::derivative(reached_metric));
+    value.push_back(xad::value(reached_metric));
+  }
   return ret;
 }
 
@@ -1286,7 +1298,7 @@ std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
 }
 
 template <typename T, typename E>
-template <class Metrics, class Scalar, class Seed>
+template <class Scalar, class Seed>
 std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
                                                     Seed seed) {
   const std::vector<ode_step_record> trajectory = store_trajectory();
@@ -1326,19 +1338,17 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   // beside the sweep that shares its trajectory.
   odelia::ode::be_at_step(live, insertions, states, times, states.size() - 1);
 
-  std::vector<Scalar> out;
-  out.reserve(std::tuple_size<Metrics>::value);
   const auto& reached = forward.get_system_ref();
-  std::apply(
-      [&](auto... psi) -> void {
-        ((out.push_back(census_over(reached, psi))), ...);
-      },
-      Metrics{});
+  const auto metrics = metrics_of<std::decay_t<decltype(reached)>>();
+  std::vector<Scalar> out;
+  out.reserve(metrics.size());
+  for (const auto& metric : metrics) {
+    out.push_back(census_over(reached, metric));
+  }
   return out;
 }
 
 template <typename T, typename E>
-template <class Metrics>
 std::vector<double>
 SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
                                         std::vector<double>& value,
@@ -1346,7 +1356,7 @@ SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
   require_birth_date_coordinate("census_initial_state_tangent");
 
   const std::vector<tangent> reached =
-    replay_initial_state<Metrics, tangent>(segment,
+    replay_initial_state<tangent>(segment,
       [&](std::vector<tangent>& x0,
           const std::vector<double>& base) -> void {
         util::check_length(direction.size(), base.size());
@@ -1368,12 +1378,11 @@ SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
 }
 
 template <typename T, typename E>
-template <class Metrics>
 std::vector<double>
 SCM<T, E>::census_initial_state_replay(const std::vector<double>& state0,
                                        size_t segment) {
   require_birth_date_coordinate("census_initial_state_replay");
-  return replay_initial_state<Metrics, double>(segment,
+  return replay_initial_state<double>(segment,
     [&](std::vector<double>& x0, const std::vector<double>& base) -> void {
       util::check_length(state0.size(), base.size());
       x0 = state0;

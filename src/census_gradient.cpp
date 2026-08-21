@@ -1,26 +1,24 @@
 #include <plant.h>
 
 // The census metrics and their trait gradient, for the one strategy that
-// carries an active scalar. A metric is added in species.h; nothing here names
-// one, so the codomain follows the tuple.
+// carries an active scalar. A metric is added to the strategy's own
+// census_metrics(); nothing here names one, and the codomain is that list's
+// length.
 
 // [[Rcpp::export]]
 std::vector<std::string> census_metric_names_tf24() {
-  std::vector<std::string> ret;
-  std::apply([&](auto... psi) -> void { (ret.push_back(psi.name()), ...); },
-             plant::tf24_census{});
-  return ret;
+  return plant::census_metric_names<plant::TF24_Strategy<double>>();
 }
 
 // [[Rcpp::export]]
 std::vector<double> census_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  return obj_->census<plant::tf24_census>();
+  return obj_->census();
 }
 
 // [[Rcpp::export]]
 std::vector<std::vector<double>>
 census_state_adjoint_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  return obj_->census_state_adjoint<plant::tf24_census>().to_rows();
+  return obj_->census_state_adjoint().to_rows();
 }
 
 // The gradient's columns: each species' differentiable parameters in
@@ -75,21 +73,19 @@ Rcpp::List census_gradient_to_r(const plant::census_gradient& g) {
 // [[Rcpp::export]]
 Rcpp::List
 census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
-                           Rcpp::Nullable<Rcpp::IntegerVector> which_metrics = R_NilValue) {
+                           Rcpp::Nullable<Rcpp::CharacterVector> which_metrics = R_NilValue) {
   // Absent means every metric, which is what a caller that does not know the
-  // census asks for. Naming a subset is what makes a single metric cost one.
-  std::vector<size_t> rows;
+  // census asks for. Naming a subset is what makes a single metric cost one, and
+  // a name is what crosses: a position means a different metric as soon as the
+  // model's list changes.
+  std::vector<std::string> wanted;
   if (which_metrics.isNotNull()) {
-    const Rcpp::IntegerVector v(which_metrics);
+    const Rcpp::CharacterVector v(which_metrics);
     for (int i = 0; i < v.size(); ++i) {
-      if (v[i] < 0) {
-        plant::util::stop("census_trait_gradient: a metric is named by its "
-                          "zero-based row");
-      }
-      rows.push_back(static_cast<size_t>(v[i]));
+      wanted.push_back(Rcpp::as<std::string>(v[i]));
     }
   }
-  return census_gradient_to_r(obj_->census_trait_gradient<plant::tf24_census>({}, rows));
+  return census_gradient_to_r(obj_->census_trait_gradient({}, wanted));
 }
 
 // The census's own reading of the traits at the state held. No sweep produces it,
@@ -98,7 +94,7 @@ census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy
 // [[Rcpp::export]]
 std::vector<std::vector<double>>
 census_trait_direct_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  return obj_->census_trait_direct<plant::tf24_census>().to_rows();
+  return obj_->census_trait_direct().to_rows();
 }
 
 // The same quantity differenced in plain double, which is what referees it.
@@ -106,7 +102,7 @@ census_trait_direct_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<d
 std::vector<std::vector<double>>
 census_trait_difference_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                              double rel) {
-  return obj_->census_trait_difference<plant::tf24_census>(rel);
+  return obj_->census_trait_difference(rel);
 }
 
 // The same gradient with the sweep stopped and resumed at each given recorded
@@ -124,7 +120,7 @@ census_trait_gradient_split_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_St
     }
     at.push_back(static_cast<size_t>(s - 1));
   }
-  return census_gradient_to_r(obj_->census_trait_gradient<plant::tf24_census>(at));
+  return census_gradient_to_r(obj_->census_trait_gradient(at));
 }
 
 // How many backward ranges the last gradient swept. A requested split that fell

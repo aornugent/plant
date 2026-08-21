@@ -3,6 +3,7 @@
 #ifndef PLANT_PLANT_TF24_STRATEGY_H_
 #define PLANT_PLANT_TF24_STRATEGY_H_
 
+#include <plant/census.h>
 #include <plant/strategy.h>
 #include <plant/models/tf24_environment.h>
 #include <plant/gradient_status.h>
@@ -495,6 +496,37 @@ public:
       "mass_heartwood",
       "storage"
       });
+  }
+
+  // The metrics a census of this model sums, in the order it reports them. Beside
+  // the state and aux names because all three say what this model calls its own
+  // quantities -- and every slot is read by its cached index, which is how every
+  // other reader of these slots reaches them.
+  static std::vector<census_metric<TF24_Strategy<S>>> census_metrics() {
+    using strategy = TF24_Strategy<S>;
+    return {
+      {"leaf_area",
+       [](const strategy& p, const Internals<S>& vars) -> S {
+         return p.area_leaf(vars.state(HEIGHT_INDEX));
+       }},
+      {"mass_above_ground",
+       [](const strategy& p, const Internals<S>& vars) -> S {
+         const S height = vars.state(HEIGHT_INDEX);
+         const S area_leaf = p.area_leaf(height);
+         return p.mass_above_ground(
+             p.mass_leaf(area_leaf),
+             p.mass_bark(p.area_bark(area_leaf), height),
+             p.mass_sapwood(p.area_sapwood(area_leaf), height),
+             vars.state(p.state_idx_mass_heartwood));
+       }},
+      {"area_stem",
+       [](const strategy& p, const Internals<S>& vars) -> S {
+         const S height = vars.state(HEIGHT_INDEX);
+         const S area_leaf = p.area_leaf(height);
+         return p.area_stem(p.area_bark(area_leaf), p.area_sapwood(area_leaf),
+                            vars.state(p.state_idx_area_heartwood));
+       }},
+    };
   }
 
   std::vector<std::string> aux_names() {

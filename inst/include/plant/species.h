@@ -13,64 +13,11 @@
 #include <odelia/ode_interface.hpp>
 #include <plant/node.h>
 #include <plant/species_base.h>
+#include <plant/census.h>
 #include <plant/transport_census.h>
 #include <odelia/drivers.hpp>
 
 namespace plant {
-
-// One census metric maps one cohort to the quantity summed over the size
-// distribution, at the scalar the strategy carries. A metric reads the strategy
-// and one cohort and nothing else, so a metric with a height cut of its own
-// carries that cut. Adding a metric is a struct of this shape plus its name in
-// the tuple below.
-namespace census_metric {
-
-struct leaf_area {
-  template <class Strategy, class Individual>
-  typename Individual::value_type
-  operator()(const Strategy& strategy, const Individual& individual) const {
-    return strategy.area_leaf(individual.state(HEIGHT_INDEX));
-  }
-  static const char* name() { return "leaf_area"; }
-};
-
-struct mass_above_ground {
-  template <class Strategy, class Individual>
-  typename Individual::value_type
-  operator()(const Strategy& strategy, const Individual& individual) const {
-    using S = typename Individual::value_type;
-    const S height = individual.state(HEIGHT_INDEX);
-    const S area_leaf = strategy.area_leaf(height);
-    return strategy.mass_above_ground(
-        strategy.mass_leaf(area_leaf),
-        strategy.mass_bark(strategy.area_bark(area_leaf), height),
-        strategy.mass_sapwood(strategy.area_sapwood(area_leaf), height),
-        individual.state("mass_heartwood"));
-  }
-  static const char* name() { return "mass_above_ground"; }
-};
-
-struct area_stem {
-  template <class Strategy, class Individual>
-  typename Individual::value_type
-  operator()(const Strategy& strategy, const Individual& individual) const {
-    using S = typename Individual::value_type;
-    const S height = individual.state(HEIGHT_INDEX);
-    const S area_leaf = strategy.area_leaf(height);
-    return strategy.area_stem(strategy.area_bark(area_leaf),
-                              strategy.area_sapwood(area_leaf),
-                              individual.state("area_heartwood"));
-  }
-  static const char* name() { return "area_stem"; }
-};
-
-}
-
-// The metrics TF24 is censused on. A census's codomain is the tuple's size, so a
-// fourth metric is one name added here.
-using tf24_census = std::tuple<census_metric::leaf_area,
-                               census_metric::mass_above_ground,
-                               census_metric::area_stem>;
 
 // This is purely for running the deterministic model. It shares its storage and
 // ODE plumbing with the stochastic species through SpeciesBase (species_base.h);
@@ -172,7 +119,7 @@ public:
   // coordinate that density is carried in; taking gaps in any other variable
   // integrates one density against another's spacing. The inflow boundary node
   // closes the grid, being the lower limit of the distribution.
-  template <class Psi> value_type census(Psi psi) const;
+  value_type census(const census_metric<T>& metric) const;
 
   // Whether the decreasing-height node ordering still holds (see height_max()).
   bool heights_are_decreasing() const;
@@ -943,9 +890,8 @@ Species<T,E>::consumption_rate(int i) const {
 
 
 template <typename T, typename E>
-template <class Psi>
 typename Species<T,E>::value_type
-Species<T,E>::census(Psi psi) const {
+Species<T,E>::census(const census_metric<T>& metric) const {
   if (size() == 0) {
     return value_type(0.0);
   }
@@ -963,11 +909,11 @@ Species<T,E>::census(Psi psi) const {
   weighted.reserve(size() + 1);
   for (auto& c : nodes) {
     x.push_back(abscissa_of(c, birth_date));
-    weighted.push_back(c.get_density() * psi(*strategy, c.individual));
+    weighted.push_back(c.get_density() * c.individual.census(metric));
   }
   x.push_back(abscissa_of(new_node, birth_date));
   weighted.push_back(new_node.get_density() *
-                     psi(*strategy, new_node.individual));
+                     new_node.individual.census(metric));
   return util::trapezium(x, weighted);
 }
 

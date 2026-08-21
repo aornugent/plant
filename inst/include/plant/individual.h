@@ -6,6 +6,7 @@
 #include <odelia/ode_interface.hpp>
 #include <vector>
 #include <odelia/ode_util.hpp>
+#include <plant/census.h>
 #include <plant/internals.h>
 #include <plant/gradient.h>
 #include <plant/util.h>
@@ -71,6 +72,13 @@ public:
     vars.resize_consumption_rates(i);
   }
   const value_type& consumption_rate(int i) const { return vars.consumption_rate(i); }
+
+  // One census metric read at this individual's own slots. Forwarded to the
+  // strategy for the reason every rate function is: the strategy knows which
+  // slot holds what and reads it by index.
+  value_type census(const census_metric<T>& metric) const {
+    return metric.of(*strategy, vars);
+  }
 
   value_type compute_competition(const value_type& z) const {
     return strategy->compute_competition(z, vars);
