@@ -1285,103 +1285,72 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     }
   }
 
-  // Which outputs came back whole. A missing row is not the same loss for the two
-  // kinds: profit is what net production reads and has no partial form, so losing
-  // its row ends the gradient, where a water row can go missing and still leave
-  // the value the patch balance needs.
-  //
-  // An output needs the operating point only where it READS the point, and needs
-  // every entry of the condition's gradient when it does. So the objective at an
-  // interior optimum is whole without a point at all -- which is the envelope
-  // theorem, and is why it survives the degeneracy that costs the water rows
-  // theirs.
+  // What a missing row costs depends on which output loses it: profit is what net
+  // production reads and has no partial form, so losing its row ends the
+  // gradient, where a water row can go missing and still leave the value the
+  // patch balance needs. Which output is which is the leaf's to say rather than
+  // this caller's -- the objective is the one that does not read the operating
+  // point, so it is the one a lost point costs nothing.
   //
   // ⚠️ AND WHATEVER IS MISSING IS NAMED HERE. The row layer names an input whose
   // row it refused, but a number can also arrive non-finite from a channel that
-  // reported no refusal -- and this pass is the only place that sees it. Reporting
-  // `rows.message` alone lets that case through as a refusal with an empty reason,
-  // which is the one shape a refusal must never take: it tells a reader the
-  // gradient stopped and nothing about where.
-  std::vector<bool> whole(output.size(), true);
+  // reported no refusal, and the graft is what sees that. Reporting
+  // `rows.message` alone lets it through as a refusal with an empty reason, which
+  // is the one shape a refusal must never take: it tells a reader the gradient
+  // stopped and nothing about where.
   const int n_layer_named = n_layer;
-  auto missing = [&](std::size_t j, const char* what, int input_index) -> std::string {
-    std::string out = std::string("`") + grad::output_name(output[j], n_layer_named) +
-                      "`'s " + what;
-    if (input_index >= 0) {
-      out += " in `" + grad::par_name(input[std::size_t(input_index)],
-                                      n_layer_named) + "`";
+  auto missing = [&](std::size_t j, const odelia::graft_report& report,
+                     bool carries_point) -> std::string {
+    std::string out = std::string("TF24 gradient: `") +
+                      grad::output_name(output[j], n_layer_named) + "`'s ";
+    if (carries_point && report.at == 0) {
+      out += "channel into the operating point";
+    } else {
+      const std::size_t i = report.at - (carries_point ? 1 : 0);
+      out += "row in `" +
+             grad::par_name(input[i], n_layer_named) + "`";
     }
-    out += " is not a number at a point the solve called " +
-           std::string(Leaf::operating_point_kind_name(rows.kind));
+    out += " cannot be recorded at a point the solve called " +
+           std::string(Leaf::operating_point_kind_name(rows.kind)) + ": " +
+           report.why;
     if (!rows.message.empty()) {
       out += "; " + rows.message;
     }
     return out;
   };
-  for (std::size_t j = 0; j < output.size(); ++j) {
-    std::string why;
-    bool ok = util::is_finite(rows.dy_dp[j]);
-    if (!ok) {
-      why = missing(j, "channel into the operating point", -1);
-    }
-    for (std::size_t i = 0; i < n_input && ok; ++i) {
-      ok = util::is_finite(rows.held[j * n_input + i]);
-      if (!ok) {
-        why = missing(j, "held row", int(i));
-      }
-    }
-    if (ok && rows.dy_dp[j] != 0.0) {
-      ok = util::is_finite(rows.residual_slope) && rows.residual_slope != 0.0;
-      if (!ok) {
-        why = missing(j, "curvature", -1) + " (" +
-              util::to_string(rows.residual_slope) + ")";
-      }
-      for (std::size_t i = 0; i < n_input && ok; ++i) {
-        ok = util::is_finite(rows.dresidual[i]);
-        if (!ok) {
-          why = missing(j, "condition gradient", int(i));
-        }
-      }
-    }
-    if (!ok) {
-      if (j == 0) {
-        throw gradient_refusal("TF24 gradient: " + why);
-      }
-      lose_uptake_rows("TF24 gradient: " + why);
-    }
-    whole[j] = ok;
-  }
-  // ⚠️ THE FLAG SUPPRESSES EVERY LATER PLANT'S WATER ROWS AND NOT ONLY THIS ONE'S.
-  // A metric's gradient is a sum, so a term missing anywhere leaves the whole
-  // water channel undefined and taping the rest would produce a gradient that is
-  // partly an answer. The values go on flowing either way.
-  //
-  // The objective is what survives, and asking the leaf which output that is
-  // rather than assuming a position says WHY: it is the one output that does not
-  // read the operating point, so it is the one a lost point costs nothing.
-  if (*uptake_rows_unavailable) {
-    for (std::size_t j = 0; j < output.size(); ++j) {
-      whole[j] = whole[j] && grad::role_of(output[j]) == grad::Role::Objective;
-    }
-  }
 
   leaf_soil_consumption_.assign(psi_soil.size(), S(0.0));
   std::vector<odelia::input_and_derivative<S>> against;
   against.reserve(n_input + 1);
 
   // Formed once however many outputs read it, which is the whole economy of an
-  // implicit node: the theorem's quotient, and the refusal where its slope cannot
-  // be inverted, are taken once rather than per output.
+  // implicit node: the theorem's quotient, and the reading where its slope cannot
+  // be inverted, are taken once rather than per output. An output needs the point
+  // only where it reads it, so the objective at an interior optimum is whole
+  // without one -- which is the envelope theorem, and is why it survives the
+  // degeneracy that costs the water rows theirs.
   S point;
   bool reads_point = false;
   for (std::size_t j = 0; j < output.size(); ++j) {
-    reads_point = reads_point || (whole[j] && rows.dy_dp[j] != 0.0);
+    reads_point = reads_point || rows.dy_dp[j] != 0.0;
   }
+  bool point_whole = true;
+  std::string point_why;
   if (reads_point) {
     for (std::size_t i = 0; i < n_input; ++i) {
       against.push_back({*at[i], rows.dresidual[i]});
     }
-    point = odelia::implicit_root<S>(rows.point, rows.residual_slope, against);
+    const odelia::graft_report report =
+        odelia::implicit_root<S>(rows.point, rows.residual_slope, against, point);
+    point_whole = report.whole;
+    if (!point_whole) {
+      point_why = std::string("the operating point cannot be recorded at a ") +
+                  Leaf::operating_point_kind_name(rows.kind) + " point: " +
+                  report.why;
+      if (!rows.message.empty()) {
+        point_why += "; " + rows.message;
+      }
+    }
   }
 
   for (std::size_t j = 0; j < output.size(); ++j) {
@@ -1396,21 +1365,52 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
             ? leaf.profit_
             : leaf.soil_consumption_[static_cast<std::size_t>(
                   output[j] - grad::out_uptake_first)];
-    if (!whole[j]) {
-      // The VALUE survives a missing row and the patch balance still needs it, so
-      // it is carried as a constant and the rows left off the tape -- which is
-      // what the flag says, against a zero row saying the opposite.
+    const bool objective = grad::role_of(output[j]) == grad::Role::Objective;
+    // ⚠️ THE FLAG SUPPRESSES EVERY LATER PLANT'S WATER ROWS AND NOT ONLY THIS
+    // ONE'S. A metric's gradient is a sum, so a term missing anywhere leaves the
+    // whole water channel undefined and taping the rest would produce a gradient
+    // that is partly an answer. The values go on flowing either way.
+    //
+    // Read BEFORE the graft rather than after it, because rows already on the
+    // tape cannot be taken off it.
+    if (*uptake_rows_unavailable && !objective) {
       into = S(value);
       continue;
     }
+    // A lost point costs every output that reads it, and nothing is grafted for
+    // those: a value carrying its held rows without the point's channel is the
+    // channel gone missing with every number finite.
+    if (rows.dy_dp[j] != 0.0 && !point_whole) {
+      into = S(value);
+      if (objective) {
+        throw gradient_refusal("TF24 gradient: `" +
+                               grad::output_name(output[j], n_layer_named) +
+                               "` reads " + point_why);
+      }
+      lose_uptake_rows("TF24 gradient: `" +
+                       grad::output_name(output[j], n_layer_named) +
+                       "` reads " + point_why);
+      continue;
+    }
     against.clear();
-    if (rows.dy_dp[j] != 0.0) {
+    const bool carries_point = rows.dy_dp[j] != 0.0;
+    if (carries_point) {
       against.push_back({point, rows.dy_dp[j]});
     }
     for (std::size_t i = 0; i < n_input; ++i) {
       against.push_back({*at[i], rows.held[j * n_input + i]});
     }
-    into = odelia::record_with_derivatives<S>(value, against);
+    // The VALUE survives a missing row and the patch balance still needs it, so
+    // the graft leaves it carrying nothing rather than carrying part -- which is
+    // what the flag below then says, against a zero row saying the opposite.
+    const odelia::graft_report report =
+        odelia::record_with_derivatives<S>(value, against, into);
+    if (!report.whole) {
+      if (objective) {
+        throw gradient_refusal(missing(j, report, carries_point));
+      }
+      lose_uptake_rows(missing(j, report, carries_point));
+    }
   }
 }
 
