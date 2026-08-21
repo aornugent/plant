@@ -1246,6 +1246,82 @@ has been observed of one.
 
 ### Internals & performance
 
+* **One name per scalar, and a batch that carries its own shape.** Seven places in
+  the solver named the adjoint tape independently of the scalar that records on it
+  and five in plant named the tangent scalar; each is one alias now
+  (`adjoint_tape<T>`, `tangent_scalar<T>`, `plant::tangent`). A tape named beside
+  its scalar rather than taken from it is right at one derivative width and, at any
+  other, a DIFFERENT tape -- it reports nothing active, so `implicit_value` would
+  record its own difference probe onto the live tape and nothing would say so.
+
+  The seeds a transpose takes and the rows it hands back were a vector of vectors,
+  which is ragged by construction, so every function on the path tested for a shape
+  it should not have been able to receive. `odelia::ode::row_batch` has one width
+  for every row: the loop asserting every seed is one entry per output, the loop
+  asserting every accumulator row is one entry per parameter, and the loop asserting
+  every seed matches the System's width are all gone, and what survives is asked of
+  the batch rather than of each row in it. Two shapes stop being expressible rather
+  than being caught -- a batch whose rows disagree with each other, and a row
+  resized between the check on it and the write into it.
+
+* **A census metric is the strategy's, and the list is read rather than folded.** A
+  metric was a struct in `species.h` calling `strategy.mass_above_ground` and
+  `individual.state("mass_heartwood")` -- one model's vocabulary in the header three
+  models include, reached for two of its three slots through a
+  `std::map<std::string,int>` lookup while the third used its index three lines
+  above. `individual.h`'s own constructor says why that is backwards: the strategy
+  owns which slot holds what and reads it by index, which is how
+  `compute_competition` and `net_mass_production_dt` already reach the same slots.
+  So `TF24_Strategy::census_metrics()` declares them, beside `state_names()`, and
+  `species.h` keeps only what a generic header can know -- that a census is a
+  density-weighted quadrature of some kernel.
+
+  The list is built once and read, where the tuple was folded by `std::apply` in six
+  places, in four different bodies for one expansion. That takes the `Metrics`
+  template parameter off eight members and their definitions, and with it the nine
+  mentions of the metric set in the two files that exported it: nothing outside the
+  model names a metric, and the codomain is the list's length. A strategy that
+  declares none says so at the call site with the member named, where it used to fail
+  inside `std::apply`.
+
+  Two more fell out. `census_trait_tangent` was reducing each metric TWICE, once for
+  the value and once for the derivative, under a comment about references whose value
+  disagrees with the model; it reduces once. And a metric crosses the R boundary as a
+  NAME rather than a position, so a caller cannot be handed a different metric's
+  gradient when the list changes.
+
+* **The census is recorded once for both of its input sets.** The state rows and the
+  trait rows were two functions over the same metric algebra, each taking its own
+  recording and each writing the seam between the two halves for itself. They are one
+  call of `state_and_parameter_adjoints` now, which is where that seam is written for
+  every transpose in the tree -- and the order it enforces is why the halves belong
+  in one recording: the traits are seated first, so a quantity the state determines
+  is derived at the traits the recording registered rather than at the values they
+  held before it.
+
+  **Bit-identical, measured rather than argued: 2400 numbers across both row sets,
+  every one unchanged.** Registering an extra input adds tape edges without moving
+  any partial's value or the order the statements accumulate in. **This is not a
+  speedup** -- the two recordings together are 6 ms of a 13.9 s gradient. What it
+  buys is one fewer place the same arithmetic is written.
+
+* **The graft says what it could not record instead of stopping.** `record_with_derivatives`
+  and `implicit_root` return a `graft_report`; the value comes back either way,
+  because whether a consumer can go on without the row is the consumer's to decide
+  and a stop takes every output where the loss belongs to one. Nothing partial: every
+  row is tested before any is recorded. `implicit_value` still stops, and the
+  asymmetry is the point -- it IS the value its equation defines, so a caller handed
+  the root with no derivative has a structural zero and no way to know it.
+
+  `TF24_Strategy::record_leaf_outputs` reads that report where it used to audit
+  twelve outputs' rows for finiteness itself. **The line count is flat**, and saying
+  otherwise would be the wrong reading of it: what the audit spent on restating the
+  rule now goes on the point's own report and on what a lost row costs the output
+  that lost it. What changed is that there is one definition of an unrecordable row
+  rather than two, and the fold at a non-invertible slope is a reading rather than an
+  error -- which is what the curvature pre-check here was working around. The report
+  path has no fixture, and neither did the audit it replaces.
+
 * **The shared field's reduction is one pass over the crowns for every knot, not
   one per knot.** `Q` is a polynomial in `w = (z / H)^eta` and `w` separates into
   `z^eta` times `H^-eta`, so the trapezium's intervals carry three running sums --
