@@ -59,14 +59,14 @@ size_t rhs_adjoint(patch_type& patch,
   std::vector<double> state(n);
   patch.ode_state(state.begin());
 
-  const std::vector<std::vector<double>> seeds(1, lambda_dydt);
-  std::vector<std::vector<double>> swept;
-  std::vector<std::vector<double>> rows(
-    1, std::vector<double>(patch.trait_adjoint_size(), 0.0));
+  const odelia::ode::row_batch seeds =
+    odelia::ode::row_batch::one_row(lambda_dydt);
+  odelia::ode::row_batch swept;
+  odelia::ode::row_batch rows(1, patch.trait_adjoint_size());
   const size_t recording = odelia::ode::rates_adjoint(
     tape.get(), patch, state, patch.time(), seeds, swept, rows);
-  lambda_state = std::move(swept[0]);
-  trait_adjoint = std::move(rows[0]);
+  lambda_state.assign(swept[0].begin(), swept[0].end());
+  trait_adjoint.assign(rows[0].begin(), rows[0].end());
   return recording;
 }
 
@@ -295,9 +295,9 @@ Rcpp::NumericMatrix ladder_block_jacobian_reverse_tf24(plant::RcppR6::RcppR6<pla
 
     // A batch of one, deliberately: this reference takes the Jacobian a row at a
     // time so that what it checks is one recording swept by one unit adjoint.
-    std::vector<std::vector<double>> seed(1, std::vector<double>(n_out, 0.0));
+    odelia::ode::row_batch seed(1, n_out);
     seed[0][r] = 1.0;
-    std::vector<std::vector<double>> row;
+    odelia::ode::row_batch row;
     auto block = [&](const std::vector<scalar>& x,
                      std::vector<scalar>& y) -> void {
       individual.set_block_inputs(x.begin(), environment);
@@ -305,7 +305,7 @@ Rcpp::NumericMatrix ladder_block_jacobian_reverse_tf24(plant::RcppR6::RcppR6<pla
       individual.block_outputs(y.begin(), environment);
     };
     odelia::ode::vector_jacobian_product(tape, in, seed, block, row);
-    rows.push_back(row[0]);
+    rows.emplace_back(row[0].begin(), row[0].end());
   }
   return to_matrix(rows, n_in);
 }
@@ -826,10 +826,7 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
   // One seed per output row, swept over a single recording of the map, which is
   // the shape the trajectory sweep takes. The trait accumulator adds by design,
   // so it is cleared before the call and again after it.
-  std::vector<std::vector<double>> seeds(n_out, std::vector<double>(n_out, 0.0));
-  for (size_t r = 0; r < n_out; ++r) {
-    seeds[r][r] = 1.0;
-  }
+  const odelia::ode::row_batch seeds = odelia::ode::row_batch::all_rows(n_out);
   // The transpose the sweep takes at a widening, taken here on its own: the same
   // tape and the same product the solver's walk runs, with the trajectory and the
   // segmentation left out so a disagreement is the map's.
@@ -842,9 +839,8 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
                                                             time_before},
         x, y);
   };
-  std::vector<std::vector<double>> lambda_before;
-  std::vector<std::vector<double>> trait_adjoint(
-      n_out, std::vector<double>(n_trait, 0.0));
+  odelia::ode::row_batch lambda_before;
+  odelia::ode::row_batch trait_adjoint(n_out, n_trait);
   ad_scalar::tape_type tape(false);
   odelia::ode::state_and_parameter_adjoints(tape, patch, state_before, seeds,
                                             widen, lambda_before,

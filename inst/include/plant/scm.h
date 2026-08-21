@@ -131,13 +131,13 @@ public:
   // d(census)/d(ODE state) at the current time, one row per metric and one
   // column per ODE state entry. This is what the reverse pass is seeded with.
   template <class Metrics>
-  std::vector<std::vector<double>> census_state_adjoint() const;
+  odelia::ode::row_batch census_state_adjoint() const;
 
   // d(census)/d(trait) at the state held, which no sweep produces: a metric
   // reads the traits itself, and the boundary node's own quantities are rebuilt
   // when the state is set. One row per metric, columns as census_trait_gradient.
   template <class Metrics>
-  std::vector<std::vector<double>> census_trait_direct();
+  odelia::ode::row_batch census_trait_direct();
 
   // The same quantity differenced, by moving the prepared strategy exactly where
   // the recording seeds it. It referees census_trait_direct while sharing none of
@@ -862,7 +862,7 @@ std::vector<double> SCM<T, E>::census() const {
 // its first evaluation, which is not the one census() reads.
 template <typename T, typename E>
 template <class Metrics>
-std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
+odelia::ode::row_batch SCM<T, E>::census_state_adjoint() const {
   require_birth_date_coordinate("census_state_adjoint");
   using scalar = odelia::ode::active_scalar<double>;
   const size_t n_metric = std::tuple_size<Metrics>::value;
@@ -871,8 +871,7 @@ std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
   std::vector<double> in(n_state);
   patch.ode_state(in.begin());
 
-  std::vector<std::vector<double>> ret(n_metric,
-                                       std::vector<double>(n_state, 0.0));
+  odelia::ode::row_batch ret;
   // One patch, one tape, one recording, and a seed per metric. The recording does
   // not depend on which metric is being asked for -- it writes every metric into y
   // and only the seed picks one out -- so a recording per metric was a recording
@@ -900,11 +899,8 @@ std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
         },
         Metrics{});
   };
-  std::vector<std::vector<double>> seeds(n_metric,
-                                         std::vector<double>(n_metric, 0.0));
-  for (size_t m = 0; m < n_metric; ++m) {
-    seeds[m][m] = 1.0;
-  }
+  const odelia::ode::row_batch seeds =
+      odelia::ode::row_batch::all_rows(n_metric);
   odelia::ode::vector_jacobian_product(tape, in, seeds, reduce, ret);
   return ret;
 }
@@ -920,7 +916,7 @@ std::vector<std::vector<double>> SCM<T, E>::census_state_adjoint() const {
 // and one tape per metric, for the reason census_state_adjoint gives.
 template <typename T, typename E>
 template <class Metrics>
-std::vector<std::vector<double>> SCM<T, E>::census_trait_direct() {
+odelia::ode::row_batch SCM<T, E>::census_trait_direct() {
   require_birth_date_coordinate("census_trait_direct");
   using scalar = odelia::ode::active_scalar<double>;
   const size_t n_metric = std::tuple_size<Metrics>::value;
@@ -935,8 +931,7 @@ std::vector<std::vector<double>> SCM<T, E>::census_trait_direct() {
     }
   }
 
-  std::vector<std::vector<double>> ret(n_metric,
-                                       std::vector<double>(in.size(), 0.0));
+  odelia::ode::row_batch ret;
   // One recording, a seed per metric: the recording writes every metric into y and
   // does not depend on which one is asked for, so one per metric was one repeated.
   typename scalar::tape_type tape(false);
@@ -961,11 +956,8 @@ std::vector<std::vector<double>> SCM<T, E>::census_trait_direct() {
         },
         Metrics{});
   };
-  std::vector<std::vector<double>> seeds(n_metric,
-                                         std::vector<double>(n_metric, 0.0));
-  for (size_t m = 0; m < n_metric; ++m) {
-    seeds[m][m] = 1.0;
-  }
+  const odelia::ode::row_batch seeds =
+      odelia::ode::row_batch::all_rows(n_metric);
   odelia::ode::vector_jacobian_product(tape, in, seeds, reduce, ret);
   return ret;
 }
@@ -1064,7 +1056,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // Caught here, where the shape of the answer is still known from what the
   // caller asked for and the patch's trait width rather than from the seeds
   // themselves. Nothing is restored: the walk that borrows the width runs below.
-  std::vector<std::vector<double>> all_seeds, all_direct;
+  odelia::ode::row_batch all_seeds, all_direct;
   try {
     all_seeds = census_state_adjoint<Metrics>();
     all_direct = census_trait_direct<Metrics>();
@@ -1086,33 +1078,27 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // otherwise get a different metric's gradient back.
   std::vector<size_t> rows = which_metrics;
   if (rows.empty()) {
-    rows.resize(all_seeds.size());
+    rows.resize(all_seeds.rows());
     for (size_t m = 0; m < rows.size(); ++m) {
       rows[m] = m;
     }
   }
-  std::vector<std::vector<double>> seeds, direct;
-  for (const size_t r : rows) {
-    if (r >= all_seeds.size()) {
-      util::stop("census_trait_gradient: metric " + util::to_string(static_cast<int>(r)) +
-                 " is outside the census");
-    }
-    seeds.push_back(all_seeds[r]);
-    direct.push_back(all_direct[r]);
-  }
+  // Named rather than clamped, and by the batch that holds them, so a caller
+  // indexing by position cannot be handed a different metric's row.
+  const odelia::ode::row_batch seeds = all_seeds.select(rows);
+  const odelia::ode::row_batch direct = all_direct.select(rows);
   // Every metric's sweep visits the same trajectory and differs only in its
   // seed, so they are carried TOGETHER: a block is recorded once and swept once
   // per metric, where the loop this replaces recorded it once per metric. The
   // recording is a model evaluation and a sweep is arithmetic, so the second and
   // third metrics were costing what the first did and now cost almost nothing.
-  const size_t n_metric = seeds.size();
+  const size_t n_metric = seeds.rows();
 
   // The accumulator the sweep adds into, owned here for the length of the sweep
   // rather than kept on the patch between calls. Every writer reaches it through
   // the driver, so a row that does not match the seeds is a length mismatch.
-  std::vector<std::vector<double>> trait_adjoint(
-      n_metric, std::vector<double>(live.trait_adjoint_size(), 0.0));
-  std::vector<std::vector<double>> lambda = seeds;
+  odelia::ode::row_batch trait_adjoint(n_metric, live.trait_adjoint_size());
+  odelia::ode::row_batch lambda = seeds;
   // One segment per width, highest first, narrowing across each widening and
   // transposing the map that took it. The solver owns that walk: what is left
   // here is the census the sweep is seeded from and the direct term below.
@@ -1129,7 +1115,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
         n_metric * odelia::ode::solve_adjoint_over_widenings(
                        solver, states, widenings, lambda, trait_adjoint,
                        extra_splits);
-    adjoint_at_first_state = std::move(lambda);
+    adjoint_at_first_state = lambda.to_rows();
   } catch (gradient_refusal& e) {
     refusal = e.status;
     refused = true;
@@ -1171,12 +1157,12 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
       // numbers are not-a-number rather than absent so that a caller indexing by
       // position still finds the shape it expects.
       ret.gradient.push_back(std::vector<double>(
-          direct[m].size(), std::numeric_limits<double>::quiet_NaN()));
-      ret.status.push_back(std::vector<gradient_status>(direct[m].size(), refusal));
+          direct.width(), std::numeric_limits<double>::quiet_NaN()));
+      ret.status.push_back(std::vector<gradient_status>(direct.width(), refusal));
       continue;
     }
-    std::vector<double> row = trait_adjoint[m];
-    util::check_length(row.size(), direct[m].size());
+    std::vector<double> row(trait_adjoint[m].begin(), trait_adjoint[m].end());
+    util::check_length(row.size(), direct.width());
     for (size_t p = 0; p < row.size(); ++p) {
       row[p] += direct[m][p];
     }
