@@ -33,7 +33,9 @@ using environment_type = plant::TF24_Environment<double>;
 using patch_type = plant::Patch<strategy_type, environment_type>;
 using patch_handle = plant::RcppR6::RcppR6<patch_type>;
 
-using tangent = xad::fwd<double>::active_type;
+// Both scalars come from the one place each is named -- patch.h for the tangent,
+// odelia for the adjoint -- rather than being restated here.
+using plant::tangent;
 using tangent_strategy = plant::at_scalar<strategy_type, tangent>;
 using tangent_environment = plant::at_scalar<environment_type, tangent>;
 using tangent_individual = plant::Individual<tangent_strategy,
@@ -499,8 +501,7 @@ Rcpp::List ladder_trajectory_tangent_tf24(plant::RcppR6::RcppR6<plant::SCM<plant
 // [[Rcpp::export]]
 Rcpp::List ladder_boundary_density_tangent_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                                 int index) {
-  using tangent = xad::fwd<double>::active_type;
-  const patch_type& source = *obj_;
+    const patch_type& source = *obj_;
   auto active = source.template rebind_from<tangent>();
   std::vector<tangent*> pars =
     active.at_species(0).strategy_ptr()->ad_parameters();
@@ -557,8 +558,7 @@ Rcpp::List ladder_boundary_density_tangent_tf24(plant::RcppR6::RcppR6<plant::Pat
 // [[Rcpp::export]]
 Rcpp::List ladder_seed_geometry_tangent_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                              int index) {
-  using tangent = xad::fwd<double>::active_type;
-  const patch_type& patch = *obj_;
+    const patch_type& patch = *obj_;
   const strategy_type& source = *patch.at_species(0).strategy_ptr();
   auto active = source.template rebind_from<tangent>();
   std::vector<tangent*> pars = active.ad_parameters();

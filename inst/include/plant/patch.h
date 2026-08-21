@@ -40,6 +40,10 @@ concept KeepsSolvedChoices =
 template <typename X, typename U>
 using at_scalar = decltype(std::declval<const X&>().template rebind_from<U>());
 
+// The scalar a forward tangent runs on. Named here once: five places restated
+// it, and a scalar restated is a scalar two of them can disagree about.
+using tangent = odelia::ode::tangent_scalar<double>;
+
 // One accepted step. The state widens at an introduction, so the record is ragged.
 struct ode_step_record { double time; double step_size; std::vector<double> state; };
 
@@ -1347,7 +1351,6 @@ std::vector<std::vector<double>>
 Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
                                   const std::vector<double>& state_before,
                                   double time_before) {
-  using tangent = xad::fwd<double>::active_type;
   const size_t n_state = ode_size();
   const size_t n_trait = trait_adjoint_size();
   const size_t n_out = n_state + species_index.size() * node_type::ode_size();

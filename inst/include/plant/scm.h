@@ -1219,7 +1219,6 @@ std::vector<double>
 SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
                                 std::vector<double>& value) {
   require_birth_date_coordinate("census_trait_tangent");
-  using tangent = xad::fwd<double>::active_type;
 
   const std::vector<ode_step_record> trajectory = store_trajectory();
   std::vector<std::vector<double>> states;
@@ -1359,7 +1358,6 @@ SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
                                         std::vector<double>& value,
                                         size_t segment) {
   require_birth_date_coordinate("census_initial_state_tangent");
-  using tangent = xad::fwd<double>::active_type;
 
   const std::vector<tangent> reached =
     replay_initial_state<Metrics, tangent>(segment,
