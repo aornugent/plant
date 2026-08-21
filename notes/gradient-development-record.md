@@ -1246,6 +1246,51 @@ has been observed of one.
 
 ### Internals & performance
 
+* **The shared field's reduction is one pass over the crowns for every knot, not
+  one per knot.** `Q` is a polynomial in `w = (z / H)^eta` and `w` separates into
+  `z^eta` times `H^-eta`, so the trapezium's intervals carry three running sums --
+  one per power -- and every knot reads a prefix of them. `Species::field_splits`
+  fills the whole knot set from one descent; `CanopyShape` declares the form as
+  `n_moments()`, `crown_moments()`, `height_weights()` and `height_weight_slopes()`,
+  and answers zero moments for the box profiles, which are piecewise in `z / H` and
+  have no such form. Where the count is zero, or the decreasing-height ordering has
+  broken, every knot takes the walk -- the same branch the walk's own early exit
+  already rests on.
+
+  **Measured against forcing the walk in the same binary: a census gradient goes
+  4.18 s to 2.60 s (1.61x), a forward run at lifetime 40 goes 20.10 s to 19.03 s
+  (5.3%).** That asymmetry is the point and it confirms the 8.3x the profile
+  attributes to building this reduction inside a recording rather than in a run:
+  inside a recording the operation count IS the tape, and the tape is built once
+  and walked once per metric.
+
+  Two things fell out that were not the point. The knot cursor
+  `Patch::capture_at` is gone -- the closing pass indexes the capture by the knot
+  it is closing, where it used to advance a member and trust the call order. And a
+  crown's scale needed no new member at any level of the tower: `Q(0)` is exactly
+  one for every profile that has this form, so the scale IS the crown's
+  contribution at height zero, which `compute_competition(0.0)` already returns.
+
+  **The two spellings of `Q` both stay, and the drift between them is measured
+  rather than assumed.** The dot product is what makes the sum linear; the direct
+  `(1 - w)^2` is what stays well conditioned as a knot approaches a crown top,
+  where the expanded form cancels three terms at one. On one crown they agree to
+  3.9e-16 absolutely in `Q` and 9.8e-16 in `q` against its own scale `eta / H`
+  (`test-canopy-methods.R`); over 100,035 field reads on a 30-year TF24 stand the
+  knot values agree to 7.7e-14 and the slopes to 3.4e-14. **Nothing was
+  re-blessed** -- both plant suites sit exactly where they did, the FF16
+  bit-identity guard included.
+
+  ⚠️ **A relative referee is meaningless at a crown top and reads 1e272 there.**
+  `Q` is exactly zero at `u = 1`, so the expanded form's few-ULP absolute error
+  divided by zero is astronomical while the number is fine. `Q` lives in `[0, 1]`,
+  so an absolute bound on it is already scale-free.
+
+  ⚠️ **The prefix sums cannot be cached on the species.** They are active scalars,
+  and a cache outliving a recording carries that recording's slots into the next
+  one. They are a local of the call that fills the whole knot set, which is why
+  the field build takes the knot vector rather than one knot at a time.
+
 * **The environment carries its integrated state at the scalar the model carries.**
   `Internals<S> vars`, `std::vector<S> resource_uptake`, `compute_rates` taking an
   uptake vector at `S`, and the soil retention and conductivity curves returning

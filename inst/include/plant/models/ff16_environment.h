@@ -134,7 +134,7 @@ public:
             );
   }
 
-  // The light a height is left with, from the competition profile above it.
+  // The light every knot is left with, from the competition profile above it.
   template <typename Function>
   void compute_environment(Function f_compute_competition_and_slope, double height_max,
                            bool rescale) {

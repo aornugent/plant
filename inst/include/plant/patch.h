@@ -315,7 +315,6 @@ private:
   // walk over every node.
   std::vector<std::vector<typename species_type::competition_split>>
     competition_capture;
-  size_t capture_at = 0;
   void compute_environment_excl_capturing(bool rescale);
   void compute_environment_closing(bool rescale);
 
@@ -937,24 +936,25 @@ void Patch<T,E>::compute_environment_excl_capturing(bool rescale) {
   for (auto& s : species) {
     s.set_new_node_birth_date(environment.time);
   }
-  // Cleared without dropping capacity: assign() would, and the reallocation that
-  // follows copies active scalars, which each cost a slot to register and another
-  // to release.
+  // The reduction fills one entry per knot, so the only thing needed here is one
+  // vector per species; field_splits sizes each of them.
   competition_capture.resize(size());
-  for (auto& c : competition_capture) {
-    c.clear();
-  }
-  capture_at = 0;
-  auto f = [&](double x) -> std::pair<value_type, value_type> {
-    value_type tot = 0.0, tot_slope = 0.0;
-    for (size_t i = 0; i < size(); ++i) {
-      const typename species_type::competition_split c =
-        species[i].compute_competition_and_slope_split(x);
-      competition_capture[i].push_back(c);
-      tot       += c.excl.first / area;
-      tot_slope += c.excl.second / area;
+  auto f = [&](const std::vector<double>& x, std::vector<value_type>& y,
+               std::vector<value_type>& m) -> void {
+    for (size_t k = 0; k < x.size(); ++k) {
+      y[k] = 0.0;
+      m[k] = 0.0;
     }
-    return {tot, tot_slope};
+    // Species-major, so each knot's sum still runs over the species in index
+    // order: the reduction is one pass over a species' nodes for the whole knot
+    // set, and asking it per knot is what made the build quadratic.
+    for (size_t i = 0; i < size(); ++i) {
+      species[i].field_splits(x, competition_capture[i]);
+      for (size_t k = 0; k < x.size(); ++k) {
+        y[k] += competition_capture[i][k].excl.first / area;
+        m[k] += competition_capture[i][k].excl.second / area;
+      }
+    }
   };
   if (size() > 0) {
     environment.compute_environment(f, height_max(), rescale);
@@ -968,21 +968,24 @@ void Patch<T,E>::compute_environment_closing(bool rescale) {
   for (auto& s : species) {
     s.set_new_node_birth_date(environment.time);
   }
-  capture_at = 0;
-  auto f = [&](double x) -> std::pair<value_type, value_type> {
-    value_type tot = 0.0, tot_slope = 0.0;
+  auto f = [&](const std::vector<double>& x, std::vector<value_type>& y,
+               std::vector<value_type>& m) -> void {
+    for (size_t k = 0; k < x.size(); ++k) {
+      y[k] = 0.0;
+      m[k] = 0.0;
+    }
     for (size_t i = 0; i < species.size(); ++i) {
-      if (capture_at >= competition_capture[i].size()) {
+      if (competition_capture[i].size() != x.size()) {
         util::stop("compute_environment_closing: the field without the "
                    "boundary interval was built over a different knot set");
       }
-      const std::pair<value_type, value_type> fs =
-        species[i].close_competition_and_slope(competition_capture[i][capture_at], x);
-      tot       += fs.first / area;
-      tot_slope += fs.second / area;
+      for (size_t k = 0; k < x.size(); ++k) {
+        const std::pair<value_type, value_type> fs =
+          species[i].close_competition_and_slope(competition_capture[i][k], x[k]);
+        y[k] += fs.first / area;
+        m[k] += fs.second / area;
+      }
     }
-    ++capture_at;
-    return {tot, tot_slope};
   };
   if (size() > 0) {
     environment.compute_environment(f, height_max(), rescale);

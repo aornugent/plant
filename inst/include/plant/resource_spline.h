@@ -47,10 +47,17 @@ public:
     set_fixed_value(S(1.0), S(1.0));
   };
 
-  // f returns the field's value and its vertical derivative at a height.
+  // f fills the field's value and its vertical derivative at EVERY knot from one
+  // call. The whole knot set rather than one knot at a time, because the reduction
+  // that produces the values is linear in the nodes plus the knots and quadratic
+  // only if it is asked per knot.
   template <typename Function>
-  void compute_environment(Function f_value_and_slope, S height_max, bool) {
-    rebuild_spline(f_value_and_slope, height_max);
+  void compute_environment(Function f_all_knots, S height_max, bool) {
+    lay_out_knots(height_max);
+    const std::vector<double>& x = spline.knots();
+    std::vector<S> y(x.size()), m(x.size());
+    f_all_knots(x, y, m);
+    spline.set_data(y, m);
   };
 
   void set_fixed_value(S value, S height_max) {
@@ -154,31 +161,23 @@ public:
 
 private:
 
-  // Refill at the held fractions. The first and last are exactly 0 and 1, so the
-  // domain is exactly [0, height_max]. The positions are u_k * height_max and
-  // nothing else, so they are laid out again only when the canopy top moves;
+  // Place the knots at the held fractions. The first and last are exactly 0 and 1,
+  // so the domain is exactly [0, height_max]. The positions are u_k * height_max
+  // and nothing else, so they are laid out again only when the canopy top moves;
   // every build refreshes the values and slopes.
-  template <typename Function>
-  void rebuild_spline(Function f_value_and_slope, S height_max) {
-    if (spline.size() != knot_fractions_.size() || spline.max() != height_max) {
-      // The grid stays double for the reason set_fixed_value() gives: a position
-      // built from an active canopy top is laid out at its value, and the
-      // field's dependence on the cohorts travels in the values and slopes.
-      const double top = odelia::util::to_passive(height_max);
-      std::vector<double> x(knot_fractions_.size());
-      for (size_t k = 0; k < x.size(); ++k) {
-        x[k] = knot_fractions_[k] * top;
-      }
-      spline.set_nodes(x);
+  void lay_out_knots(S height_max) {
+    if (spline.size() == knot_fractions_.size() && spline.max() == height_max) {
+      return;
     }
-    const std::vector<double>& x = spline.knots();
-    std::vector<S> y(x.size()), m(x.size());
+    // The grid stays double for the reason set_fixed_value() gives: a position
+    // built from an active canopy top is laid out at its value, and the field's
+    // dependence on the cohorts travels in the values and slopes.
+    const double top = odelia::util::to_passive(height_max);
+    std::vector<double> x(knot_fractions_.size());
     for (size_t k = 0; k < x.size(); ++k) {
-      const std::pair<S, S> vs = f_value_and_slope(x[k]);
-      y[k] = vs.first;
-      m[k] = vs.second;
+      x[k] = knot_fractions_[k] * top;
     }
-    spline.set_data(y, m);
+    spline.set_nodes(x);
   }
 
   // Chosen from the re-blessing tolerance: the crown-mean light shift against an
@@ -197,14 +196,18 @@ private:
 // The lambda declares its return type: an active E returned through a deduced one
 // hands the field an expression template referencing operands that die here.
 template <typename Field, typename Function, typename S>
-void build_extinction_field(Field& field, Function f_competition_and_slope,
+void build_extinction_field(Field& field, Function f_competition_all_knots,
                             S height_max, bool rescale) {
   using value_type = typename Field::value_type;
   field.compute_environment(
-    [&](double height) -> std::pair<value_type, value_type> {
-      const std::pair<value_type, value_type> as = f_competition_and_slope(height);
-      const value_type E = exp(-as.first);
-      return {E, -(as.second * E)};
+    [&](const std::vector<double>& x, std::vector<value_type>& y,
+        std::vector<value_type>& m) -> void {
+      f_competition_all_knots(x, y, m);
+      for (std::size_t k = 0; k < x.size(); ++k) {
+        const value_type E = exp(-y[k]);
+        m[k] = -(m[k] * E);
+        y[k] = E;
+      }
     },
     height_max, rescale);
 }

@@ -8,6 +8,7 @@
 #include <tuple>
 #include <utility>
 #include <plant/util.h>
+#include <plant/canopy_shape.h>
 #include <plant/environment.h>
 #include <odelia/ode_interface.hpp>
 #include <plant/node.h>
@@ -143,6 +144,15 @@ public:
     std::pair<value_type, value_type> excl{value_type(0.0), value_type(0.0)};
   };
   competition_split compute_competition_and_slope_split(double height) const;
+  // The same split at every height of a set, from ONE pass over the nodes.
+  //
+  // Q is a polynomial in w = (z / H)^eta and w separates into z^eta times H^-eta,
+  // so the trapezium's intervals carry three running sums -- one per power -- and
+  // every height reads a prefix of them. That makes the build linear in nodes plus
+  // heights where a height-by-height walk is their product, and inside a recording
+  // the operation count IS the tape.
+  void field_splits(const std::vector<double>& heights,
+                    std::vector<competition_split>& out) const;
   // The inclusive reduction, from a split taken at the same height. Bit-identical
   // to compute_competition_and_slope(height) at the boundary node it is closed
   // with.
@@ -518,6 +528,117 @@ Species<T,E>::compute_competition_and_slope(double height) const {
 // The reduction up to its closing trapezium. Everything the closing term needs
 // travels in the result, so a caller that has to wait for the boundary node can
 // close it later without walking the nodes again.
+// One pass over the nodes for the whole height set. Where the prefix form does not
+// hold -- a broken ordering, or a profile that is not a polynomial in w -- every
+// height takes the walk, which is the same branch the walk's own early exit rests
+// on.
+template <typename T, typename E>
+void Species<T,E>::field_splits(const std::vector<double>& heights,
+                                std::vector<competition_split>& out) const {
+  out.assign(heights.size(), competition_split());
+  if (size() == 0) {
+    return;
+  }
+  const HeightScan scan = scan_heights();
+  const bool birth_date = control().node_density_in_birth_date;
+  const std::size_t n_moments = strategy->canopy_shape.n_moments();
+  if (!scan.decreasing || n_moments == 0) {
+    for (std::size_t k = 0; k < heights.size(); ++k) {
+      out[k] = compute_competition_and_slope_split(heights[k]);
+    }
+    return;
+  }
+
+  using moments = std::array<value_type, CanopyShape<value_type>::max_moments>;
+  const std::size_t n = size();
+
+  // Per node, read once for the whole height set rather than once per height: the
+  // factor multiplying Q -- which is the node's contribution at height zero,
+  // because Q(0) is exactly one for every profile that has this form -- and the
+  // powers of its own inverse height.
+  std::vector<value_type> scale(n);
+  std::vector<moments> mom(n);
+  std::vector<double> abscissa(n);
+  {
+    std::size_t i = 0;
+    for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it, ++i) {
+      scale[i] = it->compute_competition(0.0);
+      if (!util::is_finite(scale[i])) {
+        util::stop("Detected non-finite contribution");
+      }
+      strategy->canopy_shape.crown_moments(1.0 / it->height(), mom[i]);
+      abscissa[i] = abscissa_of(*it, birth_date);
+    }
+  }
+
+  // The trapezium's intervals, accumulated in the order the walk accumulates them
+  // so that a height reads a prefix rather than a re-association across nodes.
+  // prefix[i] is the sum over intervals 1..i; prefix[0] is empty.
+  std::vector<moments> prefix(n);
+  for (std::size_t j = 0; j < n_moments; ++j) {
+    prefix[0][j] = value_type(0.0);
+  }
+  for (std::size_t i = 1; i < n; ++i) {
+    const double width = abscissa[i] - abscissa[i - 1];
+    for (std::size_t j = 0; j < n_moments; ++j) {
+      prefix[i][j] = prefix[i - 1][j] +
+                     width * (scale[i - 1] * mom[i - 1][j] + scale[i] * mom[i][j]);
+    }
+  }
+
+  // `crossing` is the first node the height is above -- the one the walk stops at.
+  // The heights ascend and the nodes descend, so it only ever moves one way: one
+  // merge over both, rather than a search per height.
+  std::size_t crossing = n;
+  moments weight, weight_slope;
+  for (std::size_t k = 0; k < heights.size(); ++k) {
+    const double height = heights[k];
+    if (scan.h_max < height) {
+      continue;  // no node reaches it; the empty split stands
+    }
+    while (crossing > 0 && nodes[crossing - 1].height() < height) {
+      --crossing;
+    }
+    // The walk stops AFTER the interval whose upper node is the first below the
+    // height, so the last node it visited is that one -- or the last node of all,
+    // where none is below.
+    const std::size_t last = crossing < n ? crossing : n - 1;
+    const std::size_t summed = last > 0 ? last - (crossing < n ? 1 : 0) : 0;
+
+    strategy->canopy_shape.height_weights(height, weight);
+    strategy->canopy_shape.height_weight_slopes(height, weight_slope);
+    value_type tot = value_type(0.0), tot_slope = value_type(0.0);
+    for (std::size_t j = 0; j < n_moments; ++j) {
+      tot       += weight[j] * prefix[summed][j];
+      tot_slope += weight_slope[j] * prefix[summed][j];
+    }
+
+    // The interval the support crosses is the one place the separated form does
+    // not hold: its lower node reaches the height and its upper node does not, so
+    // the polynomial would evaluate (z / H)^eta above one there rather than the
+    // zero the profile has. It is the interval the walk closes by hand too.
+    competition_split& c = out[k];
+    const std::pair<value_type, value_type> fs_last =
+      nodes[last].compute_competition_and_slope(height);
+    if (crossing < n) {
+      const std::pair<value_type, value_type> fs_above =
+        nodes[crossing - 1].compute_competition_and_slope(height);
+      const double width = abscissa[crossing] - abscissa[crossing - 1];
+      tot       += width * (fs_above.first + fs_last.first);
+      tot_slope += width * (fs_above.second + fs_last.second);
+    }
+
+    c.tot = tot;
+    c.tot_slope = tot_slope;
+    c.x1 = abscissa[last];
+    c.f_h1 = fs_last.first;
+    c.s_h1 = fs_last.second;
+    c.closes = (n == 1 || birth_date || c.f_h1 > 0);
+    c.from_loop = true;
+    c.excl = {tot / 2, tot_slope / 2};
+  }
+}
+
 template <typename T, typename E>
 typename Species<T,E>::competition_split
 Species<T,E>::compute_competition_and_slope_split(double height) const {

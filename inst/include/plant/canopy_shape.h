@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include <array>
+#include <cstddef>
 #include <odelia/ode_util.hpp>
 
 namespace plant {
@@ -187,6 +189,62 @@ public:
     return {tmp * tmp, 2.0 * eta_ * tmp * u_eta / z};
   }
 
+
+  // Q as a polynomial in w = (z / H)^eta -- for the smooth profile Q = 1 - 2w + w^2
+  // -- and w SEPARATES: w = z^eta * H^-eta. So a reduction over crowns at many
+  // heights is three running sums over the crowns, one per power of w, and every
+  // height reads the same sums. That is what takes a field build from one walk per
+  // height to one walk in total.
+  //
+  // The count is zero for the box profiles, which are piecewise in z / H with an
+  // interior breakpoint and so have no such form; FlatTopBox cannot build a field
+  // at all. A caller reads the count once per build and takes the walk when it is
+  // zero.
+  static constexpr std::size_t max_moments = 3;
+  std::size_t n_moments() const {
+    switch (shading_model_) {
+    case ShadingModel::FlatTopBox:
+    case ShadingModel::FlatTopSoftBox:
+      return 0;
+    default:
+      return max_moments;
+    }
+  }
+
+  // The powers of H^-eta one crown contributes. Out-parameters because these are
+  // formed once per crown per build and a returned array of active values copies
+  // each one, which with a tape active is a recorded operation apiece.
+  void crown_moments(const S& height_inverse,
+                     std::array<S, max_moments>& out) const {
+    out[0] = S(1.0);
+    out[1] = pow_eta(height_inverse);
+    out[2] = out[1] * out[1];
+  }
+
+  // The polynomial's coefficients times the matching powers of z^eta, so that
+  // Q(z, H) is this dotted with crown_moments(1 / H).
+  //
+  // The magnitudes look alarming and are not: z^2eta and H^-2eta are large and
+  // small respectively, but a height only ever reads the sums of crowns that reach
+  // it, so H >= z wherever the two meet and their product is at most one.
+  void height_weights(double z, std::array<S, max_moments>& out) const {
+    const S t = pow_eta(S(z));
+    out[0] = S(1.0);
+    out[1] = -2.0 * t;
+    out[2] = t * t;
+  }
+
+  // d/dz of the above, which is what the field's slope channel reads from the same
+  // sums. z^eta differentiates to eta * z^(eta-1), and z^(eta-1) is 0/0 at the
+  // crown base: the limit is 0 for every eta above 1 and 1 at eta = 1, which are
+  // the two cases Q_and_q takes by hand.
+  void height_weight_slopes(double z, std::array<S, max_moments>& out) const {
+    const S t = pow_eta(S(z));
+    const S t_over_z = z > 0.0 ? S(t / z) : (eta_ == 1.0 ? S(1.0) : S(0.0));
+    out[0] = S(0.0);
+    out[1] = -2.0 * eta_ * t_over_z;
+    out[2] = 2.0 * eta_ * t * t_over_z;
+  }
 
   S Q(S z_over_height) const {
     if (z_over_height > 1.0) {

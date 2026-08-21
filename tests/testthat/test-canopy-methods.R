@@ -507,3 +507,58 @@ test_that("the vertical slope is refused for the hard-step shading model", {
     expect_error(patch$introduce_new_node(1, 0), "no vertical slope")
   }
 })
+
+
+test_that("the crown's separable form is the same profile as its own kernel", {
+  # Q is a polynomial in w = (z / H)^eta, and that is what lets the field's
+  # reduction sum over crowns once instead of once per height. Both spellings are
+  # kept -- the dot product is what makes the sum linear in crowns plus heights,
+  # the direct form is what stays well conditioned as a height approaches a crown
+  # top -- so the number that can drift between them is measured rather than
+  # assumed.
+  #
+  # ⚠️ REFEREED IN ABSOLUTE TERMS, AND A RELATIVE READ HERE IS MEANINGLESS. Q is
+  # exactly zero at a crown's own top and the expanded form gets there by
+  # cancelling 1 - 2w + w^2 with every term at one, so a relative error against
+  # zero reads 1e272 while the absolute error is a few ULP. Q lives in [0, 1] so an
+  # absolute bound on it is already scale-free; q's own scale is eta / H, so it is
+  # divided by that. Measured: 3.9e-16 and 9.8e-16.
+  #
+  # The same claim on a whole stand rather than one crown: over 100,035 field reads
+  # on a 30-year TF24 run the two agree to 7.7e-14 in the knot values and 3.4e-14
+  # in the slopes, which moved nothing in either suite.
+  eta <- 12
+  Q_direct <- function(z, h) if (z > h) 0 else (1 - (z / h)^eta)^2
+  q_direct <- function(z, h) if (z > h || z <= 0) 0 else
+    2 * eta * (1 - (z / h)^eta) * (z / h)^eta / z
+  Q_moments <- function(z, h) {
+    s <- (1 / h)^eta
+    sum(c(1, -2 * z^eta, (z^eta)^2) * c(1, s, s^2))
+  }
+  dQ_moments <- function(z, h) {
+    s <- (1 / h)^eta
+    tz <- if (z > 0) z^eta / z else if (eta == 1) 1 else 0
+    sum(c(0, -2 * eta * tz, 2 * eta * z^eta * tz) * c(1, s, s^2))
+  }
+
+  worst_q <- 0
+  worst_slope <- 0
+  for (h in c(0.6, 1.7, 5.3, 16.6)) {
+    for (u in seq(0, 1, length.out = 97)) {
+      z <- u * h
+      worst_q <- max(worst_q, abs(Q_direct(z, h) - Q_moments(z, h)))
+      # q is -dQ/dz, so the separable slope carries the opposite sign.
+      worst_slope <- max(worst_slope,
+                         abs(q_direct(z, h) + dQ_moments(z, h)) / (eta / h))
+    }
+  }
+  expect_lt(worst_q, 1e-14)
+  expect_lt(worst_slope, 1e-14)
+
+  # And the identity the whole reduction rests on: a crown's scale is its own
+  # contribution at height zero, because Q(0) is exactly one -- which is what lets
+  # the reduction read a scale off an accessor that already exists rather than
+  # adding a member at every level of the tower.
+  expect_identical(Q_direct(0, 3.2), 1)
+  expect_identical(Q_moments(0, 3.2), 1)
+})

@@ -169,11 +169,20 @@ StochasticPatch<T,E>::compute_competition_and_slope(double height) const {
 template <typename T, typename E>
 void StochasticPatch<T,E>::compute_environment(bool rescale) {
   if (height_max() > 0.0) {
-    // Written as std::pair<double, double> this still compiles, taking the
-    // value of an active profile, and the field's knot values and slopes would
-    // then be constants with nothing raised to say so.
-    auto f = [&] (double x) -> std::pair<value_type, value_type> {
-      return compute_competition_and_slope(x);
+    // Written as std::vector<double> this still compiles, taking the value of an
+    // active profile, and the field's knot values and slopes would then be
+    // constants with nothing raised to say so.
+    //
+    // Individuals rather than nodes here, so there is no trapezium over a grid and
+    // nothing to accumulate across knots: the per-knot sum IS the reduction, and
+    // this walks the knots itself.
+    auto f = [&] (const std::vector<double>& x, std::vector<value_type>& y,
+                  std::vector<value_type>& m) -> void {
+      for (size_t k = 0; k < x.size(); ++k) {
+        const std::pair<value_type, value_type> fs = compute_competition_and_slope(x[k]);
+        y[k] = fs.first;
+        m[k] = fs.second;
+      }
     };
     environment.compute_environment(f, height_max(), rescale);
   } else {
