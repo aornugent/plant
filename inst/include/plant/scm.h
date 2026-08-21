@@ -19,6 +19,14 @@ using namespace Rcpp;
 
 namespace plant {
 
+// A census differentiated on both of its input sets, one row per metric each.
+// Kept as a pair because they come out of one recording: handing them back
+// separately is what let two callers take two recordings of one function.
+struct census_rows {
+  odelia::ode::row_batch state;  // one column per ODE state entry
+  odelia::ode::row_batch trait;  // one column per registered trait
+};
+
 // SCM: the "Solver for Characteristics Method" driver.
 //
 // Owns a Patch (the population being integrated), a NodeSchedule (when each
@@ -141,17 +149,16 @@ public:
     }
   }
 
-  // d(census)/d(ODE state) at the current time, one row per metric and one
-  // column per ODE state entry. This is what the reverse pass is seeded with.
-  odelia::ode::row_batch census_state_adjoint() const;
-
-  // d(census)/d(trait) at the state held, which no sweep produces: a metric
-  // reads the traits itself, and the boundary node's own quantities are rebuilt
-  // when the state is set. One row per metric, columns as census_trait_gradient.
-  odelia::ode::row_batch census_trait_direct();
+  // d(census)/d(ODE state) and d(census)/d(trait) at the current time, one row
+  // per metric each, from one recording. The state half is what the reverse pass
+  // is seeded with; the trait half is what no sweep produces, because a metric
+  // reads the traits itself and the boundary node's own quantities are rebuilt
+  // when the state is set. Columns as ode_state writes them, and as
+  // census_trait_gradient reports them.
+  census_rows census_state_and_trait_rows() const;
 
   // The same quantity differenced, by moving the prepared strategy exactly where
-  // the recording seeds it. It referees census_trait_direct while sharing none of
+  // the recording seeds it. It referees the trait half above while sharing none of
   // it: that one records the census and sweeps a tape, this one evaluates the
   // census twice. A difference that rebuilt from Parameters would re-run
   // preparation and carry the birth-size channel the differentiated path imposes
@@ -853,9 +860,15 @@ std::vector<double> SCM<T, E>::census() const {
   return ret;
 }
 
-// One recording of the census over the whole patch at the active scalar, swept
-// once per metric. The inputs are the ODE state, so the rows come back in the
-// order ode_state writes and can be handed straight to the reverse pass.
+// The census differentiated with respect to the state AND the traits, from ONE
+// recording of one metric algebra. The two used to be two functions over the same
+// arithmetic, which put the seam between the halves in two places; here it is the
+// solver's own, written once for every transpose in the tree.
+//
+// The order the halves are written in is the reason they are one recording rather
+// than two calls: the traits are seated first and the state loaded after, so a
+// quantity the state determines is derived at the traits the recording registered.
+// Loading the state first derives it at the values they had before.
 //
 // set_recorded_state rebuilds the environment and the boundary node from the state
 // it is given. Both are on the census's path -- the boundary node is the
@@ -864,97 +877,47 @@ std::vector<double> SCM<T, E>::census() const {
 // it was copied with, and its whole contribution to the seed is then exactly zero
 // with nothing thrown. Loading it with set_ode_state alone leaves the condition at
 // its first evaluation, which is not the one census() reads.
-template <typename T, typename E>
-odelia::ode::row_batch SCM<T, E>::census_state_adjoint() const {
-  require_birth_date_coordinate("census_state_adjoint");
-  using scalar = odelia::ode::active_scalar<double>;
-  const size_t n_state = patch.ode_size();
-
-  std::vector<double> in(n_state);
-  patch.ode_state(in.begin());
-
-  odelia::ode::row_batch ret;
-  // One patch, one tape, one recording, and a seed per metric. The recording does
-  // not depend on which metric is being asked for -- it writes every metric into y
-  // and only the seed picks one out -- so a recording per metric was a recording
-  // repeated.
-  //
-  // What made that repetition look necessary is real and is worth stating, because
-  // it is the trap next door. Clearing a tape returns its derivative-slot counter
-  // to zero, so an active value built outside a sweep loop and read inside it
-  // refers, after the first clear, to a slot that now belongs to something else.
-  // Measured when that was live: the second and third metrics' seeds were wrong by
-  // three orders and their heartwood columns read exactly zero -- the first metric
-  // correct and lending its credibility to the rest. The answer is not a patch per
-  // metric, it is to clear once and record once, which is what sweeping a batch
-  // does: the clear happens before the recording, and between sweeps only the
-  // derivative slots are returned to zero.
-  typename scalar::tape_type tape(false);
-  auto active = patch.template rebind_from<scalar>();
-  const auto metrics = metrics_of<decltype(active)>();
-  auto reduce = [&](const std::vector<scalar>& x,
-                    std::vector<scalar>& y) -> void {
-    active.set_recorded_state(x.begin(), time());
-    for (size_t m = 0; m < metrics.size(); ++m) {
-      y[m] = census_over(active, metrics[m]);
-    }
-  };
-  const odelia::ode::row_batch seeds =
-      odelia::ode::row_batch::all_rows(metrics.size());
-  odelia::ode::vector_jacobian_product(tape, in, seeds, reduce, ret);
-  return ret;
-}
-
-// The census's own reading of the traits, with the state held. This is not a
-// sensitivity of the state, so the sweep below cannot produce it and adding it is
-// not double counting: the trajectory term is (dC/dy)^T (dy/dphi), and the
-// boundary node -- which a set of the state rebuilds, through the field -- is not
-// in y at all.
 //
-// Recorded rather than written out, so it is the metric algebra that is
-// differentiated and a metric added in species.h needs no edit here. One patch
-// and one tape per metric, for the reason census_state_adjoint gives.
+// One patch, one tape, one recording, and a seed per metric. The recording does
+// not depend on which metric is being asked for -- it writes every metric into y
+// and only the seed picks one out -- so a recording per metric was a recording
+// repeated.
+//
+// What made that repetition look necessary is real and is worth stating, because
+// it is the trap next door. Clearing a tape returns its derivative-slot counter
+// to zero, so an active value built outside a sweep loop and read inside it
+// refers, after the first clear, to a slot that now belongs to something else.
+// Measured when that was live: the second and third metrics' seeds were wrong by
+// three orders and their heartwood columns read exactly zero -- the first metric
+// correct and lending its credibility to the rest. The answer is not a patch per
+// metric, it is to clear once and record once, which is what sweeping a batch
+// does: the clear happens before the recording, and between sweeps only the
+// derivative slots are returned to zero.
 template <typename T, typename E>
-odelia::ode::row_batch SCM<T, E>::census_trait_direct() {
-  require_birth_date_coordinate("census_trait_direct");
+census_rows SCM<T, E>::census_state_and_trait_rows() const {
+  require_birth_date_coordinate("census_state_and_trait_rows");
   using scalar = odelia::ode::active_scalar<double>;
 
   std::vector<double> state(patch.ode_size());
   patch.ode_state(state.begin());
 
-  std::vector<double> in;
-  for (size_t i = 0; i < patch.size(); ++i) {
-    for (const double* p : patch.at_species(i).strategy_ptr()->ad_parameters()) {
-      in.push_back(*p);
-    }
-  }
+  const size_t n_metric = metrics_of<patch_type>().size();
+  census_rows ret;
+  ret.trait.assign(n_metric, patch.trait_adjoint_size());
 
-  odelia::ode::row_batch ret;
-  // One recording, a seed per metric: the recording writes every metric into y and
-  // does not depend on which one is asked for, so one per metric was one repeated.
   typename scalar::tape_type tape(false);
-  auto active = patch.template rebind_from<scalar>();
-  const auto metrics = metrics_of<decltype(active)>();
-  auto reduce = [&](const std::vector<scalar>& x,
+  auto reduce = [&](auto& active, typename std::vector<scalar>::const_iterator x,
                     std::vector<scalar>& y) -> void {
-    size_t at = 0;
-    for (size_t i = 0; i < active.size(); ++i) {
-      std::vector<scalar*> pars =
-        active.at_species(i).strategy_ptr()->ad_parameters();
-      for (size_t p = 0; p < pars.size(); ++p) {
-        *pars[p] = x[at++];
-      }
-    }
-    util::check_length(at, x.size());
-    // The state is handed in at its value, which is what holds it fixed.
-    active.set_recorded_state(state.begin(), time());
+    // The traits are already written from the other half of the recorded inputs.
+    active.set_recorded_state(x, time());
+    const auto metrics = metrics_of<std::decay_t<decltype(active)>>();
     for (size_t m = 0; m < metrics.size(); ++m) {
       y[m] = census_over(active, metrics[m]);
     }
   };
-  const odelia::ode::row_batch seeds =
-      odelia::ode::row_batch::all_rows(metrics.size());
-  odelia::ode::vector_jacobian_product(tape, in, seeds, reduce, ret);
+  odelia::ode::state_and_parameter_adjoints(
+      tape, patch, state, odelia::ode::row_batch::all_rows(n_metric), reduce,
+      ret.state, ret.trait);
   return ret;
 }
 
@@ -1083,8 +1046,9 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // themselves. Nothing is restored: the walk that borrows the width runs below.
   odelia::ode::row_batch all_seeds, all_direct;
   try {
-    all_seeds = census_state_adjoint();
-    all_direct = census_trait_direct();
+    const census_rows both = census_state_and_trait_rows();
+    all_seeds = std::move(both.state);
+    all_direct = std::move(both.trait);
   } catch (gradient_refusal& e) {
     const size_t width = live.trait_adjoint_size();
     census_gradient ret;

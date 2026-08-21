@@ -18,7 +18,7 @@ std::vector<double> census_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Str
 // [[Rcpp::export]]
 std::vector<std::vector<double>>
 census_state_adjoint_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  return obj_->census_state_adjoint().to_rows();
+  return obj_->census_state_and_trait_rows().state.to_rows();
 }
 
 // The gradient's columns: each species' differentiable parameters in
@@ -94,7 +94,7 @@ census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy
 // [[Rcpp::export]]
 std::vector<std::vector<double>>
 census_trait_direct_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  return obj_->census_trait_direct().to_rows();
+  return obj_->census_state_and_trait_rows().trait.to_rows();
 }
 
 // The same quantity differenced in plain double, which is what referees it.
