@@ -40,9 +40,14 @@ concept KeepsSolvedChoices =
 template <typename X, typename U>
 using at_scalar = decltype(std::declval<const X&>().template rebind_from<U>());
 
-// The scalar a forward tangent runs on. Named here once: five places restated
-// it, and a scalar restated is a scalar two of them can disagree about.
+// The scalar a forward tangent runs on, and the two things done to one: seed a
+// direction, read the derivative it produced. Brought in here once, so no header
+// in this package names the AD library at all -- and so that seeding an adjoint
+// scalar by mistake, which the library spells identically and answers with
+// nothing, does not compile.
 using tangent = odelia::ode::tangent_scalar<double>;
+using odelia::ode::seed_direction;
+using odelia::ode::derivative_along;
 
 // One accepted step. The state widens at an introduction, so the record is ragged.
 struct ode_step_record { double time; double step_size; std::vector<double> state; };
@@ -1370,7 +1375,7 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
     std::vector<tangent> x(in.size());
     for (size_t j = 0; j < in.size(); ++j) {
       x[j] = in[j];
-      xad::derivative(x[j]) = (j == c) ? 1.0 : 0.0;
+      seed_direction(x[j], (j == c) ? 1.0 : 0.0);
     }
     // The traits first, for the reason the transpose writes them first: a
     // quantity the state determines reads them while deriving it.
@@ -1384,7 +1389,7 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
         odelia::ode::recorded_insertion<widening>{species_index, 0, time_before},
         x.begin(), y);
     for (size_t r = 0; r < n_out; ++r) {
-      ret[r][c] = xad::derivative(y[r]);
+      ret[r][c] = derivative_along(y[r]);
     }
     for (size_t i : species_index) {
       active.species[i].remove_newest_node();

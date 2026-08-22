@@ -38,12 +38,11 @@ compile_ff16_ad_kernel <- function() {
     Rcpp::sourceCpp(code = '
       #include <Rcpp.h>
       #include <vector>
-      #include <XAD/XAD.hpp>
-      #include <plant/models/ff16_production_kernel.h>
+            #include <plant/models/ff16_production_kernel.h>
 
-      static plant::FF16ProdPars<xad::adj<double>::active_type>
-      pod_ad(const std::vector<xad::adj<double>::active_type>& v) {
-        plant::FF16ProdPars<xad::adj<double>::active_type> p;
+      static plant::FF16ProdPars<odelia::ode::active_scalar<double>>
+      pod_ad(const std::vector<odelia::ode::active_scalar<double>>& v) {
+        plant::FF16ProdPars<odelia::ode::active_scalar<double>> p;
         p.lma=v[0];p.rho=v[1];p.theta=v[2];p.a_b1=v[3];p.a_r1=v[4];p.eta_c=v[5];
         p.a_p1=v[6];p.a_p2=v[7];p.r_l=v[8];p.r_s=v[9];p.r_b=v[10];p.r_r=v[11];
         p.k_l=v[12];p.k_b=v[13];p.k_s=v[14];p.k_r=v[15];p.a_bio=v[16];p.a_y=v[17];
@@ -60,8 +59,8 @@ compile_ff16_ad_kernel <- function() {
       // [[Rcpp::export]]
       Rcpp::NumericVector ff16_netprod_grad(std::vector<double> v, double height,
                                             double area_leaf, double light_E) {
-        using adt = xad::adj<double>::active_type;
-        xad::adj<double>::tape_type tape;
+        using adt = odelia::ode::active_scalar<double>;
+        odelia::ode::adjoint_tape<double> tape;
         std::vector<adt> va(v.begin(), v.end());
         adt h=height, al=area_leaf, le=light_E;
         for (auto& x : va) tape.registerInput(x);

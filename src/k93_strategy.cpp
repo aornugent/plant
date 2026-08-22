@@ -76,6 +76,7 @@ void K93_Strategy::refresh_indices () {
   for (size_t i = 0; i < aux_names_vec.size(); i++) {
     aux_index[aux_names_vec[i]] = i;
   }
+  check_state_layout(state_index, "K93");
 }
 
 // i.e. setting rates of ode vars from the state and updating aux vars

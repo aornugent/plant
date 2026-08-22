@@ -34,11 +34,10 @@ compile_ff16_deep_crown_ad <- function() {
       #include <Rcpp.h>
       #include <vector>
       #include <cmath>
-      #include <XAD/XAD.hpp>
-      #include <odelia/interpolator.hpp>
+            #include <odelia/interpolator.hpp>
       #include <plant/models/ff16_production_kernel.h>
 
-      using adt = xad::adj<double>::active_type;
+      using adt = odelia::ode::active_scalar<double>;
 
       // theta enters the resident light spline knot values: y_i = exp(-theta*s_i).
       template <typename S>
@@ -69,7 +68,7 @@ compile_ff16_deep_crown_ad <- function() {
           std::vector<double> dshade,
           std::vector<double> z, std::vector<double> wq, double resp, double turn,
           double a_bio, double a_y) {
-        xad::adj<double>::tape_type tape;
+        odelia::ode::adjoint_tape<double> tape;
         adt th = theta, ap1 = a_p1;
         tape.registerInput(th); tape.registerInput(ap1);
         tape.newRecording();

@@ -1446,6 +1446,7 @@ void TF24_Strategy<S>::refresh_indices () {
   state_idx_area_heartwood      = this->state_index.at("area_heartwood");
   state_idx_mass_heartwood      = this->state_index.at("mass_heartwood");
   state_idx_storage             = this->state_index.at("storage");
+  check_state_layout(this->state_index, "TF24");
 }
 
 // [eqn 2] area_leaf (inverse of [eqn 3])

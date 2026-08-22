@@ -10,9 +10,8 @@
 // specification.
 #include <plant/models/tf24f_strategy.h>
 #include <plant/models/tf24_environment.h>
-#include <XAD/XAD.hpp>
 
-using tangent = xad::fwd<double>::active_type;
+using tangent = plant::tangent;
 
 void probe_tf24f_at_an_active_scalar() {
   plant::TF24f_Strategy<tangent> s;

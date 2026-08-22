@@ -1155,10 +1155,10 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   }
 
   // Leave the system at the width the run left it, so this call is repeatable.
-  odelia::ode::be_at_step(live, odelia::ode::insertions_of(
-                              widenings, recorded_times(trajectory)),
-                          states, recorded_times(trajectory),
-                          states.size() - 1);
+  const std::vector<double> times = recorded_times(trajectory);
+  odelia::ode::be_at_step(live,
+                          odelia::ode::insertions_of(widenings, times), states,
+                          times, states.size() - 1);
   return ret;
 }
 
@@ -1198,7 +1198,7 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
     if (at >= direction.size()) {
       util::stop("census_trait_tangent: one weight per trait, species-major");
     }
-    xad::derivative(*p) = direction[at++];
+    seed_direction(*p, direction[at++]);
   }
   util::check_length(direction.size(), at);
   std::vector<tangent> x0(states[0].size());
@@ -1234,8 +1234,8 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   // the shape this whole check exists to catch elsewhere.
   for (const auto& metric : metrics) {
     const tangent reached_metric = census_over(reached, metric);
-    ret.push_back(xad::derivative(reached_metric));
-    value.push_back(xad::value(reached_metric));
+    ret.push_back(derivative_along(reached_metric));
+    value.push_back(odelia::util::to_passive(reached_metric));
   }
   return ret;
 }
@@ -1326,7 +1326,7 @@ SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
         util::check_length(direction.size(), base.size());
         for (size_t i = 0; i < x0.size(); ++i) {
           x0[i] = base[i];
-          xad::derivative(x0[i]) = direction[i];
+          seed_direction(x0[i], direction[i]);
         }
       });
 
@@ -1335,8 +1335,8 @@ SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
   value.clear();
   value.reserve(reached.size());
   for (const tangent& metric : reached) {
-    ret.push_back(xad::derivative(metric));
-    value.push_back(xad::value(metric));
+    ret.push_back(derivative_along(metric));
+    value.push_back(odelia::util::to_passive(metric));
   }
   return ret;
 }

@@ -36,10 +36,9 @@ compile_ff16_resident_ad <- function() {
       #include <Rcpp.h>
       #include <vector>
       #include <cmath>
-      #include <XAD/XAD.hpp>
-      #include <odelia/interpolator.hpp>
+            #include <odelia/interpolator.hpp>
       #include <plant/models/ff16_production_kernel.h>
-      using adt = xad::adj<double>::active_type;
+      using adt = odelia::ode::active_scalar<double>;
 
       template <typename S>
       S resident_net(S a_l1, S k_I, const plant::FF16ProdPars<S>& p,
@@ -78,7 +77,7 @@ compile_ff16_resident_ad <- function() {
           double a_l2, double height, double density, std::vector<double> xk,
           std::vector<double> qfrac_knot, std::vector<double> dqfrac_knot,
           std::vector<double> z, std::vector<double> wq) {
-        xad::adj<double>::tape_type tape;
+        odelia::ode::adjoint_tape<double> tape;
         adt al1 = a_l1, ki = k_I;
         tape.registerInput(al1); tape.registerInput(ki);
         tape.newRecording();

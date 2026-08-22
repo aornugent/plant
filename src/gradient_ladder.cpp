@@ -1,6 +1,5 @@
 #include <limits>
 #include <plant.h>
-#include <XAD/XAD.hpp>
 
 // The references the gradient is checked against, and the two objects they are
 // checked at. The two objects referee different claims, and reading them as one
@@ -34,8 +33,11 @@ using patch_type = plant::Patch<strategy_type, environment_type>;
 using patch_handle = plant::RcppR6::RcppR6<patch_type>;
 
 // Both scalars come from the one place each is named -- patch.h for the tangent,
-// odelia for the adjoint -- rather than being restated here.
+// odelia for the adjoint -- rather than being restated here, and the two things
+// done to a tangent come from the same place.
 using plant::tangent;
+using plant::seed_direction;
+using plant::derivative_along;
 using tangent_strategy = plant::at_scalar<strategy_type, tangent>;
 using tangent_environment = plant::at_scalar<environment_type, tangent>;
 using tangent_individual = plant::Individual<tangent_strategy,
@@ -128,7 +130,7 @@ struct tangent_block {
       x[i] = in[i];
     }
     if (seed >= 0) {
-      xad::derivative(x[static_cast<size_t>(seed)]) = 1.0;
+      seed_direction(x[static_cast<size_t>(seed)], 1.0);
     }
 
     individual.set_block_inputs(x.begin(), environment);
@@ -138,7 +140,7 @@ struct tangent_block {
 
     std::vector<double> out(n_out);
     for (size_t j = 0; j < n_out; ++j) {
-      out[j] = xad::derivative(y[j]);
+      out[j] = derivative_along(y[j]);
     }
     return out;
   }
@@ -158,7 +160,7 @@ struct tangent_block {
     individual.block_outputs(y.begin(), environment);
     std::vector<double> out(n_out);
     for (size_t j = 0; j < n_out; ++j) {
-      out[j] = xad::value(y[j]);
+      out[j] = odelia::util::to_passive(y[j]);
     }
     return out;
   }
@@ -333,7 +335,7 @@ std::vector<double> ladder_rhs_value_forward_tf24(plant::RcppR6::RcppR6<plant::P
 
   std::vector<double> out(n);
   for (size_t i = 0; i < n; ++i) {
-    out[i] = xad::value(dydt[i]);
+    out[i] = odelia::util::to_passive(dydt[i]);
   }
   return out;
 }
@@ -356,13 +358,13 @@ Rcpp::NumericMatrix ladder_rhs_state_jacobian_forward_tf24(plant::RcppR6::RcppR6
     for (size_t i = 0; i < n; ++i) {
       x[i] = x0[i];
     }
-    xad::derivative(x[c]) = 1.0;
+    seed_direction(x[c], 1.0);
     active.set_ode_state(x.begin(), time);
     std::vector<tangent> dydt(n);
     active.ode_rates(dydt.begin());
     std::vector<double> column(n);
     for (size_t i = 0; i < n; ++i) {
-      column[i] = xad::derivative(dydt[i]);
+      column[i] = derivative_along(dydt[i]);
     }
     columns.push_back(column);
   }
@@ -403,7 +405,7 @@ Rcpp::NumericMatrix ladder_rhs_trait_jacobian_forward_tf24(plant::RcppR6::RcppR6
         active.at_species(i).strategy_ptr()->ad_parameters();
       for (size_t p = 0; p < pars.size(); ++p, ++at) {
         if (at == c) {
-          xad::derivative(*pars[p]) = 1.0;
+          seed_direction(*pars[p], 1.0);
         }
       }
     }
@@ -416,7 +418,7 @@ Rcpp::NumericMatrix ladder_rhs_trait_jacobian_forward_tf24(plant::RcppR6::RcppR6
     active.ode_rates(dydt.begin());
     std::vector<double> column(n);
     for (size_t i = 0; i < n; ++i) {
-      column[i] = xad::derivative(dydt[i]);
+      column[i] = derivative_along(dydt[i]);
     }
     columns.push_back(column);
   }
@@ -508,7 +510,7 @@ Rcpp::List ladder_boundary_density_tangent_tf24(plant::RcppR6::RcppR6<plant::Pat
   if (index < 1 || static_cast<size_t>(index) > pars.size()) {
     plant::util::stop("ladder_boundary_density_tangent: index out of range");
   }
-  xad::derivative(*pars[static_cast<size_t>(index) - 1]) = 1.0;
+  seed_direction(*pars[static_cast<size_t>(index) - 1], 1.0);
 
   // Seeded before the state is applied, because an active patch derives the aux a state
   // determines as it is built, which is before this seed exists. Leaf area at
@@ -538,14 +540,14 @@ Rcpp::List ladder_boundary_density_tangent_tf24(plant::RcppR6::RcppR6<plant::Pat
   const tangent carbon = node.individual.aux("net_mass_production_dt");
   const tangent area = node.individual.aux("competition_effect");
   return Rcpp::List::create(
-    Rcpp::_["log_density"] = xad::value(ell),
-    Rcpp::_["dlog_density"] = xad::derivative(ell),
-    Rcpp::_["height"] = xad::value(h),
-    Rcpp::_["dheight"] = xad::derivative(h),
-    Rcpp::_["carbon"] = xad::value(carbon),
-    Rcpp::_["dcarbon"] = xad::derivative(carbon),
-    Rcpp::_["area_leaf"] = xad::value(area),
-    Rcpp::_["darea_leaf"] = xad::derivative(area));
+    Rcpp::_["log_density"] = odelia::util::to_passive(ell),
+    Rcpp::_["dlog_density"] = derivative_along(ell),
+    Rcpp::_["height"] = odelia::util::to_passive(h),
+    Rcpp::_["dheight"] = derivative_along(h),
+    Rcpp::_["carbon"] = odelia::util::to_passive(carbon),
+    Rcpp::_["dcarbon"] = derivative_along(carbon),
+    Rcpp::_["area_leaf"] = odelia::util::to_passive(area),
+    Rcpp::_["darea_leaf"] = derivative_along(area));
 }
 
 // The seed's height and leaf area at an active scalar, with their row in one
@@ -565,13 +567,13 @@ Rcpp::List ladder_seed_geometry_tangent_tf24(plant::RcppR6::RcppR6<plant::Patch<
   if (index < 1 || static_cast<size_t>(index) > pars.size()) {
     plant::util::stop("ladder_seed_geometry_tangent: index out of range");
   }
-  xad::derivative(*pars[static_cast<size_t>(index) - 1]) = 1.0;
+  seed_direction(*pars[static_cast<size_t>(index) - 1], 1.0);
   const auto seed = active.seed_geometry();
   return Rcpp::List::create(
-    Rcpp::_["height"] = xad::value(seed.height),
-    Rcpp::_["dheight"] = xad::derivative(seed.height),
-    Rcpp::_["area_leaf"] = xad::value(seed.area_leaf),
-    Rcpp::_["darea_leaf"] = xad::derivative(seed.area_leaf));
+    Rcpp::_["height"] = odelia::util::to_passive(seed.height),
+    Rcpp::_["dheight"] = derivative_along(seed.height),
+    Rcpp::_["area_leaf"] = odelia::util::to_passive(seed.area_leaf),
+    Rcpp::_["darea_leaf"] = derivative_along(seed.area_leaf));
 }
 
 // One exact directional derivative of the census with respect to the first
