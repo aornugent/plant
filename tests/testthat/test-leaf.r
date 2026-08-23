@@ -617,7 +617,7 @@ expect_equal(l$E_up_, sum(l$soil_consumption_)*0.018015)
   root_carbon = c(1, 1)
 l$set_physiology(root_network = net((root_carbon) / area_leaf_, soil_depth), PPFD = PPFD, psi_soil = psi_soil, soil_depth = soil_depth, leaf_specific_conductance_max = leaf_specific_conductance_max, atm_vpd = atm_vpd, ca = ca, leaf_temp = leaf_temp_, atm_o2_kpa = atm_o2_kpa_, atm_kpa = atm_kpa_)
 l$find_root_collar_psi()
-expect_equal(l$profit_, -vcmax_25*0.015-l$hydraulic_cost_TF(psi_crit))
+expect_equal(l$profit_, -l$R_d_-l$hydraulic_cost_TF(psi_crit))
 l$opt_root_psi_
 
 # assim_max_ < 0 early-exit: wet soil (so the upstream shut-down exits are NOT
@@ -698,12 +698,15 @@ test_that("Medlyn stomatal model", {
   expect_equal(l$g0, 0.022)
   expect_equal(l$g1, 2.57)
 
-  # numerical solver: reference values for this branch's build (regression guard)
+  # numerical solver: reference values for this branch's build (regression guard).
+  # Respiration is R_d_25, which the constructor does not take, so it stays at its
+  # 1.44 default and does NOT follow the vcmax_25 = 100 set above -- these three
+  # moved when R_d_25 stopped being vcmax_25 * 0.015.
   l <- set_phys(make_leaf())
   l$solve_medlyn_ci_numerical()
-  expect_equal(l$ci_, 19.636480, tolerance = 1e-5)
-  expect_equal(l$stom_cond_CO2_, 0.1205285, tolerance = 1e-6)
-  expect_equal(l$assim_colimited_, 15.143049, tolerance = 1e-5)
+  expect_equal(l$ci_, 19.624443, tolerance = 1e-5)
+  expect_equal(l$stom_cond_CO2_, 0.1208485, tolerance = 1e-6)
+  expect_equal(l$assim_colimited_, 15.192230, tolerance = 1e-5)
   # operating point is physically sane: gamma* < ci < ca, positive gs and assim
   expect_true(l$ci_ > 0 && l$ci_ < ca)
   expect_true(l$stom_cond_CO2_ > 0)
@@ -862,7 +865,7 @@ test_that("psi_stem_to_ci supply=demand solve", {
   # --- 8. regression guard: reference ci for the standard scenario on this
   # build. A solver change that alters the converged value beyond rounding is
   # expected to update this number (it is NOT bit-identical across methods).
-  expect_equal(ci, 11.7990174439, tolerance = 1e-6)
+  expect_equal(ci, 11.7544537572, tolerance = 1e-6)
 })
 
 # find_root_psi is the inner soil->root-collar continuity solve (#486). Given a

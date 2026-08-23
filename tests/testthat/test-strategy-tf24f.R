@@ -48,6 +48,7 @@ test_that("Defaults", {
     beta2 = 1.5,
     g1_TF24 = 7.5,
     jmax_25 = 157.44,
+    R_d_25 = 1.44,
     a = 0.3,
     curv_fact_elec_trans = 0.7,
     curv_fact_colim = 0.99,
