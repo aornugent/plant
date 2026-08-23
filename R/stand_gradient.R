@@ -50,29 +50,9 @@ gradient_control <- function(scm) {
                     "schedule_eps", "gradient_curvature_floor"))
 }
 
-##' Traits the sweep reaches no equation for, and so refuses by name.
-##'
-##' The leaf is entered at a solved operating point with its derivatives supplied
-##' rather than recorded, so a trait of the leaf's own reaches the tape only if a
-##' derivative is supplied for it. Every leaf trait the strategy declares as
-##' differentiable now has one, so this set is empty. An exact zero here would be
-##' indistinguishable from a trait the model genuinely does not use, which is the
-##' one failure shape this design cannot afford, so a trait that loses its row
-##' belongs here rather than in the matrix.
-##'
-##' A parameter the strategy does not declare as differentiable is a different
-##' case and is already refused by name as an unknown trait.
-##'
-##' @return A character vector of trait names, without the species prefix a
-##'   gradient's columns carry.
-##' @export
-stand_gradient_unanswered <- function() {
-  character(0)
-}
-
-# The parameter a gradient column names, with its species index stripped. The
-# refusal above is a property of the strategy's parameter and not of which
-# species carries it, so it is matched on this rather than on the column name.
+# The parameter a gradient column names, with its species index stripped. An
+# unknown name is matched on this so a missing species prefix is distinguishable
+# from a parameter the strategy does not declare.
 trait_without_species <- function(x) sub("^[0-9]+\\.", "", x)
 
 ##' Gradient of a stand's census metrics with respect to traits.
@@ -114,23 +94,12 @@ stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
   if (is.null(metrics)) {
     metrics <- all_metrics
   }
-  # Asking for everything is not asking for the unanswered ones: the default
-  # takes what the sweep can answer and reports the rest as a class. Naming one
-  # explicitly is a different question and gets a refusal.
-  asked_by_name <- !is.null(traits)
   if (is.null(traits)) {
     traits <- all_traits
   }
   unknown <- setdiff(metrics, all_metrics)
   if (length(unknown) > 0L) {
     stop("Unknown census metric: ", paste(unknown, collapse = ", "))
-  }
-  unanswered <- traits[trait_without_species(traits) %in%
-                         stand_gradient_unanswered()]
-  if (asked_by_name && length(unanswered) > 0L) {
-    stop("The sweep supplies no derivative for these traits, so it refuses ",
-         "them rather than returning a zero that reads as a finding: ",
-         paste(unanswered, collapse = ", "))
   }
   unknown <- setdiff(traits, all_traits)
   if (length(unknown) > 0L) {
@@ -162,7 +131,6 @@ stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
        gradient = gradient[metrics, traits, drop = FALSE],
        status = status[metrics, traits, drop = FALSE],
        refusal = stats::setNames(swept$refusal, metrics),
-       unanswered = unanswered,
        control = gradient_control(scm))
 }
 
