@@ -868,7 +868,7 @@ std::vector<double> SCM<T, E>::census() const {
 // solver's own, written once for every transpose in the tree.
 //
 // The order the halves are written in is the reason they are one recording rather
-// than two calls: the traits are seated first and the state loaded after, so a
+// than two calls: the traits are placed first and the state loaded after, so a
 // quantity the state determines is derived at the traits the recording registered.
 // Loading the state first derives it at the values they had before.
 //
