@@ -1380,7 +1380,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
             ? leaf.profit_
             : leaf.soil_consumption_[static_cast<std::size_t>(
                   output[j] - grad::out_uptake_first)];
-    const bool objective = grad::role_of(output[j]) == grad::Role::Objective;
+    const bool objective = grad::output_role(output[j]) == grad::OutputRole::Objective;
     // ⚠️ THE FLAG SUPPRESSES EVERY LATER PLANT'S WATER ROWS AND NOT ONLY THIS
     // ONE'S. A metric's gradient is a sum, so a term missing anywhere leaves the
     // whole water channel undefined and taping the rest would produce a gradient
