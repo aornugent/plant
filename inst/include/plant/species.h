@@ -118,7 +118,8 @@ public:
   // coordinate that density is carried in; taking gaps in any other variable
   // integrates one density against another's spacing. The inflow boundary node
   // closes the grid, being the lower limit of the distribution.
-  value_type census(const census_metric<T>& metric) const;
+  // The metric integrated over this species' size distribution.
+  value_type census_integral(const census_metric<T>& metric) const;
 
   // Whether the decreasing-height node ordering still holds (see height_max()).
   bool heights_are_decreasing() const;
@@ -871,7 +872,7 @@ Species<T,E>::consumption_rate(int i) const {
 
 template <typename T, typename E>
 typename Species<T,E>::value_type
-Species<T,E>::census(const census_metric<T>& metric) const {
+Species<T,E>::census_integral(const census_metric<T>& metric) const {
   if (size() == 0) {
     return value_type(0.0);
   }
@@ -889,11 +890,11 @@ Species<T,E>::census(const census_metric<T>& metric) const {
   weighted.reserve(size() + 1);
   for (auto& c : nodes) {
     x.push_back(abscissa_of(c, birth_date));
-    weighted.push_back(c.get_density() * c.individual.census(metric));
+    weighted.push_back(c.get_density() * c.individual.census_value(metric));
   }
   x.push_back(abscissa_of(new_node, birth_date));
   weighted.push_back(new_node.get_density() *
-                     new_node.individual.census(metric));
+                     new_node.individual.census_value(metric));
   return util::trapezium(x, weighted);
 }
 

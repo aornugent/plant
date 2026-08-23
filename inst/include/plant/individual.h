@@ -76,7 +76,9 @@ public:
   // One census metric read at this individual's own slots. Forwarded to the
   // strategy for the reason every rate function is: the strategy knows which
   // slot holds what and reads it by index.
-  value_type census(const census_metric<T>& metric) const {
+  // One plant's value of the metric. The reduction over the grid is the
+  // species', and the sum over species is the stand's.
+  value_type census_value(const census_metric<T>& metric) const {
     return metric.of(*strategy, vars);
   }
 

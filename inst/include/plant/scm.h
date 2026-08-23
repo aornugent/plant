@@ -122,11 +122,11 @@ public:
   // One metric summed over every species of `p`. Templated on the patch so the
   // value and its derivative are the same reduction at two scalars.
   template <class P>
-  static typename P::value_type census_over(
+  static typename P::value_type census_sum(
       const P& p, const census_metric<typename P::strategy_type>& metric) {
     typename P::value_type tot = 0.0;
     for (size_t i = 0; i < p.size(); ++i) {
-      tot += p.at_species(i).census(metric);
+      tot += p.at_species(i).census_integral(metric);
     }
     return tot;
   }
@@ -857,7 +857,7 @@ std::vector<double> SCM<T, E>::census() const {
   std::vector<double> ret;
   ret.reserve(metrics.size());
   for (const census_metric<T>& metric : metrics) {
-    ret.push_back(odelia::util::to_passive(census_over(patch, metric)));
+    ret.push_back(odelia::util::to_passive(census_sum(patch, metric)));
   }
   return ret;
 }
@@ -914,7 +914,7 @@ census_rows SCM<T, E>::census_state_and_trait_rows() const {
     active.set_recorded_state(x, time());
     const auto metrics = metrics_of<std::decay_t<decltype(active)>>();
     for (size_t m = 0; m < metrics.size(); ++m) {
-      y[m] = census_over(active, metrics[m]);
+      y[m] = census_sum(active, metrics[m]);
     }
   };
   odelia::ode::state_and_parameter_adjoints(
@@ -947,7 +947,7 @@ SCM<T, E>::census_trait_difference(double rel) {
     patch.set_recorded_state(state.begin(), time_);
     out.clear();
     for (const census_metric<T>& metric : metrics) {
-      out.push_back(odelia::util::to_passive(census_over(patch, metric)));
+      out.push_back(odelia::util::to_passive(census_sum(patch, metric)));
     }
   };
 
@@ -1231,7 +1231,7 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   // derivative. Two reductions would be two evaluations of one function, which is
   // the shape this whole check exists to catch elsewhere.
   for (const auto& metric : metrics) {
-    const tangent reached_metric = census_over(reached, metric);
+    const tangent reached_metric = census_sum(reached, metric);
     ret.push_back(derivative_along(reached_metric));
     value.push_back(odelia::util::to_passive(reached_metric));
   }
@@ -1305,7 +1305,7 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   std::vector<Scalar> out;
   out.reserve(metrics.size());
   for (const auto& metric : metrics) {
-    out.push_back(census_over(reached, metric));
+    out.push_back(census_sum(reached, metric));
   }
   return out;
 }
