@@ -1308,12 +1308,12 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // point, so it is the one a lost point costs nothing.
   //
   // ⚠️ AND WHATEVER IS MISSING IS NAMED HERE. A number can arrive non-finite from
-  // a channel that reported no refusal, and the graft is what sees that, so the
+  // a channel that reported no refusal, and the record is what sees that, so the
   // report is always read. Where the row layer refused the input itself it says
-  // why against that input, and its reason is the better one: the graft's is the
+  // why against that input, and its reason is the better one: the record's is the
   // same sentence whatever was wrong with the number.
   const int n_layer_named = n_layer;
-  auto missing = [&](std::size_t j, const odelia::graft_report& report,
+  auto missing = [&](std::size_t j, const odelia::record_report& report,
                      bool carries_point) -> std::string {
     std::string out = std::string("TF24 gradient: `") +
                       grad::output_name(output[j], n_layer_named) + "`'s ";
@@ -1355,7 +1355,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     for (std::size_t i = 0; i < n_input; ++i) {
       against.push_back({*at[i], rows.dresidual[i]});
     }
-    const odelia::graft_report report =
+    const odelia::record_report report =
         odelia::implicit_root<S>(rows.point, rows.residual_slope, against, point);
     point_whole = report.whole;
     if (!point_whole) {
@@ -1386,13 +1386,13 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     // whole water channel undefined and taping the rest would produce a gradient
     // that is partly an answer. The values go on flowing either way.
     //
-    // Read BEFORE the graft rather than after it, because rows already on the
+    // Read BEFORE the record rather than after it, because rows already on the
     // tape cannot be taken off it.
     if (*uptake_rows_unavailable && !objective) {
       into = S(value);
       continue;
     }
-    // A lost point costs every output that reads it, and nothing is grafted for
+    // A lost point costs every output that reads it, and nothing is recorded for
     // those: a value carrying its held rows without the point's channel is the
     // channel gone missing with every number finite.
     if (rows.dy_dp[j] != 0.0 && !point_whole) {
@@ -1416,9 +1416,9 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       against.push_back({*at[i], rows.held[j * n_input + i]});
     }
     // The VALUE survives a missing row and the patch balance still needs it, so
-    // the graft leaves it carrying nothing rather than carrying part -- which is
+    // the record leaves it carrying nothing rather than carrying part -- which is
     // what the flag below then says, against a zero row saying the opposite.
-    const odelia::graft_report report =
+    const odelia::record_report report =
         odelia::record_with_derivatives<S>(value, against, into);
     if (!report.whole) {
       if (objective) {

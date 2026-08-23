@@ -1697,7 +1697,7 @@ ladder_replay_floor <- function(stand, value) {
 #
 # The two allometric constants were held to a separate bound of 4e-03 while a species
 # carrying more than one cohort disagreed by 3.4e-03. That was a real defect and it is
-# closed: the seed's dependent auxiliaries were not re-derived where its grafted height
+# closed: the seed's dependent auxiliaries were not re-derived where its recorded height
 # is written, so the leaf area every rate at birth size is scaled by carried no
 # derivative. They now read 2.2e-09 and 1.1e-08 on the same fixture.
 #
@@ -1710,7 +1710,7 @@ ladder_trajectory_agreement <- function() 3e-04
 
 # What the transpose and the two references agree to on the soil rows, which is
 # the tightest the leaf's supplied rows allow: a difference of the block re-solves
-# the collar and the transpose grafts, so the gap is the rank-two factorisation's
+# the collar and the transpose records, so the gap is the rank-two factorisation's
 # own fit step rather than a missing channel.
 #
 # It was 1.06e-05 while the uptake reduction's transpose scattered onto the

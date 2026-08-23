@@ -21,8 +21,8 @@
 // The recorded cohort block relates one individual's states, the field's knot
 // values and slopes, the soil potentials and the traits to its rates, its density
 // rate and its per-layer draws. Nothing in production records it; what it
-// referees is the graft. Taking it forward and backward checks that both modes
-// traverse the same recording, and it cannot check the number a grafted row
+// referees is the recording. Taking it forward and backward checks that both modes
+// traverse the same recording, and it cannot check the number a recorded row
 // carries: both modes read that number from the same place, so they agree
 // whether it is right or wrong. The plain-double difference below is the only
 // instrument here that can see a wrong supplied row, because it runs the leaf's
@@ -554,10 +554,10 @@ Rcpp::List ladder_boundary_density_tangent_tf24(plant::RcppR6::RcppR6<plant::Pat
 }
 
 // The seed's height and leaf area at an active scalar, with their row in one
-// registered parameter, read where the graft forms it rather than inferred from a
+// registered parameter, read where the recording forms it rather than inferred from a
 // census. `index` is a position in ad_parameters(), counting from one.
 //
-// The referee is a difference of the seed height over a rebuilt strategy: the graft
+// The referee is a difference of the seed height over a rebuilt strategy: the recording
 // declares this row, so a caller comparing the two is comparing a declaration
 // against the condition it claims to solve.
 // [[Rcpp::export]]
@@ -680,7 +680,7 @@ Rcpp::List ladder_field_knots_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF2
 
 // The block's outputs differenced in one input, in plain double, with the
 // environment held. A difference of the RECORDED step cannot see an error in a
-// supplied row -- the graft makes the value independent of a grafted input -- so
+// supplied row -- the recording makes the value independent of a recorded input -- so
 // this differences the double path instead, which runs the leaf's own solve.
 // Columns are the block's inputs in block_inputs order, rows its outputs.
 // [[Rcpp::export]]

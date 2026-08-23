@@ -279,7 +279,7 @@ test_that("the tangent carries the soil channel, and two references agree in it"
   # The transpose against the tangent, seeded on every rate. Off the soil rates it
   # is round-off. On them it is the leaf's own supplied-row gap: both reductions
   # now carry the boundary node's row, so what is left is the difference between a
-  # grafted uptake row and one taken by re-solving the collar.
+  # recorded uptake row and one taken by re-solving the collar.
   rates <- patch$ode_rates
   seed <- ladder_seeds(n, scale = ladder_block_scale(rates))
   cohort_seed <- seed
@@ -310,9 +310,9 @@ test_that("one right-hand-side evaluation transposes to a difference of itself",
   # sharing no code.
   #
   # A difference is admissible HERE and not at the block, and the distinction is
-  # the supplied row: the leaf's rows are grafted, so a difference of the step
+  # the supplied row: the leaf's rows are recorded, so a difference of the step
   # that consumes them is identically zero on those columns whether they are
-  # right, wrong or absent. The soil balance grafts nothing, so differencing it
+  # right, wrong or absent. The soil balance records nothing, so differencing it
   # measures what it computes. This is where d(psi)/d(theta) and the drainage
   # cascade's own derivative get a referee for the first time.
   patch <- ladder_patch_two_by_two(cross = FALSE)
@@ -495,7 +495,7 @@ test_that("the trait rows a difference can reach agree with one", {
   # discovered: the leaf holds its own copy of nine traits per species, taken when
   # the strategy was prepared, and a rate evaluation does not push them back in.
   # So the difference is EXACTLY zero there whether the sweep's row is right,
-  # wrong or absent -- the same shape as a grafted row one level down. Their
+  # wrong or absent -- the same shape as a recorded row one level down. Their
   # referee is the leaf's own algebra at a solved operating point, which is rung 1
   # and is not built, so those columns are unrefereed by anything.
   patch <- ladder_patch_two_by_two(cross = FALSE)

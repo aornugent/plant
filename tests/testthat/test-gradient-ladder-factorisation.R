@@ -54,8 +54,8 @@ test_that("the marginal profit's factorisation is measured, not assumed", {
   #
   # A difference is admissible here for the reason it is admissible at the soil
   # balance and not at the recorded step: it differences the double path, which
-  # runs the leaf's own solve, rather than the grafted expression whose value does
-  # not depend on a grafted input at all.
+  # runs the leaf's own solve, rather than the recorded expression whose value does
+  # not depend on a recorded input at all.
   patch <- ladder_patch_one()
   ladder_require_regime(patch, "patch")
   ladder_block_or_skip(patch)
@@ -307,9 +307,9 @@ test_that("the water rows hold in the family the pair was anchored in", {
 
 test_that("the leaf's supplied rows are refereed against its own algebra", {
   # A finite difference of the recorded step cannot referee a supplied row. The
-  # grafted expression is the value plus a sum of partials times brackets that
+  # recorded expression is the value plus a sum of partials times brackets that
   # are each exactly zero, so the block's forward value does not depend on a
-  # grafted input at all: differencing the block returns identically zero on
+  # recorded input at all: differencing the block returns identically zero on
   # exactly the columns a supplied row occupies, whether the row is right,
   # wrong, or absent.
   #

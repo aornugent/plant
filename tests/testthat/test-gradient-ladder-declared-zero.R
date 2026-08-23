@@ -113,7 +113,7 @@ test_that("the seed's geometry row is refereed against a rebuilt strategy", {
   #
   # rung 5 prices the same claim for two parameters through a whole rate
   # evaluation. This one has no patch, no environment and no rates on the path,
-  # so a disagreement localises to the graft rather than to anything after it.
+  # so a disagreement localises to the recording rather than to anything after it.
   patch <- ladder_patch_one()
   ladder_require_regime(patch, "patch")
   columns <- ladder_trait_names_tf24(patch)
@@ -127,7 +127,7 @@ test_that("the seed's geometry row is refereed against a rebuilt strategy", {
     got <- ladder_seed_geometry_tangent_tf24(patch, at)
     ref <- ladder_boundary_difference(patch, name, rel = rel)
 
-    # The graft returns the root itself, so the value is the rebuild's own.
+    # The recording returns the root itself, so the value is the rebuild's own.
     ladder_report_margin(
       sprintf("the seed height's value, %s", name),
       abs(got$height - ref$value[["height"]]) / abs(ref$value[["height"]]),
