@@ -14,7 +14,6 @@
 #include <plant/node.h>
 #include <plant/species_base.h>
 #include <plant/census.h>
-#include <plant/transport_census.h>
 #include <odelia/drivers.hpp>
 
 namespace plant {
@@ -743,25 +742,6 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   // it -- so the two are the same function at different arguments rather than one
   // computed twice. This value is the one an introduced node inherits.
   new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
-  if (internals::transport_census_active()) {
-    // The sub-grid value is recovered from the rate each node has just written,
-    // log_density_dt = -growth_rate_gradient - mortality, so the census adds no
-    // rate evaluation of its own.
-    internals::transport_census& census = internals::the_transport_census();
-    // A census is read rather than differentiated, so each column is recorded at
-    // its value.
-    using odelia::util::to_passive;
-    for (std::size_t i = 0; i < nodes.size(); ++i) {
-      const node_type& below = i + 1 < nodes.size() ? nodes[i + 1] : new_node;
-      census.add(environment.time, to_passive(nodes[i].height()),
-                 to_passive(nodes[i].height() - below.height()),
-                 to_passive(nodes[i].growth_rate()),
-                 to_passive(below.growth_rate()),
-                 to_passive(-(nodes[i].get_log_density_rate() +
-                              nodes[i].mortality_rate())),
-                 to_passive(growth_rate_gradient(i)));
-    }
-  }
 }
 
 template <typename T, typename E>
