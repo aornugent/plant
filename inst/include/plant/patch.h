@@ -8,7 +8,7 @@
 #include <plant/clamp_sites.h>
 #include <plant/gradient_status.h>
 #include <odelia/ode_interface.hpp>
-#include <odelia/gradient.hpp>
+#include <odelia/sweep.hpp>
 
 #include <plant/disturbance_regime.h>
 

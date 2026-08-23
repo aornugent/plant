@@ -8,7 +8,7 @@
 #include <plant/patch.h>
 #include <plant/scm_utils.h>
 
-#include <odelia/gradient.hpp>
+#include <odelia/sweep.hpp>
 
 #include <algorithm>
 #include <cmath>
