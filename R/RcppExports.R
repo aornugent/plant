@@ -4389,56 +4389,8 @@ census_trait_gradient_tf24 <- function(obj_, which_metrics = NULL) {
     .Call('_plant_census_trait_gradient_tf24', PACKAGE = 'plant', obj_, which_metrics)
 }
 
-census_trait_direct_tf24 <- function(obj_) {
-    .Call('_plant_census_trait_direct_tf24', PACKAGE = 'plant', obj_)
-}
-
-census_trait_difference_tf24 <- function(obj_, rel) {
-    .Call('_plant_census_trait_difference_tf24', PACKAGE = 'plant', obj_, rel)
-}
-
-census_trait_gradient_split_tf24 <- function(obj_, splits) {
-    .Call('_plant_census_trait_gradient_split_tf24', PACKAGE = 'plant', obj_, splits)
-}
-
-census_adjoint_segments_tf24 <- function(obj_) {
-    .Call('_plant_census_adjoint_segments_tf24', PACKAGE = 'plant', obj_)
-}
-
-census_adjoint_at_first_state_tf24 <- function(obj_) {
-    .Call('_plant_census_adjoint_at_first_state_tf24', PACKAGE = 'plant', obj_)
-}
-
 gradient_control_tf24 <- function(obj_) {
     .Call('_plant_gradient_control_tf24', PACKAGE = 'plant', obj_)
-}
-
-census_operating_point_counts_tf24 <- function(obj_) {
-    .Call('_plant_census_operating_point_counts_tf24', PACKAGE = 'plant', obj_)
-}
-
-census_clear_operating_point_counts_tf24 <- function(obj_) {
-    invisible(.Call('_plant_census_clear_operating_point_counts_tf24', PACKAGE = 'plant', obj_))
-}
-
-census_operating_point_names_tf24 <- function() {
-    .Call('_plant_census_operating_point_names_tf24', PACKAGE = 'plant')
-}
-
-census_clamp_counts_tf24 <- function(obj_) {
-    .Call('_plant_census_clamp_counts_tf24', PACKAGE = 'plant', obj_)
-}
-
-census_clamp_counts_differentiated_tf24 <- function(obj_) {
-    .Call('_plant_census_clamp_counts_differentiated_tf24', PACKAGE = 'plant', obj_)
-}
-
-census_clamp_names_tf24 <- function() {
-    .Call('_plant_census_clamp_names_tf24', PACKAGE = 'plant')
-}
-
-census_curvature_margin_tf24 <- function(obj_) {
-    .Call('_plant_census_curvature_margin_tf24', PACKAGE = 'plant', obj_)
 }
 
 node_schedule_default__Parameters___FF16__FF16_Env <- function(p) {
@@ -4551,6 +4503,54 @@ ladder_rhs_trait_difference_tf24 <- function(obj_, rel) {
 
 ladder_rebind_matches_assign_tf24 <- function(obj_) {
     .Call('_plant_ladder_rebind_matches_assign_tf24', PACKAGE = 'plant', obj_)
+}
+
+census_trait_direct_tf24 <- function(obj_) {
+    .Call('_plant_census_trait_direct_tf24', PACKAGE = 'plant', obj_)
+}
+
+census_trait_difference_tf24 <- function(obj_, rel) {
+    .Call('_plant_census_trait_difference_tf24', PACKAGE = 'plant', obj_, rel)
+}
+
+census_trait_gradient_split_tf24 <- function(obj_, splits) {
+    .Call('_plant_census_trait_gradient_split_tf24', PACKAGE = 'plant', obj_, splits)
+}
+
+census_adjoint_segments_tf24 <- function(obj_) {
+    .Call('_plant_census_adjoint_segments_tf24', PACKAGE = 'plant', obj_)
+}
+
+census_adjoint_at_first_state_tf24 <- function(obj_) {
+    .Call('_plant_census_adjoint_at_first_state_tf24', PACKAGE = 'plant', obj_)
+}
+
+census_operating_point_counts_tf24 <- function(obj_) {
+    .Call('_plant_census_operating_point_counts_tf24', PACKAGE = 'plant', obj_)
+}
+
+census_clear_operating_point_counts_tf24 <- function(obj_) {
+    invisible(.Call('_plant_census_clear_operating_point_counts_tf24', PACKAGE = 'plant', obj_))
+}
+
+census_operating_point_names_tf24 <- function() {
+    .Call('_plant_census_operating_point_names_tf24', PACKAGE = 'plant')
+}
+
+census_clamp_counts_tf24 <- function(obj_) {
+    .Call('_plant_census_clamp_counts_tf24', PACKAGE = 'plant', obj_)
+}
+
+census_clamp_counts_differentiated_tf24 <- function(obj_) {
+    .Call('_plant_census_clamp_counts_differentiated_tf24', PACKAGE = 'plant', obj_)
+}
+
+census_clamp_names_tf24 <- function() {
+    .Call('_plant_census_clamp_names_tf24', PACKAGE = 'plant')
+}
+
+census_curvature_margin_tf24 <- function(obj_) {
+    .Call('_plant_census_curvature_margin_tf24', PACKAGE = 'plant', obj_)
 }
 
 FF16_oderunner_individual_internals <- function(obj) {

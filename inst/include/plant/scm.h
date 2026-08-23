@@ -157,14 +157,6 @@ public:
   // census_trait_gradient reports them.
   census_rows census_state_and_trait_rows() const;
 
-  // The same quantity differenced, by moving the prepared strategy exactly where
-  // the recording seeds it. It referees the trait half above while sharing none of
-  // it: that one records the census and sweeps a tape, this one evaluates the
-  // census twice. A difference that rebuilt from Parameters would re-run
-  // preparation and carry the birth-size channel the differentiated path imposes
-  // to zero, so this one perturbs in place.
-  std::vector<std::vector<double>> census_trait_difference(double rel);
-
   // d(census)/d(trait), one row per metric and one column per trait in each
   // strategy's ad_parameters() order, species-major. Requires an adaptive run to
   // have resolved the schedule this replays.
@@ -188,6 +180,16 @@ public:
   // computing all of them and subsetting the answer does not give.
   census_trait_gradient(const std::vector<size_t>& extra_splits = {},
                         const std::vector<std::string>& which_metrics = {});
+
+  // The four references the ladder checks census_trait_gradient against.
+
+  // The same quantity differenced, by moving the prepared strategy exactly where
+  // the recording seeds it. It referees the trait half above while sharing none of
+  // it: that one records the census and sweeps a tape, this one evaluates the
+  // census twice. A difference that rebuilt from Parameters would re-run
+  // preparation and carry the birth-size channel the differentiated path imposes
+  // to zero, so this one perturbs in place.
+  std::vector<std::vector<double>> census_trait_difference(double rel);
 
   // One exact directional derivative of the census, by a forward tangent of the
   // same trajectory stepped at the sizes the run recorded. `direction` carries
