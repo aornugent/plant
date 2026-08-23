@@ -2,6 +2,7 @@
 #ifndef PLANT_PLANT_CLAMP_SITES_H_
 #define PLANT_PLANT_CLAMP_SITES_H_
 
+#include <phylloptim/clamp_sites.hpp>
 #include <cstddef>
 #include <memory>
 #include <vector>
@@ -39,17 +40,17 @@ enum clamp_site {
   // Rooting depth capped: where it binds, the root profile stops responding to
   // height, which is a state row rather than a numeric guard.
   CLAMP_ROOTING_DEPTH,
-  // The leaf model's own sites, in phylloptim's enum order so that the two lists
-  // fold by offset rather than by a name lookup. They are counted differently from
-  // everything above: the leaf solves in double on BOTH paths, so which path a
+  // The leaf model's own sites, appended in phylloptim's enum order so that the two
+  // lists fold by offset rather than by a name lookup. They are counted differently
+  // from everything above: the leaf solves in double on BOTH paths, so which path a
   // clamp fired on is a question of WHEN rather than of the scalar, and the answer
   // comes from a delta taken across record_leaf_outputs.
+  //
+  // The block's width is the leaf model's own count rather than a number repeated
+  // here: a site added there would otherwise land past CLAMP_SITE_COUNT, and every
+  // reader that stops at the count drops it without saying so.
   CLAMP_LEAF_FIRST,
-  CLAMP_ROOT_VULN_INTEGRAL_CAP = CLAMP_LEAF_FIRST,
-  CLAMP_ROOT_VULN_ARGUMENT,
-  CLAMP_LEAF_TEMPERATURE,
-  CLAMP_COLLAR_POTENTIAL,
-  CLAMP_SITE_COUNT
+  CLAMP_SITE_COUNT = CLAMP_LEAF_FIRST + phylloptim::CLAMP_SITE_COUNT
 };
 
 inline const char* clamp_site_name(int site) {
@@ -65,10 +66,11 @@ inline const char* clamp_site_name(int site) {
   case CLAMP_STORAGE_FLOOR:          return "storage_floor";
   case CLAMP_RESERVE_CEILING:        return "reserve_ceiling";
   case CLAMP_ROOTING_DEPTH:          return "rooting_depth";
-  case CLAMP_ROOT_VULN_INTEGRAL_CAP: return "root_vuln_integral_cap";
-  case CLAMP_ROOT_VULN_ARGUMENT:     return "root_vuln_argument";
-  case CLAMP_LEAF_TEMPERATURE:       return "leaf_temperature";
-  case CLAMP_COLLAR_POTENTIAL:       return "collar_potential";
+  }
+  // The leaf block's names are the leaf model's, taken by offset. Spelling them
+  // again here would let the two lists disagree while both compiled.
+  if (site >= CLAMP_LEAF_FIRST && site < CLAMP_SITE_COUNT) {
+    return phylloptim::clamp_site_name(site - CLAMP_LEAF_FIRST);
   }
   return "unknown";
 }
