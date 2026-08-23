@@ -502,9 +502,9 @@ Internals:
       @param s_size ???
       @param a_size ???
   active:
-    state_size: {type: size_t, access: field}
-    aux_size: {type: size_t, access: field}
-    resource_size: {type: size_t, access: field}
+    state_size: {type: size_t, access: member}
+    aux_size: {type: size_t, access: member}
+    resource_size: {type: size_t, access: member}
     states: {type: "std::vector<double>", access: field}
     rates: {type: "std::vector<double>", access: field}
     auxs: {type: "std::vector<double>", access: field}
@@ -1001,11 +1001,6 @@ StochasticPatchRunner:
 ResourceSpline:
   name_cpp: "plant::ResourceSpline<double>"
   constructor:
-    args:
-      - tol: double
-      - nbase: double
-      - max_depth: double
-      - rescale_usually: bool
   methods:
     get_value_at_height:
       args: [height: double]

@@ -29,7 +29,18 @@ namespace plant {
 // falsify it is built, so it costs one pass per strategy and nothing per
 // evaluation.
 inline void check_state_layout(const std::map<std::string, int>& state_index,
-                               const char* model) {
+                               size_t claimed_size, const char* model) {
+  // state_size() is a literal on every model and the map is built from
+  // state_names(), so the two can disagree. They disagree silently: Internals is
+  // sized by the literal, and a name the list has past that length resolves to
+  // an index no vector holds.
+  if (state_index.size() != claimed_size) {
+    util::stop(std::string(model) + " names " +
+               util::to_string(static_cast<int>(state_index.size())) +
+               " states against the " +
+               util::to_string(static_cast<int>(claimed_size)) +
+               " its state_size() claims");
+  }
   const std::pair<const char*, int> claimed[] = {{"height", HEIGHT_INDEX},
                                                  {"mortality", MORTALITY_INDEX},
                                                  {"fecundity", FECUNDITY_INDEX}};

@@ -106,7 +106,7 @@ public:
   }
 
   void compute_rates(const environment_type& environment) {
-    if (vars.resource_size != environment.n_resources()) {
+    if (vars.resource_size() != environment.n_resources()) {
       // handles when Individual hasn't been instantiated in a Patch (ie with an environment)
       vars.resize_consumption_rates(environment.n_resources());
     }
@@ -137,27 +137,27 @@ public:
   std::vector<std::string> aux_names() { return strategy->aux_names(); }
 
   template <typename It> It set_ode_state(It it) {
-    for (size_t i = 0; i < vars.state_size; i++) {
+    for (size_t i = 0; i < vars.state_size(); i++) {
       vars.states[i] = *it++;
       strategy->update_dependent_aux(i, vars);
     }
     return it;
   }
   template <typename It> It ode_state(It it) const {
-    for (size_t i = 0; i < vars.state_size; i++) {
+    for (size_t i = 0; i < vars.state_size(); i++) {
       util::write_iterator_scalar(it, vars.states[i]);
     }
     return it;
   }
   template <typename It> It ode_rates(It it) const {
-    for (size_t i = 0; i < vars.state_size; i++) {
+    for (size_t i = 0; i < vars.state_size(); i++) {
       util::write_iterator_scalar(it, vars.rates[i]);
     }
     return it;
   }
 
   template <typename It> It ode_aux(It it) const {
-    for (size_t i = 0; i < vars.aux_size; i++) {
+    for (size_t i = 0; i < vars.aux_size(); i++) {
       util::write_iterator_scalar(it, vars.auxs[i]);
     }
     return it;
@@ -167,7 +167,7 @@ public:
   // determines are re-derived by set_ode_state, and the rest are quantities a solve
   // produced that this individual is being handed rather than asked to recompute.
   template <typename It> It set_ode_aux(It it) {
-    for (size_t i = 0; i < vars.aux_size; i++) {
+    for (size_t i = 0; i < vars.aux_size(); i++) {
       vars.auxs[i] = *it++;
     }
     return it;
@@ -208,15 +208,15 @@ public:
   // reads lma and would otherwise be derived at the previous block's.
   template <typename It>
   It set_block_inputs(It it, environment_type& environment) {
-    std::vector<value_type> state(vars.state_size);
-    for (size_t i = 0; i < vars.state_size; ++i) {
+    std::vector<value_type> state(vars.state_size());
+    for (size_t i = 0; i < vars.state_size(); ++i) {
       state[i] = *it++;
     }
     it = environment.set_cohort_reads(it);
     for (value_type* p : strategy->ad_parameters()) {
       *p = *it++;
     }
-    for (size_t i = 0; i < vars.state_size; ++i) {
+    for (size_t i = 0; i < vars.state_size(); ++i) {
       set_state(static_cast<int>(i), state[i]);
     }
     return it;
@@ -229,7 +229,7 @@ public:
   It block_outputs(It it, const environment_type& environment) const {
     it = ode_rates(it);
     util::write_iterator_scalar(it, log_density_rate(environment));
-    for (size_t i = 0; i < vars.resource_size; ++i) {
+    for (size_t i = 0; i < vars.resource_size(); ++i) {
       util::write_iterator_scalar(it, vars.consumption_rates[i]);
     }
     return it;
@@ -331,15 +331,15 @@ public:
   // ! height or something
   // R takes a double, so the store is read out at its values.
   Internals<double> r_internals() const {
-    Internals<double> out(vars.state_size, vars.aux_size, vars.resource_size);
-    for (size_t i = 0; i < vars.state_size; ++i) {
+    Internals<double> out(vars.state_size(), vars.aux_size(), vars.resource_size());
+    for (size_t i = 0; i < vars.state_size(); ++i) {
       out.states[i] = odelia::util::to_passive(vars.states[i]);
       out.rates[i]  = odelia::util::to_passive(vars.rates[i]);
     }
-    for (size_t i = 0; i < vars.aux_size; ++i) {
+    for (size_t i = 0; i < vars.aux_size(); ++i) {
       out.auxs[i] = odelia::util::to_passive(vars.auxs[i]);
     }
-    for (size_t i = 0; i < vars.resource_size; ++i) {
+    for (size_t i = 0; i < vars.resource_size(); ++i) {
       out.consumption_rates[i] =
         odelia::util::to_passive(vars.consumption_rates[i]);
     }

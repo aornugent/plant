@@ -22,7 +22,7 @@ void FF16_Strategy::refresh_indices () {
   for (size_t i = 0; i < aux_names_vec.size(); i++) {
     aux_index[aux_names_vec[i]] = i;
   }
-  check_state_layout(state_index, "FF16");
+  check_state_layout(state_index, state_size(), "FF16");
 }
 
 // area_leaf() is defined inline in ff16_strategy.h (hot path).

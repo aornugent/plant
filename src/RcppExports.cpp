@@ -3958,17 +3958,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// Internals__state_size__set
-void Internals__state_size__set(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, size_t value);
-RcppExport SEXP _plant_Internals__state_size__set(SEXP obj_SEXP, SEXP valueSEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Internals<double> > >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< size_t >::type value(valueSEXP);
-    Internals__state_size__set(obj_, value);
-    return R_NilValue;
-END_RCPP
-}
 // Internals__aux_size__get
 size_t Internals__aux_size__get(plant::RcppR6::RcppR6<plant::Internals<double> > obj_);
 RcppExport SEXP _plant_Internals__aux_size__get(SEXP obj_SEXP) {
@@ -3980,17 +3969,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// Internals__aux_size__set
-void Internals__aux_size__set(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, size_t value);
-RcppExport SEXP _plant_Internals__aux_size__set(SEXP obj_SEXP, SEXP valueSEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Internals<double> > >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< size_t >::type value(valueSEXP);
-    Internals__aux_size__set(obj_, value);
-    return R_NilValue;
-END_RCPP
-}
 // Internals__resource_size__get
 size_t Internals__resource_size__get(plant::RcppR6::RcppR6<plant::Internals<double> > obj_);
 RcppExport SEXP _plant_Internals__resource_size__get(SEXP obj_SEXP) {
@@ -4000,17 +3978,6 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Internals<double> > >::type obj_(obj_SEXP);
     rcpp_result_gen = Rcpp::wrap(Internals__resource_size__get(obj_));
     return rcpp_result_gen;
-END_RCPP
-}
-// Internals__resource_size__set
-void Internals__resource_size__set(plant::RcppR6::RcppR6<plant::Internals<double> > obj_, size_t value);
-RcppExport SEXP _plant_Internals__resource_size__set(SEXP obj_SEXP, SEXP valueSEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::Internals<double> > >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< size_t >::type value(valueSEXP);
-    Internals__resource_size__set(obj_, value);
-    return R_NilValue;
 END_RCPP
 }
 // Internals__states__get
@@ -11218,16 +11185,12 @@ BEGIN_RCPP
 END_RCPP
 }
 // ResourceSpline__ctor
-plant::ResourceSpline<double> ResourceSpline__ctor(double tol, double nbase, double max_depth, bool rescale_usually);
-RcppExport SEXP _plant_ResourceSpline__ctor(SEXP tolSEXP, SEXP nbaseSEXP, SEXP max_depthSEXP, SEXP rescale_usuallySEXP) {
+plant::ResourceSpline<double> ResourceSpline__ctor();
+RcppExport SEXP _plant_ResourceSpline__ctor() {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
-    Rcpp::traits::input_parameter< double >::type nbase(nbaseSEXP);
-    Rcpp::traits::input_parameter< double >::type max_depth(max_depthSEXP);
-    Rcpp::traits::input_parameter< bool >::type rescale_usually(rescale_usuallySEXP);
-    rcpp_result_gen = Rcpp::wrap(ResourceSpline__ctor(tol, nbase, max_depth, rescale_usually));
+    rcpp_result_gen = Rcpp::wrap(ResourceSpline__ctor());
     return rcpp_result_gen;
 END_RCPP
 }
@@ -13405,11 +13368,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_Internals__set_rate", (DL_FUNC) &_plant_Internals__set_rate, 3},
     {"_plant_Internals__resize", (DL_FUNC) &_plant_Internals__resize, 3},
     {"_plant_Internals__state_size__get", (DL_FUNC) &_plant_Internals__state_size__get, 1},
-    {"_plant_Internals__state_size__set", (DL_FUNC) &_plant_Internals__state_size__set, 2},
     {"_plant_Internals__aux_size__get", (DL_FUNC) &_plant_Internals__aux_size__get, 1},
-    {"_plant_Internals__aux_size__set", (DL_FUNC) &_plant_Internals__aux_size__set, 2},
     {"_plant_Internals__resource_size__get", (DL_FUNC) &_plant_Internals__resource_size__get, 1},
-    {"_plant_Internals__resource_size__set", (DL_FUNC) &_plant_Internals__resource_size__set, 2},
     {"_plant_Internals__states__get", (DL_FUNC) &_plant_Internals__states__get, 1},
     {"_plant_Internals__states__set", (DL_FUNC) &_plant_Internals__states__set, 2},
     {"_plant_Internals__rates__get", (DL_FUNC) &_plant_Internals__rates__get, 1},
@@ -14054,7 +14014,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_StochasticPatchRunner___K93__K93_Env__patch__get", (DL_FUNC) &_plant_StochasticPatchRunner___K93__K93_Env__patch__get, 1},
     {"_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__get", (DL_FUNC) &_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__get, 1},
     {"_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__set", (DL_FUNC) &_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__set, 2},
-    {"_plant_ResourceSpline__ctor", (DL_FUNC) &_plant_ResourceSpline__ctor, 4},
+    {"_plant_ResourceSpline__ctor", (DL_FUNC) &_plant_ResourceSpline__ctor, 0},
     {"_plant_ResourceSpline__get_value_at_height", (DL_FUNC) &_plant_ResourceSpline__get_value_at_height, 2},
     {"_plant_ResourceSpline__init_interpolators", (DL_FUNC) &_plant_ResourceSpline__init_interpolators, 2},
     {"_plant_ResourceSpline__clear", (DL_FUNC) &_plant_ResourceSpline__clear, 1},

@@ -26,18 +26,9 @@ class ResourceSpline {
 public:
   using value_type = S;
 
-  // Constructors. The refinement arguments no longer select anything: the knot
-  // positions are the fixed fractions times height_max. They are still taken
-  // because the R constructor and the model environments pass them.
-  ResourceSpline() {
-    setup(1e-6, 17, 16, false);
-  }
+  ResourceSpline() { setup(); }
 
-  ResourceSpline(double tol, size_t nbase, size_t max_depth, bool rescale_usually) {
-    setup(tol, nbase, max_depth, rescale_usually);
-  }
-
-  void setup(double, size_t, size_t, bool) {
+  void setup() {
     // Uniform, and fixed for the run: every build places its knots at
     // u_k * height_max, so the positions and the count depend on height_max and
     // on nothing else in the state. 1/64 is exact, so u_k is too.
@@ -52,7 +43,7 @@ public:
   // that produces the values is linear in the nodes plus the knots and quadratic
   // only if it is asked per knot.
   template <typename Function>
-  void compute_environment(Function f_all_knots, S height_max, bool) {
+  void compute_environment(Function f_all_knots, S height_max) {
     lay_out_knots(height_max);
     const std::vector<double>& x = spline.knots();
     std::vector<S> y(x.size()), m(x.size());
@@ -197,7 +188,7 @@ private:
 // hands the field an expression template referencing operands that die here.
 template <typename Field, typename Function, typename S>
 void build_extinction_field(Field& field, Function f_competition_all_knots,
-                            S height_max, bool rescale) {
+                            S height_max) {
   using value_type = typename Field::value_type;
   field.compute_environment(
     [&](const std::vector<double>& x, std::vector<value_type>& y,
@@ -209,7 +200,7 @@ void build_extinction_field(Field& field, Function f_competition_all_knots,
         y[k] = E;
       }
     },
-    height_max, rescale);
+    height_max);
 }
 
 } // plant namespace

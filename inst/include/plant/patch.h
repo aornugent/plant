@@ -302,7 +302,7 @@ public:
     return species[species_index.check_bounds(size())];
   }
   // This is only here because it wraps a private function.
-  void r_compute_environment() {compute_environment(false);}
+  void r_compute_environment() {compute_environment();}
 
   // Whether this run is the one whose choices a later pass reads back. The states
   // are the SOLVER's record now, beside the times and the sizes; what is left here
@@ -324,10 +324,10 @@ private:
   // walk over every node.
   std::vector<std::vector<typename species_type::competition_split>>
     competition_capture;
-  void compute_environment_excl_capturing(bool rescale);
-  void compute_environment_closing(bool rescale);
+  void compute_environment_excl_capturing();
+  void compute_environment_closing();
 
-  void compute_environment(bool rescale);
+  void compute_environment();
   void compute_rates();
 
   // Seed the patch from parameters.initial_state (nodes + birth bookkeeping)
@@ -547,12 +547,12 @@ void Patch<T,E>::reset() {
 
   if (!parameters.initial_state.empty()) {
     // Seed the patch from an exported state / initial size distribution.
-    // set_initial_state() does its own compute_environment(false)/compute_rates
-    // (with the real node heights, no rescale), so skip the empty-patch path.
+    // set_initial_state() does its own compute_environment()/compute_rates at
+    // the real node heights, so skip the empty-patch path.
     set_initial_state();
     check_initial_density_rates();
   } else {
-    compute_environment(false);
+    compute_environment();
 
     // compute effects of resource consumption
     compute_rates();
@@ -567,10 +567,9 @@ void Patch<T,E>::reset() {
 // of nodes per species, loads the flat ODE state (nodes + environment) at the
 // resume time, restores per-node birth bookkeeping (not part of the ODE state
 // but feeds the rates and lifetime-fitness integrals), then computes the
-// environment and rates. We load the state directly (rather than via the
-// double-arg set_ode_state) so the first environment build is a full
-// compute_environment(false): a rescale of the not-yet-built light spline would
-// read uninitialised grid state.
+// environment and rates. We load the state directly, rather than via the
+// double-arg set_ode_state, so the first environment build reads node heights
+// that exist.
 template <typename T, typename E>
 void Patch<T,E>::set_initial_state() {
   const size_t n_species = species.size();
@@ -614,9 +613,9 @@ void Patch<T,E>::set_initial_state() {
 
   check_birth_dates_distinct();
 
-  // Build the environment from the real node heights (full recompute, no
-  // rescale) and compute rates for the seeded population.
-  compute_environment(false);
+  // Build the environment from the real node heights and compute rates for the
+  // seeded population.
+  compute_environment();
   compute_rates();
 }
 
@@ -920,19 +919,19 @@ void Patch<T,E>::compute_boundary_nodes() {
 // iteration instead only attenuates the carried dependence by the contraction
 // modulus, which is ~1e-3.
 template <typename T, typename E>
-void Patch<T,E>::compute_environment(bool rescale) {
+void Patch<T,E>::compute_environment() {
   if (size() == 0) {
     return;
   }
-  compute_environment_excl_capturing(rescale);
+  compute_environment_excl_capturing();
   compute_boundary_nodes();
-  compute_environment_closing(rescale);
+  compute_environment_closing();
 }
 
 // The field without the boundary interval, keeping each species' reduction at
 // the point its closing trapezium would be added.
 template <typename T, typename E>
-void Patch<T,E>::compute_environment_excl_capturing(bool rescale) {
+void Patch<T,E>::compute_environment_excl_capturing() {
   // The boundary node is one end of the birth-date quadrature and its birth date
   // is the current time, so refresh it before the profile is built. Its own stamp
   // is set in compute_rates(), which the stepper calls *after* the set_ode_state()
@@ -966,14 +965,14 @@ void Patch<T,E>::compute_environment_excl_capturing(bool rescale) {
     }
   };
   if (size() > 0) {
-    environment.compute_environment(f, height_max(), rescale);
+    environment.compute_environment(f, height_max());
   }
 }
 
 // The same field with the boundary interval closed, from the kept reductions and
 // the boundary node the call between the two established.
 template <typename T, typename E>
-void Patch<T,E>::compute_environment_closing(bool rescale) {
+void Patch<T,E>::compute_environment_closing() {
   for (auto& s : species) {
     s.set_new_node_birth_date(environment.time);
   }
@@ -997,7 +996,7 @@ void Patch<T,E>::compute_environment_closing(bool rescale) {
     }
   };
   if (size() > 0) {
-    environment.compute_environment(f, height_max(), rescale);
+    environment.compute_environment(f, height_max());
   }
 }
 
@@ -1046,7 +1045,7 @@ void Patch<T,E>::introduce_nodes(const widening& species_index, double time) {
   // with it, and the grid both reductions integrate over is those times.
   check_birth_dates_distinct();
 
-  compute_environment(false);
+  compute_environment();
 
   // New nodes have just changed the state and the light field, so the stored
   // rates now describe neither. The solver reads them next without checking, so
@@ -1138,7 +1137,7 @@ It Patch<T,E>::set_ode_state(It it, double time) {
   check_finite_ode_state();
 
   // Build the field the rates will be taken in.
-  compute_environment(true);
+  compute_environment();
 
   return it;
 }
@@ -1342,7 +1341,7 @@ void Patch<T,E>::set_recorded_state(
   }
   if (moved) {
     check_birth_dates_distinct();
-    compute_environment(false);
+    compute_environment();
     compute_rates();
   }
   util::check_length(y.size(), ode_size());

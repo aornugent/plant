@@ -1393,24 +1393,12 @@ Internals__state_size__get <- function(obj_) {
     .Call('_plant_Internals__state_size__get', PACKAGE = 'plant', obj_)
 }
 
-Internals__state_size__set <- function(obj_, value) {
-    invisible(.Call('_plant_Internals__state_size__set', PACKAGE = 'plant', obj_, value))
-}
-
 Internals__aux_size__get <- function(obj_) {
     .Call('_plant_Internals__aux_size__get', PACKAGE = 'plant', obj_)
 }
 
-Internals__aux_size__set <- function(obj_, value) {
-    invisible(.Call('_plant_Internals__aux_size__set', PACKAGE = 'plant', obj_, value))
-}
-
 Internals__resource_size__get <- function(obj_) {
     .Call('_plant_Internals__resource_size__get', PACKAGE = 'plant', obj_)
-}
-
-Internals__resource_size__set <- function(obj_, value) {
-    invisible(.Call('_plant_Internals__resource_size__set', PACKAGE = 'plant', obj_, value))
 }
 
 Internals__states__get <- function(obj_) {
@@ -3989,8 +3977,8 @@ StochasticPatchRunner___K93__K93_Env__node_schedule__set <- function(obj_, value
     invisible(.Call('_plant_StochasticPatchRunner___K93__K93_Env__node_schedule__set', PACKAGE = 'plant', obj_, value))
 }
 
-ResourceSpline__ctor <- function(tol, nbase, max_depth, rescale_usually) {
-    .Call('_plant_ResourceSpline__ctor', PACKAGE = 'plant', tol, nbase, max_depth, rescale_usually)
+ResourceSpline__ctor <- function() {
+    .Call('_plant_ResourceSpline__ctor', PACKAGE = 'plant')
 }
 
 ResourceSpline__get_value_at_height <- function(obj_, height) {

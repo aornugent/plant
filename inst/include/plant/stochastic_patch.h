@@ -86,10 +86,10 @@ public:
     return species[species_index.check_bounds(size())];
   }
   // These are only here because they wrap private functions.
-  void r_compute_environment() {compute_environment(false);}
+  void r_compute_environment() {compute_environment();}
   void r_compute_rates() {compute_rates();}
 private:
-  void compute_environment(bool rescale);
+  void compute_environment();
   void compute_rates();
 
   parameters_type parameters;
@@ -125,7 +125,7 @@ void StochasticPatch<T,E>::reset() {
   }
   resource_depletion.reserve(environment.n_resources());
   environment.clear();
-  compute_environment(false);
+  compute_environment();
   compute_rates();
 }
 
@@ -167,7 +167,7 @@ StochasticPatch<T,E>::compute_competition_and_slope(double height) const {
 }
 
 template <typename T, typename E>
-void StochasticPatch<T,E>::compute_environment(bool rescale) {
+void StochasticPatch<T,E>::compute_environment() {
   if (height_max() > 0.0) {
     // Written as std::vector<double> this still compiles, taking the value of an
     // active profile, and the field's knot values and slopes would then be
@@ -184,7 +184,7 @@ void StochasticPatch<T,E>::compute_environment(bool rescale) {
         m[k] = fs.second;
       }
     };
-    environment.compute_environment(f, height_max(), rescale);
+    environment.compute_environment(f, height_max());
   } else {
     environment.clear_environment();
   }
@@ -221,7 +221,7 @@ void StochasticPatch<T,E>::introduce_new_node_and_update(size_t species_index) {
   // Add a offspring, setting ODE variables based on the *current* light environment
   species[species_index].introduce_new_node(environment);
   // Then we update the light environment.
-  compute_environment(false);
+  compute_environment();
 }
 
 template <typename T, typename E>
@@ -248,7 +248,7 @@ std::vector<size_t> StochasticPatch<T,E>::deaths() {
     recompute = recompute || n_deaths > 0;
   }
   if (recompute) {
-    compute_environment(false);
+    compute_environment();
     compute_rates();
   }
   return ret;
@@ -311,7 +311,7 @@ It StochasticPatch<T,E>::set_ode_state(It it, double time) {
   environment.time = time;
 
   // pre-compute resources avaialability and competion, as defined by residents
-  compute_environment(true);
+  compute_environment();
 
   // compute rates of changes
   compute_rates();

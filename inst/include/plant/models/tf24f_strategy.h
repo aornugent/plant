@@ -113,6 +113,9 @@ void TF24f_Strategy<S>::refresh_indices() {
   const int idx = static_cast<int>(base_type::state_size());
   this->state_index["opt_root_psi_state"] = idx;
   state_idx_opt_root_psi_state = idx;
+  // Again on the concrete model: the base checked its own six names against its
+  // own count, and the slot appended above is outside both.
+  check_state_layout(this->state_index, state_size(), "TF24f");
 }
 
 // Reuse TF24's rates for the five shared states; the tracked-state value is fed

@@ -55,8 +55,7 @@ public:
   // except for soil_number_of_depths
   // which are only updated on construction
   
-  TF24_Environment(bool light_availability_spline_rescale_usually = true,
-                   int soil_number_of_depths = 5, 
+  TF24_Environment(int soil_number_of_depths = 5, 
                    double delta_z = 9999, // not using this
                    double soil_moist_sat = 0.428, // saturated soil moisture content (m3 water m^-3 soil) 
                    double K_sat = 163.0411, //saturated hydraulic conductivity of soil
@@ -77,14 +76,6 @@ public:
     time = 0.0;
 
 
-
-    // Shading defaults have lower tolerance which are overwritten for speed
-    light_availability = ResourceSpline<S>(
-                   1e-4,  // light_availability_spline_tol,
-                   17,    // light_availability_spline_nbase,
-                   16,    // light_availability_spline_max_depth,
-                   true //light_availability_spline_rescale_usually)
-                  );
 
     ExtrinsicDrivers extrinsic_drivers;
 
@@ -186,10 +177,10 @@ public:
 
   // The integrated soil state: one moisture per layer, then the four
   // cumulative-flux accumulators.
-  size_t ode_size() const { return vars.state_size; }
+  size_t ode_size() const { return vars.state_size(); }
 
   template <typename It> It set_ode_state(It it) {
-    for (size_t i = 0; i < vars.state_size; i++) {
+    for (size_t i = 0; i < vars.state_size(); i++) {
       vars.states[i] = *it++;
     }
     // The potentials are derived from the state just written, and the cache that
@@ -200,14 +191,14 @@ public:
   }
 
   template <typename It> It ode_state(It it) const {
-    for (size_t i = 0; i < vars.state_size; i++) {
+    for (size_t i = 0; i < vars.state_size(); i++) {
       util::write_iterator_scalar(it, vars.states[i]);
     }
     return it;
   }
 
   template <typename It> It ode_rates(It it) const {
-    for (size_t i = 0; i < vars.state_size; i++) {
+    for (size_t i = 0; i < vars.state_size(); i++) {
       util::write_iterator_scalar(it, vars.rates[i]);
     }
     return it;
@@ -309,9 +300,9 @@ public:
   template <class S1>
   void assign_from(const TF24_Environment<S1>& src) {
     static_cast<Environment&>(*this) = static_cast<const Environment&>(src);
-    vars = Internals<S>(src.vars.state_size, src.vars.aux_size,
-                        src.vars.resource_size);
-    for (size_t i = 0; i < src.vars.state_size; ++i) {
+    vars = Internals<S>(src.vars.state_size(), src.vars.aux_size(),
+                        src.vars.resource_size());
+    for (size_t i = 0; i < src.vars.state_size(); ++i) {
       vars.states[i] = S(odelia::util::to_passive(src.vars.states[i]));
     }
     water_flux.assign(src.water_flux.size(), S(0.0));
@@ -320,7 +311,6 @@ public:
     z_mid = src.z_mid;
     dz = src.dz;
     initial_states = src.initial_states;
-    canopy_rescale_usually = src.canopy_rescale_usually;
     soil_number_of_depths = src.soil_number_of_depths;
     delta_z = src.delta_z;
     depth = src.depth;
@@ -399,7 +389,6 @@ public:
   ResourceSpline<S> light_availability;
 
   // Light interface
-  bool canopy_rescale_usually;
   //distance between layers
   int soil_number_of_depths;
   double delta_z;
@@ -732,7 +721,7 @@ public:
 
   // TODO: I wonder if this needs a better name? See also environment.h
   Internals<double> r_internals() const {
-    Internals<double> out(vars.state_size, vars.aux_size, vars.resource_size);
+    Internals<double> out(vars.state_size(), vars.aux_size(), vars.resource_size());
     out.states = passive(vars.states);
     out.rates = passive(vars.rates);
     return out;
@@ -740,10 +729,10 @@ public:
 
   // R interface
   void set_soil_water_state(std::vector<double> state) {
-    if(state.size() != (vars.state_size- aux_num)) {
+    if(state.size() != (vars.state_size()- aux_num)) {
       throw std::invalid_argument("Input vector size does not match soil state size.");
     }
-    for (size_t i = 0; i < (vars.state_size); i++) {
+    for (size_t i = 0; i < (vars.state_size()); i++) {
       if(i < soil_number_of_depths){
         vars.set_state(i, state[i]);
       } else {
@@ -756,10 +745,10 @@ public:
 
   // The light a height is left with, from the competition profile above it.
   template <typename Function>
-  void compute_environment(Function f_compute_competition_and_slope, S height_max,
-                           bool rescale) {
+  void compute_environment(Function f_compute_competition_and_slope,
+                           S height_max) {
     build_extinction_field(light_availability, f_compute_competition_and_slope,
-                           height_max, rescale);
+                           height_max);
   }
 
 
@@ -778,8 +767,8 @@ public:
   // did rather than silently continuing out of the first run's depleted soil.
   // Only Environment::clear() calls this.
   virtual void clear_state() {
-    util::check_length(initial_states.size(), vars.state_size);
-    for (size_t i = 0; i < vars.state_size; ++i) {
+    util::check_length(initial_states.size(), vars.state_size());
+    for (size_t i = 0; i < vars.state_size(); ++i) {
       vars.states[i] = S(initial_states[i]);
     }
     psi_soil_cache_valid_ = false;

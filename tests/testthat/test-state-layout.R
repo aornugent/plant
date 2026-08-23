@@ -41,7 +41,19 @@ layout_probe <- function() {
         std::map<std::string, int> m{{"mortality", 1}, {"fecundity", 2}};
         if (name_it) m["height"] = height_at;
         try {
-          plant::check_state_layout(m, "PROBE");
+          plant::check_state_layout(m, m.size(), "PROBE");
+        } catch (const std::exception& e) {
+          return std::string(e.what());
+        }
+        return "accepted";
+      }
+
+      // [[Rcpp::export]]
+      std::string size_says(int claimed) {
+        std::map<std::string, int> m{
+            {"height", 0}, {"mortality", 1}, {"fecundity", 2}};
+        try {
+          plant::check_state_layout(m, static_cast<size_t>(claimed), "PROBE");
         } catch (const std::exception& e) {
           return std::string(e.what());
         }
@@ -69,4 +81,15 @@ test_that("a model whose state order breaks the index claim is refused", {
   # And a model that names no height at all, which reads as position zero
   # holding whatever that model put first.
   expect_match(layout_says(0L, FALSE), "names no `height` state")
+})
+
+# state_size() is a literal on every model while the index map is built from
+# state_names(), so the two can disagree. Unchecked, Internals is sized by the
+# literal and a name past that length resolves to an index no vector holds.
+test_that("a model whose state_size disagrees with its names is refused", {
+  layout_probe()
+
+  expect_equal(size_says(3L), "accepted")
+  expect_match(size_says(2L), "names 3 states against the 2")
+  expect_match(size_says(4L), "names 3 states against the 4")
 })

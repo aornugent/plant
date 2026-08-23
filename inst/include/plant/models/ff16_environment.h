@@ -13,20 +13,10 @@ namespace plant {
 
 class FF16_Environment : public Environment {
 public:
-  // constructor for R interface - default settings can be modified
-  // except for light_availability_spline_rescale_usually
-  // which are only updated on construction
   FF16_Environment() {
     time = 0.0;
 
     // Shading defaults have lower tolerance which are overwritten for speed
-    light_availability = ResourceSpline<double>(
-        1e-4, // light_availability_spline_tol,
-        17,   // light_availability_spline_nbase,
-        16,   // light_availability_spline_max_depth,
-        true  // light_availability_spline_rescale_usually)
-    );
-
   };
 
   // A ResourceSpline used for storing light availbility (0-1)
@@ -136,10 +126,10 @@ public:
 
   // The light every knot is left with, from the competition profile above it.
   template <typename Function>
-  void compute_environment(Function f_compute_competition_and_slope, double height_max,
-                           bool rescale) {
+  void compute_environment(Function f_compute_competition_and_slope,
+                           double height_max) {
     build_extinction_field(light_availability, f_compute_competition_and_slope,
-                           height_max, rescale);
+                           height_max);
   }
 
   virtual void clear_environment() {

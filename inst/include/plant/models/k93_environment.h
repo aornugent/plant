@@ -13,16 +13,6 @@ class K93_Environment : public Environment {
 public:
   K93_Environment() {
     time = 0.0;
-    // Match FF16: loosen the light-availability spline tolerance from the
-    // ResourceSpline default (1e-6) to 1e-4 for speed. The spline is rebuilt
-    // every ODE step, so its construction dominates K93 runtime; 1e-6 was 100x
-    // tighter than FF16 for no comparable accuracy need.
-    light_availability = ResourceSpline<double>(
-        1e-4, // light_availability_spline_tol
-        17,   // light_availability_spline_nbase
-        16,   // light_availability_spline_max_depth
-        true  // light_availability_spline_rescale_usually
-    );
   };
 
   // Light interface
@@ -54,10 +44,10 @@ public:
   // Core functions
   // The light a height is left with, from the competition profile above it.
   template <typename Function>
-  void compute_environment(Function f_compute_competition_and_slope, double height_max,
-                           bool rescale) {
+  void compute_environment(Function f_compute_competition_and_slope,
+                           double height_max) {
     build_extinction_field(light_availability, f_compute_competition_and_slope,
-                           height_max, rescale);
+                           height_max);
   }
 
   virtual void clear_environment() {
