@@ -12,6 +12,7 @@
 #include <plant/canopy_shape.h>
 #include <odelia/ode_util.hpp>
 #include <odelia/implicit_node.hpp>
+#include <array>
 #include <type_traits>
 
 namespace plant {
@@ -157,7 +158,11 @@ struct TF24_Pars {
   S d = 0.05;
 
   struct ad_parameter {
-    S* value;
+    // Where the parameter lives in the struct, rather than in one instance of
+    // it. That is what lets the table below be constexpr: a table of instance
+    // addresses has to be rebuilt per object and per call, which is why its
+    // length used to be a literal and why callers were told to hold it.
+    S TF24_Pars::* at;
     const char* name;
     ad_role role;
     // The leaf's own index for this parameter, or -1 where the leaf has no input
@@ -169,14 +174,13 @@ struct TF24_Pars {
   // Every member above, in declaration order, with what each is to the
   // gradient. field_ptrs() and the ad_parameter_* projections all read this, so
   // a member reaches all of them or none.
-#define PLANT_TF24_AD_PARAMETER(x, r) ad_parameter{&x, #x, ad_role::r, -1}
+#define PLANT_TF24_AD_PARAMETER(x, r) ad_parameter{&TF24_Pars::x, #x, ad_role::r, -1}
   // A parameter the leaf answers for. `p` is the leaf's spelling, which for four
   // of the fourteen is not this file's -- and writing it here is what makes a
   // rename on either side a compile error rather than a silently shifted column.
 #define PLANT_TF24_LEAF_PARAMETER(x, r, p) \
-  ad_parameter { &x, #x, ad_role::r, phylloptim::gradient::par_##p }
-  std::vector<ad_parameter> ad_parameter_table() {
-    return {
+  ad_parameter { &TF24_Pars::x, #x, ad_role::r, phylloptim::gradient::par_##p }
+  static constexpr std::array ad_parameter_fields{
       PLANT_TF24_AD_PARAMETER(lma, differentiated),
       PLANT_TF24_AD_PARAMETER(rho, differentiated),
       PLANT_TF24_AD_PARAMETER(hmat, differentiated),
@@ -257,29 +261,31 @@ struct TF24_Pars {
       PLANT_TF24_AD_PARAMETER(use_energy_balance, unread),
       // No row in the leaf's supplied Jacobian.
       PLANT_TF24_AD_PARAMETER(d, unread)
-    };
-  }
+  };
 #undef PLANT_TF24_AD_PARAMETER
 
   // Every entry of the table, which is the whole parameter set: a rebind carries
   // it across a scalar change. ad_parameters() is the subset with a column.
   std::vector<S*> field_ptrs() {
-    const std::vector<ad_parameter> table = ad_parameter_table();
     std::vector<S*> ret;
-    ret.reserve(table.size());
-    for (const ad_parameter& p : table) {
-      ret.push_back(p.value);
+    ret.reserve(ad_parameter_fields.size());
+    for (const ad_parameter& f : ad_parameter_fields) {
+      ret.push_back(&(this->*f.at));
     }
     return ret;
   }
-  static constexpr size_t field_count = 62;
+
+  // Read off the table, so a member added to one is added to both.
+  static constexpr size_t field_count = ad_parameter_fields.size();
+
+  static constexpr const auto& ad_parameter_table() { return ad_parameter_fields; }
 };
 
 // Every member of TF24_Pars is an S, so one added without extending
 // ad_parameter_table() changes this size and is refused rather than dropped.
 static_assert(sizeof(TF24_Pars<double>) ==
               TF24_Pars<double>::field_count * sizeof(double),
-              "TF24_Pars has a member ad_parameter_table() does not list");
+              "TF24_Pars has a member ad_parameter_fields does not list");
 
 // Templated on the scalar S the state, the traits and everything derived from
 // them carry; double is production. The embedded Leaf, the Control tolerances
@@ -562,12 +568,12 @@ public:
   // the run rather than per block; the strategy is shared and the fields do not
   // move. Index against .size().
   std::vector<S*> ad_parameters() {
-    const std::vector<ad_parameter> table = pars.ad_parameter_table();
+    const auto& table = pars.ad_parameter_table();
     std::vector<S*> ret;
     ret.reserve(table.size());
     for (const ad_parameter& p : table) {
       if (ad_role_has_column(p.role)) {
-        ret.push_back(p.value);
+        ret.push_back(&(pars.*p.at));
       }
     }
     return ret;
@@ -576,7 +582,7 @@ public:
   // The name each gradient column carries, one per ad_parameters() entry and in
   // that order. Which parameters are left out, and why, is on the table entries.
   std::vector<std::string> ad_parameter_names() {
-    const std::vector<ad_parameter> table = pars.ad_parameter_table();
+    const auto& table = pars.ad_parameter_table();
     std::vector<std::string> ret;
     ret.reserve(table.size());
     for (const ad_parameter& p : table) {
@@ -592,7 +598,7 @@ public:
   // honest as the census grows -- a parameter that becomes live stops being zero
   // and its role is never read.
   std::vector<gradient_status::Kind> ad_parameter_zero_classes() {
-    const std::vector<ad_parameter> table = pars.ad_parameter_table();
+    const auto& table = pars.ad_parameter_table();
     std::vector<gradient_status::Kind> ret;
     ret.reserve(table.size());
     for (const ad_parameter& p : table) {
@@ -884,8 +890,8 @@ public:
     TF24_Pars<S1> from_pars = src.pars;
     std::vector<S1*> from = from_pars.field_ptrs();
     std::vector<S*> to = pars.field_ptrs();
-    // field_count is a literal, so it is what a new member gets added without;
-    // this is what says the two lists still describe the same struct.
+    // Both lists come from the same table at two scalars, so this says the
+    // rebind still describes the same struct.
     util::check_length(from.size(), to.size());
     util::check_length(to.size(), TF24_Pars<S>::field_count);
     for (size_t i = 0; i < from.size(); ++i) {
@@ -1221,9 +1227,9 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     if (p.leaf_par < 0) {
       continue;
     }
-    theta[p.leaf_par] = to_passive(*p.value);
+    theta[p.leaf_par] = to_passive(pars.*p.at);
     input.push_back(p.leaf_par);
-    at.push_back(p.value);
+    at.push_back(&(pars.*p.at));
   }
   theta[grad::par_kmax] = to_passive(conductance_max);
   input.push_back(grad::par_kmax);
