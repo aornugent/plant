@@ -937,13 +937,9 @@ SCM<T, E>::census_trait_difference(double rel) {
   patch.ode_state(state.begin());
   const double time_ = time();
 
-  std::vector<typename T::value_type*> pars;
-  for (size_t i = 0; i < patch.size(); ++i) {
-    for (typename T::value_type* p :
-         patch.at_species(i).strategy_ptr()->ad_parameters()) {
-      pars.push_back(p);
-    }
-  }
+  // The patch answers for this order; walking the species here would be free to
+  // walk it differently.
+  const std::vector<typename T::value_type*> pars = patch.ad_parameters();
 
   // The state is re-set on every evaluation, which is what makes the moved trait
   // reach the quantities a state determines -- the boundary node among them.

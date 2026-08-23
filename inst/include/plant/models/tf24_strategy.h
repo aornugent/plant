@@ -34,6 +34,13 @@ constexpr bool ad_role_has_column(ad_role role) {
          role == ad_role::zero_structural;
 }
 
+// What an exact zero in that column means. Only asked of a role that has one.
+constexpr gradient_status::Kind ad_role_zero_kind(ad_role role) {
+  return role == ad_role::zero_slack      ? gradient_status::Kind::zero_slack
+       : role == ad_role::zero_structural ? gradient_status::Kind::zero_structural
+                                          : gradient_status::Kind::zero_undeclared;
+}
+
 // Biological (user-settable) parameters for the TF24 strategy. Held as a value
 // member `pars` on TF24_Strategy and exposed to R as a nested RcppR6 list class
 // (access as `s$pars$lma`). Only parameters that were previously exposed to R
@@ -277,6 +284,16 @@ struct TF24_Pars {
 
   // Read off the table, so a member added to one is added to both.
   static constexpr size_t field_count = ad_parameter_fields.size();
+
+  // How many of them carry a gradient column. Counted here so a caller wanting
+  // the width does not build a vector of pointers to measure it.
+  static constexpr size_t column_count = [] {
+    size_t n = 0;
+    for (const ad_parameter& f : ad_parameter_fields) {
+      if (ad_role_has_column(f.role)) ++n;
+    }
+    return n;
+  }();
 
   static constexpr const auto& ad_parameter_table() { return ad_parameter_fields; }
 };
@@ -562,6 +579,9 @@ public:
 
   using ad_parameter = typename TF24_Pars<S>::ad_parameter;
 
+  // How many gradient columns one of these carries, for a caller sizing a batch.
+  static constexpr size_t ad_column_count = TF24_Pars<S>::column_count;
+
   // Addresses of the parameters a gradient can be taken with respect to, in the
   // order ad_parameter_names() gives: the table entries whose role has a column.
   // Both allocate, so take them once per gradient evaluation and hold them for
@@ -600,21 +620,10 @@ public:
   std::vector<gradient_status::Kind> ad_parameter_zero_classes() {
     const auto& table = pars.ad_parameter_table();
     std::vector<gradient_status::Kind> ret;
-    ret.reserve(table.size());
+    ret.reserve(TF24_Pars<S>::column_count);
     for (const ad_parameter& p : table) {
-      switch (p.role) {
-      case ad_role::differentiated:
-        ret.push_back(gradient_status::Kind::zero_undeclared);
-        break;
-      case ad_role::zero_slack:
-        ret.push_back(gradient_status::Kind::zero_slack);
-        break;
-      case ad_role::zero_structural:
-        ret.push_back(gradient_status::Kind::zero_structural);
-        break;
-      case ad_role::refused:
-      case ad_role::unread:
-        break;
+      if (ad_role_has_column(p.role)) {
+        ret.push_back(ad_role_zero_kind(p.role));
       }
     }
     return ret;
