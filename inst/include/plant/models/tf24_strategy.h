@@ -17,29 +17,16 @@
 
 namespace plant {
 
-// What a parameter is to the gradient. One table carries this beside the
-// pointer and the name, so a parameter cannot be registered in one list and
-// forgotten in another, and what an exact zero means is declared where the
-// parameter is rather than recovered from its spelling.
-enum class ad_role {
-  differentiated,   // a column; an exact zero there is undeclared
-  zero_slack,       // a column; an exact zero is complementary slackness
-  zero_structural,  // a column; an exact zero is structural, on any trajectory
-  refused,          // no column: the model cannot answer for it, and says so by name
-  unread            // no column: reaches no equation on this path
-};
-
-constexpr bool ad_role_has_column(ad_role role) {
-  return role == ad_role::differentiated || role == ad_role::zero_slack ||
-         role == ad_role::zero_structural;
-}
-
-// What an exact zero in that column means. Only asked of a role that has one.
-constexpr gradient_status::Kind ad_role_zero_kind(ad_role role) {
-  return role == ad_role::zero_slack      ? gradient_status::Kind::zero_slack
-       : role == ad_role::zero_structural ? gradient_status::Kind::zero_structural
-                                          : gradient_status::Kind::zero_undeclared;
-}
+// What each parameter's table entry declares is a gradient_status::Kind: what an
+// exact zero in its column means, or no_column where it has none. There was a
+// second enum here saying the same three things in different words, and two
+// functions converting between them -- one to ask whether a role had a column,
+// one to turn a role into the kind it stood for. Both were the identity dressed
+// as a translation.
+//
+// `refused` and `unread` were separate, and nothing anywhere told them apart:
+// neither gets a column, so no consumer ever saw the difference. Why a parameter
+// has no column belongs in the comment beside it.
 
 // Biological (user-settable) parameters for the TF24 strategy. Held as a value
 // member `pars` on TF24_Strategy and exposed to R as a nested RcppR6 list class
@@ -171,7 +158,7 @@ struct TF24_Pars {
     // length used to be a literal and why callers were told to hold it.
     S TF24_Pars::* at;
     const char* name;
-    ad_role role;
+    gradient_status::Kind zero_means;
     // The leaf's own index for this parameter, or -1 where the leaf has no input
     // for it. One table, so a trait cannot be registered for the gradient here
     // and forgotten where the leaf's rows are asked for.
@@ -181,93 +168,93 @@ struct TF24_Pars {
   // Every member above, in declaration order, with what each is to the
   // gradient. field_ptrs() and the ad_parameter_* projections all read this, so
   // a member reaches all of them or none.
-#define PLANT_TF24_AD_PARAMETER(x, r) ad_parameter{&TF24_Pars::x, #x, ad_role::r, -1}
+#define PLANT_TF24_AD_PARAMETER(x, r) ad_parameter{&TF24_Pars::x, #x, gradient_status::Kind::r, -1}
   // A parameter the leaf answers for. `p` is the leaf's spelling, which for four
   // of the fourteen is not this file's -- and writing it here is what makes a
   // rename on either side a compile error rather than a silently shifted column.
 #define PLANT_TF24_LEAF_PARAMETER(x, r, p) \
-  ad_parameter { &TF24_Pars::x, #x, ad_role::r, phylloptim::gradient::par_##p }
+  ad_parameter { &TF24_Pars::x, #x, gradient_status::Kind::r, phylloptim::gradient::par_##p }
   static constexpr std::array ad_parameter_fields{
-      PLANT_TF24_AD_PARAMETER(lma, differentiated),
-      PLANT_TF24_AD_PARAMETER(rho, differentiated),
-      PLANT_TF24_AD_PARAMETER(hmat, differentiated),
-      PLANT_TF24_AD_PARAMETER(omega, differentiated),
+      PLANT_TF24_AD_PARAMETER(lma, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(rho, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(hmat, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(omega, zero_undeclared),
       // The canopy profile's u^eta reaches u = 0, where the recorded derivative
       // u^eta*log(u) is 0*(-inf) and the guard returns a constant zero instead,
       // so a recorded row would be a silently wrong zero rather than a NaN.
-      PLANT_TF24_AD_PARAMETER(eta, refused),
-      PLANT_TF24_AD_PARAMETER(theta, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_l1, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_l2, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_r1, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_b1, differentiated),
-      PLANT_TF24_AD_PARAMETER(r_s, differentiated),
-      PLANT_TF24_AD_PARAMETER(r_b, differentiated),
-      PLANT_TF24_AD_PARAMETER(r_r, differentiated),
-      PLANT_TF24_AD_PARAMETER(r_l, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_y, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_bio, differentiated),
-      PLANT_TF24_AD_PARAMETER(k_l, differentiated),
-      PLANT_TF24_AD_PARAMETER(k_b, differentiated),
-      PLANT_TF24_AD_PARAMETER(k_s, differentiated),
-      PLANT_TF24_AD_PARAMETER(k_r, differentiated),
+      PLANT_TF24_AD_PARAMETER(eta, no_column),
+      PLANT_TF24_AD_PARAMETER(theta, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_l1, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_l2, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_r1, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_b1, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(r_s, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(r_b, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(r_r, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(r_l, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_y, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_bio, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(k_l, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(k_b, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(k_s, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(k_r, zero_undeclared),
       // The light-response curve the Farquhar leaf replaced.
-      PLANT_TF24_AD_PARAMETER(a_p1, unread),
-      PLANT_TF24_AD_PARAMETER(a_p2, unread),
+      PLANT_TF24_AD_PARAMETER(a_p1, no_column),
+      PLANT_TF24_AD_PARAMETER(a_p2, no_column),
       // Occurs only in fecundity_dt's denominator, and no census metric reads
       // fecundity: zero on any trajectory rather than on this one.
       PLANT_TF24_AD_PARAMETER(a_f3, zero_structural),
-      PLANT_TF24_AD_PARAMETER(a_f1, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_f2, differentiated),
-      PLANT_TF24_AD_PARAMETER(S_D, unread),
-      PLANT_TF24_AD_PARAMETER(a_d0, differentiated),
-      PLANT_TF24_AD_PARAMETER(d_I, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_dG1, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_dG2, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_st1, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_st2, differentiated),
-      PLANT_TF24_AD_PARAMETER(a_st3, differentiated),
-      PLANT_TF24_AD_PARAMETER(k_I, differentiated),
-      PLANT_TF24_LEAF_PARAMETER(vcmax_25, differentiated, vcmax_25),
+      PLANT_TF24_AD_PARAMETER(a_f1, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_f2, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(S_D, no_column),
+      PLANT_TF24_AD_PARAMETER(a_d0, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(d_I, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_dG1, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_dG2, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_st1, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_st2, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(a_st3, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(k_I, zero_undeclared),
+      PLANT_TF24_LEAF_PARAMETER(vcmax_25, zero_undeclared, vcmax_25),
       // Read only by c's and b's default initialisers, so a value set after
       // construction reaches nothing here; d/dp_50 belongs to whatever computes
       // c and b, which for a run driven from traits is the R hyperparameters.
-      PLANT_TF24_AD_PARAMETER(p_50, unread),
-      PLANT_TF24_AD_PARAMETER(K_s, differentiated),
-      PLANT_TF24_LEAF_PARAMETER(c, differentiated, stem_c),
-      PLANT_TF24_LEAF_PARAMETER(b, differentiated, stem_b),
+      PLANT_TF24_AD_PARAMETER(p_50, no_column),
+      PLANT_TF24_AD_PARAMETER(K_s, zero_undeclared),
+      PLANT_TF24_LEAF_PARAMETER(c, zero_undeclared, stem_c),
+      PLANT_TF24_LEAF_PARAMETER(b, zero_undeclared, stem_b),
       // Sets the dry bound of an interval the operating point is strictly
       // inside, so slackness makes its row zero at an interior optimum. Live at
       // a pin.
       PLANT_TF24_LEAF_PARAMETER(psi_crit, zero_slack, psi_crit),
-      PLANT_TF24_AD_PARAMETER(beta1, unread),
-      PLANT_TF24_LEAF_PARAMETER(beta2, differentiated, beta2),
-      PLANT_TF24_LEAF_PARAMETER(g1_TF24, differentiated, cost_scale_TF24),
-      PLANT_TF24_LEAF_PARAMETER(jmax_25, differentiated, jmax_25),
-      PLANT_TF24_LEAF_PARAMETER(a, differentiated, a),
-      PLANT_TF24_LEAF_PARAMETER(curv_fact_elec_trans, differentiated, curv_fact_elec_trans),
-      PLANT_TF24_LEAF_PARAMETER(curv_fact_colim, differentiated, curv_fact_colim),
-      PLANT_TF24_LEAF_PARAMETER(R_d_25, differentiated, R_d_25),
+      PLANT_TF24_AD_PARAMETER(beta1, no_column),
+      PLANT_TF24_LEAF_PARAMETER(beta2, zero_undeclared, beta2),
+      PLANT_TF24_LEAF_PARAMETER(g1_TF24, zero_undeclared, cost_scale_TF24),
+      PLANT_TF24_LEAF_PARAMETER(jmax_25, zero_undeclared, jmax_25),
+      PLANT_TF24_LEAF_PARAMETER(a, zero_undeclared, a),
+      PLANT_TF24_LEAF_PARAMETER(curv_fact_elec_trans, zero_undeclared, curv_fact_elec_trans),
+      PLANT_TF24_LEAF_PARAMETER(curv_fact_colim, zero_undeclared, curv_fact_colim),
+      PLANT_TF24_LEAF_PARAMETER(R_d_25, zero_undeclared, R_d_25),
       // Declared and carried; no equation on this path reads them.
-      PLANT_TF24_AD_PARAMETER(var_sapwood_volume_cost, unread),
-      PLANT_TF24_AD_PARAMETER(nmass_l, unread),
-      PLANT_TF24_AD_PARAMETER(nmass_s, unread),
-      PLANT_TF24_AD_PARAMETER(nmass_b, unread),
-      PLANT_TF24_AD_PARAMETER(nmass_r, unread),
-      PLANT_TF24_AD_PARAMETER(dmass_dN, unread),
+      PLANT_TF24_AD_PARAMETER(var_sapwood_volume_cost, no_column),
+      PLANT_TF24_AD_PARAMETER(nmass_l, no_column),
+      PLANT_TF24_AD_PARAMETER(nmass_s, no_column),
+      PLANT_TF24_AD_PARAMETER(nmass_b, no_column),
+      PLANT_TF24_AD_PARAMETER(nmass_r, no_column),
+      PLANT_TF24_AD_PARAMETER(dmass_dN, no_column),
       // Q()'s u^eta_x reaches u = 0 with the same 0*(-inf) derivative as eta,
       // and the guard supplies the cumulative fraction there outright.
-      PLANT_TF24_AD_PARAMETER(root_depth_shape_eta, refused),
-      PLANT_TF24_LEAF_PARAMETER(root_c, differentiated, root_c),
-      PLANT_TF24_LEAF_PARAMETER(root_b, differentiated, root_b),
+      PLANT_TF24_AD_PARAMETER(root_depth_shape_eta, no_column),
+      PLANT_TF24_LEAF_PARAMETER(root_c, zero_undeclared, root_c),
+      PLANT_TF24_LEAF_PARAMETER(root_b, zero_undeclared, root_b),
       // The root curve's dry bound, slack for the same reason as psi_crit.
       PLANT_TF24_LEAF_PARAMETER(root_psi_crit, zero_slack, root_psi_crit),
-      PLANT_TF24_AD_PARAMETER(rooting_depth_max, differentiated),
-      PLANT_TF24_AD_PARAMETER(recruitment_decay, differentiated),
+      PLANT_TF24_AD_PARAMETER(rooting_depth_max, zero_undeclared),
+      PLANT_TF24_AD_PARAMETER(recruitment_decay, zero_undeclared),
       // The gate is compared rather than differentiated.
-      PLANT_TF24_AD_PARAMETER(use_energy_balance, unread),
+      PLANT_TF24_AD_PARAMETER(use_energy_balance, no_column),
       // No row in the leaf's supplied Jacobian.
-      PLANT_TF24_AD_PARAMETER(d, unread)
+      PLANT_TF24_AD_PARAMETER(d, no_column)
   };
 #undef PLANT_TF24_AD_PARAMETER
 
@@ -290,7 +277,7 @@ struct TF24_Pars {
   static constexpr size_t column_count = [] {
     size_t n = 0;
     for (const ad_parameter& f : ad_parameter_fields) {
-      if (ad_role_has_column(f.role)) ++n;
+      if (f.zero_means != gradient_status::Kind::no_column) ++n;
     }
     return n;
   }();
@@ -592,7 +579,7 @@ public:
     std::vector<S*> ret;
     ret.reserve(table.size());
     for (const ad_parameter& p : table) {
-      if (ad_role_has_column(p.role)) {
+      if (p.zero_means != gradient_status::Kind::no_column) {
         ret.push_back(&(pars.*p.at));
       }
     }
@@ -606,7 +593,7 @@ public:
     std::vector<std::string> ret;
     ret.reserve(table.size());
     for (const ad_parameter& p : table) {
-      if (ad_role_has_column(p.role)) {
+      if (p.zero_means != gradient_status::Kind::no_column) {
         ret.push_back(p.name);
       }
     }
@@ -622,8 +609,8 @@ public:
     std::vector<gradient_status::Kind> ret;
     ret.reserve(TF24_Pars<S>::column_count);
     for (const ad_parameter& p : table) {
-      if (ad_role_has_column(p.role)) {
-        ret.push_back(ad_role_zero_kind(p.role));
+      if (p.zero_means != gradient_status::Kind::no_column) {
+        ret.push_back(p.zero_means);
       }
     }
     return ret;

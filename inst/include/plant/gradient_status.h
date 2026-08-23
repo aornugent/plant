@@ -29,7 +29,11 @@ struct gradient_status {
     zero_undeclared,
     // No gradient exists at some state the trajectory visited. The number
     // beside this is not an answer and must not be read as one.
-    refused
+    refused,
+    // The parameter has no column at all: the model reaches no equation through
+    // it, or cannot record a row for it. Declared on the parameter, never
+    // assigned to an entry -- a column that does not exist has no entries.
+    no_column
   };
 
   Kind kind = Kind::answered;
@@ -51,6 +55,7 @@ struct gradient_status {
     case Kind::zero_structural: return "zero-structural";
     case Kind::zero_undeclared: return "zero-undeclared";
     case Kind::refused:         return "refused";
+    case Kind::no_column:       return "no-column";
     }
     return "unknown";
   }
