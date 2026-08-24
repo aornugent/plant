@@ -50,8 +50,6 @@ using odelia::ode::seed_direction;
 using odelia::ode::derivative_along;
 
 // One accepted step. The state widens at an introduction, so the record is ragged.
-struct ode_step_record { double time; double step_size; std::vector<double> state; };
-
 template <typename T, typename E>
 class Patch {
 public:
