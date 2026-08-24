@@ -328,6 +328,11 @@ public:
   // Whether this run is the one whose choices a later pass reads back. The states
   // are the SOLVER's record now, beside the times and the sizes; what is left here
   // is the one bit the loader needs, and the run sets it.
+  // Whether this run's rate evaluations keep the choices they make. Set through
+  // the setter, because it has to agree with whether the solver is keeping
+  // states: record one without the other and a replay re-derives a
+  // discretisation the run never took, with every number finite.
+  void set_recording(bool x) { recording = x; }
   bool recording = false;
 
   void add_strategies(std::vector<strategy_type> strategies);

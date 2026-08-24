@@ -482,7 +482,7 @@ template <typename T, typename E> void SCM<T, E>::run() {
   // Before reset(), which records the initial state and then copies the patch
   // into the solver: set after it, that first record is missed and the store is
   // one short of the step sizes it is read beside.
-  patch.recording = record_trajectory;
+  patch.set_recording(record_trajectory);
   // Set before reset(), which records the state the run starts from.
   solver.set_keep_states(record_trajectory);
   // The choices this run's rate evaluations make are the same recording as its
