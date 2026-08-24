@@ -253,7 +253,7 @@ public:
   // the condition a second time, in that second field. It is the second value an
   // introduced node inherits and the census reads, so reloading a state without it
   // linearises a boundary node the trajectory never carried.
-  template <typename It> It set_recorded_state(It it, double time);
+  template <typename It> It set_state_and_boundary(It it, double time);
 
   // The same, at the node structure the record describes: whatever the patch was
   // seeded with, plus one node per species named by each of the first `applied`
@@ -493,7 +493,7 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
                                     control.ppa_layer_optical_depth,
                                     control.ppa_layer_smoothing);
   // The field and the boundary node are left to the caller. Every caller sets a
-  // state through set_ode_state or set_recorded_state before reading
+  // state through set_ode_state or set_state_and_boundary before reading
   // either, and both rebuild the field and re-evaluate the inflow condition, so
   // computing them here solves the boundary leaf twice per right-hand side and
   // then discards it. A caller that reads before setting gets an unbuilt field.
@@ -1180,7 +1180,7 @@ It Patch<T,E>::set_ode_state(It it, double time, odelia::ode::recorded_stage at)
 // folded into. See the declaration for why a reloaded state needs it.
 template <typename T, typename E>
 template <typename It>
-It Patch<T,E>::set_recorded_state(It it, double time) {
+It Patch<T,E>::set_state_and_boundary(It it, double time) {
   it = set_ode_state(it, time);
   compute_boundary_nodes();
   return it;
@@ -1379,7 +1379,7 @@ template <typename T, typename E>
 template <typename It>
 void Patch<T,E>::inserted_state(const introduction& species_index, double time,
                                 It x, std::vector<value_type>& y) {
-  set_recorded_state(x, time);
+  set_state_and_boundary(x, time);
   push_nodes(species_index, time);
   y.assign(ode_size(), value_type(0.0));
   ode_state(y.begin());
@@ -1394,7 +1394,7 @@ void Patch<T,E>::set_recorded_state(const std::vector<value_type>& y,
                                     double time) {
   reshape_to(time);
   util::check_length(y.size(), ode_size());
-  set_recorded_state(y.begin(), time);
+  set_state_and_boundary(y.begin(), time);
 }
 
 // One tangent seed per input column, over the same map. The node the map pushes is

@@ -693,8 +693,20 @@ void SCM<T, E>::refine_schedule() {
   // Leave Parameters self-describing: record the refined schedule and the
   // ode times from the final run (mirrors build_schedule.R).
   parameters.node_schedule_times = node_schedule.get_times();
-  parameters.ode_times = r_ode_times();
-  parameters.ode_step_sizes = solver.step_sizes();
+  // Carried out in the parameters so a later run of them replays this schedule,
+  // which is what these two fields are for on the way IN. Read off the solver's
+  // one record rather than through two accessors: a time and the size that
+  // reached it are paired there, and pairing them again here is a chance to
+  // pair them wrong.
+  const std::vector<odelia::ode::recorded_step> taken = solver.schedule();
+  parameters.ode_times.clear();
+  parameters.ode_step_sizes.clear();
+  parameters.ode_times.reserve(taken.size());
+  parameters.ode_step_sizes.reserve(taken.size());
+  for (const odelia::ode::recorded_step& step : taken) {
+    parameters.ode_times.push_back(step.time);
+    parameters.ode_step_sizes.push_back(step.step_size);
+  }
 }
 
 // NOTE: solver.reset() sets the solver's internal time to zero. There is
@@ -841,7 +853,7 @@ std::vector<double> SCM<T, E>::census() const {
 // quantity the state determines is derived at the traits the recording registered.
 // Loading the state first derives it at the values they had before.
 //
-// set_recorded_state rebuilds the environment and the boundary node from the state
+// set_state_and_boundary rebuilds the environment and the boundary node from the state
 // it is given. Both are on the census's path -- the boundary node is the
 // reduction's lower grid point and is not ODE state -- so the recording must carry
 // that rebuild. Loading the state without it leaves the boundary node at the values
@@ -880,7 +892,7 @@ census_rows SCM<T, E>::census_state_and_trait_rows() const {
   auto reduce = [&](auto& active, typename std::vector<scalar>::const_iterator x,
                     std::vector<scalar>& y) -> void {
     // The traits are already written from the other half of the recorded inputs.
-    active.set_recorded_state(x, time());
+    active.set_state_and_boundary(x, time());
     const auto metrics = metrics_of<std::decay_t<decltype(active)>>();
     for (size_t m = 0; m < metrics.size(); ++m) {
       y[m] = census_sum(active, metrics[m]);
@@ -913,7 +925,7 @@ SCM<T, E>::census_trait_difference(double rel) {
   // The state is re-set on every evaluation, which is what makes the moved trait
   // reach the quantities a state determines -- the boundary node among them.
   auto census_at = [&](std::vector<double>& out) -> void {
-    patch.set_recorded_state(state.begin(), time_);
+    patch.set_state_and_boundary(state.begin(), time_);
     out.clear();
     for (const census_metric<T>& metric : metrics) {
       out.push_back(odelia::util::to_passive(census_sum(patch, metric)));
