@@ -77,9 +77,8 @@ public:
   // The record the run kept, read in place off the solver: one row per accepted
   // step carrying its time, the size that reached it and the state there. Not a
   // copy and not a re-pairing -- the solver holds exactly this.
-  using recording =
-      std::span<const odelia::ode::step_record<patch_type>>;
-  recording store_trajectory();
+  using trajectory = std::span<const odelia::ode::step_record<patch_type>>;
+  trajectory store_trajectory();
 
   // Set before run() to keep the state at every accepted step. The reverse pass
   // needs those states and cannot recover them from a finished run, so a run that
@@ -635,7 +634,7 @@ void SCM<T, E>::run_mutant(parameters_type /* p */) {
 }
 
 template <typename T, typename E>
-typename SCM<T, E>::recording SCM<T, E>::store_trajectory() {
+typename SCM<T, E>::trajectory SCM<T, E>::store_trajectory() {
   // What the sweep does with the store: every walk over the widenings takes
   // the patch through these, and each was reached by name until it was said here.
   static_assert(odelia::ode::WidensState<patch_type>,
@@ -827,7 +826,7 @@ std::vector<double> SCM<T, E>::r_ode_step_sizes() const {
 
 template <typename T, typename E>
 Rcpp::List SCM<T, E>::r_store_trajectory() {
-  const recording rec = store_trajectory();
+  const trajectory rec = store_trajectory();
   Rcpp::List ret(rec.size());
   for (size_t i = 0; i < rec.size(); ++i) {
     ret[i] = Rcpp::List::create(Rcpp::_["time"] = rec[i].time,
@@ -1003,7 +1002,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // The sweep needs the state at every accepted step. store_trajectory() repeats
   // the run to get them unless record_trajectory kept them the first time, and
   // either way it may run, so the seeds below are taken after it.
-  const recording rec = store_trajectory();
+  const trajectory rec = store_trajectory();
 
   patch_type& live = solver.get_system_ref();
 
@@ -1159,7 +1158,7 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
                                 std::vector<double>& value) {
   require_birth_date_coordinate("census_trait_tangent");
 
-  const recording rec = store_trajectory();
+  const trajectory rec = store_trajectory();
   const auto insertions = odelia::ode::insertions_of(widenings, rec);
   patch_type& live = solver.get_system_ref();
   odelia::ode::be_at_step(live, insertions, rec, 0);
@@ -1212,7 +1211,7 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
 
 template <typename T, typename E>
 std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
-  const recording rec = store_trajectory();
+  const trajectory rec = store_trajectory();
   patch_type& live = solver.get_system_ref();
   const auto insertions = odelia::ode::insertions_of(widenings, rec);
 
@@ -1228,7 +1227,7 @@ template <typename T, typename E>
 template <class Scalar, class Seed>
 std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
                                                     Seed seed) {
-  const recording rec = store_trajectory();
+  const trajectory rec = store_trajectory();
   patch_type& live = solver.get_system_ref();
   const auto insertions = odelia::ode::insertions_of(widenings, rec);
 
