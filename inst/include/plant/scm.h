@@ -1058,7 +1058,6 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
     return ret;
   }
   const odelia::ode::row_batch seeds = all_seeds.select(rows);
-  const odelia::ode::row_batch direct = all_direct.select(rows);
   // Every metric's sweep visits the same trajectory and differs only in its
   // seed, so they are carried TOGETHER: a block is recorded once and swept once
   // per metric, where the loop this replaces recorded it once per metric. The
@@ -1069,11 +1068,18 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // The accumulator the sweep adds into, owned here for the length of the sweep
   // rather than kept on the patch between calls. Every writer reaches it through
   // the driver, so a row that does not match the seeds is a length mismatch.
-  odelia::ode::row_batch trait_adjoint(n_metric, live.trait_adjoint_size());
+  //
+  // It STARTS at the direct term, which is what the total derivative is: the
+  // census reads the traits as well as the state, so a metric's gradient is that
+  // reading plus the sum over the trajectory. Seeded rather than added at the end
+  // because a term added last is a term that can be left out, and a gradient
+  // missing it is a plausible number rather than an error.
+  odelia::ode::row_batch trait_adjoint = all_direct.select(rows);
+  util::check_length(trait_adjoint.width(), live.trait_adjoint_size());
   odelia::ode::row_batch lambda = seeds;
   // One segment per width, highest first, narrowing across each widening and
   // transposing the map that took it. The solver owns that walk: what is left
-  // here is the census the sweep is seeded from and the direct term below.
+  // here is the census the sweep is seeded from.
   //
   // A refusal costs every metric, and the grain is forced rather than chosen: the
   // row that could not be supplied is an intermediate of a recording spanning six
@@ -1129,15 +1135,12 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
       // numbers are not-a-number rather than absent so that a caller indexing by
       // position still finds the shape it expects.
       ret.gradient.push_back(std::vector<double>(
-          direct.width(), std::numeric_limits<double>::quiet_NaN()));
-      ret.status.push_back(std::vector<gradient_status>(direct.width(), refusal));
+          trait_adjoint.width(), std::numeric_limits<double>::quiet_NaN()));
+      ret.status.push_back(
+          std::vector<gradient_status>(trait_adjoint.width(), refusal));
       continue;
     }
     std::vector<double> row(trait_adjoint[m].begin(), trait_adjoint[m].end());
-    util::check_length(row.size(), direct.width());
-    for (size_t p = 0; p < row.size(); ++p) {
-      row[p] += direct[m][p];
-    }
     // An exact zero is read against what the column declares one would mean,
     // and a column that declares nothing says so rather than passing the number
     // off as an answer. Only exact zeros are classified: a parameter that is
