@@ -628,7 +628,10 @@ typename SCM<T, E>::trajectory SCM<T, E>::store_trajectory() {
   // Run only if this run kept no states to read. Reading does not consume them,
   // and a walk puts the patch back on the last recorded step when it is done, so
   // a second consumer reads the same record rather than repeating the run.
-  if (!solver.keeps_states()) {
+  //
+  // Asked of this flag and not of the solver: run() is what sets the solver's
+  // from this one, so asking the solver is asking it what it was just told.
+  if (!record_trajectory) {
     record_trajectory = true;
     run();
   }
