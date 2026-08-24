@@ -486,18 +486,13 @@ test_that("ad_parameters and ad_parameter_names agree with the yml", {
   probe <- compile_tf24_ad_parameters()
   res <- probe()
 
-  # The parameters with no gradient column. eta and root_depth_shape_eta reach an
-  # unguarded u^k exponent whose recorded derivative u^k*log(u) is 0*(-inf) at
-  # u == 0, where the guard returns a constant instead. a_p1 and a_p2 belong to the
-  # light-response curve the Farquhar leaf replaced. p_50 is read only by c's and
-  # b's default initialisers, so a value set afterwards reaches nothing.
-  # use_energy_balance is compared rather than differentiated and d has no row in
-  # the leaf's supplied Jacobian. The rest are declared and carried, and no
-  # equation here reads them.
-  omitted <- c("eta", "a_p1", "a_p2", "S_D", "p_50", "beta1",
-               "var_sapwood_volume_cost", "nmass_l", "nmass_s", "nmass_b",
-               "nmass_r", "dmass_dN", "root_depth_shape_eta",
-               "use_energy_balance", "d")
+  # The parameters with no gradient column, read off the model rather than
+  # restated here. This was a third copy of that list -- the strategy declared
+  # it, the ladder declared it, and so did this -- and a copy is only ever right
+  # until one of the three moves. Each carries the sentence saying why, which is
+  # what a caller asking for one is refused in.
+  omitted <- names(census_undifferentiable_tf24())
+  expect_gt(length(omitted), 0L)
 
   # Sources, then the installed package: this check is what says the registered
   # parameter list and the declared one agree, so it should not go quiet because

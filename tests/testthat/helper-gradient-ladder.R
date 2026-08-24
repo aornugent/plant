@@ -1367,9 +1367,9 @@ ladder_zero_by_construction <- function() {
 ladder_zero_cause <- function(name) {
   bare <- ladder_bare_traits(name)
   if (bare %in% ladder_zero_at_an_interior_optimum()) {
-    "interior optimum: moves no rate at all"
+    "a limit the operating point is away from: moves no rate at all"
   } else if (bare %in% ladder_zero_outside_the_metric_support()) {
-    "outside the metric support: moves the two offspring rates"
+    "outside the metric support: reaches no rate the census reads"
   } else {
     NA_character_
   }

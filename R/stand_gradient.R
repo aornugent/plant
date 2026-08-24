@@ -72,24 +72,24 @@ trait_without_species <- function(x) sub("^[0-9]+\\.", "", x)
 ##'   every differentiable parameter every species declares. A column is named
 ##'   for its species and its parameter, as \code{"1.lma"}.
 ##' @return A list with \code{value}, the metrics at the end of the run;
-##'   \code{gradient}, a metrics-by-traits matrix; \code{status}, a matrix of the
-##'   same shape saying what each entry is (\code{"answered"},
-##'   \code{"zero-slack"}, \code{"zero-structural"} or \code{"refused"});
-##'   \code{refusal}, one entry per metric holding the reason and where it was
-##'   found, or \code{NULL} where the metric answered; and \code{control}, the
-##'   four entries the gradient was taken at.
+##'   \code{gradient}, a metrics-by-traits matrix; \code{refusal}, one entry per
+##'   metric holding the reason and where it was found, or \code{NULL} where the
+##'   metric answered; and \code{control}, the entries the gradient was taken at.
 ##'
 ##'   A refused metric's whole row is \code{NaN}: a sum has no defined value with
 ##'   an undefined term, so refusal is metric-level and carries no localisation
-##'   within a metric. Read \code{status} before reading \code{gradient} — a zero
-##'   that is a real zero and a slot no sweep reached are the same number.
+##'   within a metric. Every other number is one the sweep computed, an exact
+##'   zero included — a parameter no gradient exists for cannot be asked for, so
+##'   it never reaches a column. Two limits, \code{psi_crit} and
+##'   \code{root_psi_crit}, are zero while the leaf's operating point is away
+##'   from the bound they set and live the moment it sits on one.
 ##' @export
 stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
   all_metrics <- census_metric_names_tf24()
-  # Every column the strategy declares stays in the matrix and is CLASSIFIED,
-  # rather than being dropped. A caller comparing shapes, or indexing by
-  # position, must see the same width whatever the sweep can currently answer;
-  # what changes is the class attached to a column, not whether it exists.
+  # Every parameter the strategy carries has a column, bar the few the model
+  # states it cannot differentiate. So the width does not depend on what the
+  # sweep can currently answer, and a caller indexing by position sees the same
+  # shape from run to run.
   all_traits <- census_trait_names_tf24(scm)
   if (is.null(metrics)) {
     metrics <- all_metrics
@@ -103,9 +103,21 @@ stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
   }
   unknown <- setdiff(traits, all_traits)
   if (length(unknown) > 0L) {
+    # A parameter the model carries but cannot differentiate is not unknown, and
+    # saying so sent readers looking for a spelling mistake. The model states why
+    # it has no gradient; that sentence is the refusal.
+    why <- census_undifferentiable_tf24()
+    named <- trait_without_species(unknown)
+    cannot <- named %in% names(why)
+    if (any(cannot)) {
+      stop("No gradient exists for ",
+           paste(sprintf("%s (%s)", unknown[cannot], why[named[cannot]]),
+                 collapse = "; "),
+           ". Ask for other traits.")
+    }
     # A bare parameter name is the shape of the defect the prefix exists to
     # prevent, so say what the columns are called rather than only refusing.
-    hint <- if (any(unknown %in% trait_without_species(all_traits))) {
+    hint <- if (any(named %in% trait_without_species(all_traits))) {
       paste0(". Columns carry their species index, as \"",
              all_traits[[1]], "\"")
     } else {
@@ -121,17 +133,24 @@ stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
   # names against the same list it reports them from.
   swept <- census_trait_gradient_tf24(scm, as.character(metrics))
   gradient <- do.call(rbind, swept$gradient)
-  # What each number is, beside the number. A refused row comes back NaN with
-  # every entry marked, so an undefined metric is distinguishable from a zero
-  # one rather than both reading as an answer.
-  status <- do.call(rbind, swept$status)
-  dimnames(gradient) <- dimnames(status) <- list(metrics, all_traits)
+  dimnames(gradient) <- list(metrics, all_traits)
 
   list(value = value,
        gradient = gradient[metrics, traits, drop = FALSE],
-       status = status[metrics, traits, drop = FALSE],
        refusal = stats::setNames(swept$refusal, metrics),
        control = gradient_control(scm))
+}
+
+##' Which of a gradient's metrics were refused.
+##'
+##' Refusal is metric-level: a sum has no defined value with an undefined term,
+##' so a refused metric's whole row is \code{NaN} and one reason serves it.
+##'
+##' @param g A result of \code{stand_gradient}.
+##' @return A named logical, one entry per metric.
+##' @export
+stand_gradient_refused <- function(g) {
+  vapply(g$refusal, function(r) !is.null(r), logical(1))
 }
 
 ##' Compare two stand gradients.

@@ -6,7 +6,7 @@
 #include <plant/species.h>
 #include <plant/util.h>
 #include <plant/clamp_sites.h>
-#include <plant/gradient_status.h>
+#include <plant/gradient_refusal.h>
 #include <odelia/ode_interface.hpp>
 #include <odelia/sweep.hpp>
 
@@ -210,8 +210,6 @@ public:
   // species and character indexing then resolves each to species one's column,
   // which an unknown-name check cannot see.
   std::vector<std::string> trait_adjoint_names() const;
-  // What an exactly-zero entry in each column would mean, same order and width.
-  std::vector<gradient_status::Kind> trait_adjoint_zero_classes() const;
 
   // The environment's own clamp tally. The site list is shared with the
   // strategy's, so a caller adds the two rather than reading them apart; this is
@@ -1304,20 +1302,6 @@ std::vector<std::string> Patch<T,E>::trait_adjoint_names() const {
   return ret;
 }
 
-
-template <typename T, typename E>
-std::vector<gradient_status::Kind>
-Patch<T,E>::trait_adjoint_zero_classes() const {
-  std::vector<gradient_status::Kind> ret;
-  ret.reserve(trait_adjoint_size());
-  for (size_t i = 0; i < species.size(); ++i) {
-    for (const gradient_status::Kind k :
-         species[i].strategy_ptr()->ad_parameter_zero_classes()) {
-      ret.push_back(k);
-    }
-  }
-  return ret;
-}
 
 template <typename T, typename E>
 typename Patch<T,E>::introduction

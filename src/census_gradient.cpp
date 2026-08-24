@@ -32,39 +32,44 @@ census_trait_names_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<do
   return obj_->r_patch().trait_adjoint_names();
 }
 
-// The gradient and its reading, as one R object. A caller cannot take the
-// numbers without the statuses because they arrive in the same list: an exact
-// zero and a refused row are both finite-looking, and only this says which.
+// The parameters no gradient exists for, each with the sentence saying why, so
+// asking for one is refused in the model's own words. Without this a caller who
+// asks for `eta` is told the name is unknown, which it is not.
+// [[Rcpp::export]]
+Rcpp::CharacterVector census_undifferentiable_tf24() {
+  const auto reasons =
+      plant::TF24_Strategy<double>::undifferentiable_reasons();
+  Rcpp::CharacterVector ret(reasons.size());
+  Rcpp::CharacterVector names(reasons.size());
+  for (size_t i = 0; i < reasons.size(); ++i) {
+    names[i] = reasons[i].first;
+    ret[i] = reasons[i].second;
+  }
+  ret.names() = names;
+  return ret;
+}
+
+// The gradient and, per metric, whether it was refused. Refusal is metric-level
+// -- a sum has no defined value with an undefined term -- so one description
+// serves the whole row, and a metric that answered carries none rather than an
+// empty one, so the two are not the same object in R.
 Rcpp::List census_gradient_to_r(const plant::census_gradient& g) {
   const size_t n_metric = g.gradient.size();
-  Rcpp::List gradient(n_metric), status(n_metric), refusal(n_metric);
+  Rcpp::List gradient(n_metric), refusal(n_metric);
   for (size_t m = 0; m < n_metric; ++m) {
     gradient[m] = Rcpp::wrap(g.gradient[m]);
-    Rcpp::CharacterVector kinds(g.status[m].size());
-    for (size_t p = 0; p < g.status[m].size(); ++p) {
-      kinds[p] = plant::gradient_status::kind_name(g.status[m][p].kind);
-    }
-    status[m] = kinds;
-    // Refusal is metric-level, so one description serves the row; a metric that
-    // answered carries none rather than an empty one, so the two are not the
-    // same object in R.
-    const bool any_refused =
-      !g.status[m].empty() &&
-      g.status[m][0].kind == plant::gradient_status::Kind::refused;
-    if (any_refused) {
-      const plant::gradient_status& st = g.status[m][0];
-      refusal[m] = Rcpp::List::create(
-        Rcpp::_["reason"] = st.reason,
-        Rcpp::_["species"] = st.species,
-        Rcpp::_["node"] = st.node,
-        Rcpp::_["step_first"] = st.step_first,
-        Rcpp::_["step_last"] = st.step_last);
+    const plant::refusal& why = g.why[m];
+    if (why.happened()) {
+      refusal[m] = Rcpp::List::create(Rcpp::_["reason"] = why.reason,
+                                      Rcpp::_["species"] = why.species,
+                                      Rcpp::_["node"] = why.node,
+                                      Rcpp::_["step_first"] = why.step_first,
+                                      Rcpp::_["step_last"] = why.step_last);
     } else {
       refusal[m] = R_NilValue;
     }
   }
   return Rcpp::List::create(Rcpp::_["gradient"] = gradient,
-                            Rcpp::_["status"] = status,
                             Rcpp::_["refusal"] = refusal);
 }
 

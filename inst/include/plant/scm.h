@@ -3,7 +3,7 @@
 #define PLANT_PLANT_SCM_H_
 
 #include <plant/node_schedule.h>
-#include <plant/gradient_status.h>
+#include <plant/gradient_refusal.h>
 #include <odelia/ode_solver.hpp>
 #include <plant/patch.h>
 #include <plant/scm_utils.h>
@@ -1046,7 +1046,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
     for (size_t m = 0; m < rows.size(); ++m) {
       ret.gradient.push_back(std::vector<double>(
           width, std::numeric_limits<double>::quiet_NaN()));
-      ret.status.push_back(std::vector<gradient_status>(width, e.status));
+      ret.why.push_back(e.site);
     }
     return ret;
   }
@@ -1080,7 +1080,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // it to. Nothing is unwound here -- the walk restores the width it borrowed at
   // the tail either way.
   bool refused = false;
-  gradient_status refusal;
+  refusal why;
   try {
     adjoint_segments =
         n_metric * odelia::ode::solve_adjoint_over_insertions(
@@ -1088,7 +1088,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
                        extra_splits);
     adjoint_at_first_state = lambda.to_rows();
   } catch (gradient_refusal& e) {
-    refusal = e.status;
+    why = e.site;
     refused = true;
     adjoint_segments = 0;
     adjoint_at_first_state.clear();
@@ -1108,9 +1108,8 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
       if (!*s->uptake_rows_unavailable) {
         continue;
       }
-      refusal.kind = gradient_status::Kind::refused;
-      refusal.reason = *s->uptake_rows_reason;
-      refusal.species = static_cast<int>(i + 1);
+      why.reason = *s->uptake_rows_reason;
+      why.species = static_cast<int>(i + 1);
       refused = true;
       break;
     }
@@ -1118,9 +1117,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
 
   census_gradient ret;
   ret.gradient.reserve(n_metric);
-  ret.status.reserve(n_metric);
-  const std::vector<gradient_status::Kind> zero_classes =
-      live.trait_adjoint_zero_classes();
+  ret.why.reserve(n_metric);
   for (size_t m = 0; m < n_metric; ++m) {
     if (refused) {
       // A sum has no defined value with an undefined term, so the whole metric
@@ -1129,23 +1126,14 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
       // position still finds the shape it expects.
       ret.gradient.push_back(std::vector<double>(
           trait_adjoint.width(), std::numeric_limits<double>::quiet_NaN()));
-      ret.status.push_back(
-          std::vector<gradient_status>(trait_adjoint.width(), refusal));
+      ret.why.push_back(why);
       continue;
     }
-    std::vector<double> row(trait_adjoint[m].begin(), trait_adjoint[m].end());
-    // An exact zero is read against what the column declares one would mean,
-    // and a column that declares nothing says so rather than passing the number
-    // off as an answer. Only exact zeros are classified: a parameter that is
-    // live is not zero, so no declaration is consulted for it.
-    std::vector<gradient_status> row_status(row.size());
-    for (size_t p = 0; p < row.size(); ++p) {
-      if (row[p] == 0.0) {
-        row_status[p].kind = zero_classes[p];
-      }
-    }
-    ret.status.push_back(row_status);
-    ret.gradient.push_back(row);
+    // Nothing is read against a declaration. A parameter no gradient exists for
+    // cannot be asked for, so every column here carries a number the sweep
+    // computed, and an exact zero in one is the sweep's answer.
+    ret.gradient.emplace_back(trait_adjoint[m].begin(), trait_adjoint[m].end());
+    ret.why.emplace_back();
   }
 
   // Leave the system at the width the run left it, so this call is repeatable.

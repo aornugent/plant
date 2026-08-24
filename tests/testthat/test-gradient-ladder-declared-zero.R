@@ -169,41 +169,30 @@ test_that("the seed's geometry row is refereed against a rebuilt strategy", {
   }
 })
 
-# The sweep now carries its own declaration of what an exact zero means, so the
-# list above is no longer the only statement of it. Two statements of one list is
-# the shape this corpus keeps finding defects in, so they are required to agree
-# rather than left to drift: the C++ one is what ships inside an answer, and this
-# one is the fixture that prices it.
-test_that("the shipped zero classes agree with the declared lists", {
+# The claim these lists make is about NUMBERS -- that certain columns come back
+# exactly zero -- so that is what is checked. It used to be checked against a
+# label the C++ carried into every answer, which is a weaker subject: a label can
+# agree with this list while the number disagrees with both, and the label had to
+# be maintained beside the model that produces the number.
+test_that("the columns declared zero are exactly zero, and no others are", {
   stand <- ladder_stand_two_by_two()
   g <- stand_gradient(stand)
+  expect_false(any(stand_gradient_refused(g)))
 
-  # Only exact zeros are classified, so the two claims are checked in both
-  # directions: every column the ladder declares zero comes back in a zero class,
-  # and every column the sweep puts in one is declared.
+  # Both directions. Every column the ladder declares zero is zero, and every
+  # column that is zero is declared -- the second is what turns an unexplained
+  # zero into a failure rather than a number nobody looks at.
   declared <- ladder_zero_by_construction()
-  shipped <- apply(g$status, 2, function(col) unique(col))
-  expect_true(is.character(shipped))
+  zero <- apply(g$gradient, 2, function(col) all(col == 0))
+  observed <- ladder_bare_traits(names(zero)[zero])
 
-  slack <- names(shipped)[shipped == "zero-slack"]
-  structural <- names(shipped)[shipped == "zero-structural"]
-  undeclared <- names(shipped)[shipped == "zero-undeclared"]
+  expect_setequal(observed, declared)
+  message(sprintf("  %d of %d columns exactly zero: %s",
+                  sum(zero), ncol(g$gradient),
+                  paste(sort(unique(observed)), collapse = ", ")))
 
-  expect_setequal(ladder_bare_traits(slack),
-                  ladder_zero_at_an_interior_optimum())
-  expect_setequal(ladder_bare_traits(structural),
-                  ladder_zero_outside_the_metric_support())
-  expect_setequal(ladder_bare_traits(c(slack, structural)), declared)
-
-  # An exact zero with no declared reason is a finding, and this fixture must
-  # produce none -- otherwise the classification is passing an unexplained zero
-  # off as one of the two named causes.
-  expect_length(undeclared, 0L)
-
-  # Non-vacuity: the classes are not all one value, and the zero classes really
-  # are a strict minority of a mostly-live matrix.
-  expect_gt(sum(g$status == "answered"), length(declared) * nrow(g$status))
-  message(sprintf("  %d answered, %d zero-slack, %d zero-structural, %d refused",
-                  sum(g$status == "answered"), sum(g$status == "zero-slack"),
-                  sum(g$status == "zero-structural"), sum(g$status == "refused")))
+  # Non-vacuity: the zero columns really are a strict minority of a mostly-live
+  # matrix, and the declared set is not the whole of it.
+  expect_gt(sum(!zero), sum(zero))
+  expect_true(all(is.finite(g$gradient)))
 })

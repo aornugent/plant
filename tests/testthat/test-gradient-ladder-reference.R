@@ -80,7 +80,8 @@ reference_compare <- function(regime, rows) {
   list(name = regime$name, column = column, metric = mine$metric,
        parameter = mine$parameter,
        observed = observed,
-       status = got$status[cbind(mine$metric, column)],
+       # Refusal is metric-level, so it broadcasts to the rows this picked out.
+       refused = unname(stand_gradient_refused(got)[mine$metric]),
        reference = mine$converged, spread = mine$spread,
        residual = abs(observed - mine$converged) /
          unname(scale[mine$metric]))
@@ -110,10 +111,13 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
   }
 
   for (r in results) {
-    # Answered columns only. What class a refused or declared-zero column must
-    # carry is the parity and declared-zero rungs' question, and a class is not a
-    # number this reference can referee.
-    live <- r$status == "answered" &
+    # Answered columns only. Whether a refused metric is refused for the right
+    # reason is the parity and sweep rungs' question. The declared zeros are out
+    # for a separate reason: the declared-zero rung referees them against the
+    # model's own claim, and a relative residual has nothing to say about a
+    # column that is exactly zero against a difference that is merely small.
+    live <- !r$refused &
+      !(r$parameter %in% ladder_zero_by_construction()) &
       !(r$parameter %in% reference_open_columns)
     expect_gt(sum(live), 200)
     # The reference's own resolution, with a floor: where its four steps agreed
@@ -133,7 +137,7 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
   # And what the two open columns currently read, so the disagreement is in the
   # log of every run rather than in a comment.
   for (r in results) {
-    open <- r$status == "answered" & r$parameter %in% reference_open_columns
+    open <- !r$refused & r$parameter %in% reference_open_columns
     if (any(open)) {
       worst <- which.max(ifelse(open, r$residual, 0))
       message(sprintf("  %-9s open: %s %s reads %.4g against %.4g (residual %.3g)",

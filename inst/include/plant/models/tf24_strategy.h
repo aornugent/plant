@@ -6,27 +6,30 @@
 #include <plant/census.h>
 #include <plant/strategy.h>
 #include <plant/models/tf24_environment.h>
-#include <plant/gradient_status.h>
+#include <plant/gradient_refusal.h>
 #include <plant/qag.h>
 #include <plant/leaf_model.h>
 #include <plant/canopy_shape.h>
 #include <odelia/ode_util.hpp>
 #include <odelia/implicit_node.hpp>
 #include <array>
+#include <string_view>
+#include <utility>
 #include <type_traits>
 
 namespace plant {
 
-// What each parameter's table entry declares is a gradient_status::Kind: what an
-// exact zero in its column means, or no_column where it has none. There was a
-// second enum here saying the same three things in different words, and two
-// functions converting between them -- one to ask whether a role had a column,
-// one to turn a role into the kind it stood for. Both were the identity dressed
-// as a translation.
+// A parameter's table entry declares three things, all of them about what the
+// parameter IS: where it lives, what it is called, and the leaf's index for it.
+// Nothing on it says what its gradient will be.
 //
-// `refused` and `unread` were separate, and nothing anywhere told them apart:
-// neither gets a column, so no consumer ever saw the difference. Why a parameter
-// has no column belongs in the comment beside it.
+// It used to carry a fourth: a six-valued enum saying what an exact zero in its
+// column meant. Forty-four of the sixty-two said nothing, fifteen said "this is
+// not a column" -- which is not a reading of any number -- and three said
+// something. So one enum answered two questions and mostly restated silence.
+// What replaces it is `undifferentiable` below: a short list of the parameters
+// no gradient exists for, each with the sentence that says why. Everything else
+// gets a column, and an exact zero in one is the sweep's answer.
 
 // Biological (user-settable) parameters for the TF24 strategy. Held as a value
 // member `pars` on TF24_Strategy and exposed to R as a nested RcppR6 list class
@@ -151,6 +154,10 @@ struct TF24_Pars {
   S use_energy_balance = 0.0;
   S d = 0.05;
 
+  // What a parameter IS -- where it lives, what it is called, and the leaf's own
+  // index for it. Nothing here says what its gradient will be: that is a property
+  // of the number the sweep computes, and the sweep computes one for every
+  // parameter except the few `undifferentiable` names below.
   struct ad_parameter {
     // Where the parameter lives in the struct, rather than in one instance of
     // it. That is what lets the table below be constexpr: a table of instance
@@ -158,109 +165,142 @@ struct TF24_Pars {
     // length used to be a literal and why callers were told to hold it.
     S TF24_Pars::* at;
     const char* name;
-    gradient_status::Kind zero_means;
     // The leaf's own index for this parameter, or -1 where the leaf has no input
     // for it. One table, so a trait cannot be registered for the gradient here
     // and forgotten where the leaf's rows are asked for.
-    int leaf_par;
-    // Whether this parameter carries a gradient column. column_count and the
-    // three ad_parameter_* projections all ask here, so a column can enter one
-    // of them only by entering all four.
-    constexpr bool has_column() const {
-      return zero_means != gradient_status::Kind::no_column;
-    }
+    int leaf_par = -1;
   };
 
-  // Every member above, in declaration order, with what each is to the
-  // gradient. field_ptrs() and the ad_parameter_* projections all read this, so
-  // a member reaches all of them or none.
-#define PLANT_TF24_AD_PARAMETER(x, r) ad_parameter{&TF24_Pars::x, #x, gradient_status::Kind::r, -1}
+  // The parameters with no gradient column, and why each has none. This is the
+  // whole of what the gradient needs declared: everything else in the table gets
+  // a column, so a parameter added to the model is differentiable because nobody
+  // said it was not. Asking for one of these refuses in the words beside it.
+  //
+  // ⚠️ A PARAMETER NO EQUATION READS BELONGS HERE, and giving it a column instead
+  // is this design's worst failure mode: the sweep returns an exact zero, which
+  // is the correct derivative and reads as an answer. It also disarms the guard
+  // -- "every registered TF24 parameter reaches an output" -- that catches a
+  // parameter added to the model and never wired into it. `a_f3` is the contrast
+  // and is NOT here: it reaches fecundity_dt, so it is registered, and its column
+  // is zero only because no census metric reads that rate.
+  struct no_gradient {
+    const char* name;
+    const char* why;
+  };
+  static constexpr std::array undifferentiable{
+      // No row can be recorded.
+      no_gradient{"eta",
+                  "the canopy profile's u^eta reaches u = 0, where the recorded "
+                  "derivative u^eta*log(u) is 0*(-inf) and the guard returns a "
+                  "constant zero instead, so a row here would be a silently "
+                  "wrong zero rather than a NaN"},
+      no_gradient{"root_depth_shape_eta",
+                  "Q()'s u^eta_x reaches u = 0 the same way, and the guard "
+                  "supplies the cumulative fraction there outright"},
+      no_gradient{"d", "the leaf supplies no row for it"},
+      no_gradient{"use_energy_balance",
+                  "a gate, compared rather than differentiated"},
+      // No equation reads them.
+      no_gradient{"a_p1", "the light-response curve the Farquhar leaf replaced"},
+      no_gradient{"a_p2", "the light-response curve the Farquhar leaf replaced"},
+      no_gradient{"p_50",
+                  "read only by c's and b's default initialisers, so a value "
+                  "set after construction reaches nothing"},
+      no_gradient{"beta1", "no equation on this path reads it"},
+      no_gradient{"S_D",
+                  "survival during dispersal, which multiplies a census "
+                  "reduction and enters no rate"},
+      no_gradient{"var_sapwood_volume_cost", "declared and carried; no equation "
+                                             "on this path reads it"},
+      no_gradient{"nmass_l", "declared and carried; no equation reads it"},
+      no_gradient{"nmass_s", "declared and carried; no equation reads it"},
+      no_gradient{"nmass_b", "declared and carried; no equation reads it"},
+      no_gradient{"nmass_r", "declared and carried; no equation reads it"},
+      no_gradient{"dmass_dN", "declared and carried; no equation reads it"}};
+
+  // Every member above, in declaration order. field_ptrs() and both
+  // ad_parameter_* projections read this, so a member reaches all of them or
+  // none, and the sizeof assert below makes the list total.
+#define PLANT_TF24_AD_PARAMETER(x) ad_parameter{&TF24_Pars::x, #x}
   // A parameter the leaf answers for. `p` is the leaf's spelling, which for four
   // of the fourteen is not this file's -- and writing it here is what makes a
   // rename on either side a compile error rather than a silently shifted column.
-#define PLANT_TF24_LEAF_PARAMETER(x, r, p) \
-  ad_parameter { &TF24_Pars::x, #x, gradient_status::Kind::r, phylloptim::gradient::par_##p }
+#define PLANT_TF24_LEAF_PARAMETER(x, p) \
+  ad_parameter { &TF24_Pars::x, #x, phylloptim::gradient::par_##p }
   static constexpr std::array ad_parameter_fields{
-      PLANT_TF24_AD_PARAMETER(lma, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(rho, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(hmat, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(omega, zero_undeclared),
-      // The canopy profile's u^eta reaches u = 0, where the recorded derivative
-      // u^eta*log(u) is 0*(-inf) and the guard returns a constant zero instead,
-      // so a recorded row would be a silently wrong zero rather than a NaN.
-      PLANT_TF24_AD_PARAMETER(eta, no_column),
-      PLANT_TF24_AD_PARAMETER(theta, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_l1, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_l2, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_r1, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_b1, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(r_s, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(r_b, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(r_r, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(r_l, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_y, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_bio, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(k_l, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(k_b, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(k_s, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(k_r, zero_undeclared),
-      // The light-response curve the Farquhar leaf replaced.
-      PLANT_TF24_AD_PARAMETER(a_p1, no_column),
-      PLANT_TF24_AD_PARAMETER(a_p2, no_column),
+      PLANT_TF24_AD_PARAMETER(lma),
+      PLANT_TF24_AD_PARAMETER(rho),
+      PLANT_TF24_AD_PARAMETER(hmat),
+      PLANT_TF24_AD_PARAMETER(omega),
+      PLANT_TF24_AD_PARAMETER(eta),
+      PLANT_TF24_AD_PARAMETER(theta),
+      PLANT_TF24_AD_PARAMETER(a_l1),
+      PLANT_TF24_AD_PARAMETER(a_l2),
+      PLANT_TF24_AD_PARAMETER(a_r1),
+      PLANT_TF24_AD_PARAMETER(a_b1),
+      PLANT_TF24_AD_PARAMETER(r_s),
+      PLANT_TF24_AD_PARAMETER(r_b),
+      PLANT_TF24_AD_PARAMETER(r_r),
+      PLANT_TF24_AD_PARAMETER(r_l),
+      PLANT_TF24_AD_PARAMETER(a_y),
+      PLANT_TF24_AD_PARAMETER(a_bio),
+      PLANT_TF24_AD_PARAMETER(k_l),
+      PLANT_TF24_AD_PARAMETER(k_b),
+      PLANT_TF24_AD_PARAMETER(k_s),
+      PLANT_TF24_AD_PARAMETER(k_r),
+      PLANT_TF24_AD_PARAMETER(a_p1),
+      PLANT_TF24_AD_PARAMETER(a_p2),
       // Occurs only in fecundity_dt's denominator, and no census metric reads
       // fecundity: zero on any trajectory rather than on this one.
-      PLANT_TF24_AD_PARAMETER(a_f3, zero_structural),
-      PLANT_TF24_AD_PARAMETER(a_f1, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_f2, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(S_D, no_column),
-      PLANT_TF24_AD_PARAMETER(a_d0, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(d_I, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_dG1, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_dG2, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_st1, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_st2, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(a_st3, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(k_I, zero_undeclared),
-      PLANT_TF24_LEAF_PARAMETER(vcmax_25, zero_undeclared, vcmax_25),
+      // `ladder_zero_outside_the_metric_support` prices that claim.
+      PLANT_TF24_AD_PARAMETER(a_f3),
+      PLANT_TF24_AD_PARAMETER(a_f1),
+      PLANT_TF24_AD_PARAMETER(a_f2),
+      PLANT_TF24_AD_PARAMETER(S_D),
+      PLANT_TF24_AD_PARAMETER(a_d0),
+      PLANT_TF24_AD_PARAMETER(d_I),
+      PLANT_TF24_AD_PARAMETER(a_dG1),
+      PLANT_TF24_AD_PARAMETER(a_dG2),
+      PLANT_TF24_AD_PARAMETER(a_st1),
+      PLANT_TF24_AD_PARAMETER(a_st2),
+      PLANT_TF24_AD_PARAMETER(a_st3),
+      PLANT_TF24_AD_PARAMETER(k_I),
+      PLANT_TF24_LEAF_PARAMETER(vcmax_25, vcmax_25),
       // Read only by c's and b's default initialisers, so a value set after
       // construction reaches nothing here; d/dp_50 belongs to whatever computes
       // c and b, which for a run driven from traits is the R hyperparameters.
-      PLANT_TF24_AD_PARAMETER(p_50, no_column),
-      PLANT_TF24_AD_PARAMETER(K_s, zero_undeclared),
-      PLANT_TF24_LEAF_PARAMETER(c, zero_undeclared, stem_c),
-      PLANT_TF24_LEAF_PARAMETER(b, zero_undeclared, stem_b),
-      // Sets the dry bound of an interval the operating point is strictly
-      // inside, so slackness makes its row zero at an interior optimum. Live at
-      // a pin.
-      PLANT_TF24_LEAF_PARAMETER(psi_crit, zero_slack, psi_crit),
-      PLANT_TF24_AD_PARAMETER(beta1, no_column),
-      PLANT_TF24_LEAF_PARAMETER(beta2, zero_undeclared, beta2),
-      PLANT_TF24_LEAF_PARAMETER(g1_TF24, zero_undeclared, cost_scale_TF24),
-      PLANT_TF24_LEAF_PARAMETER(jmax_25, zero_undeclared, jmax_25),
-      PLANT_TF24_LEAF_PARAMETER(a, zero_undeclared, a),
-      PLANT_TF24_LEAF_PARAMETER(curv_fact_elec_trans, zero_undeclared, curv_fact_elec_trans),
-      PLANT_TF24_LEAF_PARAMETER(curv_fact_colim, zero_undeclared, curv_fact_colim),
-      PLANT_TF24_LEAF_PARAMETER(R_d_25, zero_undeclared, R_d_25),
-      // Declared and carried; no equation on this path reads them.
-      PLANT_TF24_AD_PARAMETER(var_sapwood_volume_cost, no_column),
-      PLANT_TF24_AD_PARAMETER(nmass_l, no_column),
-      PLANT_TF24_AD_PARAMETER(nmass_s, no_column),
-      PLANT_TF24_AD_PARAMETER(nmass_b, no_column),
-      PLANT_TF24_AD_PARAMETER(nmass_r, no_column),
-      PLANT_TF24_AD_PARAMETER(dmass_dN, no_column),
-      // Q()'s u^eta_x reaches u = 0 with the same 0*(-inf) derivative as eta,
-      // and the guard supplies the cumulative fraction there outright.
-      PLANT_TF24_AD_PARAMETER(root_depth_shape_eta, no_column),
-      PLANT_TF24_LEAF_PARAMETER(root_c, zero_undeclared, root_c),
-      PLANT_TF24_LEAF_PARAMETER(root_b, zero_undeclared, root_b),
-      // The root curve's dry bound, slack for the same reason as psi_crit.
-      PLANT_TF24_LEAF_PARAMETER(root_psi_crit, zero_slack, root_psi_crit),
-      PLANT_TF24_AD_PARAMETER(rooting_depth_max, zero_undeclared),
-      PLANT_TF24_AD_PARAMETER(recruitment_decay, zero_undeclared),
-      // The gate is compared rather than differentiated.
-      PLANT_TF24_AD_PARAMETER(use_energy_balance, no_column),
-      // No row in the leaf's supplied Jacobian.
-      PLANT_TF24_AD_PARAMETER(d, no_column)
+      PLANT_TF24_AD_PARAMETER(p_50),
+      PLANT_TF24_AD_PARAMETER(K_s),
+      PLANT_TF24_LEAF_PARAMETER(c, stem_c),
+      PLANT_TF24_LEAF_PARAMETER(b, stem_b),
+      // A limit: it sets the dry end of the interval the operating point moves
+      // in. Its column is zero while the point is away from that end and live
+      // the moment the point sits on it. The leaf owns which of its inputs are
+      // limits and says so on `InputRole`, so nothing here declares it.
+      PLANT_TF24_LEAF_PARAMETER(psi_crit, psi_crit),
+      PLANT_TF24_AD_PARAMETER(beta1),
+      PLANT_TF24_LEAF_PARAMETER(beta2, beta2),
+      PLANT_TF24_LEAF_PARAMETER(g1_TF24, cost_scale_TF24),
+      PLANT_TF24_LEAF_PARAMETER(jmax_25, jmax_25),
+      PLANT_TF24_LEAF_PARAMETER(a, a),
+      PLANT_TF24_LEAF_PARAMETER(curv_fact_elec_trans, curv_fact_elec_trans),
+      PLANT_TF24_LEAF_PARAMETER(curv_fact_colim, curv_fact_colim),
+      PLANT_TF24_LEAF_PARAMETER(R_d_25, R_d_25),
+      PLANT_TF24_AD_PARAMETER(var_sapwood_volume_cost),
+      PLANT_TF24_AD_PARAMETER(nmass_l),
+      PLANT_TF24_AD_PARAMETER(nmass_s),
+      PLANT_TF24_AD_PARAMETER(nmass_b),
+      PLANT_TF24_AD_PARAMETER(nmass_r),
+      PLANT_TF24_AD_PARAMETER(dmass_dN),
+      PLANT_TF24_AD_PARAMETER(root_depth_shape_eta),
+      PLANT_TF24_LEAF_PARAMETER(root_c, root_c),
+      PLANT_TF24_LEAF_PARAMETER(root_b, root_b),
+      // The root curve's dry limit, and a limit for the same reason.
+      PLANT_TF24_LEAF_PARAMETER(root_psi_crit, root_psi_crit),
+      PLANT_TF24_AD_PARAMETER(rooting_depth_max),
+      PLANT_TF24_AD_PARAMETER(recruitment_decay),
+      PLANT_TF24_AD_PARAMETER(use_energy_balance),
+      PLANT_TF24_AD_PARAMETER(d)
   };
 #undef PLANT_TF24_AD_PARAMETER
 
@@ -278,15 +318,35 @@ struct TF24_Pars {
   // Read off the table, so a member added to one is added to both.
   static constexpr size_t field_count = ad_parameter_fields.size();
 
+  // A parameter carries a column unless the list above says no gradient exists
+  // for it. Derived rather than declared: adding a member gives it a column, and
+  // taking one away is a deliberate entry with a sentence attached.
+  static constexpr bool has_column(std::string_view name) {
+    for (const no_gradient& n : undifferentiable) {
+      if (name == n.name) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // How many of them carry a gradient column. Counted here so a caller wanting
   // the width does not build a vector of pointers to measure it.
   static constexpr size_t column_count = [] {
     size_t n = 0;
     for (const ad_parameter& f : ad_parameter_fields) {
-      if (f.has_column()) ++n;
+      if (has_column(f.name)) ++n;
     }
     return n;
   }();
+
+  // A name matching no member excludes nothing, so the two counts stop adding
+  // up: a parameter renamed or removed is a compile error here rather than a
+  // list entry that has quietly stopped excluding anything. A name listed twice
+  // fails the same way.
+  static_assert(column_count + undifferentiable.size() == field_count,
+                "undifferentiable names a parameter ad_parameter_fields does "
+                "not carry, or names one twice");
 
   static constexpr const auto& ad_parameter_table() { return ad_parameter_fields; }
 };
@@ -585,7 +645,7 @@ public:
     std::vector<S*> ret;
     ret.reserve(table.size());
     for (const ad_parameter& p : table) {
-      if (p.has_column()) {
+      if (TF24_Pars<S>::has_column(p.name)) {
         ret.push_back(&(pars.*p.at));
       }
     }
@@ -593,31 +653,26 @@ public:
   }
 
   // The name each gradient column carries, one per ad_parameters() entry and in
-  // that order. Which parameters are left out, and why, is on the table entries.
+  // that order. Which parameters are left out, and why, is `undifferentiable`.
   std::vector<std::string> ad_parameter_names() {
     const auto& table = pars.ad_parameter_table();
     std::vector<std::string> ret;
     ret.reserve(table.size());
     for (const ad_parameter& p : table) {
-      if (p.has_column()) {
+      if (TF24_Pars<S>::has_column(p.name)) {
         ret.push_back(p.name);
       }
     }
     return ret;
   }
 
-  // What an exactly-zero entry in a column MEANS, one per ad_parameters() entry.
-  // Consulted only where the number is exactly zero, which is what keeps it
-  // honest as the census grows -- a parameter that becomes live stops being zero
-  // and its role is never read.
-  std::vector<gradient_status::Kind> ad_parameter_zero_classes() {
-    const auto& table = pars.ad_parameter_table();
-    std::vector<gradient_status::Kind> ret;
-    ret.reserve(TF24_Pars<S>::column_count);
-    for (const ad_parameter& p : table) {
-      if (p.has_column()) {
-        ret.push_back(p.zero_means);
-      }
+  // The parameters no gradient exists for, each with the sentence that says
+  // why, so a caller asking for one is refused in those words rather than told
+  // the name is unknown.
+  static std::vector<std::pair<std::string, std::string>> undifferentiable_reasons() {
+    std::vector<std::pair<std::string, std::string>> ret;
+    for (const auto& n : TF24_Pars<S>::undifferentiable) {
+      ret.emplace_back(n.name, n.why);
     }
     return ret;
   }

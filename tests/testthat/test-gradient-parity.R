@@ -43,16 +43,14 @@ parity_stand <- function(rain, lifetime, k_I = 0.5, amplitude = 0) {
 # clamp counter rather than a name in this list.
 parity_known_gaps <- character(0)
 
-parity_kinds <- c("answered", "zero-slack", "zero-structural", "zero-undeclared",
-                  "refused")
-
 # One driver, reduced to what the two directions each said.
 parity_of <- function(scm) {
   g <- stand_gradient(scm)
-  st <- as.vector(g$status)
+  refused_metric <- stand_gradient_refused(g)
   counts <- census_operating_point_counts_tf24(scm)[[1]]
   names(counts) <- census_operating_point_names_tf24()
-  list(status = st, gradient = g, refused = any(st == "refused"),
+  list(refused_metric = refused_metric, gradient = g,
+       refused = any(refused_metric),
        reason = if (is.null(g$refusal[[1]])) NA_character_ else g$refusal[[1]]$reason,
        refusal = g$refusal[[1]],
        # Read after the sweep, so it is the sweep's own severances and not the
@@ -134,9 +132,8 @@ test_that("no driver the forward model answers leaves the reverse unnamed", {
     # The forward model has to have answered, or this driver says nothing about
     # the reverse and is not evidence either way.
     expect_true(all(is.finite(r$census)))
-    expect_true(all(r$status %in% parity_kinds))
 
-    entries <- unlist(r$gradient$gradient)
+    entries <- r$gradient$gradient
     if (r$refused) {
       # Named, always. A refusal a reader cannot name is the raw error the
       # status channel replaced.
@@ -156,12 +153,12 @@ test_that("no driver the forward model answers leaves the reverse unnamed", {
         message("      unlocated: raised inside the recording, which names no species")
       }
       # And an undefined metric must not read as a zero one -- the distinction
-      # the status channel exists for, asserted at the boundary rather than
-      # inside it.
-      expect_true(all(is.na(entries[r$status == "refused"])))
+      # refusal exists for, asserted at the boundary rather than inside it. The
+      # whole row goes, which is what makes one reason enough for it.
+      expect_true(all(is.na(entries[r$refused_metric, , drop = FALSE])))
     } else {
-      expect_true(all(is.finite(entries[r$status == "answered"])))
-      expect_gt(sum(r$status == "answered"), 0)
+      expect_true(all(is.finite(entries)))
+      expect_gt(length(entries), 0)
     }
   }
 })

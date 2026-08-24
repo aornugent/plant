@@ -100,7 +100,7 @@ test_that("the dry pins are a small minority, and the run answers over them", {
   # demonstrates it, so what is asserted is that it comes back answered with
   # finite rows rather than that it comes back refused.
   g <- stand_gradient(scm)
-  expect_true(all(g$status != "refused"))
+  expect_false(any(stand_gradient_refused(g)))
   expect_null(g$refusal[[1]])
   expect_true(any(is.finite(g$gradient[[1]])))
 })
@@ -140,7 +140,7 @@ test_that("the light floor is counted on both paths, and binds at neither shippe
   # model as evaluated rather than a row withheld.
   expect_gt(stand_census(walked)[[1]], 0)
   g <- stand_gradient(walked)
-  expect_true(all(g$status != "refused"))
+  expect_false(any(stand_gradient_refused(g)))
   expect_true(all(is.finite(g$gradient)))
 
   # And the severance is readable rather than silent, which is the whole basis on
@@ -281,8 +281,8 @@ test_that("every clamp site is classified, and by a measured incidence", {
   # Both drivers still answer, carrying those declared zeros. A severance that
   # made the gradient wrong would have to show up as a refusal or as a
   # disagreement with a rebuilt difference, and neither is here.
-  expect_true(all(as.vector(incidence_gradient(2.0, 5)$status) != "refused"))
-  expect_true(all(as.vector(incidence_gradient(0.10, 5)$status) != "refused"))
+  expect_false(any(stand_gradient_refused(incidence_gradient(2.0, 5))))
+  expect_false(any(stand_gradient_refused(incidence_gradient(0.10, 5))))
 })
 
 test_that("phylloptim's root-vulnerability clamps stay out of reach, with a margin", {

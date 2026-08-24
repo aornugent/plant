@@ -12292,6 +12292,16 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// census_undifferentiable_tf24
+Rcpp::CharacterVector census_undifferentiable_tf24();
+RcppExport SEXP _plant_census_undifferentiable_tf24() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(census_undifferentiable_tf24());
+    return rcpp_result_gen;
+END_RCPP
+}
 // census_trait_gradient_tf24
 Rcpp::List census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, Rcpp::Nullable<Rcpp::CharacterVector> which_metrics);
 RcppExport SEXP _plant_census_trait_gradient_tf24(SEXP obj_SEXP, SEXP which_metricsSEXP) {
@@ -14113,6 +14123,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_census_tf24", (DL_FUNC) &_plant_census_tf24, 1},
     {"_plant_census_state_adjoint_tf24", (DL_FUNC) &_plant_census_state_adjoint_tf24, 1},
     {"_plant_census_trait_names_tf24", (DL_FUNC) &_plant_census_trait_names_tf24, 1},
+    {"_plant_census_undifferentiable_tf24", (DL_FUNC) &_plant_census_undifferentiable_tf24, 0},
     {"_plant_census_trait_gradient_tf24", (DL_FUNC) &_plant_census_trait_gradient_tf24, 2},
     {"_plant_gradient_control_tf24", (DL_FUNC) &_plant_gradient_control_tf24, 1},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
