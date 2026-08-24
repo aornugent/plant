@@ -421,15 +421,23 @@ Patch<T,E>::Patch(parameters_type p, environment_type e, Control c,
 template <typename T, typename E>
 template <class U, class T2, class E2>
 Patch<T2,E2> Patch<T,E>::rebind_from() const {
+  // What a rebound patch reads, and nothing else. patch_type and
+  // max_patch_lifetime are read by validate(), which the constructor below runs
+  // to rebuild the disturbance regime: without them the rebound patch gets a
+  // different one, pr_patch_survival moves, and the fecundity rates differ with
+  // nothing raised. node_schedule_times is length-checked there too.
+  //
+  // Left behind: ode_times and ode_step_sizes, which are a record of the last
+  // run rather than configuration and are read only by make_node_schedule, and
+  // n_patches, which nothing reads. A rebind happens once per recording, so
+  // copying two vectors of the whole trajectory into it was about one copy per
+  // recorded step per gradient, into an object that never looked at them.
   Parameters<T2,E2> p2;
   p2.patch_area = parameters.patch_area;
-  p2.n_patches = parameters.n_patches;
   p2.patch_type = parameters.patch_type;
   p2.max_patch_lifetime = parameters.max_patch_lifetime;
   p2.node_schedule_times_default = parameters.node_schedule_times_default;
   p2.node_schedule_times = parameters.node_schedule_times;
-  p2.ode_times = parameters.ode_times;
-  p2.ode_step_sizes = parameters.ode_step_sizes;
   p2.initial_time = parameters.initial_time;
   p2.strategy_default = parameters.strategy_default.template rebind_from<U>();
 
