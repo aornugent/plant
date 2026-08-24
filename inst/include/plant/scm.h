@@ -408,11 +408,6 @@ public:
   std::vector<std::vector<double>> adjoint_at_first_state;
 
 
-  // Where the run widened the state, and by what. Filled as the run takes each
-  // widening and cleared with the rest of the run's state.
-  std::vector<odelia::ode::recorded_widening<typename patch_type::widening>>
-      widenings;
-
   bool collect;                    // record a patch snapshot after each step
   bool collect_refinement_errors;  // accumulate competition errors during run
   std::vector<patch_type> history; // per-step patch snapshots when collect
@@ -569,11 +564,6 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
   }
 
   sys.introduce_nodes(ret, e.time_introduction());
-  // Declared where it happens. Read back off the state's width afterwards it
-  // cannot be wrong, because the width is what the reading is derived from.
-  if (record_trajectory) {
-    widenings.push_back({solver.recorded_steps() - 1, ret});
-  }
   solver.set_state_from_system();
 
   // Three integration modes:
@@ -635,11 +625,6 @@ void SCM<T, E>::run_mutant(parameters_type /* p */) {
 
 template <typename T, typename E>
 typename SCM<T, E>::trajectory SCM<T, E>::store_trajectory() {
-  // What the sweep does with the store: every walk over the widenings takes
-  // the patch through these, and each was reached by name until it was said here.
-  static_assert(odelia::ode::WidensState<patch_type>,
-                "Patch must satisfy WidensState or the segment walk cannot "
-                "put it on a recorded step or transpose an insertion");
   // Run only if this run kept no states to read. Reading does not consume them,
   // and a walk puts the patch back on the last recorded step when it is done, so
   // a second consumer reads the same record rather than repeating the run.
@@ -724,7 +709,6 @@ template <typename T, typename E> void SCM<T, E>::reset() {
   solver.reset();
   patch = solver.get_system_ref();
   history.clear();
-  widenings.clear();
   adjoint_segments = 0;
   adjoint_at_first_state.clear();
 }
@@ -1070,8 +1054,8 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   gradient_status refusal;
   try {
     adjoint_segments =
-        n_metric * odelia::ode::solve_adjoint_over_widenings(
-                       solver, rec, widenings, lambda, trait_adjoint,
+        n_metric * odelia::ode::solve_adjoint_over_insertions(
+                       solver, rec, lambda, trait_adjoint,
                        extra_splits);
     adjoint_at_first_state = lambda.to_rows();
   } catch (gradient_refusal& e) {
@@ -1136,8 +1120,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   }
 
   // Leave the system at the width the run left it, so this call is repeatable.
-  odelia::ode::be_at_step(live, odelia::ode::insertions_of(widenings, rec),
-                          rec, rec.size() - 1);
+  odelia::ode::be_at_step(live, rec, rec.size() - 1);
   return ret;
 }
 
@@ -1159,9 +1142,8 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   require_birth_date_coordinate("census_trait_tangent");
 
   const trajectory rec = store_trajectory();
-  const auto insertions = odelia::ode::insertions_of(widenings, rec);
   patch_type& live = solver.get_system_ref();
-  odelia::ode::be_at_step(live, insertions, rec, 0);
+  odelia::ode::be_at_step(live, rec, 0);
   auto active = live.template rebind_from<tangent>();
 
   // Seeded before the state is set: the quantities a state determines read the
@@ -1184,12 +1166,11 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   forward.set_collect(false);
   forward.set_state_from_system();
 
-  odelia::ode::advance_over_widenings(forward, insertions, rec, 0, 0);
+  odelia::ode::advance_over_insertions(forward, rec, 0, 0);
 
   // Leave the double system where the run left it, so this call is repeatable
   // beside the sweep that shares its trajectory.
-  odelia::ode::be_at_step(solver.get_system_ref(), insertions, rec,
-                          rec.size() - 1);
+  odelia::ode::be_at_step(solver.get_system_ref(), rec, rec.size() - 1);
 
   const auto& reached = forward.get_system_ref();
   const auto metrics = metrics_of<std::decay_t<decltype(reached)>>();
@@ -1213,13 +1194,12 @@ template <typename T, typename E>
 std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
   const trajectory rec = store_trajectory();
   patch_type& live = solver.get_system_ref();
-  const auto insertions = odelia::ode::insertions_of(widenings, rec);
 
   std::vector<double> base;
   size_t start = 0;
-  odelia::ode::state_at_segment(live, insertions, rec, segment, base,
+  odelia::ode::state_at_segment(live, rec, segment, base,
                                 start);
-  odelia::ode::be_at_step(live, insertions, rec, rec.size() - 1);
+  odelia::ode::be_at_step(live, rec, rec.size() - 1);
   return base;
 }
 
@@ -1229,11 +1209,10 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
                                                     Seed seed) {
   const trajectory rec = store_trajectory();
   patch_type& live = solver.get_system_ref();
-  const auto insertions = odelia::ode::insertions_of(widenings, rec);
 
   std::vector<double> base;
   size_t start = 0;
-  const double t0 = odelia::ode::state_at_segment(live, insertions, rec,
+  const double t0 = odelia::ode::state_at_segment(live, rec,
                                                   from_segment, base, start);
 
   auto active = live.template rebind_from<Scalar>();
@@ -1246,12 +1225,12 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   forward.set_collect(false);
   forward.set_state_from_system();
 
-  odelia::ode::advance_over_widenings(forward, insertions, rec, from_segment,
+  odelia::ode::advance_over_insertions(forward, rec, from_segment,
                                      start);
 
   // Leave the double system where the run left it, so this call is repeatable
   // beside the sweep that shares its trajectory.
-  odelia::ode::be_at_step(live, insertions, rec, rec.size() - 1);
+  odelia::ode::be_at_step(live, rec, rec.size() - 1);
 
   const auto& reached = forward.get_system_ref();
   const auto metrics = metrics_of<std::decay_t<decltype(reached)>>();

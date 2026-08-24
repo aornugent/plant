@@ -839,10 +839,7 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
   auto widen = [&](auto& active_patch,
                    std::vector<ad_scalar>::const_iterator x,
                    std::vector<ad_scalar>& y) -> void {
-    active_patch.widened_state(
-        odelia::ode::recorded_insertion<std::vector<size_t>>{which, 0,
-                                                            time_before},
-        x, y);
+    active_patch.inserted_state(which, time_before, x, y);
   };
   odelia::ode::row_batch lambda_before;
   odelia::ode::row_batch trait_adjoint(n_out, n_trait);
