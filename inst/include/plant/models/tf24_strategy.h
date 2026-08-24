@@ -163,6 +163,12 @@ struct TF24_Pars {
     // for it. One table, so a trait cannot be registered for the gradient here
     // and forgotten where the leaf's rows are asked for.
     int leaf_par;
+    // Whether this parameter carries a gradient column. column_count and the
+    // three ad_parameter_* projections all ask here, so a column can enter one
+    // of them only by entering all four.
+    constexpr bool has_column() const {
+      return zero_means != gradient_status::Kind::no_column;
+    }
   };
 
   // Every member above, in declaration order, with what each is to the
@@ -277,7 +283,7 @@ struct TF24_Pars {
   static constexpr size_t column_count = [] {
     size_t n = 0;
     for (const ad_parameter& f : ad_parameter_fields) {
-      if (f.zero_means != gradient_status::Kind::no_column) ++n;
+      if (f.has_column()) ++n;
     }
     return n;
   }();
@@ -579,7 +585,7 @@ public:
     std::vector<S*> ret;
     ret.reserve(table.size());
     for (const ad_parameter& p : table) {
-      if (p.zero_means != gradient_status::Kind::no_column) {
+      if (p.has_column()) {
         ret.push_back(&(pars.*p.at));
       }
     }
@@ -593,7 +599,7 @@ public:
     std::vector<std::string> ret;
     ret.reserve(table.size());
     for (const ad_parameter& p : table) {
-      if (p.zero_means != gradient_status::Kind::no_column) {
+      if (p.has_column()) {
         ret.push_back(p.name);
       }
     }
@@ -609,7 +615,7 @@ public:
     std::vector<gradient_status::Kind> ret;
     ret.reserve(TF24_Pars<S>::column_count);
     for (const ad_parameter& p : table) {
-      if (p.zero_means != gradient_status::Kind::no_column) {
+      if (p.has_column()) {
         ret.push_back(p.zero_means);
       }
     }
