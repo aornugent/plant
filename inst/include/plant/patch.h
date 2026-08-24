@@ -271,6 +271,14 @@ public:
   // The species this patch is introduced at `time`, off the schedule it is run
   // from. Equality on a scheduled time is exact: the run steps TO an
   // introduction, so a recorded step at one carries that same double.
+  // The schedule this patch introduces nodes on. Held because a walk over a
+  // recording works out the shape at a step from it, and set here rather than
+  // only at construction because a caller may change the schedule between runs
+  // -- and then the plan a reconciliation reads has to be the one the run took.
+  void set_introduction_times(const std::vector<std::vector<double>>& times) {
+    parameters.node_schedule_times = times;
+  }
+
   introduction introduced_at(double time) const;
   // How many nodes species `i` holds at a recorded `time`: what it was seeded
   // with, plus the introductions strictly below. Strictly, because an

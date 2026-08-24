@@ -713,6 +713,11 @@ void SCM<T, E>::refine_schedule() {
 // currently no other way to set that time; it might be cleaner to add an
 // odelia::ode::Solver::set_time and call set_time(0) explicitly here.
 template <typename T, typename E> void SCM<T, E>::reset() {
+  // The schedule may have been changed since the patch was built, and a
+  // reconciliation during the sweep reads it to work out the shape at a step.
+  // Refreshed where the run that uses it begins, which is the one place both
+  // the patch and the solver are put back to t = 0.
+  patch.set_introduction_times(parameters.node_schedule_times);
   patch.reset();
   node_schedule.reset();
   // Seed the solver's owned system from the freshly reset patch, then reset
