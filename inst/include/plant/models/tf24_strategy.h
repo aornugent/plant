@@ -1257,228 +1257,122 @@ S TF24_Strategy<S>::evapotranspiration_dt(const S& area_leaf_, int soil_layer) {
 // point, so it consumes the choice rather than being it and the movement is part
 // of its answer.
 //
-// The leaf returns both in PARTS -- the gradient of whatever condition defines
-// the point, each output's response to the point, and the rest at a held one --
-// so the point is recorded once here and every output hangs off it. The tape
-// then carries one term per input plus one per output rather than their product,
-// and the roles are already inside the numbers: nothing below asks which kind of
-// point this is.
+// The leaf answers at whatever scalar it is asked at, so this hands it the
+// inputs and takes the outputs back on the tape. Only one derivative crosses as
+// a number -- the gradient of the condition that places an interior collar --
+// and it crosses because reverse mode cannot nest a tangent above its own
+// scalar, where forward mode can.
 template <typename S>
 void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                                            const std::vector<S>& psi_soil,
                                            const S& conductance_max) {
-  namespace grad = phylloptim::gradient;
-  using odelia::util::to_passive;
-  const int n_layer = static_cast<int>(psi_soil.size());
+  using phylloptim::Leaf;
+  const std::size_t n_layer = psi_soil.size();
 
-  // Every input the leaf answers for, paired with the active value its row is
-  // recorded against. A layer holding no root carbon is left out: the
-  // architecture model gave the network no slot for it, so the leaf has no row
-  // there and asking would only carry a refusal further.
-  //
-  // theta[par_resistance] is neither written nor read -- it belongs to the
-  // single-potential supply path and this leaf is on the multi-layer one.
-  double theta[grad::n_pars] = {};
-  const std::size_t room =
-      static_cast<std::size_t>(grad::n_pars_total(n_layer));
-  std::vector<int> input;
-  std::vector<const S*> at;
-  input.reserve(room);
-  at.reserve(room);
-  for (const auto& p : pars.ad_parameter_table()) {
-    if (p.leaf_par < 0) {
-      continue;
-    }
-    theta[p.leaf_par] = to_passive(pars.*p.at);
-    input.push_back(p.leaf_par);
-    at.push_back(&(pars.*p.at));
-  }
-  theta[grad::par_kmax] = to_passive(conductance_max);
-  input.push_back(grad::par_kmax);
-  at.push_back(&conductance_max);
-  input.push_back(grad::par_PPFD);
-  at.push_back(&radiation);
-  for (int j = 0; j < n_layer; ++j) {
-    input.push_back(grad::par_psi_soil_first + j);
-    at.push_back(&psi_soil[static_cast<std::size_t>(j)]);
-  }
-  for (int k = 0; k < n_layer; ++k) {
-    if (root_carbon_value_[static_cast<std::size_t>(k)] > 0.0) {
-      input.push_back(grad::par_root_carbon_first(n_layer) + k);
-      at.push_back(&root_carbon_per_leaf_area_[static_cast<std::size_t>(k)]);
-    }
-  }
-  const std::size_t n_input = input.size();
-
-  // Which of these is the objective is the leaf's to say, not this caller's --
-  // `role_of` reads it off the index. So this is a list of outputs and nothing
-  // else, and there is no second list beside it to disagree with.
-  std::vector<int> output;
-  output.reserve(static_cast<std::size_t>(n_layer) + 1);
-  output.push_back(grad::out_profit);
-  for (int i = 0; i < n_layer; ++i) {
-    output.push_back(grad::out_uptake_first + i);
-  }
+  // The two _25 traits and dark respiration enter as the temperature-adjusted
+  // values the leaf's kernels take. The Arrhenius is linear in its reference
+  // value, so the chain from the trait is the factor between them and the tape
+  // carries the rest.
+  phylloptim::LeafInputs<S> in;
+  in.profit = phylloptim::ProfitInputs<S>{
+      pars.vcmax_25 * (leaf.vcmax_ / leaf.vcmax_25),
+      pars.jmax_25 * (leaf.jmax_ / leaf.jmax_25),
+      pars.a,
+      pars.curv_fact_elec_trans,
+      pars.curv_fact_colim,
+      radiation,
+      pars.R_d_25 * (leaf.R_d_ / leaf.R_d_25),
+      conductance_max,
+      pars.b,
+      pars.c,
+      pars.beta2,
+      pars.g1_TF24,
+      S(leaf.opt_root_psi_),
+      S(0.0)};
+  in.supply.psi_soil = psi_soil;
+  // Carbon becomes resistance HERE, at this scalar, because the architecture
+  // model is this strategy's -- the leaf takes the resistances and knows nothing
+  // about carbon. So the chain lands on the same tape as everything else rather
+  // than crossing as a hand-written d(uptake)/d(carbon).
+  // The thickness is read off the leaf's own soil profile rather than derived
+  // again here: the vertical resistance scales with dz^2, so two definitions
+  // drifting apart would be a silent squared factor neither side could see.
+  phylloptim::root_resistances_from_carbon<S>(
+      root_carbon_per_leaf_area_, leaf.roots_.dz_, beta_R_H, beta_R_V,
+      in.supply.r_R_H_min, in.supply.r_R_V_sum);
+  in.supply.root_b = pars.root_b;
+  in.supply.root_c = pars.root_c;
+  in.psi_crit = pars.psi_crit;
+  in.root_psi_crit = pars.root_psi_crit;
 
   // The leaf clamps in double on both paths, so which path a clamp fired on is a
   // question of when rather than of the scalar, and a delta answers it. Taken on
   // the throwing exit too, because a refusal is still a pass over the leaf.
   const std::vector<std::size_t> clamps_before = leaf.clamp_counts();
-  const grad::RowRequest request{output.data(), output.size(), input.data(),
-                                 n_input};
-  grad::Rows rows;
+  Leaf::CollarCondition condition;
+  Leaf::LeafOutputs<S> got;
   try {
-    // `rows_at` is the read and takes the leaf and the request alone; this is the
-    // entry that also differences whatever the read refuses, which is one branch --
-    // a shade death whose wet bound has no derivative.
-    rows = grad::rows_differenced(leaf, theta, leaf_drivers_, request,
-                                  leaf_row_settings());
+    if (leaf.operating_point_kind() == Leaf::OperatingPointKind::Interior) {
+      condition = leaf.collar_condition(leaf.opt_psi_stem_, leaf.ci_,
+                                        in.template rebind_from<double>());
+      // The interior derivation divides by the profit's curvature. At a bound
+      // the slope is the bound's own and this floor is not about it.
+      note_curvature(condition.slope);
+      if (!(condition.slope < 0.0) ||
+          std::abs(condition.slope) < curvature_floor()) {
+        lose_uptake_rows(
+            "TF24 gradient: the leaf's profit curvature at this operating point "
+            "is " + util::to_string(condition.slope) + ", against a floor of " +
+            util::to_string(curvature_floor()) + ", so the collar's own response "
+            "is amplification rather than an answer");
+      }
+    }
+    got = leaf.outputs_at<S>(in, condition);
   } catch (const std::runtime_error& e) {
     note_leaf_clamps(clamps_before);
     throw gradient_refusal(std::string("TF24 gradient: ") + e.what());
   }
   note_leaf_clamps(clamps_before);
 
-  // The interior derivation divides by the profit's curvature. At a bound the
-  // slope is the bound's own and this floor is not about it.
-  if (rows.kind == phylloptim::Leaf::OperatingPointKind::Interior) {
-    note_curvature(rows.residual_slope);
-    if (!(rows.residual_slope < 0.0) ||
-        std::abs(rows.residual_slope) < curvature_floor()) {
-      lose_uptake_rows(
-          "TF24 gradient: the leaf's profit curvature at this operating point "
-          "is " + util::to_string(rows.residual_slope) + ", against a floor of " +
-          util::to_string(curvature_floor()) + ", so the collar's own response "
-          "is amplification rather than an answer");
-    }
+  // A collar the theorem could not place costs every output that reads it, and
+  // profit is not one of them: at an interior point it reads the collar held.
+  // The water rows go, and every later plant's go with them, because a metric is
+  // a sum and a sum has no defined value with an undefined term.
+  if (!got.point.whole) {
+    lose_uptake_rows("TF24 gradient: the operating point cannot be recorded at "
+                     "an interior point: " + got.point.why);
   }
 
-  // What a missing row costs depends on which output loses it: profit is what net
-  // production reads and has no partial form, so losing its row ends the
-  // gradient, where a water row can go missing and still leave the value the
-  // patch balance needs. Which output is which is the leaf's to say rather than
-  // this caller's -- the objective is the one that does not read the operating
-  // point, so it is the one a lost point costs nothing.
-  //
-  // ⚠️ AND WHATEVER IS MISSING IS NAMED HERE. A number can arrive non-finite from
-  // a channel that reported no refusal, and the record is what sees that, so the
-  // report is always read. Where the row layer refused the input itself it says
-  // why against that input, and its reason is the better one: the record's is the
-  // same sentence whatever was wrong with the number.
-  const int n_layer_named = n_layer;
-  auto missing = [&](std::size_t j, const odelia::record_report& report,
-                     bool carries_point) -> std::string {
-    std::string out = std::string("TF24 gradient: `") +
-                      grad::output_name(output[j], n_layer_named) + "`'s ";
-    const std::string* said = nullptr;
-    if (carries_point && report.at == 0) {
-      out += "channel into the operating point";
-    } else {
-      const std::size_t i = report.at - (carries_point ? 1 : 0);
-      out += "row in `" + grad::par_name(input[i], n_layer_named) + "`";
-      said = rows.reason_for(input[i]);
-    }
-    out += " cannot be recorded at a point the solve called " +
-           std::string(Leaf::operating_point_kind_name(rows.kind)) + ": " +
-           (said != nullptr ? *said : report.why);
-    if (!rows.message.empty()) {
-      out += "; " + rows.message;
-    }
-    return out;
-  };
-
-  leaf_soil_consumption_.assign(psi_soil.size(), S(0.0));
-  std::vector<odelia::input_and_derivative<S>> against;
-  against.reserve(n_input + 1);
-
-  // Formed once however many outputs read it, which is the whole economy of an
-  // implicit node: the theorem's quotient, and the reading where its slope cannot
-  // be inverted, are taken once rather than per output. An output needs the point
-  // only where it reads it, so the objective at an interior optimum is whole
-  // without one -- which is the envelope theorem, and is why it survives the
-  // degeneracy that costs the water rows theirs.
-  S point;
-  bool reads_point = false;
-  for (std::size_t j = 0; j < output.size(); ++j) {
-    reads_point = reads_point || rows.dy_dp[j] != 0.0;
-  }
-  bool point_whole = true;
-  std::string point_why;
-  if (reads_point) {
-    for (std::size_t i = 0; i < n_input; ++i) {
-      against.push_back({*at[i], rows.dresidual[i]});
-    }
-    const odelia::record_report report =
-        odelia::implicit_root<S>(rows.point, rows.residual_slope, against, point);
-    point_whole = report.whole;
-    if (!point_whole) {
-      point_why = std::string("the operating point cannot be recorded at a ") +
-                  Leaf::operating_point_kind_name(rows.kind) + " point: " +
-                  report.why;
-      if (!rows.message.empty()) {
-        point_why += "; " + rows.message;
-      }
-    }
-  }
-
-  for (std::size_t j = 0; j < output.size(); ++j) {
-    S& into = output[j] == grad::out_profit
-                  ? leaf_profit_
-                  : leaf_soil_consumption_[static_cast<std::size_t>(
-                        output[j] - grad::out_uptake_first)];
-    // The value is the LEAF's, not the row layer's: the read moves nothing, so the
-    // solved leaf is still holding it and a second copy could only disagree.
-    const double value =
-        output[j] == grad::out_profit
-            ? leaf.profit_
-            : leaf.soil_consumption_[static_cast<std::size_t>(
-                  output[j] - grad::out_uptake_first)];
-    const bool objective = grad::output_role(output[j]) == grad::OutputRole::Objective;
-    // ⚠️ THE FLAG SUPPRESSES EVERY LATER PLANT'S WATER ROWS AND NOT ONLY THIS
-    // ONE'S. A metric's gradient is a sum, so a term missing anywhere leaves the
-    // whole water channel undefined and taping the rest would produce a gradient
-    // that is partly an answer. The values go on flowing either way.
-    //
-    // Read BEFORE the record rather than after it, because rows already on the
-    // tape cannot be taken off it.
+  // ⚠️ THE VALUE IS THE LEAF'S, NOT THIS COMPOSITION'S. The solve is what plant's
+  // rates read, so a second copy of it could only disagree; what is taken here is
+  // the derivative, recorded against a value the forward pass already fixed.
+  auto carry = [&](double value, const S& from, S& into, bool objective) -> void {
     if (*uptake_rows_unavailable && !objective) {
       into = S(value);
-      continue;
+      return;
     }
-    // A lost point costs every output that reads it, and nothing is recorded for
-    // those: a value carrying its held rows without the point's channel is the
-    // channel gone missing with every number finite.
-    if (rows.dy_dp[j] != 0.0 && !point_whole) {
-      into = S(value);
-      if (objective) {
-        throw gradient_refusal("TF24 gradient: `" +
-                               grad::output_name(output[j], n_layer_named) +
-                               "` reads " + point_why);
-      }
-      lose_uptake_rows("TF24 gradient: `" +
-                       grad::output_name(output[j], n_layer_named) +
-                       "` reads " + point_why);
-      continue;
-    }
-    against.clear();
-    const bool carries_point = rows.dy_dp[j] != 0.0;
-    if (carries_point) {
-      against.push_back({point, rows.dy_dp[j]});
-    }
-    for (std::size_t i = 0; i < n_input; ++i) {
-      against.push_back({*at[i], rows.held[j * n_input + i]});
-    }
-    // The VALUE survives a missing row and the patch balance still needs it, so
-    // the record leaves it carrying nothing rather than carrying part -- which is
-    // what the flag below then says, against a zero row saying the opposite.
     const odelia::record_report report =
-        odelia::record_with_derivatives<S>(value, against, into);
-    if (!report.whole) {
-      if (objective) {
-        throw gradient_refusal(missing(j, report, carries_point));
-      }
-      lose_uptake_rows(missing(j, report, carries_point));
+        odelia::record_with_derivatives<S>(value, {{from, 1.0}}, into);
+    if (report.whole) {
+      return;
     }
+    const std::string why =
+        std::string("TF24 gradient: `") + (objective ? "profit" : "uptake") +
+        "` cannot be recorded at a point the solve called " +
+        Leaf::operating_point_kind_name(leaf.operating_point_kind()) + ": " +
+        report.why;
+    if (objective) {
+      throw gradient_refusal(why);
+    }
+    lose_uptake_rows(why);
+  };
+
+  carry(leaf.profit_, got.profit, leaf_profit_, true);
+  leaf_soil_consumption_.assign(n_layer, S(0.0));
+  util::check_length(got.uptake.size(), n_layer);
+  for (std::size_t j = 0; j < n_layer; ++j) {
+    carry(leaf.soil_consumption_[j], got.uptake[j], leaf_soil_consumption_[j],
+          false);
   }
 }
 
