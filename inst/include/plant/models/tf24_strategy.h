@@ -1327,7 +1327,11 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
             "is amplification rather than an answer");
       }
     }
-    got = leaf.outputs_at<S>(in, condition);
+    // Placed, then evaluated. Which condition placed it is the leaf's to say;
+    // whether the curvature it divides by is usable was this caller's, above.
+    const S collar = leaf.collar_at<S>(in, condition, got.point);
+    in.profit.collar = collar;
+    got = leaf.outputs_at<S>(collar, in);
   } catch (const std::runtime_error& e) {
     note_leaf_clamps(clamps_before);
     throw gradient_refusal(std::string("TF24 gradient: ") + e.what());
