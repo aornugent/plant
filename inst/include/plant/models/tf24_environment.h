@@ -116,7 +116,7 @@ public:
     soil_number_of_depths = n;
     
     vars = Internals<S>(soil_number_of_depths + aux_num);
-    initial_states = passive(vars.states);
+    initial_states = rebind_from(vars.states);
 
     z.resize(soil_number_of_depths);
     z_mid.resize(soil_number_of_depths);
@@ -229,7 +229,7 @@ public:
 
   // The values of an active vector, for the R boundary and for the state a run
   // restarts from.
-  static std::vector<double> passive(const std::vector<S>& x) {
+  static std::vector<double> rebind_from(const std::vector<S>& x) {
     std::vector<double> out(x.size());
     for (size_t i = 0; i < x.size(); ++i) {
       out[i] = odelia::util::to_passive(x[i]);
@@ -681,7 +681,7 @@ public:
 
 
   std::vector<double> get_soil_water_state() const {
-    std::vector<double> out = passive(vars.states);
+    std::vector<double> out = rebind_from(vars.states);
     out.resize(out.size() - aux_num);
     return out;
   }
@@ -712,7 +712,7 @@ public:
     return psi_soil_cache_;
   }
   std::vector<double> get_soil_water_state_cumulative_flux() const {
-    const std::vector<double> all = passive(vars.states);
+    const std::vector<double> all = rebind_from(vars.states);
     return {all.end() - aux_num, all.end()};
   }
   std::vector<double> get_soil_depths() const { return z; }
@@ -722,8 +722,8 @@ public:
   // TODO: I wonder if this needs a better name? See also environment.h
   Internals<double> r_internals() const {
     Internals<double> out(vars.state_size(), vars.aux_size(), vars.resource_size());
-    out.states = passive(vars.states);
-    out.rates = passive(vars.rates);
+    out.states = rebind_from(vars.states);
+    out.rates = rebind_from(vars.rates);
     return out;
   }
 
@@ -739,7 +739,7 @@ public:
         vars.set_state(i, 0);
       }
   }
-    initial_states = passive(vars.states);
+    initial_states = rebind_from(vars.states);
     psi_soil_cache_valid_ = false;
 }
 

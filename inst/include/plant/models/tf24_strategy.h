@@ -913,8 +913,10 @@ public:
       return {height_0, area_leaf_0};
     } else {
       const S h = odelia::implicit_value<S>(
-        height_0,
-        [&](const S& y) -> S { return mass_live_given_height(y) - pars.omega; });
+        height_0, *this,
+        []<class T>(const T& y, const TF24_Strategy<T>& at) -> T {
+          return at.mass_live_given_height(y) - at.pars.omega;
+        });
       return {h, area_leaf(h)};
     }
   }
@@ -985,6 +987,9 @@ public:
     refresh_indices();
   }
 
+  // This strategy at another scalar, carrying no derivative -- assign_from takes
+  // every parameter through to_passive. It is what an implicit node asks a
+  // parameter set for when it needs a slope with the parameters held still.
   template <class U>
   TF24_Strategy<U> rebind_from() const {
     TF24_Strategy<U> out;

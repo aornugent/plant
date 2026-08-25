@@ -250,7 +250,10 @@ public:
   // applied by the caller: a caller reading the recorded state for itself would
   // store twice and run twice.
   template <class Scalar, class Seed>
-  std::vector<Scalar> replay_initial_state(size_t from_segment, Seed seed);
+  // `state_moved` says the seeded state is not the one the trajectory recorded, so
+  // nothing this run's leaves are handed applies to it and they solve instead.
+  std::vector<Scalar> replay_initial_state(size_t from_segment, Seed seed,
+                                           bool state_moved);
 
   // The Control entries that move the trajectory or move which states answer,
   // and so move the gradient, in the order stand_gradient() compares them. The
@@ -1223,7 +1226,8 @@ std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
 template <typename T, typename E>
 template <class Scalar, class Seed>
 std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
-                                                    Seed seed) {
+                                                    Seed seed,
+                                                    bool state_moved) {
   const trajectory rec = store_trajectory();
   patch_type& live = solver.get_system_ref();
 
@@ -1233,6 +1237,12 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
                                                   from_segment, base, start);
 
   auto active = live.template rebind_from<Scalar>();
+  // The rebind shares the run's record, which is right where this runs the run's
+  // own trajectory and wrong where it does not: an operating point placed from a
+  // state the leaf is no longer at is a plausible answer about a different plant.
+  if (state_moved) {
+    active.clear_solved_choices();
+  }
 
   std::vector<Scalar> x0(base.size());
   seed(x0, base);
@@ -1275,7 +1285,8 @@ SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
           x0[i] = base[i];
           seed_direction(x0[i], direction[i]);
         }
-      });
+      },
+      false);
 
   std::vector<double> ret;
   ret.reserve(reached.size());
@@ -1297,7 +1308,8 @@ SCM<T, E>::census_initial_state_replay(const std::vector<double>& state0,
     [&](std::vector<double>& x0, const std::vector<double>& base) -> void {
       util::check_length(state0.size(), base.size());
       x0 = state0;
-    });
+    },
+    true);
 }
 
 

@@ -289,13 +289,19 @@ public:
   // two evaluations above have to be taken one at a time to be told apart.
   void compute_boundary_nodes();
 
-  // Forget what every species' inner solve chose. The run calls it where it starts,
-  // because the record outlives this patch: it is shared with every copy and every
-  // rebound version of it, which is what lets a sweep read what the run wrote.
+  // Start every species' inner solve on an empty record. The run calls it where it
+  // starts; so does a replay that runs from a state the trajectory never held,
+  // because a record belongs to the trajectory that filled it.
+  //
+  // ⚠️ A FRESH RECORD RATHER THAN AN EMPTIED ONE. The record is shared with every
+  // copy and every rebound version of this patch -- which is what lets a sweep read
+  // what the run wrote -- so emptying it in place reaches through the share and
+  // takes the run's record with it.
   void clear_solved_choices() {
     if constexpr (KeepsSolvedChoices<strategy_type>) {
       for (species_type& s : species) {
-        s.strategy_ptr()->leaf_points->clear();
+        auto& held = s.strategy_ptr()->leaf_points;
+        held = std::make_shared<std::decay_t<decltype(*held)>>();
       }
     }
   }
