@@ -324,6 +324,111 @@ were not previously recorded here:
 
 ### New features
 
+* **The NSC storage pool is bounded by the shape of its own flow (`TF24@v9`,
+  `TF24f@v9.1`).** `dS/dt` was `net_flux > 0 ? net_flux : floor_gate * net_flux`
+  -- one signed flux with a gate applied in one direction. It is now a charge and
+  a drain, each non-negative without a test and each limited by the room the
+  other has (#609):
+
+  ```
+  charge = Ppos * (1 - G)          drain = Ppos - P
+  dS/dt  = charge * (1 - r)  -  drain * r   =   charge - (charge + drain) * r
+  ```
+
+  The split is exact -- `charge - drain = P - Ppos*G` is the old net flux -- so
+  what changes is where the limits sit. Both bounds now follow from the form,
+  with no scale left to choose: at `r = 0` the rate is `charge >= 0`, at `r = 1`
+  it is `-drain <= 0`, and past either boundary the corresponding limiter goes
+  negative and pushes back. The pool is a first-order filter on production, so
+  `d(dS/dt)/dS` is the constant `-(charge + drain)/S_max`.
+
+  **Storage previously had no upper bound at all**; `r = min(S/S_max, 1)` clipped
+  the *read* while the state ran past capacity. Measured on a one-species stand
+  at the full 105.32-year lifetime: the state reached **1.035** of capacity and
+  **52.7 per cent** of cohorts sat at or above it, so for half the stand `dr/dS`
+  was exactly zero and the mortality that reads `r` could not respond. It is now
+  0.000 per cent at every lifetime from 2 to 105.32, with the reserve fraction
+  peaking at 0.800 -- the value a newborn is seeded at -- and a median of 0.62
+  where it was exactly 1.
+
+  **The derivative was discontinuous where the net flux changed sign**, which is
+  what motivated the change. `d(dS/dt)/dP` stepped by `1/floor_gate =
+  (r + 1e-3)/r` across that point -- measured 1.972 against a predicted 2.000 at
+  a reserve fraction of 1e-3, and unbounded as the pool empties. The new rate is
+  smooth there.
+
+  **A negative state is now refused rather than floored**, which is what lets
+  both read-clamps go. The exact flow cannot leave `[0, S_max]` but a finite
+  Runge-Kutta step can, and it did: about 3 per cent of records at the default
+  height at maturity, deepest at 4.5 per cent of capacity. The rate now calls
+  `odelia::util::stop_domain` there and `Patch::ode_state_valid` declares the
+  bound to the stepper, so the step is rejected, shrunk and retried instead of
+  committed -- requires **odelia >= 0.3.1**. Crossings go to none, on the
+  birth-date coordinate and the height one alike. `max(S, 0)` and
+  `min(S/S_max, 1)` are gone with the branch, which is #609's own closing
+  requirement that both consumers read the same quantity.
+
+  **The drain is limited in proportion to what the pool holds, and that is a
+  change to the drawdown as well as to the bound.** A plant at half reserves
+  draws at half the deficit rate, where the old gate drew at essentially the
+  full rate until the pool was within 0.1 per cent of empty. What it does *not*
+  change is how much carbon goes unpaid -- what a plant pays from reserves is
+  exactly the pool's depletion in either form -- so the integral over a drawdown
+  is the same and only its schedule differs, which is the buffering #517 asked
+  for.
+
+  **A narrower drain limiter is what makes this shape necessary, and it is
+  measured rather than argued.** Limiting the drain by `r/(r + D)` puts an
+  *attracting fixed point* at `r ~ D` whose relaxation time is `S_max D / drain`
+  -- 0.64 hours at the stiffest record on the reference stand, a 0.41 m seedling
+  with a storage capacity of 1e-6 kg, against a solver stepping in days. The
+  shipped rate has the same knee but falls through it into the region where
+  `max(S, 0)` makes the rate identically zero, so it never resolves it; a rate
+  that holds the bound has to. Accepted ODE steps over one 10-year run:
+
+  | rate | accepted steps | wall |
+  |---|---|---|
+  | shipped `max(S,0)` and `net>0 ?:` | 940 | 8 s |
+  | drain limited by `r/(r + 1e-3)` | 12 865 | 114 s |
+  | drain limited by `r` | **488** | **3 s** |
+
+  So the form that holds the bound is also **1.9 times faster than the one that
+  shipped**, and the step count stops growing with height at maturity. Note this
+  is not a case for a change of state basis: an eigenvalue at a fixed point is a
+  property of the vector field and not of the chart, so `S = w^2` or `log S`
+  would leave it exactly where it is.
+
+  **Offspring production moves on every fixture.** The height-coordinate answers
+  fall by a factor of about 2.7 (82.09 -> 30.22, 67.54 -> 23.20) and the
+  birth-date ones by 19 and 27 per cent (287.16 -> 233.06, 59.53 -> 43.64). Most
+  of that is the fill limiter rather than the drain, since the median cohort of a
+  mature stand previously sat clipped at a reserve fraction of 1. The height
+  coordinate amplifies any change to the pool because its compression term
+  differences growth against height at fixed absolute carbon, so it reads the
+  reserve fraction moving where the birth-date density rate never asks.
+
+  **Carbon is still not conserved across the block.** The pool is capped by
+  withholding the surplus rather than by spending it, so at capacity the charge
+  the gate withheld -- `Ppos * (1 - G)`, about 1.2e-4 of production -- leaves the
+  budget instead of charging the pool; at the empty boundary the unmet part of
+  the deficit does the same. Both are properties of limiting a flux rather than
+  spending it, and routing either into growth or into tissue loss is a larger
+  modelling change than #609 proposes.
+
+  **Not addressed here: `storage_prod_eps` is an absolute rate against fluxes
+  spanning six orders.** It is 1e-4 kg/yr, and a plant's own maintenance flux on
+  the reference stand runs from 4.60e-05 to 2.88e+01 kg/yr -- so the smoothing
+  constant is between 3.5e-06 and **2.17** of a plant's whole turnover, and
+  exceeds it on **39.8 per cent** of records. A plant at zero net production is
+  therefore credited with `eps/2 = 5e-5` kg/yr it does not have, which is 0.5 per
+  cent of an adult's maintenance and 29 per cent of a seedling's, and `Ppos`
+  reaches **21.3 times `|P|` with the opposite sign** where the pool is
+  stiffest. #609 predicted this and asked for it to be checked against a real
+  germination state before acting; it now has been. Making it a fraction of a
+  flux the plant has moves establishment and every plant near its compensation
+  point, so it wants its own change and its own re-blessing rather than being
+  folded in here where one census movement would have two causes.
+
 * **`Control$node_density_in_birth_date`** (default `FALSE`) carries the SCM's
   size distribution as a density in birth date instead of in height.
 

@@ -106,6 +106,12 @@ public:
   // Retrieve auxillary variables and save into the ode solver
   odelia::ode::iterator ode_aux(odelia::ode::iterator it) const;
 
+  // The strategy's own bound on its states, read by the solver: a step landing
+  // on a state it refuses is rejected and retried smaller, rather than
+  // committed and clamped by whoever reads it next. Walks the state vector in
+  // the order ode_state writes it.
+  bool ode_state_valid(const std::vector<double>& y) const;
+
   // Returns state in structure format as opposed to single 
   // vector as given by ode_state
   Rcpp::List r_get_state() const;
@@ -972,6 +978,42 @@ template <typename T, typename E>
 odelia::ode::iterator Patch<T,E>::ode_aux(odelia::ode::iterator it) const {
   it = odelia::ode::ode_aux(species.begin(), species.end(), it);
   return it;
+}
+
+template <typename T, typename E>
+bool Patch<T,E>::ode_state_valid(const std::vector<double>& y) const {
+  // Resolved on the concrete strategy, so a model that appends or inserts a
+  // state gets its own positions rather than its base's. Named rather than
+  // indexed because a strategy that declared the index would be declaring
+  // something its own state_names() already says.
+  static const std::vector<size_t> bounded = [] {
+    const std::vector<std::string> names = T::state_names();
+    std::vector<size_t> ret;
+    for (const std::string& name : T::non_negative_states()) {
+      const auto found = std::find(names.begin(), names.end(), name);
+      if (found == names.end()) {
+        util::stop("Strategy declares '" + name + "' as a non-negative state "
+                   "and does not carry it");
+      }
+      ret.push_back(static_cast<size_t>(found - names.begin()));
+    }
+    return ret;
+  }();
+  if (bounded.empty()) {
+    return true;
+  }
+  const size_t stride = node_type::ode_size();
+  size_t at = 0;
+  for (const auto& sp : species) {
+    for (size_t k = 0; k < sp.size(); ++k, at += stride) {
+      for (const size_t i : bounded) {
+        if (y[at + i] < 0.0) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
 }
 
 }
