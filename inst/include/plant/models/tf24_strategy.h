@@ -155,9 +155,9 @@ struct TF24_Pars {
   S d = 0.05;
 
   // What a parameter IS -- where it lives, what it is called, and the leaf's own
-  // index for it. Nothing here says what its gradient will be: that is a property
-  // of the number the sweep computes, and the sweep computes one for every
-  // parameter except the few `undifferentiable` names below.
+  // Nothing here says what its gradient will be: that is a property of the
+  // number the sweep computes, and the sweep computes one for every parameter
+  // except the few `undifferentiable` names below.
   struct ad_parameter {
     // Where the parameter lives in the struct, rather than in one instance of
     // it. That is what lets the table below be constexpr: a table of instance
@@ -165,10 +165,6 @@ struct TF24_Pars {
     // length used to be a literal and why callers were told to hold it.
     S TF24_Pars::* at;
     const char* name;
-    // The leaf's own index for this parameter, or -1 where the leaf has no input
-    // for it. One table, so a trait cannot be registered for the gradient here
-    // and forgotten where the leaf's rows are asked for.
-    int leaf_par = -1;
   };
 
   // The parameters with no gradient column, and why each has none. This is the
@@ -222,11 +218,6 @@ struct TF24_Pars {
   // ad_parameter_* projections read this, so a member reaches all of them or
   // none, and the sizeof assert below makes the list total.
 #define PLANT_TF24_AD_PARAMETER(x) ad_parameter{&TF24_Pars::x, #x}
-  // A parameter the leaf answers for. `p` is the leaf's spelling, which for four
-  // of the fourteen is not this file's -- and writing it here is what makes a
-  // rename on either side a compile error rather than a silently shifted column.
-#define PLANT_TF24_LEAF_PARAMETER(x, p) \
-  ad_parameter { &TF24_Pars::x, #x, phylloptim::gradient::par_##p }
   static constexpr std::array ad_parameter_fields{
       PLANT_TF24_AD_PARAMETER(lma),
       PLANT_TF24_AD_PARAMETER(rho),
@@ -265,27 +256,26 @@ struct TF24_Pars {
       PLANT_TF24_AD_PARAMETER(a_st2),
       PLANT_TF24_AD_PARAMETER(a_st3),
       PLANT_TF24_AD_PARAMETER(k_I),
-      PLANT_TF24_LEAF_PARAMETER(vcmax_25, vcmax_25),
+      PLANT_TF24_AD_PARAMETER(vcmax_25),
       // Read only by c's and b's default initialisers, so a value set after
       // construction reaches nothing here; d/dp_50 belongs to whatever computes
       // c and b, which for a run driven from traits is the R hyperparameters.
       PLANT_TF24_AD_PARAMETER(p_50),
       PLANT_TF24_AD_PARAMETER(K_s),
-      PLANT_TF24_LEAF_PARAMETER(c, stem_c),
-      PLANT_TF24_LEAF_PARAMETER(b, stem_b),
+      PLANT_TF24_AD_PARAMETER(c),
+      PLANT_TF24_AD_PARAMETER(b),
       // A limit: it sets the dry end of the interval the operating point moves
-      // in. Its column is zero while the point is away from that end and live
-      // the moment the point sits on it. The leaf owns which of its inputs are
-      // limits and says so on `InputRole`, so nothing here declares it.
-      PLANT_TF24_LEAF_PARAMETER(psi_crit, psi_crit),
+      // in. Its column is zero while the point is away from that end and
+      // non-zero the moment the point sits on it.
+      PLANT_TF24_AD_PARAMETER(psi_crit),
       PLANT_TF24_AD_PARAMETER(beta1),
-      PLANT_TF24_LEAF_PARAMETER(beta2, beta2),
-      PLANT_TF24_LEAF_PARAMETER(g1_TF24, cost_scale_TF24),
-      PLANT_TF24_LEAF_PARAMETER(jmax_25, jmax_25),
-      PLANT_TF24_LEAF_PARAMETER(a, a),
-      PLANT_TF24_LEAF_PARAMETER(curv_fact_elec_trans, curv_fact_elec_trans),
-      PLANT_TF24_LEAF_PARAMETER(curv_fact_colim, curv_fact_colim),
-      PLANT_TF24_LEAF_PARAMETER(R_d_25, R_d_25),
+      PLANT_TF24_AD_PARAMETER(beta2),
+      PLANT_TF24_AD_PARAMETER(g1_TF24),
+      PLANT_TF24_AD_PARAMETER(jmax_25),
+      PLANT_TF24_AD_PARAMETER(a),
+      PLANT_TF24_AD_PARAMETER(curv_fact_elec_trans),
+      PLANT_TF24_AD_PARAMETER(curv_fact_colim),
+      PLANT_TF24_AD_PARAMETER(R_d_25),
       PLANT_TF24_AD_PARAMETER(var_sapwood_volume_cost),
       PLANT_TF24_AD_PARAMETER(nmass_l),
       PLANT_TF24_AD_PARAMETER(nmass_s),
@@ -293,10 +283,10 @@ struct TF24_Pars {
       PLANT_TF24_AD_PARAMETER(nmass_r),
       PLANT_TF24_AD_PARAMETER(dmass_dN),
       PLANT_TF24_AD_PARAMETER(root_depth_shape_eta),
-      PLANT_TF24_LEAF_PARAMETER(root_c, root_c),
-      PLANT_TF24_LEAF_PARAMETER(root_b, root_b),
+      PLANT_TF24_AD_PARAMETER(root_c),
+      PLANT_TF24_AD_PARAMETER(root_b),
       // The root curve's dry limit, and a limit for the same reason.
-      PLANT_TF24_LEAF_PARAMETER(root_psi_crit, root_psi_crit),
+      PLANT_TF24_AD_PARAMETER(root_psi_crit),
       PLANT_TF24_AD_PARAMETER(rooting_depth_max),
       PLANT_TF24_AD_PARAMETER(recruitment_decay),
       PLANT_TF24_AD_PARAMETER(use_energy_balance),
@@ -578,9 +568,13 @@ public:
   // the state and aux names because all three say what this model calls its own
   // quantities -- and every slot is read by its cached index, which is how every
   // other reader of these slots reaches them.
-  static std::vector<census_metric<TF24_Strategy<S>>> census_metrics() {
+  //
+  // A table rather than a list built per call, for the reason
+  // ad_parameter_fields is one: a census is read from several entry points and
+  // each was allocating its own copy of this.
+  static const auto& census_metrics() {
     using strategy = TF24_Strategy<S>;
-    return {
+    static constexpr std::array<census_metric<strategy>, 3> metrics{{
       {"leaf_area",
        [](const strategy& p, const Internals<S>& vars) -> S {
          return p.area_leaf(vars.state(HEIGHT_INDEX));
@@ -602,7 +596,8 @@ public:
          return p.area_stem(p.area_bark(area_leaf), p.area_sapwood(area_leaf),
                             vars.state(p.state_idx_area_heartwood));
        }},
-    };
+    }};
+    return metrics;
   }
 
   std::vector<std::string> aux_names() {
@@ -1143,16 +1138,6 @@ public:
   // precisely so this buffer keeps its capacity across calls. All double -- the
   // leaf is a node this strategy supplies rows for, not a scalar it lifts.
   phylloptim::gradient::Drivers leaf_drivers_;
-
-  // The input step is a relative 1e-3, which is what it takes to move total
-  // uptake above the solve's own floor; the collar's stays small, because a step
-  // crossing a narrow bracket is what detects a pinned point.
-  static phylloptim::gradient::Settings leaf_row_settings() {
-    phylloptim::gradient::Settings s;
-    s.step = 1e-3;
-    s.collar = 1e-6;
-    return s;
-  }
 
   // Set where a row the UPTAKE outputs need does not exist. The first reason is
   // kept: a later one is a consequence of the same degeneracy.

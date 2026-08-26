@@ -968,6 +968,19 @@ void Patch<T,E>::compute_environment() {
   if (size() == 0) {
     return;
   }
+  // The boundary node is one end of the birth-date quadrature and its birth date
+  // is the current time, so it is stamped before either profile is built. Its own
+  // stamp is set in compute_rates(), which the stepper calls *after* the
+  // set_ode_state() that brings us here, so reading that stamp would use the
+  // previous derivs call's time and shorten the boundary interval by a
+  // Runge-Kutta stage. The measured effect is below 1e-6, but the interval is
+  // then a function of the step size, which the spatial quadrature has no
+  // business depending on, and the whole integral *is* that one segment while a
+  // species has a single node. No-op for the height coordinate, where this
+  // abscissa is the constant initial height.
+  for (auto& s : species) {
+    s.set_new_node_birth_date(environment.time);
+  }
   compute_environment_excl_capturing();
   compute_boundary_nodes();
   compute_environment_closing();
@@ -977,18 +990,6 @@ void Patch<T,E>::compute_environment() {
 // the point its closing trapezium would be added.
 template <typename T, typename E>
 void Patch<T,E>::compute_environment_excl_capturing() {
-  // The boundary node is one end of the birth-date quadrature and its birth date
-  // is the current time, so refresh it before the profile is built. Its own stamp
-  // is set in compute_rates(), which the stepper calls *after* the set_ode_state()
-  // that brings us here, so reading that stamp would use the previous derivs
-  // call's time and shorten the boundary interval by a Runge-Kutta stage. The
-  // measured effect is below 1e-6, but the interval is then a function of the step
-  // size, which the spatial quadrature has no business depending on, and the whole
-  // integral *is* that one segment while a species has a single node. No-op for
-  // the height coordinate, where this abscissa is the constant initial height.
-  for (auto& s : species) {
-    s.set_new_node_birth_date(environment.time);
-  }
   // The reduction fills one entry per knot, so the only thing needed here is one
   // vector per species; field_splits sizes each of them.
   competition_capture.resize(size());
@@ -1018,9 +1019,6 @@ void Patch<T,E>::compute_environment_excl_capturing() {
 // the boundary node the call between the two established.
 template <typename T, typename E>
 void Patch<T,E>::compute_environment_closing() {
-  for (auto& s : species) {
-    s.set_new_node_birth_date(environment.time);
-  }
   auto f = [&](const std::vector<double>& x, std::vector<value_type>& y,
                std::vector<value_type>& m) -> void {
     for (size_t k = 0; k < x.size(); ++k) {

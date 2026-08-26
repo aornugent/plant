@@ -117,7 +117,7 @@ public:
   // strategy that does not answer it: a census over a list nothing declared
   // would otherwise fail inside whichever loop reached for it.
   template <class P>
-  static std::vector<census_metric<typename P::strategy_type>> metrics_of() {
+  static const auto& metrics_of() {
     static_assert(Censusable<typename P::strategy_type>,
                   "a census of this model is being taken, so its strategy must "
                   "declare census_metrics()");
@@ -854,7 +854,7 @@ Rcpp::List SCM<T, E>::r_store_trajectory() {
 
 template <typename T, typename E>
 std::vector<double> SCM<T, E>::census() const {
-  const std::vector<census_metric<T>> metrics = metrics_of<patch_type>();
+  const auto& metrics = metrics_of<patch_type>();
   std::vector<double> ret;
   ret.reserve(metrics.size());
   for (const census_metric<T>& metric : metrics) {
@@ -913,7 +913,7 @@ census_rows SCM<T, E>::census_state_and_trait_rows() const {
                     std::vector<scalar>& y) -> void {
     // The traits are already written from the other half of the recorded inputs.
     active.set_state_and_boundary(x, time());
-    const auto metrics = metrics_of<std::decay_t<decltype(active)>>();
+    const auto& metrics = metrics_of<std::decay_t<decltype(active)>>();
     for (size_t m = 0; m < metrics.size(); ++m) {
       y[m] = census_sum(active, metrics[m]);
     }
@@ -930,7 +930,7 @@ template <typename T, typename E>
 std::vector<std::vector<double>>
 SCM<T, E>::census_trait_difference(double rel) {
   require_birth_date_coordinate("census_trait_difference");
-  const std::vector<census_metric<T>> metrics = metrics_of<patch_type>();
+  const auto& metrics = metrics_of<patch_type>();
   const size_t n_metric = metrics.size();
   const size_t n_state = patch.ode_size();
 
@@ -987,7 +987,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // anything runs, so the shape of the answer is known on the refusal path too.
   // Named rather than positional: a caller indexing by position gets a different
   // metric's gradient when the list changes, and nothing says so.
-  const std::vector<census_metric<T>> metrics = metrics_of<patch_type>();
+  const auto& metrics = metrics_of<patch_type>();
   std::vector<size_t> rows;
   if (which_metrics.empty()) {
     rows.resize(metrics.size());
@@ -1193,7 +1193,7 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   odelia::ode::be_at_step(solver.get_system_ref(), rec, rec.size() - 1);
 
   const auto& reached = forward.get_system_ref();
-  const auto metrics = metrics_of<std::decay_t<decltype(reached)>>();
+  const auto& metrics = metrics_of<std::decay_t<decltype(reached)>>();
   std::vector<double> ret;
   ret.reserve(metrics.size());
   value.clear();
@@ -1260,7 +1260,7 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   odelia::ode::be_at_step(live, rec, rec.size() - 1);
 
   const auto& reached = forward.get_system_ref();
-  const auto metrics = metrics_of<std::decay_t<decltype(reached)>>();
+  const auto& metrics = metrics_of<std::decay_t<decltype(reached)>>();
   std::vector<Scalar> out;
   out.reserve(metrics.size());
   for (const auto& metric : metrics) {

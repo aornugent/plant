@@ -35,8 +35,10 @@ public:
   compute_competition_and_slope(const value_type& z) const;
   value_type fecundity() const {return offspring_produced_survival_weighted;}
 
-  // The survival factor offspring_produced_survival_weighted_dt multiplies,
-  // zero where compute_rates squashed a non-finite one.
+  // The survival factor offspring_produced_survival_weighted_dt multiplies. It
+  // is zero rather than non-finite where the mortality integral has run away:
+  // that happens only where the density is already too low to contribute, and a
+  // non-finite factor here takes every rate reading this node with it.
   value_type survival_individual() const {
     const value_type s = exp(-individual.state(MORTALITY_INDEX));
     return util::is_finite(s) ? s : value_type(0.0);
@@ -172,19 +174,8 @@ void Node<T,E>::compute_rates(const environment_type& environment,
   // recording reaches through this same call, so the recording and this path
   // cannot disagree about which coordinate they are on.
   log_density_dt = individual.log_density_rate(environment);
-  // survival_individual: converts from the mean of the poisson process (on
-  // [0,Inf)) to a probability (on [0,1]).
-  value_type survival_individual = exp(-individual.state(MORTALITY_INDEX));
-  if (!util::is_finite(survival_individual)) {
-    // This is caused by NaN values in plant.mortality and log
-    // density; this should only be an issue when density is so low
-    // that we can throw these away.  I think that with smaller step
-    // sizes this is better behaved too?
-    survival_individual = 0.0;
-  }
-
   offspring_produced_survival_weighted_dt =
-    individual.rate(FECUNDITY_INDEX) * survival_individual *
+    individual.rate(FECUNDITY_INDEX) * survival_individual() *
     pr_patch_survival / pr_patch_survival_at_birth;
 }
 
