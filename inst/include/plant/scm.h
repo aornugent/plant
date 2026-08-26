@@ -577,6 +577,10 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
 
   sys.introduce_nodes(ret, e.time_introduction());
   solver.set_state_from_system();
+  // The wider state the introduction just reached, onto the row it followed: it
+  // is what the next step runs from, and no step reached it. Recorded here
+  // because this is where the width changes.
+  solver.push_inserted();
 
   // Three integration modes:
   //  - pinned ode times (resident replay for a mutant): step exactly to the
