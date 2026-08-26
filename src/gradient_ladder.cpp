@@ -68,8 +68,9 @@ size_t rhs_adjoint(patch_type& patch,
     odelia::ode::row_batch::one_row(lambda_dydt);
   odelia::ode::row_batch swept;
   odelia::ode::row_batch rows(1, patch.trait_adjoint_size());
+  odelia::ode::lifted_system<std::decay_t<decltype(patch)>> active{patch, tape.get()};
   const size_t recording = odelia::ode::rates_adjoint(
-    tape.get(), patch, state, patch.time(), seeds, swept, rows);
+    tape.get(), active, state, patch.time(), seeds, swept, rows);
   lambda_state.assign(swept[0].begin(), swept[0].end());
   trait_adjoint.assign(rows[0].begin(), rows[0].end());
   return recording;
@@ -844,7 +845,8 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
   odelia::ode::row_batch lambda_before;
   odelia::ode::row_batch trait_adjoint(n_out, n_trait);
   ad_scalar::tape_type tape(false);
-  odelia::ode::state_and_parameter_adjoints(tape, patch, state_before, seeds,
+  odelia::ode::lifted_system<std::decay_t<decltype(patch)>> active{patch, tape};
+  odelia::ode::state_and_parameter_adjoints(tape, active, state_before, seeds,
                                             widen, lambda_before,
                                             trait_adjoint);
 

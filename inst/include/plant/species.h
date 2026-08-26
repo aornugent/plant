@@ -88,6 +88,12 @@ public:
     bool from_loop{false};   // false when a short path returned before the loop
     bool unordered{false};   // the sorted-view fallback, which splits no further
     std::pair<value_type, value_type> excl{value_type(0.0), value_type(0.0)};
+
+    template <class F>
+    void for_each_active(F&& f) {
+      f(tot); f(tot_slope); f(f_h1); f(s_h1); f(x1);
+      f(excl.first); f(excl.second);
+    }
   };
   competition_split compute_competition_and_slope_split(double height) const;
   // The same split at every height of a set, from ONE pass over the nodes.
@@ -120,6 +126,17 @@ public:
   // closes the grid, being the lower limit of the distribution.
   // The metric integrated over this species' size distribution.
   value_type census_integral(const census_metric<T>& metric) const;
+
+  // Every active value this species holds: its nodes, the boundary node, the
+  // cached height scan, and the strategy it owns -- which is reached here and
+  // nowhere else, because every node shares it.
+  template <class F>
+  void for_each_active(F&& f) {
+    for (node_type& node : nodes) { node.for_each_active(f); }
+    new_node.for_each_active(f);
+    f(height_scan_cache.h_max);
+    strategy->for_each_active(f);
+  }
 
   // Whether the decreasing-height node ordering still holds (see height_max()).
   bool heights_are_decreasing() const;

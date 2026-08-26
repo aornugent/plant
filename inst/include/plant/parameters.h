@@ -45,6 +45,14 @@ struct Parameters {
   std::string patch_type;
   double max_patch_lifetime; // Disturbance interval (years)
   std::vector<strategy_type> strategies;
+  // Every active value the strategies here carry. They are copies the patch does
+  // not run, and a recording does not read them -- but they hold slots, and a
+  // slot left registered is one the next clear reissues.
+  template <class F>
+  void for_each_active(F&& f) {
+    for (strategy_type& s : strategies) { s.for_each_active(f); }
+    strategy_default.for_each_active(f);
+  }
 
   // Owned, and shared with every copy of these parameters and with the patch
   // that reads it. A raw pointer here was allocated on every validate() and

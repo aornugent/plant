@@ -125,6 +125,11 @@ public:
   // reads as the value.
   odelia::interpolator::hermite_interpolator<S> spline;
 
+  template <class F>
+  void for_each_active(F&& f) {
+    spline.for_each_active(f);
+  }
+
   // Knot positions in units of the canopy top, u_k = x_k / height_max, uniform and
   // fixed for the run. Nothing may reassign them: a rebuild places knots at
   // u_k * height_max, and that is what makes the positions run-constant.

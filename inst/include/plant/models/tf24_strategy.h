@@ -1188,6 +1188,19 @@ public:
   // Written by net_mass_production_dt before compute_rates reads either.
   S leaf_profit_;
   std::vector<S> leaf_soil_consumption_;
+
+  // Every active value this strategy holds: the whole parameter table, the two
+  // leaf outputs, and the per-layer root carbon. `leaf` is not among them -- it
+  // solves in double, which is what keeps the leaf off the tape.
+  template <class F>
+  void for_each_active(F&& f) {
+    for (const ad_parameter& field : pars.ad_parameter_table()) {
+      f(pars.*field.at);
+    }
+    f(leaf_profit_);
+    for (S& v : leaf_soil_consumption_) { f(v); }
+    for (S& v : root_carbon_per_leaf_area_) { f(v); }
+  }
 };
 
 template <typename S>

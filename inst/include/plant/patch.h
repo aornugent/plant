@@ -204,6 +204,26 @@ public:
   // row is indexed in, answered once rather than walked by each caller.
   std::vector<typename T::value_type*> ad_parameters();
 
+  // Every active value this patch holds, wherever it lives. A walk that keeps a
+  // lifted patch across recordings hands each of these back before it clears the
+  // tape, and the tape then says whether any was missed.
+  //
+  // `area` and the disturbance regime are not here: they are double. Nor are the
+  // per-node error tallies, for the same reason.
+  template <class F>
+  void for_each_active(F&& f) {
+    parameters.for_each_active(f);
+    environment.for_each_active(f);
+    for (species_type& s : species) { s.for_each_active(f); }
+    for (value_type& v : resource_depletion) { f(v); }
+    for (std::vector<typename species_type::competition_split>& per_species :
+         competition_capture) {
+      for (typename species_type::competition_split& split : per_species) {
+        split.for_each_active(f);
+      }
+    }
+  }
+
   size_t trait_adjoint_size() const;
   // The same order, named. Each name carries its species index, because
   // concatenating the strategies' own names repeats every one of them per

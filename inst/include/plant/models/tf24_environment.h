@@ -352,8 +352,6 @@ public:
   std::vector<double> z;
   std::vector<double> z_mid;
   std::vector<double> dz;
-  // The potentials carry S so a cohort read can be an active input; the state
-  // the cache is keyed on stays double, because it is the key and not a value.
   // The potentials the moisture state implies, derived where they are asked for
   // and kept until the state moves. Every writer of that state clears the flag
   // below, which is the whole of what keeps this true -- a second copy of the
@@ -391,6 +389,17 @@ public:
 
   // A ResourceSpline used for storing light availbility (0-1)
   ResourceSpline<S> light_availability;
+
+  // Every active value this environment holds: the integrated state and its
+  // rates, the per-layer flux, the potentials derived from the state, and the
+  // light field's knot values and slopes.
+  template <class F>
+  void for_each_active(F&& f) {
+    vars.for_each_active(f);
+    for (S& v : water_flux) { f(v); }
+    for (S& v : psi_soil_) { f(v); }
+    light_availability.for_each_active(f);
+  }
 
   // Light interface
   //distance between layers

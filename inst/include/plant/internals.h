@@ -68,6 +68,17 @@ public:
   void resize_consumption_rates(size_t new_resource_size) {
     consumption_rates.resize(new_resource_size, S(NA_REAL));
   }
+
+  // Every value here that carries the scalar. All four vectors: the rates and
+  // the auxiliary quantities as much as the state, because a recording writes
+  // them and writing does not refresh what they carry.
+  template <class F>
+  void for_each_active(F&& f) {
+    for (S& v : states) { f(v); }
+    for (S& v : rates) { f(v); }
+    for (S& v : auxs) { f(v); }
+    for (S& v : consumption_rates) { f(v); }
+  }
 };
 
 } // namespace plant

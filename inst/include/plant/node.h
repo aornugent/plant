@@ -131,6 +131,19 @@ public:
 
   individual_type individual;
 
+  // The five this node carries beside the individual's. `density` is among them
+  // although every load rewrites it: a write keeps whatever slot the value
+  // already held.
+  template <class F>
+  void for_each_active(F&& f) {
+    f(log_density);
+    f(log_density_dt);
+    f(density);
+    f(offspring_produced_survival_weighted);
+    f(offspring_produced_survival_weighted_dt);
+    individual.for_each_active(f);
+  }
+
 private:
   // This is the gradient of growth rate with respect to height:
   value_type growth_rate_gradient(const environment_type& environment) const;

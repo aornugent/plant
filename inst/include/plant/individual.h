@@ -175,6 +175,13 @@ public:
     return it;
   }
 
+  // Its own slots. The strategy is not among them: it is shared, and the species
+  // that owns it reaches it once.
+  template <class F>
+  void for_each_active(F&& f) {
+    vars.for_each_active(f);
+  }
+
   // * The recorded block
 
   // compute_rates as a pure function of its own states, the environment's
