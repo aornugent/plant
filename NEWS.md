@@ -7,6 +7,42 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **An unknown trait name is now an error (#636).** `generate_strategy()` (and
+  `add_strategies()` / `add_mutant()`, which route through it) refuse a trait
+  whose name is not a parameter of the model, naming the offenders and their
+  nearest valid matches.
+
+  It used to be silent, and not by dropping the name: `pars[["typo"]] <- x`
+  APPENDS to a list, so the junk element reached the generated
+  `Rcpp::as<*_Pars>`, which reads only the fields it knows. The strategy then
+  built, solved and reported at the **default** value of the parameter the caller
+  meant to vary, with nothing in the output to say so — a trait sweep running its
+  whole length at one point.
+
+  ⚠️ **A hyperpar's own arguments are not traits.** `B_kl1`, `B_ks1`, `B_lf4` and
+  the rest parameterise the trade-offs once, when the hyperpar is *built*; pass
+  them to `make_FF16_hyperpar()`, not in a trait matrix. Naming one as a trait has
+  never done anything, and now says so. `tests/testthat/test-ode-individual-runner.R`
+  had been passing nine of them for years to no effect; removing them leaves that
+  test's strategy bit-identical, measured.
+
+  ⚠️ **A trait the hyperpar consumes without assigning is still accepted.** FF16's
+  `narea` derives `a_p1`, `a_p2` and `r_l` and is not a parameter of any model, so
+  a `pars`-only check would have rejected a sweep that works. Hyperpars declare
+  such traits themselves through a new `input_traits` attribute
+  (`attr(make_FF16_hyperpar(), "input_traits") == "narea"`). A **caller-supplied**
+  hyperpar carrying no declaration gets the `pars`-only set, since nothing can know
+  what an arbitrary closure reads — attach the attribute if yours consumes a
+  non-parameter trait.
+
+  Consumed traits are also no longer appended to `pars`, so a strategy no longer
+  compares unequal to a default one over an element the model never reads.
+
+  Known gap, unchanged here: top-level strategy fields are not traits. TF24f's
+  `k_acclim`, `psi_fd_step` and `use_ad_gradient` are real settable fields that
+  the trait mechanism cannot reach, and naming one is now an error rather than
+  silence — which is the honest report, not the fix.
+
 * **phylloptim 0.7.0 -> 0.8.0.** Bumped deliberately, which is what the `==` pin
   below exists to force. 0.8.0 (traitecoevo/phylloptim#133) reports the seated
   curve's `lambda_emergent` through `leaf_solve()` and fixes a stale
