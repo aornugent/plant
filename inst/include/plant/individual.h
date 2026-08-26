@@ -179,7 +179,7 @@ public:
   // that owns it reaches it once.
   template <class F>
   void for_each_active(F&& f) {
-    vars.for_each_active(f);
+    odelia::ode::visit_active(f, vars);
   }
 
   // * The recorded block

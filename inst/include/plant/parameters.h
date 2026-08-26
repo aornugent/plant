@@ -50,8 +50,7 @@ struct Parameters {
   // slot left registered is one the next clear reissues.
   template <class F>
   void for_each_active(F&& f) {
-    for (strategy_type& s : strategies) { s.for_each_active(f); }
-    strategy_default.for_each_active(f);
+    odelia::ode::visit_active(f, strategies, strategy_default);
   }
 
   // Owned, and shared with every copy of these parameters and with the patch

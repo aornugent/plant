@@ -91,8 +91,7 @@ public:
 
     template <class F>
     void for_each_active(F&& f) {
-      f(tot); f(tot_slope); f(f_h1); f(s_h1); f(x1);
-      f(excl.first); f(excl.second);
+      odelia::ode::visit_active(f, tot, tot_slope, f_h1, s_h1, x1, excl);
     }
   };
   competition_split compute_competition_and_slope_split(double height) const;
@@ -132,10 +131,8 @@ public:
   // nowhere else, because every node shares it.
   template <class F>
   void for_each_active(F&& f) {
-    for (node_type& node : nodes) { node.for_each_active(f); }
-    new_node.for_each_active(f);
-    f(height_scan_cache.h_max);
-    strategy->for_each_active(f);
+    odelia::ode::visit_active(f, nodes, new_node, height_scan_cache.h_max,
+                              strategy);
   }
 
   // Whether the decreasing-height node ordering still holds (see height_max()).

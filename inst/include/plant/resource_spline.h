@@ -127,7 +127,7 @@ public:
 
   template <class F>
   void for_each_active(F&& f) {
-    spline.for_each_active(f);
+    odelia::ode::visit_active(f, spline);
   }
 
   // Knot positions in units of the canopy top, u_k = x_k / height_max, uniform and

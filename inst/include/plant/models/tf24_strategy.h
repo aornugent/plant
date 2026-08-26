@@ -1197,9 +1197,8 @@ public:
     for (const ad_parameter& field : pars.ad_parameter_table()) {
       f(pars.*field.at);
     }
-    f(leaf_profit_);
-    for (S& v : leaf_soil_consumption_) { f(v); }
-    for (S& v : root_carbon_per_leaf_area_) { f(v); }
+    odelia::ode::visit_active(f, leaf_profit_, leaf_soil_consumption_,
+                              root_carbon_per_leaf_area_);
   }
 };
 

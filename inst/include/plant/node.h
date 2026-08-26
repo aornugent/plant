@@ -136,12 +136,10 @@ public:
   // already held.
   template <class F>
   void for_each_active(F&& f) {
-    f(log_density);
-    f(log_density_dt);
-    f(density);
-    f(offspring_produced_survival_weighted);
-    f(offspring_produced_survival_weighted_dt);
-    individual.for_each_active(f);
+    odelia::ode::visit_active(f, log_density, log_density_dt, density,
+                              offspring_produced_survival_weighted,
+                              offspring_produced_survival_weighted_dt,
+                              individual);
   }
 
 private:

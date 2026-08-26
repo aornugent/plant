@@ -395,10 +395,8 @@ public:
   // light field's knot values and slopes.
   template <class F>
   void for_each_active(F&& f) {
-    vars.for_each_active(f);
-    for (S& v : water_flux) { f(v); }
-    for (S& v : psi_soil_) { f(v); }
-    light_availability.for_each_active(f);
+    odelia::ode::visit_active(f, vars, water_flux, psi_soil_,
+                              light_availability);
   }
 
   // Light interface

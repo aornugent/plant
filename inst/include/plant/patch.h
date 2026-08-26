@@ -212,16 +212,8 @@ public:
   // per-node error tallies, for the same reason.
   template <class F>
   void for_each_active(F&& f) {
-    parameters.for_each_active(f);
-    environment.for_each_active(f);
-    for (species_type& s : species) { s.for_each_active(f); }
-    for (value_type& v : resource_depletion) { f(v); }
-    for (std::vector<typename species_type::competition_split>& per_species :
-         competition_capture) {
-      for (typename species_type::competition_split& split : per_species) {
-        split.for_each_active(f);
-      }
-    }
+    odelia::ode::visit_active(f, parameters, environment, species,
+                              resource_depletion, competition_capture);
   }
 
   size_t trait_adjoint_size() const;

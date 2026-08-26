@@ -74,10 +74,7 @@ public:
   // them and writing does not refresh what they carry.
   template <class F>
   void for_each_active(F&& f) {
-    for (S& v : states) { f(v); }
-    for (S& v : rates) { f(v); }
-    for (S& v : auxs) { f(v); }
-    for (S& v : consumption_rates) { f(v); }
+    odelia::ode::visit_active(f, states, rates, auxs, consumption_rates);
   }
 };
 
