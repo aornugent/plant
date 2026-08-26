@@ -924,8 +924,8 @@ census_rows SCM<T, E>::census_state_and_trait_rows() const {
   };
   odelia::ode::lifted_system<patch_type> active_patch{patch, tape};
   odelia::ode::state_and_parameter_adjoints(
-      tape, active_patch, state, odelia::ode::row_batch::all_rows(n_metric),
-      reduce, ret.state, ret.trait);
+      active_patch, state, odelia::ode::row_batch::all_rows(n_metric), reduce,
+      ret.state, ret.trait);
   return ret;
 }
 

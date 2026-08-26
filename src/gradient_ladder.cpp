@@ -55,7 +55,7 @@ using adjoint_patch = plant::Patch<plant::at_scalar<strategy_type, adjoint>,
 // seed. Returns the recording's size. The tape is the caller's, as it is the
 // solver's in a sweep, so a caller repeating the call does not pay for it twice.
 size_t rhs_adjoint(patch_type& patch,
-                   odelia::ode::scratch_tape& tape,
+                   odelia::ode::adjoint_tape<double>& tape,
                    const std::vector<double>& lambda_dydt,
                    std::vector<double>& lambda_state,
                    std::vector<double>& trait_adjoint) {
@@ -68,9 +68,9 @@ size_t rhs_adjoint(patch_type& patch,
     odelia::ode::row_batch::one_row(lambda_dydt);
   odelia::ode::row_batch swept;
   odelia::ode::row_batch rows(1, patch.trait_adjoint_size());
-  odelia::ode::lifted_system<std::decay_t<decltype(patch)>> active{patch, tape.get()};
+  odelia::ode::lifted_system<std::decay_t<decltype(patch)>> active{patch, tape};
   const size_t recording = odelia::ode::rates_adjoint(
-    tape.get(), active, state, patch.time(), seeds, swept, rows);
+    active, state, patch.time(), seeds, swept, rows);
   lambda_state.assign(swept[0].begin(), swept[0].end());
   trait_adjoint.assign(rows[0].begin(), rows[0].end());
   return recording;
@@ -449,7 +449,7 @@ Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF2
     *s->uptake_rows_unavailable = false;
     s->uptake_rows_reason->clear();
   }
-  odelia::ode::scratch_tape tape;
+  odelia::ode::adjoint_tape<double> tape(false);
   std::vector<double> lambda_y, trait_adjoint;
   const size_t recording =
     rhs_adjoint(patch, tape, lambda_dydt, lambda_y, trait_adjoint);
@@ -846,9 +846,8 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
   odelia::ode::row_batch trait_adjoint(n_out, n_trait);
   ad_scalar::tape_type tape(false);
   odelia::ode::lifted_system<std::decay_t<decltype(patch)>> active{patch, tape};
-  odelia::ode::state_and_parameter_adjoints(tape, active, state_before, seeds,
-                                            widen, lambda_before,
-                                            trait_adjoint);
+  odelia::ode::state_and_parameter_adjoints(active, state_before, seeds, widen,
+                                            lambda_before, trait_adjoint);
 
   Rcpp::NumericMatrix rev(static_cast<int>(n_out),
                           static_cast<int>(n_state + n_trait));
