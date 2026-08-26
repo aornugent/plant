@@ -526,6 +526,13 @@ void Patch<T,E>::assign_from(const Patch<T1,E1>& src) {
                "the one it is assigned from");
   }
 
+  // Stated rather than left to the default. A patch assigned from another is the
+  // one that REPLAYS a record, and recording is what fills one: a patch that
+  // arrives here still recording clears the kept choices at every stage and
+  // searches for each of them again, which is slower and -- because the search
+  // answers from this state rather than from the recorded one -- need not agree.
+  recording = false;
+
   environment = src.environment.template rebind_from<U>();
   environment.set_shading_model(control.shading_model,
                                 control.ppa_layer_optical_depth,

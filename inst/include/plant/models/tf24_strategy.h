@@ -912,10 +912,20 @@ public:
     if constexpr (std::is_same_v<S, double>) {
       return {height_0, area_leaf_0};
     } else {
+      // The residual is five composed allometries, so its slope is not one term
+      // to write down. It is a tangent through the same expression instead --
+      // taken here, once, where the choice is visible, rather than by every
+      // caller of the theorem.
+      using tangent = odelia::ode::tangent_scalar<double>;
+      const TF24_Strategy<tangent> at_tangent = rebind_from<tangent>();
+      tangent probe = height_0;
+      odelia::ode::seed_direction(probe, 1.0);
+      const double dmass_dheight = odelia::ode::derivative_along(
+          at_tangent.mass_live_given_height(probe));
       const S h = odelia::implicit_value<S>(
-        height_0, *this,
-        []<class T>(const T& y, const TF24_Strategy<T>& at) -> T {
-          return at.mass_live_given_height(y) - at.pars.omega;
+        height_0, dmass_dheight,
+        [this](const S& y) -> S {
+          return mass_live_given_height(y) - pars.omega;
         });
       return {h, area_leaf(h)};
     }
@@ -1189,7 +1199,6 @@ public:
 template <typename S>
 typename TF24_Strategy<S>::ptr make_strategy_ptr(TF24_Strategy<S> s);
 
-// --- Hard-coded root-distribution constants (review #9) ---------------------
 // Named here for clarity; promotion to user-tunable traits (RcppR6) is a
 // deliberate follow-up (see vignettes/models/code_review_leaf_tf24.qmd #9).
 // rescales total fine-root mass into the per-layer carbon units expected by the
@@ -1286,9 +1295,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       pars.b,
       pars.c,
       pars.beta2,
-      pars.g1_TF24,
-      S(leaf.opt_root_psi_),
-      S(0.0)};
+      pars.g1_TF24};
   in.supply.psi_soil = psi_soil;
   // Carbon becomes resistance HERE, at this scalar, because the architecture
   // model is this strategy's -- the leaf takes the resistances and knows nothing
@@ -1330,7 +1337,6 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     // Placed, then evaluated. Which condition placed it is the leaf's to say;
     // whether the curvature it divides by is usable was this caller's, above.
     const S collar = leaf.collar_at<S>(in, condition, got.point);
-    in.profit.collar = collar;
     got = leaf.outputs_at<S>(collar, in);
   } catch (const std::runtime_error& e) {
     note_leaf_clamps(clamps_before);
@@ -1544,7 +1550,6 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
     vars.set_consumption_rate(i, evapotranspiration_dt(area_leaf_, i)*60*60*12*365/1000*kg_per_mol_h2o);
   }
 
-  // --- NSC storage pool (#517) ---------------------------------------------
   // A storage pool buffers demography against short-term productivity swings:
   // growth is gated on having ample reserves, and mortality reads the buffered
   // relative reserves rather than instantaneous net production -- so a trough
@@ -1769,9 +1774,6 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // to the leaf, which stored it and never read it. Recompute it here if a
   // caller ever needs it.
 
-  // ----------------------------------------------------------------------
-  // ROOT MASS DISTRIBUTION ACROSS SOIL LAYERS
-  // ----------------------------------------------------------------------
   // Fine-root carbon is distributed over depth using the same cumulative shape
   // function Q() used for the leaf canopy, but parameterised over soil depth
   // instead of crown height. Q(z, rooting_depth, 0.2) gives the fraction of
