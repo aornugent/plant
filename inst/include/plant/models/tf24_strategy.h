@@ -338,6 +338,21 @@ struct TF24_Pars {
                 "undifferentiable names a parameter ad_parameter_fields does "
                 "not carry, or names one twice");
 
+  // The entries that carry a column, filtered once here. Filtered per call, it
+  // was a string comparison against every undifferentiable name for each of the
+  // sixty fields -- and the gradient asks for this list once per recording.
+  static constexpr std::array<ad_parameter, column_count> ad_parameter_columns =
+      [] {
+        std::array<ad_parameter, column_count> ret{};
+        std::size_t n = 0;
+        for (const ad_parameter& f : ad_parameter_fields) {
+          if (has_column(f.name)) {
+            ret[n++] = f;
+          }
+        }
+        return ret;
+      }();
+
   static constexpr const auto& ad_parameter_table() { return ad_parameter_fields; }
 };
 
@@ -636,13 +651,10 @@ public:
   // the run rather than per block; the strategy is shared and the fields do not
   // move. Index against .size().
   std::vector<S*> ad_parameters() {
-    const auto& table = pars.ad_parameter_table();
     std::vector<S*> ret;
-    ret.reserve(table.size());
-    for (const ad_parameter& p : table) {
-      if (TF24_Pars<S>::has_column(p.name)) {
-        ret.push_back(&(pars.*p.at));
-      }
+    ret.reserve(TF24_Pars<S>::column_count);
+    for (const ad_parameter& p : TF24_Pars<S>::ad_parameter_columns) {
+      ret.push_back(&(pars.*p.at));
     }
     return ret;
   }
@@ -650,13 +662,10 @@ public:
   // The name each gradient column carries, one per ad_parameters() entry and in
   // that order. Which parameters are left out, and why, is `undifferentiable`.
   std::vector<std::string> ad_parameter_names() {
-    const auto& table = pars.ad_parameter_table();
     std::vector<std::string> ret;
-    ret.reserve(table.size());
-    for (const ad_parameter& p : table) {
-      if (TF24_Pars<S>::has_column(p.name)) {
-        ret.push_back(p.name);
-      }
+    ret.reserve(TF24_Pars<S>::column_count);
+    for (const ad_parameter& p : TF24_Pars<S>::ad_parameter_columns) {
+      ret.push_back(p.name);
     }
     return ret;
   }

@@ -142,9 +142,8 @@ public:
       dz[i] = delta_z;
     }
 
-    psi_soil_cache_.resize(soil_number_of_depths);
-    psi_soil_cache_state_.resize(soil_number_of_depths);
-    psi_soil_cache_valid_ = false;
+    psi_soil_.resize(soil_number_of_depths);
+    psi_soil_valid_ = false;
 
     use_layered_soil_parameters = false;
     soil_moist_sat_layers.clear();
@@ -170,7 +169,7 @@ public:
       n_psi_values, n, n_psi, "n_psi");
 
     use_layered_soil_parameters = true;
-    psi_soil_cache_valid_ = false;
+    psi_soil_valid_ = false;
   }
 
   int get_soil_number_of_depths() const {return soil_number_of_depths;}
@@ -186,7 +185,7 @@ public:
     // The potentials are derived from the state just written, and the cache that
     // holds them is keyed on that state by value -- which cannot see a changed
     // derivative behind an unchanged value.
-    psi_soil_cache_valid_ = false;
+    psi_soil_valid_ = false;
     return it;
   }
 
@@ -278,13 +277,11 @@ public:
     light_availability.set_knot_data(y, m);
     // Key the cache on the state now held, so the injected potentials survive
     // the next read rather than being recomputed passively over the top.
-    psi_soil_cache_.resize(soil_number_of_depths);
-    psi_soil_cache_state_.resize(soil_number_of_depths);
+    psi_soil_.resize(soil_number_of_depths);
     for (int i = 0; i < soil_number_of_depths; ++i) {
-      psi_soil_cache_[i] = *it++;
-      psi_soil_cache_state_[i] = odelia::util::to_passive(vars.state(i));
+      psi_soil_[i] = *it++;
     }
-    psi_soil_cache_valid_ = true;
+    psi_soil_valid_ = true;
     return it;
   }
 
@@ -332,9 +329,8 @@ public:
     clamps.differentiated = src.clamps.differentiated;
     // Keyed on a value, so it cannot see a changed derivative behind one; it is
     // emptied rather than carried.
-    psi_soil_cache_.assign(soil_number_of_depths, 0.0);
-    psi_soil_cache_state_.assign(soil_number_of_depths, 0.0);
-    psi_soil_cache_valid_ = false;
+    psi_soil_.assign(soil_number_of_depths, 0.0);
+    psi_soil_valid_ = false;
   }
 
   template <class U>
@@ -358,9 +354,17 @@ public:
   std::vector<double> dz;
   // The potentials carry S so a cohort read can be an active input; the state
   // the cache is keyed on stays double, because it is the key and not a value.
-  mutable std::vector<S> psi_soil_cache_;
-  mutable std::vector<double> psi_soil_cache_state_;
-  mutable bool psi_soil_cache_valid_ = false;
+  // The potentials the moisture state implies, derived where they are asked for
+  // and kept until the state moves. Every writer of that state clears the flag
+  // below, which is the whole of what keeps this true -- a second copy of the
+  // state was kept beside these and compared per read, and it could only ever
+  // catch a writer that had forgotten.
+  //
+  // ⚠️ A value read here cannot be compared against a value to decide staleness:
+  // on an active scalar the derivative can move behind an unchanged value, and
+  // the potentials would then carry the previous evaluation's tape slots.
+  mutable std::vector<S> psi_soil_;
+  mutable bool psi_soil_valid_ = false;
 
   // Per-driver memo for the time-varying extrinsic drivers (see get_* above).
   // cache_time NaN-initialised so the first call always misses (NaN != time).
@@ -648,17 +652,17 @@ public:
   }
 
   // convert soil water potential to soil moisture
-  double soil_moist_from_psi(double psi_soil_, size_t layer) const {
+  double soil_moist_from_psi(double psi, size_t layer) const {
     const double a_psi_layer = soil_parameter_value(a_psi_layers, a_psi, layer);
     const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
     const double soil_moist_sat_layer =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
-    // psi_soil_ is in MPa; a_psi is in Pa.
-    return pow((psi_soil_ * 1e6 / a_psi_layer), (-1 / n_psi_layer)) * soil_moist_sat_layer;
+    // psi is in MPa; a_psi is in Pa.
+    return pow((psi * 1e6 / a_psi_layer), (-1 / n_psi_layer)) * soil_moist_sat_layer;
   }
 
-  double soil_moist_from_psi(double psi_soil_) const {
-    return soil_moist_from_psi(psi_soil_, 0);
+  double soil_moist_from_psi(double psi) const {
+    return soil_moist_from_psi(psi, 0);
   }
 
   // Easy wrappers. Cn also use `extrinsic_drivers_evaluate("PPFD", time)
@@ -686,30 +690,15 @@ public:
     return out;
   }
   const std::vector<S>& get_soil_water_potential_state() const {
-    bool cache_stale = !psi_soil_cache_valid_ ||
-      psi_soil_cache_state_.size() != static_cast<size_t>(soil_number_of_depths);
-
-    if (!cache_stale) {
+    if (!psi_soil_valid_ ||
+        psi_soil_.size() != static_cast<size_t>(soil_number_of_depths)) {
+      psi_soil_.resize(soil_number_of_depths);
       for (int i = 0; i < soil_number_of_depths; ++i) {
-        if (psi_soil_cache_state_[i] != odelia::util::to_passive(vars.state(i))) {
-          cache_stale = true;
-          break;
-        }
+        psi_soil_[i] = psi_from_soil_moist(vars.state(i), i);
       }
+      psi_soil_valid_ = true;
     }
-
-    if (cache_stale) {
-      psi_soil_cache_.resize(soil_number_of_depths);
-      psi_soil_cache_state_.resize(soil_number_of_depths);
-      for (int i = 0; i < soil_number_of_depths; ++i) {
-        const S soil_moist = vars.state(i);
-        psi_soil_cache_state_[i] = odelia::util::to_passive(soil_moist);
-        psi_soil_cache_[i] = psi_from_soil_moist(soil_moist, i);
-      }
-      psi_soil_cache_valid_ = true;
-    }
-
-    return psi_soil_cache_;
+    return psi_soil_;
   }
   std::vector<double> get_soil_water_state_cumulative_flux() const {
     const std::vector<double> all = rebind_from(vars.states);
@@ -740,7 +729,7 @@ public:
       }
   }
     initial_states = rebind_from(vars.states);
-    psi_soil_cache_valid_ = false;
+    psi_soil_valid_ = false;
 }
 
   // The light a height is left with, from the competition profile above it.
@@ -771,7 +760,7 @@ public:
     for (size_t i = 0; i < vars.state_size(); ++i) {
       vars.states[i] = S(initial_states[i]);
     }
-    psi_soil_cache_valid_ = false;
+    psi_soil_valid_ = false;
   }
 
   virtual Rcpp::List r_get_state() const
