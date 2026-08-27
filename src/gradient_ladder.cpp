@@ -64,10 +64,10 @@ size_t rhs_adjoint(patch_type& patch,
   std::vector<double> state(n);
   patch.ode_state(state.begin());
 
-  const odelia::ode::row_batch seeds =
-    odelia::ode::row_batch::one_row(lambda_dydt);
-  odelia::ode::row_batch swept;
-  odelia::ode::row_batch rows(1, patch.trait_adjoint_size());
+  const odelia::ode::adjoint_rows seeds =
+    odelia::ode::adjoint_rows::one_row(lambda_dydt);
+  odelia::ode::adjoint_rows swept;
+  odelia::ode::adjoint_rows rows(1, patch.trait_adjoint_size());
   odelia::ode::lifted_system<std::decay_t<decltype(patch)>> active{patch, tape};
   const size_t recording = odelia::ode::rates_adjoint(
     active, state, patch.time(), seeds, swept, rows);
@@ -301,9 +301,9 @@ Rcpp::NumericMatrix ladder_block_jacobian_reverse_tf24(plant::RcppR6::RcppR6<pla
 
     // A batch of one, deliberately: this reference takes the Jacobian a row at a
     // time so that what it checks is one recording swept by one unit adjoint.
-    odelia::ode::row_batch seed(1, n_out);
+    odelia::ode::adjoint_rows seed(1, n_out);
     seed[0][r] = 1.0;
-    odelia::ode::row_batch row;
+    odelia::ode::adjoint_rows row;
     auto block = [&](const std::vector<scalar>& x,
                      std::vector<scalar>& y) -> void {
       individual.set_block_inputs(x.begin(), environment);
@@ -832,7 +832,7 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
   // One seed per output row, swept over a single recording of the map, which is
   // the shape the trajectory sweep takes. The trait accumulator adds by design,
   // so it is cleared before the call and again after it.
-  const odelia::ode::row_batch seeds = odelia::ode::row_batch::all_rows(n_out);
+  const odelia::ode::adjoint_rows seeds = odelia::ode::adjoint_rows::all_rows(n_out);
   // The transpose the sweep takes at a widening, taken here on its own: the same
   // tape and the same product the solver's walk runs, with the trajectory and the
   // segmentation left out so a disagreement is the map's.
@@ -842,8 +842,8 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
                    std::vector<ad_scalar>& y) -> void {
     active_patch.inserted_state(which, time_before, x, y);
   };
-  odelia::ode::row_batch lambda_before;
-  odelia::ode::row_batch trait_adjoint(n_out, n_trait);
+  odelia::ode::adjoint_rows lambda_before;
+  odelia::ode::adjoint_rows trait_adjoint(n_out, n_trait);
   ad_scalar::tape_type tape(false);
   odelia::ode::lifted_system<std::decay_t<decltype(patch)>> active{patch, tape};
   odelia::ode::state_and_parameter_adjoints(active, state_before, seeds, widen,

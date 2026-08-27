@@ -24,8 +24,8 @@ namespace plant {
 // Kept as a pair because they come out of one recording: handing them back
 // separately is what let two callers take two recordings of one function.
 struct census_rows {
-  odelia::ode::row_batch state;  // one column per ODE state entry
-  odelia::ode::row_batch trait;  // one column per registered trait
+  odelia::ode::adjoint_rows state;  // one column per ODE state entry
+  odelia::ode::adjoint_rows trait;  // one column per registered trait
 };
 
 // SCM: the "Solver for Characteristics Method" driver.
@@ -925,7 +925,7 @@ census_rows SCM<T, E>::census_state_and_trait_rows() const {
   // One recording, so the tape and the lift are odelia's to make. A sweep taking
   // many hands in the tape it holds for the descent.
   odelia::ode::state_and_parameter_adjoints(
-      patch, state, odelia::ode::row_batch::all_rows(n_metric), reduce,
+      patch, state, odelia::ode::adjoint_rows::all_rows(n_metric), reduce,
       ret.state, ret.trait);
   return ret;
 }
@@ -1045,7 +1045,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // Caught here, where the shape of the answer is still known from what the
   // caller asked for and the patch's trait width rather than from the seeds
   // themselves. Nothing is restored: the walk that borrows the width runs below.
-  odelia::ode::row_batch all_seeds, all_direct;
+  odelia::ode::adjoint_rows all_seeds, all_direct;
   try {
     const census_rows both = census_state_and_trait_rows();
     all_seeds = std::move(both.state);
@@ -1060,7 +1060,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
     }
     return ret;
   }
-  const odelia::ode::row_batch seeds = all_seeds.select(rows);
+  const odelia::ode::adjoint_rows seeds = all_seeds.select(rows);
   // Every metric's sweep visits the same trajectory and differs only in its
   // seed, so they are carried TOGETHER: a block is recorded once and swept once
   // per metric, where the loop this replaces recorded it once per metric. The
@@ -1077,9 +1077,9 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   // reading plus the sum over the trajectory. Seeded rather than added at the end
   // because a term added last is a term that can be left out, and a gradient
   // missing it is a plausible number rather than an error.
-  odelia::ode::row_batch trait_adjoint = all_direct.select(rows);
+  odelia::ode::adjoint_rows trait_adjoint = all_direct.select(rows);
   util::check_length(trait_adjoint.width(), live.trait_adjoint_size());
-  odelia::ode::row_batch lambda = seeds;
+  odelia::ode::adjoint_rows lambda = seeds;
   // One segment per width, highest first, narrowing across each widening and
   // transposing the map that took it. The solver owns that walk: what is left
   // here is the census the sweep is seeded from.
