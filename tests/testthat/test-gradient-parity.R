@@ -139,15 +139,10 @@ test_that("no driver the forward model answers leaves the reverse unnamed", {
       # status channel replaced.
       expect_true(is.character(r$reason) && nchar(r$reason) > 0)
 
-      # Located as far as the grain allows, and unlocated below that rather than
-      # partly filled. One recording spans six stages and every cohort in them,
-      # so a row it could not supply has no node to name; the segment boundaries
-      # are inside the solver's walk, so it has no step range either. What can
-      # survive is the species, and only where the frame that raised it knew one
-      # -- a refusal thrown from inside the recording does not.
-      expect_equal(r$refusal$node, -1)
-      expect_equal(r$refusal$step_first, -1)
-      expect_equal(r$refusal$step_last, -1)
+      # Located as far as the grain allows. One recording spans six stages and
+      # every cohort in them, so a row it could not supply has nothing below the
+      # species to name. The species survives only where the frame that raised it
+      # knew one -- a refusal thrown from inside the recording does not.
       expect_true(r$refusal$species == -1 || r$refusal$species >= 1)
       if (r$refusal$species == -1) {
         message("      unlocated: raised inside the recording, which names no species")

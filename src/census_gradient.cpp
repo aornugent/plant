@@ -61,10 +61,7 @@ Rcpp::List census_gradient_to_r(const plant::census_gradient& g) {
     const plant::refusal& why = g.why[m];
     if (why.happened()) {
       refusal[m] = Rcpp::List::create(Rcpp::_["reason"] = why.reason,
-                                      Rcpp::_["species"] = why.species,
-                                      Rcpp::_["node"] = why.node,
-                                      Rcpp::_["step_first"] = why.step_first,
-                                      Rcpp::_["step_last"] = why.step_last);
+                                      Rcpp::_["species"] = why.species);
     } else {
       refusal[m] = R_NilValue;
     }

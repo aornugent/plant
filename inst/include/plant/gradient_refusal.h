@@ -8,21 +8,18 @@
 
 namespace plant {
 
-// Why a metric has no gradient, and where that was found. A refusal is the only
-// thing a number needs said beside it: a parameter no gradient exists for cannot
-// be asked for, so it never reaches an answer, and every column that does reach
-// one carries a number the sweep computed.
+// Why a metric has no gradient, and which species it was found on. A refusal is
+// the only thing a number needs said beside it: a parameter no gradient exists
+// for cannot be asked for, so it never reaches an answer, and every column that
+// does reach one carries a number the sweep computed.
 //
-// The location is known in pieces -- the leaf knows the reason, the block loop
-// knows which plant, the sweep knows which steps -- so it is filled in by the
-// frames that know and left at -1 by the frames that do not.
+// The species is as fine as the grain gets: a row that could not be supplied is
+// an intermediate of a recording spanning six stages and every cohort in them, so
+// nothing below the species has a component to attribute it to.
 struct refusal {
   std::string reason;
+  // 1-based, and -1 where the frame that found it knew no species.
   int species = -1;
-  // 0 for the inflow boundary, 1-based for an introduced node.
-  int node = -1;
-  int step_first = -1;
-  int step_last = -1;
 
   bool happened() const { return !reason.empty(); }
 };

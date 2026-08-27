@@ -36,31 +36,24 @@ products using plant.
   constant -- so a consumer forming the bound's row needs to know which bound.
   Measured: at shipped defaults every dry pin is on the root-crit arm.
 
-* **The census trait gradient returns its numbers with a reading of what each one
-  is.** A row of doubles cannot say whether an entry is an answer, a zero the
-  model means, or a slot no sweep reached -- and a refusal used to escape to the
-  R prompt as an error, with no localisation and nothing a caller could inspect.
+* **The census trait gradient says why a metric has no numbers, instead of
+  raising.** A refusal used to escape to the R prompt as an error, with nothing a
+  caller could inspect and no way to keep the metrics that did answer.
   Migration:
   * `census_trait_gradient_tf24(scm, m)` (a list of numeric rows)
     -> `census_trait_gradient_tf24(scm, m)$gradient` for the same rows
   * `census_trait_gradient_split_tf24(scm, splits)`
     -> `census_trait_gradient_split_tf24(scm, splits)$gradient`
-  * `stand_gradient(scm)` gains `$status` and `$refusal`; `$gradient` is unchanged
-    in shape and meaning
+  * `stand_gradient(scm)` gains `$refusal`; `$gradient` is unchanged in shape and
+    meaning
 
-  Both C++ entry points now return `list(gradient, status, refusal)`. `status` is
-  a matrix of the gradient's shape whose entries are `"answered"`,
-  `"zero-slack"`, `"zero-structural"`, `"zero-undeclared"` or `"refused"`.
-  `refusal` carries one entry per metric -- the reason, and the species, node and
-  recorded-step range it was found at -- or `NULL` where the metric answered.
+  Both C++ entry points now return `list(gradient, refusal)`. `refusal` carries
+  one entry per metric -- the reason, and the species it was found on -- or `NULL`
+  where the metric answered.
 
   **A refused metric's whole gradient row is `NaN`.** Refusal is metric-level: a
   sum has no defined value with an undefined term, so no localisation within a
   metric is available. Metrics are independent of one another.
-
-  **`"zero-undeclared"` is a finding, not an answer.** An exact zero is the
-  signature of a missing accumulator far more often than of a true insensitivity,
-  so a zero with no declared reason is marked rather than read as either.
 
 * **`Leaf$set_physiology()` takes `root_network`, not `root_carbon_per_leaf_area`,
   and `Leaf()` no longer takes `beta_R_H` or `beta_R_V`.** Requires

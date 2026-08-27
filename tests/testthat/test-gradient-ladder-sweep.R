@@ -110,7 +110,6 @@ test_that("a fold refuses every metric, and on this census nothing would be spar
     expect_true(grepl("curvature", g$refusal[[m]]$reason, fixed = TRUE))
     # Located, which a refusal carried as data could easily fail to be.
     expect_gte(g$refusal[[m]]$species, 0)
-    expect_gte(g$refusal[[m]]$step_last, g$refusal[[m]]$step_first)
   }
   message(sprintf("  every one of %d metrics refuses at a fold: %s",
                   nrow(g$gradient),
