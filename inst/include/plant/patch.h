@@ -215,7 +215,7 @@ public:
   template <class F>
   void for_each_active(F&& f) {
     odelia::ode::visit_active(f, parameters, environment, species,
-                              resource_depletion, competition_capture);
+                              competition_capture);
   }
 
   size_t trait_adjoint_size() const;
@@ -399,9 +399,6 @@ private:
   double area;
   environment_type environment;
   std::vector<species_type> species;
-
-  //TODO(#476): Move into environment?
-  std::vector<value_type> resource_depletion;
 
   Control control;
 
@@ -588,9 +585,6 @@ void Patch<T,E>::reset() {
     // allocate variables for tracking resource consumption
     s.resize_consumption_rates(environment.n_resources());
   }
-
-  // resize to species count
-  resource_depletion.reserve(environment.n_resources());
 
   // compute ephemeral effects like light_availability
   environment.clear();
@@ -1067,21 +1061,20 @@ void Patch<T,E>::compute_rates() {
     species[i].compute_rates(env, pr_patch_survival, birth_rate);
   }
 
+  // Produced here and drained by the call below, so it lives here. As a member
+  // it needed clearing by hand, and a refusal thrown between the fill and the
+  // clear left active values on a Patch across a tape reset.
+  std::vector<value_type> resource_depletion;
   resource_depletion.reserve(env.n_resources());
-  for(size_t i = 0; i < env.n_resources(); i++) {
-    value_type resource_consumed = std::accumulate(species.begin(), species.end(), value_type(0.0), [i](const value_type& r, const species_type& s) -> value_type {
-      return r + s.consumption_rate(i); // accumulates r from zero
-    });
-
+  for (size_t i = 0; i < env.n_resources(); i++) {
+    value_type resource_consumed = std::accumulate(
+      species.begin(), species.end(), value_type(0.0),
+      [i](const value_type& r, const species_type& s) -> value_type {
+        return r + s.consumption_rate(i);  // accumulates r from zero
+      });
     resource_depletion.push_back(resource_consumed / area);
   }
-  
-
   env.compute_rates(resource_depletion);
-
-  //todo do we need to clear this every step?
-  resource_depletion.clear();
-
 }
 
 // The whole light environment is rebuilt here, where only the knots below the
