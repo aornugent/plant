@@ -1021,10 +1021,11 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
       rows.push_back(at);
     }
   }
-  // The sweep needs the state at every accepted step. store_trajectory() repeats
-  // the run to get them unless record_trajectory kept them the first time, and
-  // either way it may run, so the seeds below are taken after it.
-  const trajectory rec = store_trajectory();
+  // The sweep needs the state at every accepted step, and reads them off the
+  // solver itself. store_trajectory() repeats the run to get them unless
+  // record_trajectory kept them the first time, and either way it may run, so the
+  // seeds below are taken after it.
+  store_trajectory();
 
   patch_type& live = solver.get_system_ref();
 
@@ -1092,9 +1093,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   refusal why;
   try {
     adjoint_segments =
-        n_metric * odelia::ode::solve_adjoint_over_insertions(
-                       solver, rec, lambda, trait_adjoint,
-                       extra_splits);
+        n_metric * solver.solve_adjoint(lambda, trait_adjoint, extra_splits);
     adjoint_at_first_state = lambda.to_rows();
   } catch (gradient_refusal& e) {
     why = e.site;
@@ -1145,8 +1144,6 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
     ret.why.emplace_back();
   }
 
-  // Leave the system at the width the run left it, so this call is repeatable.
-  odelia::ode::be_at_step(live, rec, rec.size() - 1);
   return ret;
 }
 
