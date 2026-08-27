@@ -275,10 +275,7 @@ public:
   // applied by the caller: a caller reading the recorded state for itself would
   // store twice and run twice.
   template <class Scalar, class Seed>
-  // `state_moved` says the seeded state is not the one the trajectory recorded, so
-  // nothing this run's leaves are handed applies to it and they solve instead.
-  std::vector<Scalar> replay_initial_state(size_t from_segment, Seed seed,
-                                           bool state_moved);
+  std::vector<Scalar> replay_initial_state(size_t from_segment, Seed seed);
 
   // The Control entries that move the trajectory or move which states answer,
   // and so move the gradient, in the order stand_gradient() compares them. The
@@ -522,10 +519,6 @@ template <typename T, typename E> void SCM<T, E>::run() {
   // recording as its states, so what keeps the states is what says the choices are
   // kept too.
   solver.set_keep_states(record_trajectory);
-  // The choices this run's rate evaluations make are the same recording as its
-  // states, so they start over together. Cleared HERE and not in the patch's own
-  // reset, which a rebound patch runs on the shared strategies mid-sweep.
-  patch.clear_solved_choices();
   reset();
   // The solver owns the live patch system; operate on it directly during the
   // run and avoid per-step copies into the `patch` member.
@@ -1209,8 +1202,7 @@ std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
 template <typename T, typename E>
 template <class Scalar, class Seed>
 std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
-                                                    Seed seed,
-                                                    bool state_moved) {
+                                                    Seed seed) {
   const trajectory rec = store_trajectory();
   patch_type& live = solver.get_system_ref();
 
@@ -1220,13 +1212,6 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
                                                   from_segment, base, start);
 
   auto active = live.template rebind_from<Scalar>();
-  // The rebind shares the run's record, which is right where this runs the run's
-  // own trajectory and wrong where it does not: an operating point placed from a
-  // state the leaf is no longer at is a plausible answer about a different plant.
-  if (state_moved) {
-    active.clear_solved_choices();
-  }
-
   std::vector<Scalar> x0(base.size());
   seed(x0, base);
   active.set_ode_state(x0.begin(), t0);
@@ -1268,8 +1253,7 @@ SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
           x0[i] = base[i];
           seed_direction(x0[i], direction[i]);
         }
-      },
-      false);
+      });
 
   std::vector<double> ret;
   ret.reserve(reached.size());
@@ -1291,8 +1275,7 @@ SCM<T, E>::census_initial_state_replay(const std::vector<double>& state0,
     [&](std::vector<double>& x0, const std::vector<double>& base) -> void {
       util::check_length(state0.size(), base.size());
       x0 = state0;
-    },
-    true);
+    });
 }
 
 

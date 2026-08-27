@@ -365,52 +365,53 @@ static_assert(sizeof(TF24_Pars<double>) ==
 // Templated on the scalar S the state, the traits and everything derived from
 // them carry; double is production. The embedded Leaf, the Control tolerances
 // and the extrinsic drivers stay double.
-// The operating points a run's leaf solves found, held against the rate evaluation
-// that found them and in the order it found them -- which is the order the same
-// evaluation finds them in again, because it runs at the same state.
+// A cursor over the operating points one rate evaluation solves for. The points
+// themselves are the SOLVER's record, beside the times, the sizes and the states,
+// because they are part of what the run did; this walks the list the solver hands
+// over for the evaluation about to run.
 //
-// A rejected step's attempt writes the same slot as the retry that replaces it, so
-// nothing here has to commit a step of its own.
+// At most one handle is open, and which one is the constness of what was handed
+// over. Nothing here remembers a mode, so nothing can outlive the list it
+// described.
 class leaf_solved_points {
 public:
-  // The evaluation about to run, and which pass is running it. At most one of the
-  // two handles below opens: a recording pass STORES into its slot, and any other
-  // pass LOADS from it -- and finds nothing where no run addressed an evaluation
-  // there, which is a forward run that kept no record rather than a fault.
-  void begin_stage(odelia::ode::recorded_stage at) {
+  using points = std::vector<Leaf::SolvedPoint>;
+
+  void store_into(points& into) {
+    solved = 0;
+    storing = &into;
+    loading = nullptr;
+    storing->clear();
+  }
+  void load_from(const points& from) {
     solved = 0;
     storing = nullptr;
-    loading = nullptr;
-    const size_t stage = static_cast<size_t>(at.stage);
-    if (at.on == odelia::ode::pass::recording) {
-      if (kept.size() <= at.step) {
-        kept.resize(at.step + 1);
-      }
-      if (kept[at.step].size() <= stage) {
-        kept[at.step].resize(stage + 1);
-      }
-      storing = &kept[at.step][stage];
-      storing->clear();
-    } else if (at.step < kept.size() && stage < kept[at.step].size()) {
-      loading = &kept[at.step][stage];
-    }
+    loading = &from;
   }
-
-  // One evaluation is one address, so this ends where the evaluation does. A solve
-  // outside a step then keeps nothing and places nothing, because neither handle is
-  // open -- there is no mode left over to disagree with them.
-  void end_stage() {
+  // One evaluation is one list, so this ends where the evaluation does. A solve
+  // outside a rate evaluation then stores nothing and loads nothing.
+  void end() {
     solved = 0;
     storing = nullptr;
     loading = nullptr;
   }
 
-  // The operating point the run found for the next solve of this evaluation, or
-  // one holding nothing -- which is what a pass filling the record gets, and is
-  // the caller's signal to search for it.
+  // The operating point the run found for the next solve of this evaluation, or one
+  // holding nothing -- which is what a pass filling the record gets, and is the
+  // caller's signal to solve for it.
+  //
+  // ⚠️ RUNNING OFF THE END IS A FAULT, not a fall back to solving. The run made one
+  // entry per solve at this evaluation, so a pass that asks for more is a pass
+  // whose model disagrees with the record it was handed, and searching from here
+  // would tape a discretisation the run never took with every number finite.
   Leaf::SolvedPoint load() {
-    if (loading == nullptr || solved >= loading->size()) {
+    if (loading == nullptr) {
       return Leaf::SolvedPoint();
+    }
+    if (solved >= loading->size()) {
+      util::stop("leaf_solved_points: this rate evaluation asked for operating "
+                 "point " + util::to_string(solved + 1) + " where the run it is "
+                 "replaying solved for " + util::to_string(loading->size()));
     }
     ++placed;
     return (*loading)[solved++];
@@ -427,17 +428,11 @@ public:
     }
   }
 
-  void clear() {
-    kept.clear();
-    end_stage();
-  }
-
 private:
-  std::vector<std::vector<std::vector<Leaf::SolvedPoint>>> kept;
-  // The slot this evaluation stores into, and the one it loads from. At most one is
-  // ever open, which is what a mode beside them used to say and could outlive.
-  std::vector<Leaf::SolvedPoint>* storing = nullptr;
-  const std::vector<Leaf::SolvedPoint>* loading = nullptr;
+  // The list this evaluation stores into, and the one it loads from. At most one is
+  // ever open.
+  points* storing = nullptr;
+  const points* loading = nullptr;
   size_t solved = 0;
   size_t placed = 0;
 };
@@ -1195,10 +1190,11 @@ public:
   // record runs on a rebound strategy.
   std::shared_ptr<leaf_solved_points> leaf_points =
       std::make_shared<leaf_solved_points>();
-  void begin_stage(odelia::ode::recorded_stage at) {
-    leaf_points->begin_stage(at);
-  }
-  void end_stage() { leaf_points->end_stage(); }
+  // What one of this species' rate evaluations solves for.
+  using solved_values = leaf_solved_points::points;
+  void store_solved(solved_values& into) { leaf_points->store_into(into); }
+  void load_solved(const solved_values& from) { leaf_points->load_from(from); }
+  void end_solved() { leaf_points->end(); }
   size_t leaf_placements() const { return leaf_points->placements(); }
 
   // The leaf's two outputs on the active chain, carrying its supplied Jacobian.

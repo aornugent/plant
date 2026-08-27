@@ -27,9 +27,11 @@ namespace plant {
 // the forwarding compiles away.
 template <typename T>
 concept KeepsSolvedChoices =
-  requires(T& s, odelia::ode::recorded_stage at) {
-    s.begin_stage(at);
-    s.end_stage();
+  requires(T& s, typename T::solved_values& into,
+           const typename T::solved_values& from) {
+    s.store_solved(into);
+    s.load_solved(from);
+    s.end_solved();
   };
 
 // A strategy or environment named at scalar U: the type its own rebind returns.
@@ -249,19 +251,35 @@ public:
   // what the run chose here. Opened by the walk around the whole evaluation, which
   // is what puts it before the field build below -- the inflow condition's own leaf
   // solves happen in there -- and closes it however the evaluation leaves.
-  // Declared only where a strategy has a choice to keep, so a patch whose state
-  // determines everything it does does not answer for an extent it has no use for
-  // -- and the walk then opens none, rather than opening one that does nothing six
-  // times a step.
-  void begin_stage(odelia::ode::recorded_stage at)
+  // What one of this patch's rate evaluations solves for: one list per species, in
+  // species order. Declared only where a strategy solves for anything, so a patch
+  // whose state determines everything it does does not answer for an extent it has
+  // no use for -- and the walk then hands it none.
+  // Empty for a strategy that solves for nothing, which is what makes the concept
+  // below false for it rather than making this ill-formed.
+  using solved_values =
+      std::vector<odelia::ode::solved_values_t<strategy_type>>;
+
+  void store_solved(solved_values& into)
     requires KeepsSolvedChoices<strategy_type> {
-    for (species_type& s : species) {
-      s.strategy_ptr()->begin_stage(at);
+    into.resize(species.size());
+    for (size_t i = 0; i < species.size(); ++i) {
+      species[i].strategy_ptr()->store_solved(into[i]);
     }
   }
-  void end_stage() requires KeepsSolvedChoices<strategy_type> {
+  // ⚠️ THE SPECIES COUNT IS CHECKED, because it is the one thing a recorded list can
+  // disagree with the patch about that would otherwise read as a species solving
+  // nothing.
+  void load_solved(const solved_values& from)
+    requires KeepsSolvedChoices<strategy_type> {
+    util::check_length(from.size(), species.size());
+    for (size_t i = 0; i < species.size(); ++i) {
+      species[i].strategy_ptr()->load_solved(from[i]);
+    }
+  }
+  void end_solved() requires KeepsSolvedChoices<strategy_type> {
     for (species_type& s : species) {
-      s.strategy_ptr()->end_stage();
+      s.strategy_ptr()->end_solved();
     }
   }
 
@@ -308,23 +326,6 @@ public:
   // The inflow condition alone, in the field as it now stands. Public because the
   // two evaluations above have to be taken one at a time to be told apart.
   void compute_boundary_nodes();
-
-  // Start every species' inner solve on an empty record. The run calls it where it
-  // starts; so does a replay that runs from a state the trajectory never held,
-  // because a record belongs to the trajectory that filled it.
-  //
-  // ⚠️ A FRESH RECORD RATHER THAN AN EMPTIED ONE. The record is shared with every
-  // copy and every rebound version of this patch -- which is what lets a sweep read
-  // what the run wrote -- so emptying it in place reaches through the share and
-  // takes the run's record with it.
-  void clear_solved_choices() {
-    if constexpr (KeepsSolvedChoices<strategy_type>) {
-      for (species_type& s : species) {
-        auto& held = s.strategy_ptr()->leaf_points;
-        held = std::make_shared<std::decay_t<decltype(*held)>>();
-      }
-    }
-  }
 
   // * R interface
   // Data accessors:
