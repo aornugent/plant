@@ -912,19 +912,20 @@ census_rows SCM<T, E>::census_state_and_trait_rows() const {
   census_rows ret;
   ret.trait.assign(n_metric, patch.trait_adjoint_size());
 
-  typename scalar::tape_type tape(false);
   auto reduce = [&](auto& active, typename std::vector<scalar>::const_iterator x,
                     std::vector<scalar>& y) -> void {
-    // The traits are already written from the other half of the recorded inputs.
+    // The traits carry their derivative from where they sit on the strategy; this
+    // buffer is the state and nothing else.
     active.set_state_and_boundary(x, time());
     const auto& metrics = metrics_of<std::decay_t<decltype(active)>>();
     for (size_t m = 0; m < metrics.size(); ++m) {
       y[m] = census_sum(active, metrics[m]);
     }
   };
-  odelia::ode::lifted_system<patch_type> active_patch{patch, tape};
+  // One recording, so the tape and the lift are odelia's to make. A sweep taking
+  // many hands in the tape it holds for the descent.
   odelia::ode::state_and_parameter_adjoints(
-      active_patch, state, odelia::ode::row_batch::all_rows(n_metric), reduce,
+      patch, state, odelia::ode::row_batch::all_rows(n_metric), reduce,
       ret.state, ret.trait);
   return ret;
 }
