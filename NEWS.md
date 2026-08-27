@@ -3,9 +3,8 @@
 While the reverse-mode gradient work is in progress this file carries **breaking
 changes only**, and they are kept current because the `plant-update-interface`
 skill reads them as its spec. Everything else that was here -- what has been
-measured, what each defect excludes, and what is open -- is a development record
-rather than release notes, and lives in
-[`notes/gradient-development-record.md`](notes/gradient-development-record.md).
+measured, what each defect excludes, and what is open -- was a development record
+rather than release notes, and is in the git history rather than the tree.
 
 ### Breaking changes
 
