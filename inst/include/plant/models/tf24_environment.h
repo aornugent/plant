@@ -6,6 +6,7 @@
 #include <plant/clamp_sites.h>
 #include <plant/environment.h>
 #include <plant/resource_spline.h>
+#include <array>
 #include <limits>
 #include <cmath>
 #include <type_traits>
@@ -182,9 +183,8 @@ public:
     for (size_t i = 0; i < vars.state_size(); i++) {
       vars.states[i] = *it++;
     }
-    // The potentials are derived from the state just written, and the cache that
-    // holds them is keyed on that state by value -- which cannot see a changed
-    // derivative behind an unchanged value.
+    // The potentials are derived from the state just written, so what is held is
+    // stale the moment this returns.
     psi_soil_valid_ = false;
     return it;
   }
@@ -275,8 +275,9 @@ public:
     for (size_t k = 0; k < n_knot; ++k) { y[k] = *it++; }
     for (size_t k = 0; k < n_knot; ++k) { m[k] = *it++; }
     light_availability.set_knot_data(y, m);
-    // Key the cache on the state now held, so the injected potentials survive
-    // the next read rather than being recomputed passively over the top.
+    // ⚠️ MARKED VALID SO THE INJECTED POTENTIALS SURVIVE. They are not what the
+    // state implies, and a read that derived them again would quietly replace
+    // them -- which is the second thing the flag is for.
     psi_soil_.resize(soil_number_of_depths);
     for (int i = 0; i < soil_number_of_depths; ++i) {
       psi_soil_[i] = *it++;
@@ -327,10 +328,13 @@ public:
     // Shared, not copied, for the reason the strategy's is: this copy is the one
     // the sweep runs on and it is discarded afterwards.
     clamps.differentiated = src.clamps.differentiated;
-    // Keyed on a value, so it cannot see a changed derivative behind one; it is
-    // emptied rather than carried.
+    // Derived from the state, so it is emptied rather than carried and the flag
+    // says so.
     psi_soil_.assign(soil_number_of_depths, 0.0);
     psi_soil_valid_ = false;
+    // The base assignment above carries `time`, so a memo left as it was would
+    // read fresh at the new time holding the old environment's values.
+    drivers_ = driver_memo{};
   }
 
   template <class U>
@@ -364,24 +368,51 @@ public:
   mutable std::vector<S> psi_soil_;
   mutable bool psi_soil_valid_ = false;
 
-  // Per-driver memo for the time-varying extrinsic drivers (see get_* above).
-  // cache_time NaN-initialised so the first call always misses (NaN != time).
-  double cached_driver_(const std::string &name, double &cache_val,
-                        double &cache_time) const {
-    if (cache_time != time) {
-      cache_val = extrinsic_drivers.evaluate(name, time);
-      cache_time = time;
-    }
-    return cache_val;
-  }
   static constexpr double NAN_TIME_ = std::numeric_limits<double>::quiet_NaN();
-  mutable double ppfd_cache_ = 0, atm_vpd_cache_ = 0, ca_cache_ = 0,
-                 leaf_temp_cache_ = 0, atm_o2_kpa_cache_ = 0, atm_kpa_cache_ = 0,
-                 wind_speed_cache_ = 0;
-  mutable double ppfd_cache_time_ = NAN_TIME_, atm_vpd_cache_time_ = NAN_TIME_,
-                 ca_cache_time_ = NAN_TIME_, leaf_temp_cache_time_ = NAN_TIME_,
-                 atm_o2_kpa_cache_time_ = NAN_TIME_, atm_kpa_cache_time_ = NAN_TIME_,
-                 wind_speed_cache_time_ = NAN_TIME_;
+
+  // The time-varying drivers the leaf physiology reads. A driver is added here
+  // and in one getter, and its name is read from this table rather than spelled
+  // at the call site, so a memo cannot be keyed on one name and read under
+  // another.
+  enum driver {
+    DRIVER_PPFD = 0,
+    DRIVER_ATM_VPD,
+    DRIVER_CA,
+    DRIVER_LEAF_TEMP,
+    DRIVER_ATM_O2_KPA,
+    DRIVER_ATM_KPA,
+    DRIVER_WIND_SPEED,
+    DRIVER_COUNT
+  };
+  static constexpr std::array<const char*, DRIVER_COUNT> driver_names_ = {
+      "PPFD", "atm_vpd", "ca", "leaf_temp", "atm_o2_kpa", "atm_kpa",
+      "wind_speed"};
+
+  // What was read, and the one time every entry was read at. Each driver is a
+  // function of that time and of nothing else, so the memo holds one time and
+  // says per driver whether it has been asked for yet.
+  struct driver_memo {
+    double time = NAN_TIME_;
+    std::array<bool, DRIVER_COUNT> read{};
+    std::array<double, DRIVER_COUNT> value{};
+  };
+  mutable driver_memo drivers_;
+
+  // ⚠️ ONE DRIVER AT A TIME, AND NOT ALL SEVEN WHERE THE TIME IS SET. `evaluate`
+  // raises for a driver that was never set and for a time outside a variable
+  // driver's control points, so refreshing seven to serve one would raise on an
+  // environment that only ever reads one of them.
+  double driver_at(int d) const {
+    if (drivers_.time != time) {
+      drivers_.time = time;
+      drivers_.read.fill(false);
+    }
+    if (!drivers_.read[d]) {
+      drivers_.value[d] = extrinsic_drivers.evaluate(driver_names_[d], time);
+      drivers_.read[d] = true;
+    }
+    return drivers_.value[d];
+  }
 
   // The soil state a run begins from: whatever set_soil_water_state last set,
   // which the R interface lets a caller choose. Restored by clear_state().
@@ -672,23 +703,18 @@ public:
     return soil_moist_from_psi(psi, 0);
   }
 
-  // Easy wrappers. Cn also use `extrinsic_drivers_evaluate("PPFD", time)
-  //
-  // Each is read once per individual per ODE derivs evaluation (in the leaf
-  // physiology setup), always at the current `time`. Memoise per driver keyed
-  // on `time` so the repeated unordered_map<string,...> lookups across
-  // individuals at the same time collapse to one lookup per distinct time.
-  // The memo is per-driver (not eager-refresh-all) so an unset driver is only
-  // looked up if it is actually requested — preserving the existing throw-if-
-  // absent behaviour. The returned value is bit-identical to a direct evaluate.
-  double get_PPFD()       const { return cached_driver_("PPFD", ppfd_cache_, ppfd_cache_time_); }
-  double get_atm_vpd()    const { return cached_driver_("atm_vpd", atm_vpd_cache_, atm_vpd_cache_time_); }
-  double get_ca()         const { return cached_driver_("ca", ca_cache_, ca_cache_time_); }
-  double get_leaf_temp()  const { return cached_driver_("leaf_temp", leaf_temp_cache_, leaf_temp_cache_time_); }
-  double get_atm_o2_kpa() const { return cached_driver_("atm_o2_kpa", atm_o2_kpa_cache_, atm_o2_kpa_cache_time_); }
-  double get_atm_kpa()    const { return cached_driver_("atm_kpa", atm_kpa_cache_, atm_kpa_cache_time_); }
+  // Each is read once per individual per ODE derivs evaluation, always at the
+  // current `time`, so the memo collapses the repeated string-keyed lookups
+  // across individuals into one lookup per driver per distinct time. Every one
+  // returns what a direct `extrinsic_drivers_evaluate(name, time)` returns.
+  double get_PPFD()       const { return driver_at(DRIVER_PPFD); }
+  double get_atm_vpd()    const { return driver_at(DRIVER_ATM_VPD); }
+  double get_ca()         const { return driver_at(DRIVER_CA); }
+  double get_leaf_temp()  const { return driver_at(DRIVER_LEAF_TEMP); }
+  double get_atm_o2_kpa() const { return driver_at(DRIVER_ATM_O2_KPA); }
+  double get_atm_kpa()    const { return driver_at(DRIVER_ATM_KPA); }
   // Above-canopy wind speed U0 (m s^-1), Penman-Monteith aerodynamic resistance (#523)
-  double get_wind_speed() const { return cached_driver_("wind_speed", wind_speed_cache_, wind_speed_cache_time_); }
+  double get_wind_speed() const { return driver_at(DRIVER_WIND_SPEED); }
 
 
   std::vector<double> get_soil_water_state() const {
