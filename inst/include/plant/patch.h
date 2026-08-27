@@ -245,17 +245,24 @@ public:
   // computing the environment as it goes.
   template <typename It> It set_ode_state(It it, double time);
 
-  // The state, and the address of the choices the run made at the rate evaluation
-  // this one stands in for. The third of the family: nothing completes the state on
-  // the plain loader, the inflow condition's second evaluation on the recorded one,
-  // and here what an inner solve chose that the state leaves open.
-  //
-  // The address is opened HERE and not at the rates, because the inflow condition's
-  // own leaf solves happen inside the field build below; it is closed where the rates
-  // are read, so one rate evaluation is one address and a solve outside a step
-  // neither keeps nor places.
-  template <typename It>
-  It set_ode_state(It it, double time, odelia::ode::recorded_stage at);
+  // One rate evaluation's extent, so every species that keeps a choice can reach
+  // what the run chose here. Opened by the walk around the whole evaluation, which
+  // is what puts it before the field build below -- the inflow condition's own leaf
+  // solves happen in there -- and closes it however the evaluation leaves.
+  void begin_stage(odelia::ode::recorded_stage at) {
+    if constexpr (KeepsSolvedChoices<strategy_type>) {
+      for (species_type& s : species) {
+        s.strategy_ptr()->begin_stage(at, recording);
+      }
+    }
+  }
+  void end_stage() {
+    if constexpr (KeepsSolvedChoices<strategy_type>) {
+      for (species_type& s : species) {
+        s.strategy_ptr()->end_stage();
+      }
+    }
+  }
 
   // A recorded state loaded as the run itself carries it. set_ode_state evaluates
   // the inflow condition in the field that leaves the boundary interval off, then
@@ -341,20 +348,21 @@ public:
   // This is only here because it wraps a private function.
   void r_compute_environment() {compute_environment();}
 
-  // Whether this run is the one whose choices a later pass reads back. The states
-  // are the SOLVER's record now, beside the times and the sizes; what is left here
-  // is the one bit the loader needs, and the run sets it.
-  // Whether this run's rate evaluations keep the choices they make. Set through
-  // the setter, because it has to agree with whether the solver is keeping
-  // states: record one without the other and a replay re-derives a
-  // discretisation the run never took, with every number finite.
+  // Whether this run's rate evaluations keep the choices they make. Through the
+  // setter only, because it has to agree with whether the solver is keeping states:
+  // record one without the other and a replay re-derives a discretisation the run
+  // never took, with every number finite.
   void set_recording(bool x) { recording = x; }
-  bool recording = false;
 
   void add_strategies(std::vector<strategy_type> strategies);
   void overwrite_strategies(std::vector<strategy_type> strategies);
 
 private:
+  // Read by begin_stage and written by set_recording and by assign_from, and by
+  // nothing else: a pass that arrives here replaying must not be able to be told
+  // otherwise from outside.
+  bool recording = false;
+
   // A patch whose species take the prepared strategies given, rather than
   // preparing the ones in the parameters. rebind_from's only route in.
   Patch(parameters_type p, environment_type e, plant::Control c,
@@ -1197,19 +1205,6 @@ It Patch<T,E>::set_ode_state(It it, double time) {
   return it;
 }
 
-// The same load, with the choices the run made at this rate evaluation reachable by
-// every species that keeps any. See the declaration for where it is closed.
-template <typename T, typename E>
-template <typename It>
-It Patch<T,E>::set_ode_state(It it, double time, odelia::ode::recorded_stage at) {
-  if constexpr (KeepsSolvedChoices<strategy_type>) {
-    for (species_type& s : species) {
-      s.strategy_ptr()->begin_stage(at, recording);
-    }
-  }
-  return set_ode_state(it, time);
-}
-
 // The second evaluation of the inflow condition, in the field the first one was
 // folded into. See the declaration for why a reloaded state needs it.
 template <typename T, typename E>
@@ -1251,13 +1246,6 @@ It Patch<T,E>::ode_rates(It it) {
   compute_rates();
   it = odelia::ode::ode_rates(species.begin(), species.end(), it);
   it = environment.ode_rates(it);
-  // One rate evaluation is one address: what a solve outside a step chooses belongs
-  // to no recorded stage, so nothing is open to keep it in or place it from.
-  if constexpr (KeepsSolvedChoices<strategy_type>) {
-    for (species_type& s : species) {
-      s.strategy_ptr()->end_stage();
-    }
-  }
   return it;
 }
 
