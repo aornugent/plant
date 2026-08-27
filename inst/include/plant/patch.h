@@ -150,20 +150,21 @@ public:
     introduce_nodes(introduction{species_index.check_bounds(size())}, time);
   }
 
-  // The insertion as a map: the state before it in, the whole wider state out,
-  // and nothing rebuilt. This is the one the sweep transposes, so it runs at
-  // whatever scalar it is called on and loads the state itself rather than
-  // asking the caller to. It leaves this patch holding what it added.
+  // Apply the insertion: the state before it in, the whole wider state out, and
+  // nothing rebuilt. This is the map the sweep transposes, so it runs at whatever
+  // scalar it is called on and loads the state itself rather than asking the
+  // caller to. Pushing the nodes is how the wider state is computed, so this
+  // patch is left holding it and a walk lifts again below it.
   //
   // The species are the schedule's, looked up by the time the insertion happened
   // -- which is what lets the solver ask for this knowing only a recorded time.
   template <typename It>
-  void inserted_state(double time, It x, std::vector<value_type>& y);
+  void apply_insertion(double time, It x, std::vector<value_type>& y);
   // The same map for a caller naming the species itself, which an oracle
   // differencing one insertion does.
   template <typename It>
-  void inserted_state(const introduction& species_index, double time, It x,
-                      std::vector<value_type>& y);
+  void apply_insertion(const introduction& species_index, double time, It x,
+                       std::vector<value_type>& y);
 
   // Open to better ways to test whether nodes have been introduced
   int node_ode_size() const {
@@ -1390,15 +1391,15 @@ void Patch<T,E>::reshape_to(double time) {
 
 template <typename T, typename E>
 template <typename It>
-void Patch<T,E>::inserted_state(double time, It x,
-                                std::vector<value_type>& y) {
-  inserted_state(introduced_at(time), time, x, y);
+void Patch<T,E>::apply_insertion(double time, It x,
+                                 std::vector<value_type>& y) {
+  apply_insertion(introduced_at(time), time, x, y);
 }
 
 template <typename T, typename E>
 template <typename It>
-void Patch<T,E>::inserted_state(const introduction& species_index, double time,
-                                It x, std::vector<value_type>& y) {
+void Patch<T,E>::apply_insertion(const introduction& species_index, double time,
+                                 It x, std::vector<value_type>& y) {
   set_state_and_boundary(x, time);
   push_nodes(species_index, time);
   y.assign(ode_size(), value_type(0.0));
@@ -1453,7 +1454,7 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
     }
     util::check_length(at, x.size());
     std::vector<tangent> y(n_out);
-    active.inserted_state(species_index, time_before, x.begin(), y);
+    active.apply_insertion(species_index, time_before, x.begin(), y);
     for (size_t r = 0; r < n_out; ++r) {
       ret[r][c] = derivative_along(y[r]);
     }
