@@ -374,13 +374,13 @@ static_assert(sizeof(TF24_Pars<double>) ==
 class leaf_solved_points {
 public:
   // The evaluation about to run, and which pass is running it. At most one of the
-  // two handles below opens: the pass that fills the record keeps into its slot,
-  // and any other pass places from it and finds nothing where the run addressed no
-  // evaluation there.
+  // two handles below opens: a recording pass STORES into its slot, and any other
+  // pass LOADS from it -- and finds nothing where no run addressed an evaluation
+  // there, which is a forward run that kept no record rather than a fault.
   void begin_stage(odelia::ode::recorded_stage at) {
     solved = 0;
-    keeping = nullptr;
-    placing = nullptr;
+    storing = nullptr;
+    loading = nullptr;
     const size_t stage = static_cast<size_t>(at.stage);
     if (at.on == odelia::ode::pass::recording) {
       if (kept.size() <= at.step) {
@@ -389,10 +389,10 @@ public:
       if (kept[at.step].size() <= stage) {
         kept[at.step].resize(stage + 1);
       }
-      keeping = &kept[at.step][stage];
-      keeping->clear();
+      storing = &kept[at.step][stage];
+      storing->clear();
     } else if (at.step < kept.size() && stage < kept[at.step].size()) {
-      placing = &kept[at.step][stage];
+      loading = &kept[at.step][stage];
     }
   }
 
@@ -401,17 +401,19 @@ public:
   // open -- there is no mode left over to disagree with them.
   void end_stage() {
     solved = 0;
-    keeping = nullptr;
-    placing = nullptr;
+    storing = nullptr;
+    loading = nullptr;
   }
 
-  // The next point in the open slot, or one holding nothing.
-  Leaf::SolvedPoint next() {
-    if (placing == nullptr || solved >= placing->size()) {
+  // The operating point the run found for the next solve of this evaluation, or
+  // one holding nothing -- which is what a pass filling the record gets, and is
+  // the caller's signal to search for it.
+  Leaf::SolvedPoint load() {
+    if (loading == nullptr || solved >= loading->size()) {
       return Leaf::SolvedPoint();
     }
     ++placed;
-    return (*placing)[solved++];
+    return (*loading)[solved++];
   }
 
   // How many points this record placed. Counted because a record that engages and
@@ -419,9 +421,9 @@ public:
   // produces is the number a search produces, so nothing else can tell them apart.
   size_t placements() const { return placed; }
 
-  void keep(const Leaf::SolvedPoint& point) {
-    if (keeping != nullptr) {
-      keeping->push_back(point);
+  void store(const Leaf::SolvedPoint& point) {
+    if (storing != nullptr) {
+      storing->push_back(point);
     }
   }
 
@@ -432,10 +434,10 @@ public:
 
 private:
   std::vector<std::vector<std::vector<Leaf::SolvedPoint>>> kept;
-  // The slot this evaluation writes, and the one it reads. At most one is ever
-  // open, which is what a mode beside them used to say and could outlive.
-  std::vector<Leaf::SolvedPoint>* keeping = nullptr;
-  const std::vector<Leaf::SolvedPoint>* placing = nullptr;
+  // The slot this evaluation stores into, and the one it loads from. At most one is
+  // ever open, which is what a mode beside them used to say and could outlive.
+  std::vector<Leaf::SolvedPoint>* storing = nullptr;
+  const std::vector<Leaf::SolvedPoint>* loading = nullptr;
   size_t solved = 0;
   size_t placed = 0;
 };
@@ -2027,10 +2029,10 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
 // on feasibility, or an evaluation the run addressed no record against.
 template <typename S>
 void TF24_Strategy<S>::solve_leaf() {
-  if (!leaf.place_solved_point(leaf_points->next())) {
+  if (!leaf.place_solved_point(leaf_points->load())) {
     leaf.find_root_collar_psi();
   }
-  leaf_points->keep(leaf.solved_point());
+  leaf_points->store(leaf.solved_point());
   // The classification is decided by the branch taken and then overwritten by
   // the next plant, so without a tally the only route to its incidence is a
   // refusal message -- which reports the FIRST non-interior point and nothing
