@@ -517,11 +517,10 @@ std::vector<double> SCM<T, E>::uniform_euler_times(double t0, double t1,
 // ---- Simulation lifecycle ------------------------------------------------
 
 template <typename T, typename E> void SCM<T, E>::run() {
-  // Before reset(), which records the initial state and then copies the patch
-  // into the solver: set after it, that first record is missed and the store is
-  // one short of the step sizes it is read beside.
-  patch.set_recording(record_trajectory);
-  // Set before reset(), which records the state the run starts from.
+  // Set before reset(), which records the state the run starts from. One flag, and
+  // it is the solver's: the choices this run's rate evaluations make are the same
+  // recording as its states, so what keeps the states is what says the choices are
+  // kept too.
   solver.set_keep_states(record_trajectory);
   // The choices this run's rate evaluations make are the same recording as its
   // states, so they start over together. Cleared HERE and not in the patch's own

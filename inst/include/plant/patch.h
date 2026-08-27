@@ -27,8 +27,8 @@ namespace plant {
 // the forwarding compiles away.
 template <typename T>
 concept KeepsSolvedChoices =
-  requires(T& s, odelia::ode::recorded_stage at, bool keeping) {
-    s.begin_stage(at, keeping);
+  requires(T& s, odelia::ode::recorded_stage at) {
+    s.begin_stage(at);
     s.end_stage();
   };
 
@@ -252,7 +252,7 @@ public:
   void begin_stage(odelia::ode::recorded_stage at) {
     if constexpr (KeepsSolvedChoices<strategy_type>) {
       for (species_type& s : species) {
-        s.strategy_ptr()->begin_stage(at, recording);
+        s.strategy_ptr()->begin_stage(at);
       }
     }
   }
@@ -348,21 +348,10 @@ public:
   // This is only here because it wraps a private function.
   void r_compute_environment() {compute_environment();}
 
-  // Whether this run's rate evaluations keep the choices they make. Through the
-  // setter only, because it has to agree with whether the solver is keeping states:
-  // record one without the other and a replay re-derives a discretisation the run
-  // never took, with every number finite.
-  void set_recording(bool x) { recording = x; }
-
   void add_strategies(std::vector<strategy_type> strategies);
   void overwrite_strategies(std::vector<strategy_type> strategies);
 
 private:
-  // Read by begin_stage and written by set_recording and by assign_from, and by
-  // nothing else: a pass that arrives here replaying must not be able to be told
-  // otherwise from outside.
-  bool recording = false;
-
   // A patch whose species take the prepared strategies given, rather than
   // preparing the ones in the parameters. rebind_from's only route in.
   Patch(parameters_type p, environment_type e, plant::Control c,
@@ -546,12 +535,6 @@ void Patch<T,E>::assign_from(const Patch<T1,E1>& src) {
                "the one it is assigned from");
   }
 
-  // Stated rather than left to the default. A patch assigned from another is the
-  // one that REPLAYS a record, and recording is what fills one: a patch that
-  // arrives here still recording clears the kept choices at every stage and
-  // searches for each of them again, which is slower and -- because the search
-  // answers from this state rather than from the recorded one -- need not agree.
-  recording = false;
 
   environment = src.environment.template rebind_from<U>();
   environment.set_shading_model(control.shading_model,

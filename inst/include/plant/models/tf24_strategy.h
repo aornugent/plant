@@ -373,42 +373,45 @@ static_assert(sizeof(TF24_Pars<double>) ==
 // nothing here has to commit a step of its own.
 class leaf_solved_points {
 public:
-  // The evaluation about to run. `keeping` is the run that fills the record; a pass
-  // that is not it reads the slot instead, and finds nothing where the run addressed
-  // no evaluation there.
-  void begin_stage(odelia::ode::recorded_stage at, bool keeping) {
+  // The evaluation about to run, and which pass is running it. At most one of the
+  // two handles below opens: the pass that fills the record keeps into its slot,
+  // and any other pass places from it and finds nothing where the run addressed no
+  // evaluation there.
+  void begin_stage(odelia::ode::recorded_stage at) {
     solved = 0;
-    slot = nullptr;
-    filling = keeping;
+    keeping = nullptr;
+    placing = nullptr;
     const size_t stage = static_cast<size_t>(at.stage);
-    if (keeping) {
+    if (at.on == odelia::ode::pass::recording) {
       if (kept.size() <= at.step) {
         kept.resize(at.step + 1);
       }
       if (kept[at.step].size() <= stage) {
         kept[at.step].resize(stage + 1);
       }
-      slot = &kept[at.step][stage];
-      slot->clear();
+      keeping = &kept[at.step][stage];
+      keeping->clear();
     } else if (at.step < kept.size() && stage < kept[at.step].size()) {
-      slot = &kept[at.step][stage];
+      placing = &kept[at.step][stage];
     }
   }
 
-  // One evaluation is one address, so this ends where the rates are read. A solve
-  // outside a step then keeps nothing and places nothing.
+  // One evaluation is one address, so this ends where the evaluation does. A solve
+  // outside a step then keeps nothing and places nothing, because neither handle is
+  // open -- there is no mode left over to disagree with them.
   void end_stage() {
     solved = 0;
-    slot = nullptr;
+    keeping = nullptr;
+    placing = nullptr;
   }
 
   // The next point in the open slot, or one holding nothing.
   Leaf::SolvedPoint next() {
-    if (filling || slot == nullptr || solved >= slot->size()) {
+    if (placing == nullptr || solved >= placing->size()) {
       return Leaf::SolvedPoint();
     }
     ++placed;
-    return (*slot)[solved++];
+    return (*placing)[solved++];
   }
 
   // How many points this record placed. Counted because a record that engages and
@@ -417,8 +420,8 @@ public:
   size_t placements() const { return placed; }
 
   void keep(const Leaf::SolvedPoint& point) {
-    if (filling && slot != nullptr) {
-      slot->push_back(point);
+    if (keeping != nullptr) {
+      keeping->push_back(point);
     }
   }
 
@@ -429,8 +432,10 @@ public:
 
 private:
   std::vector<std::vector<std::vector<Leaf::SolvedPoint>>> kept;
-  std::vector<Leaf::SolvedPoint>* slot = nullptr;
-  bool filling = false;
+  // The slot this evaluation writes, and the one it reads. At most one is ever
+  // open, which is what a mode beside them used to say and could outlive.
+  std::vector<Leaf::SolvedPoint>* keeping = nullptr;
+  const std::vector<Leaf::SolvedPoint>* placing = nullptr;
   size_t solved = 0;
   size_t placed = 0;
 };
@@ -1188,8 +1193,8 @@ public:
   // record runs on a rebound strategy.
   std::shared_ptr<leaf_solved_points> leaf_points =
       std::make_shared<leaf_solved_points>();
-  void begin_stage(odelia::ode::recorded_stage at, bool keeping) {
-    leaf_points->begin_stage(at, keeping);
+  void begin_stage(odelia::ode::recorded_stage at) {
+    leaf_points->begin_stage(at);
   }
   void end_stage() { leaf_points->end_stage(); }
   size_t leaf_placements() const { return leaf_points->placements(); }
