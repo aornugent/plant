@@ -1,8 +1,7 @@
 // -*-c++-*-
-#ifndef PLANT_PLANT_GRADIENT_REFUSAL_H_
-#define PLANT_PLANT_GRADIENT_REFUSAL_H_
+#ifndef PLANT_PLANT_CENSUS_GRADIENT_H_
+#define PLANT_PLANT_CENSUS_GRADIENT_H_
 
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -18,21 +17,11 @@ namespace plant {
 // nothing below the species has a component to attribute it to.
 struct refusal {
   std::string reason;
-  // 1-based, and -1 where the frame that found it knew no species.
+  // 1-based. A refusal is recorded on the species whose strategy holds it, so one
+  // that happened always names one.
   int species = -1;
 
   bool happened() const { return !reason.empty(); }
-};
-
-// Thrown where a gradient row does not exist, so the reason reaches the metric
-// boundary as a refusal rather than the R prompt as an error.
-class gradient_refusal : public std::runtime_error {
-public:
-  explicit gradient_refusal(const std::string& reason)
-    : std::runtime_error(reason) {
-    site.reason = reason;
-  }
-  refusal site;
 };
 
 // One census metric's gradient. A refused metric's whole row is not-a-number and

@@ -3,7 +3,7 @@
 #define PLANT_PLANT_SCM_H_
 
 #include <plant/node_schedule.h>
-#include <plant/gradient_refusal.h>
+#include <plant/census_gradient.h>
 #include <odelia/ode_solver.hpp>
 #include <plant/patch.h>
 #include <plant/scm_utils.h>
@@ -27,6 +27,31 @@ struct census_rows {
   odelia::ode::adjoint_rows state;  // one column per ODE state entry
   odelia::ode::adjoint_rows trait;  // one column per registered trait
 };
+
+// The refusal any of a patch's species recorded, with the one thing a species
+// knows about itself filled in. Read after a recording rather than during one:
+// what a leaf could not record is not something a void interface can return, so
+// it is left where the leaf is and collected here.
+template <typename Patch>
+refusal recorded_refusal(Patch& patch) {
+  for (size_t i = 0; i < patch.size(); ++i) {
+    refusal why = *patch.at_species(i).strategy_ptr()->recorded_refusal;
+    if (why.happened()) {
+      why.species = static_cast<int>(i + 1);
+      return why;
+    }
+  }
+  return refusal{};
+}
+
+// It latches for as long as the storage behind it lives, so it is cleared where
+// the call that reads it starts rather than trusted to be clean.
+template <typename Patch>
+void clear_recorded_refusal(Patch& patch) {
+  for (size_t i = 0; i < patch.size(); ++i) {
+    *patch.at_species(i).strategy_ptr()->recorded_refusal = refusal{};
+  }
+}
 
 // SCM: the "Solver for Characteristics Method" driver.
 //
@@ -1032,108 +1057,64 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
 
   adjoint_segments = 0;
   adjoint_at_first_state.clear();
-  // The missing-row flag latches, and it is shared storage rather than a member
-  // of the copy that sets it -- so it is cleared where the call that reads it
-  // starts, and a previous call's degeneracy cannot refuse this one.
-  for (size_t i = 0; i < live.size(); ++i) {
-    const auto s = live.at_species(i).strategy_ptr();
-    *s->uptake_rows_unavailable = false;
-    s->uptake_rows_reason->clear();
-  }
-  // The seeds and the direct term are on the gradient path too, and a refusal
-  // raised while forming them has no sweep to be caught in -- so it escaped as
-  // an error while every refusal from the sweep itself came back as a status.
-  // Caught here, where the shape of the answer is still known from what the
-  // caller asked for and the patch's trait width rather than from the seeds
-  // themselves. Nothing is restored: the walk that borrows the width runs below.
-  odelia::ode::adjoint_rows all_seeds, all_direct;
-  try {
-    const census_rows both = census_state_and_trait_rows();
-    all_seeds = std::move(both.state);
-    all_direct = std::move(both.trait);
-  } catch (gradient_refusal& e) {
-    const size_t width = live.trait_adjoint_size();
-    census_gradient ret;
-    for (size_t m = 0; m < rows.size(); ++m) {
-      ret.gradient.push_back(std::vector<double>(
-          width, std::numeric_limits<double>::quiet_NaN()));
-      ret.why.push_back(e.site);
-    }
-    return ret;
-  }
-  const odelia::ode::adjoint_rows seeds = all_seeds.select(rows);
-  // Every metric's sweep visits the same trajectory and differs only in its
-  // seed, so they are carried TOGETHER: a block is recorded once and swept once
-  // per metric, where the loop this replaces recorded it once per metric. The
-  // recording is a model evaluation and a sweep is arithmetic, so the second and
-  // third metrics were costing what the first did and now cost almost nothing.
-  const size_t n_metric = seeds.rows();
+  // Cleared here so that a previous call's degeneracy cannot refuse this one.
+  clear_recorded_refusal(live);
+  // The seeds and the direct term are on the gradient path too, so a refusal is
+  // reachable before the sweep as well as inside it. Polled at both, and the
+  // shape of the answer is known from what the caller asked for and the patch's
+  // trait width either way -- so a refusal before the sweep costs the sweep and
+  // nothing else.
+  census_rows both = census_state_and_trait_rows();
+  const size_t width = live.trait_adjoint_size();
+  refusal why = recorded_refusal(live);
+  odelia::ode::adjoint_rows trait_adjoint;
+  if (!why.happened()) {
+    // Every metric's sweep visits the same trajectory and differs only in its
+    // seed, so they are carried TOGETHER: a block is recorded once and swept once
+    // per metric, where the loop this replaces recorded it once per metric. The
+    // recording is a model evaluation and a sweep is arithmetic, so the second and
+    // third metrics were costing what the first did and now cost almost nothing.
+    odelia::ode::adjoint_rows lambda = both.state.select(rows);
 
-  // The accumulator the sweep adds into, owned here for the length of the sweep
-  // rather than kept on the patch between calls. Every writer reaches it through
-  // the driver, so a row that does not match the seeds is a length mismatch.
-  //
-  // It STARTS at the direct term, which is what the total derivative is: the
-  // census reads the traits as well as the state, so a metric's gradient is that
-  // reading plus the sum over the trajectory. Seeded rather than added at the end
-  // because a term added last is a term that can be left out, and a gradient
-  // missing it is a plausible number rather than an error.
-  odelia::ode::adjoint_rows trait_adjoint = all_direct.select(rows);
-  util::check_length(trait_adjoint.width(), live.trait_adjoint_size());
-  odelia::ode::adjoint_rows lambda = seeds;
-  // One segment per width, highest first, narrowing across each widening and
-  // transposing the map that took it. The solver owns that walk: what is left
-  // here is the census the sweep is seeded from.
-  //
+    // The accumulator the sweep adds into, owned here for the length of the sweep
+    // rather than kept on the patch between calls. Every writer reaches it through
+    // the driver, so a row that does not match the seeds is a length mismatch.
+    //
+    // It STARTS at the direct term, which is what the total derivative is: the
+    // census reads the traits as well as the state, so a metric's gradient is that
+    // reading plus the sum over the trajectory. Seeded rather than added at the end
+    // because a term added last is a term that can be left out, and a gradient
+    // missing it is a plausible number rather than an error.
+    trait_adjoint = both.trait.select(rows);
+    util::check_length(trait_adjoint.width(), width);
+
+    // One segment per width, highest first, narrowing across each widening and
+    // transposing the map that took it. The solver owns that walk: what is left
+    // here is the census the sweep is seeded from.
+    adjoint_segments = solver.solve_adjoint(lambda, trait_adjoint, extra_splits);
+    adjoint_at_first_state = lambda.to_rows();
+    why = recorded_refusal(live);
+    if (why.happened()) {
+      adjoint_segments = 0;
+      adjoint_at_first_state.clear();
+    }
+  }
+
   // A refusal costs every metric, and the grain is forced rather than chosen: the
   // row that could not be supplied is an intermediate of a recording spanning six
   // stages and every cohort in them, so no seed carries a component to attribute
-  // it to. Nothing is unwound here -- the walk restores the width it borrowed at
-  // the tail either way.
-  bool refused = false;
-  refusal why;
-  try {
-    adjoint_segments = solver.solve_adjoint(lambda, trait_adjoint, extra_splits);
-    adjoint_at_first_state = lambda.to_rows();
-  } catch (gradient_refusal& e) {
-    why = e.site;
-    refused = true;
-    adjoint_segments = 0;
-    adjoint_at_first_state.clear();
-  }
-  // A row the water outputs need can go missing without any refusal being
-  // thrown: the recording carries the values on and leaves those rows off the
-  // tape, which makes them exactly zero, and a zero row and an absent one are
-  // the same number. So the leaf records the loss instead of throwing, and it is
-  // read here -- the one place in this call where a refusal has somewhere to go.
-  //
-  // The strategy that measured it is a per-unit copy the sweep discards, so the
-  // flag lives in storage the run still owns, shared through the rebind exactly
-  // as the clamp counts are.
-  if (!refused) {
-    for (size_t i = 0; i < live.size(); ++i) {
-      const auto s = live.at_species(i).strategy_ptr();
-      if (!*s->uptake_rows_unavailable) {
-        continue;
-      }
-      why.reason = *s->uptake_rows_reason;
-      why.species = static_cast<int>(i + 1);
-      refused = true;
-      break;
-    }
-  }
-
+  // it to.
   census_gradient ret;
-  ret.gradient.reserve(n_metric);
-  ret.why.reserve(n_metric);
-  for (size_t m = 0; m < n_metric; ++m) {
-    if (refused) {
+  ret.gradient.reserve(rows.size());
+  ret.why.reserve(rows.size());
+  for (size_t m = 0; m < rows.size(); ++m) {
+    if (why.happened()) {
       // A sum has no defined value with an undefined term, so the whole metric
       // goes -- not the cohort's column and not the parameter's entry. The
       // numbers are not-a-number rather than absent so that a caller indexing by
       // position still finds the shape it expects.
-      ret.gradient.push_back(std::vector<double>(
-          trait_adjoint.width(), std::numeric_limits<double>::quiet_NaN()));
+      ret.gradient.push_back(
+          std::vector<double>(width, std::numeric_limits<double>::quiet_NaN()));
       ret.why.push_back(why);
       continue;
     }

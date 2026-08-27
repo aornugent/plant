@@ -442,13 +442,7 @@ Rcpp::NumericMatrix ladder_rhs_trait_jacobian_forward_tf24(plant::RcppR6::RcppR6
 Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                    std::vector<double> lambda_dydt) {
   patch_type& patch = *obj_;
-  // The flag latches for as long as the storage behind it lives, so it is cleared
-  // where this evaluation starts rather than trusted to be clean.
-  for (size_t i = 0; i < patch.size(); ++i) {
-    const auto s = patch.at_species(i).strategy_ptr();
-    *s->uptake_rows_unavailable = false;
-    s->uptake_rows_reason->clear();
-  }
+  plant::clear_recorded_refusal(patch);
   odelia::ode::adjoint_tape<double> tape(false);
   std::vector<double> lambda_y, trait_adjoint;
   const size_t recording =
@@ -457,17 +451,8 @@ Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF2
   // a zero row and a severed one are the same number -- which is the one thing
   // this whole channel exists to prevent. So the numbers go not-a-number, the way
   // a refused metric's do, and the reason travels beside them.
-  bool refused = false;
-  std::string reason;
-  for (size_t i = 0; i < patch.size(); ++i) {
-    const auto s = patch.at_species(i).strategy_ptr();
-    if (*s->uptake_rows_unavailable) {
-      refused = true;
-      reason = *s->uptake_rows_reason;
-      break;
-    }
-  }
-  if (refused) {
+  const plant::refusal why = plant::recorded_refusal(patch);
+  if (why.happened()) {
     const double nan = std::numeric_limits<double>::quiet_NaN();
     lambda_y.assign(lambda_y.size(), nan);
     trait_adjoint.assign(trait_adjoint.size(), nan);
@@ -477,8 +462,8 @@ Rcpp::List ladder_rhs_adjoint_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF2
   // in the state and trait rows rather than beside them.
   return Rcpp::List::create(Rcpp::_["state"] = lambda_y,
                             Rcpp::_["trait"] = trait_adjoint,
-                            Rcpp::_["refused"] = refused,
-                            Rcpp::_["reason"] = reason,
+                            Rcpp::_["refused"] = why.happened(),
+                            Rcpp::_["reason"] = why.reason,
                             Rcpp::_["block_recording_size"] =
                               static_cast<double>(recording));
 }

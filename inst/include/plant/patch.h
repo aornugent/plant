@@ -6,7 +6,6 @@
 #include <plant/species.h>
 #include <plant/util.h>
 #include <plant/clamp_sites.h>
-#include <plant/gradient_refusal.h>
 #include <odelia/ode_interface.hpp>
 #include <odelia/sweep.hpp>
 

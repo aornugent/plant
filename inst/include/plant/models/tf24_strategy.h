@@ -6,7 +6,7 @@
 #include <plant/census.h>
 #include <plant/strategy.h>
 #include <plant/models/tf24_environment.h>
-#include <plant/gradient_refusal.h>
+#include <plant/census_gradient.h>
 #include <plant/qag.h>
 #include <plant/leaf_model.h>
 #include <plant/canopy_shape.h>
@@ -987,8 +987,7 @@ public:
     // The missing-row flag is shared for the same reason.
     clamps.differentiated = src.clamps.differentiated;
     curvature_margin = src.curvature_margin;
-    uptake_rows_unavailable = src.uptake_rows_unavailable;
-    uptake_rows_reason = src.uptake_rows_reason;
+    recorded_refusal = src.recorded_refusal;
     leaf_points = src.leaf_points;
 
     // Sized, not copied: these hold one right-hand side's working, and are
@@ -1076,23 +1075,19 @@ public:
   // needs it re-measured -- which is what curvature_margin is for.
   double curvature_floor() const { return this->control.gradient_curvature_floor; }
 
-  // Set where a row the UPTAKE outputs need does not exist. The profit row is
-  // built by the envelope theorem and reads no curvature, so it survives every
-  // degeneracy the water rows do not -- and the values still do too, so the
+  // Where a row a census metric needs does not exist. The values still do, so the
   // recording carries them on and leaves the missing rows off the tape.
   //
-  // Recorded rather than thrown because a throw from here is a refusal of the
-  // whole recording, and this one is a refusal of two of its outputs. The sweep
-  // reads it once it is over and turns it into the run's status.
+  // Recorded rather than thrown, and a recording is the reason: a throw from here
+  // unwinds through a live tape and the whole sweep to deliver what a poll after
+  // it delivers, and there is nothing for it to save, because a metric is a sum
+  // and a sum has no defined value with an undefined term.
   //
-  // Shared for the reason the clamp counts are: the strategy that measures it is
-  // a per-unit copy the sweep discards, so a flag on the copy is a flag nothing
-  // can read. The first reason is kept and later ones dropped, and the sweep
-  // clears it before it starts -- so this latches for one gradient call rather
-  // than for one operating point.
-  std::shared_ptr<bool> uptake_rows_unavailable = std::make_shared<bool>(false);
-  std::shared_ptr<std::string> uptake_rows_reason =
-      std::make_shared<std::string>();
+  // Shared for the reason the clamp counts are: the strategy that records it is a
+  // per-unit copy the sweep discards, so a refusal on the copy is one nothing can
+  // read. Cleared where the call that reads it starts, so it latches for one
+  // gradient call rather than for one operating point.
+  std::shared_ptr<refusal> recorded_refusal = std::make_shared<refusal>();
 
   // How many leaf solves landed in each operating-point kind, indexed by the
   // enum. Diagnostic and deliberately outside rebind_from: a block copies the
@@ -1148,12 +1143,11 @@ public:
   // leaf is a node this strategy supplies rows for, not a scalar it rebinds.
   phylloptim::gradient::Drivers leaf_drivers_;
 
-  // Set where a row the UPTAKE outputs need does not exist. The first reason is
-  // kept: a later one is a consequence of the same degeneracy.
-  void lose_uptake_rows(const std::string& why) {
-    if (!*uptake_rows_unavailable) {
-      *uptake_rows_unavailable = true;
-      *uptake_rows_reason = why;
+  // The first reason is kept: a later one is a consequence of the same
+  // degeneracy.
+  void refuse(const std::string& why) {
+    if (!recorded_refusal->happened()) {
+      recorded_refusal->reason = why;
     }
   }
 
@@ -1333,11 +1327,11 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       note_curvature(condition.slope);
       if (!(condition.slope < 0.0) ||
           std::abs(condition.slope) < curvature_floor()) {
-        lose_uptake_rows(
-            "TF24 gradient: the leaf's profit curvature at this operating point "
-            "is " + util::to_string(condition.slope) + ", against a floor of " +
-            util::to_string(curvature_floor()) + ", so the collar's own response "
-            "is amplification rather than an answer");
+        refuse("TF24 gradient: the leaf's profit curvature at this operating "
+               "point is " + util::to_string(condition.slope) +
+               ", against a floor of " + util::to_string(curvature_floor()) +
+               ", so the collar's own response is amplification rather than an "
+               "answer");
       }
     }
     // Placed, then evaluated. Which condition placed it is the leaf's to say;
@@ -1346,7 +1340,17 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     got = leaf.outputs_at<S>(collar, in);
   } catch (const std::runtime_error& e) {
     note_leaf_clamps(clamps_before);
-    throw gradient_refusal(std::string("TF24 gradient: ") + e.what());
+    // The leaf produced nothing to record a row against, so every output takes
+    // the value its own solve fixed and carries none -- which is what a refusal
+    // costs everywhere else here, and lets the sweep reach the poll that reads
+    // this.
+    refuse(std::string("TF24 gradient: ") + e.what());
+    leaf_profit_ = S(leaf.profit_);
+    leaf_soil_consumption_.assign(n_layer, S(0.0));
+    for (std::size_t j = 0; j < n_layer; ++j) {
+      leaf_soil_consumption_[j] = S(leaf.soil_consumption_[j]);
+    }
+    return;
   }
   note_leaf_clamps(clamps_before);
 
@@ -1355,15 +1359,19 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // The water rows go, and every later plant's go with them, because a metric is
   // a sum and a sum has no defined value with an undefined term.
   if (!got.point.whole) {
-    lose_uptake_rows("TF24 gradient: the operating point cannot be recorded at "
-                     "an interior point: " + got.point.why);
+    refuse("TF24 gradient: the operating point cannot be recorded at an "
+           "interior point: " + got.point.why);
   }
 
   // ⚠️ THE VALUE IS THE LEAF'S, NOT THIS COMPOSITION'S. The solve is what plant's
   // rates read, so a second copy of it could only disagree; what is taken here is
   // the derivative, recorded against a value the forward pass already fixed.
+  //
+  // The objective is profit, and it is the one output a refusal does not stop
+  // being asked for: it is built by the envelope theorem and reads no curvature,
+  // so it still carries a row at a point where the water rows have none.
   auto carry = [&](double value, const S& from, S& into, bool objective) -> void {
-    if (*uptake_rows_unavailable && !objective) {
+    if (recorded_refusal->happened() && !objective) {
       into = S(value);
       return;
     }
@@ -1372,15 +1380,10 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     if (report.whole) {
       return;
     }
-    const std::string why =
-        std::string("TF24 gradient: `") + (objective ? "profit" : "uptake") +
-        "` cannot be recorded at a point the solve called " +
-        Leaf::operating_point_kind_name(leaf.operating_point_kind()) + ": " +
-        report.why;
-    if (objective) {
-      throw gradient_refusal(why);
-    }
-    lose_uptake_rows(why);
+    refuse(std::string("TF24 gradient: `") + (objective ? "profit" : "uptake") +
+           "` cannot be recorded at a point the solve called " +
+           Leaf::operating_point_kind_name(leaf.operating_point_kind()) + ": " +
+           report.why);
   };
 
   carry(leaf.profit_, got.profit, leaf_profit_, true);
