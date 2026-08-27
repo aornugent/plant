@@ -473,9 +473,9 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
   //
   // Left behind: ode_times and ode_step_sizes, which are a record of the last
   // run rather than configuration and are read only by make_node_schedule, and
-  // n_patches, which nothing reads. A rebind happens once per recording, so
-  // copying two vectors of the whole trajectory into it was about one copy per
-  // recorded step per gradient, into an object that never looked at them.
+  // n_patches, which nothing reads. A rebind happens once per width a sweep
+  // crosses, so copying two vectors of the whole trajectory into it was a copy
+  // per width per gradient, into an object that never looked at them.
   Parameters<T2,E2> p2;
   p2.patch_area = parameters.patch_area;
   p2.patch_type = parameters.patch_type;
