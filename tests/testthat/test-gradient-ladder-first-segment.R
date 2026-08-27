@@ -53,7 +53,7 @@ test_that("the sweep runs the range below the first widening", {
   # reports exactly the number of widenings.
   message(sprintf("  %.0f ranges over %d widenings, %.0f boundary evaluations",
                   ranges, n_widening, counts$evaluations))
-  expect_equal(ranges, (n_widening + 1) * counts$metrics)
+  expect_equal(ranges, n_widening + 1)
 
   # And the boundary is evaluated once per stage of every step swept. A walk that
   # skipped the lowest range would divide this by the steps in it, which on a

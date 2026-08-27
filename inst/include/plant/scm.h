@@ -408,9 +408,10 @@ public:
   // ---- Public state ------------------------------------------------------
   // The two toggles are exposed to R directly (access: field), so they need
   // no getter/setter wrappers.
-  // How many backward ranges the last census_trait_gradient swept, summed over
-  // metrics. One per segment with no splits requested, and one more per split
-  // that fell inside a segment -- which is what says a requested split cut.
+  // How many backward ranges the last census_trait_gradient swept: one per width,
+  // and one more per split that fell inside one -- which is what says a requested
+  // split cut. Not multiplied by the metric count: one recording is swept once per
+  // metric, so the ranges walked are the same ranges however many are carried.
   size_t adjoint_segments = 0;
 
   // The adjoint the last census_trait_gradient's walk ended holding: one row per
@@ -1092,8 +1093,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
   bool refused = false;
   refusal why;
   try {
-    adjoint_segments =
-        n_metric * solver.solve_adjoint(lambda, trait_adjoint, extra_splits);
+    adjoint_segments = solver.solve_adjoint(lambda, trait_adjoint, extra_splits);
     adjoint_at_first_state = lambda.to_rows();
   } catch (gradient_refusal& e) {
     why = e.site;
