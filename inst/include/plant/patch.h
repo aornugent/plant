@@ -154,7 +154,7 @@ public:
   // nothing rebuilt. This is the map the sweep transposes, so it runs at whatever
   // scalar it is called on and loads the state itself rather than asking the
   // caller to. Pushing the nodes is how the wider state is computed, so this
-  // patch is left holding it and a walk lifts again below it.
+  // patch is left holding it and a walk rebinds again below it.
   //
   // The species are the schedule's, looked up by the time the insertion happened
   // -- which is what lets the solver ask for this knowing only a recorded time.
@@ -206,7 +206,7 @@ public:
   std::vector<typename T::value_type*> ad_parameters();
 
   // Every active value this patch holds, wherever it lives. A walk that keeps a
-  // lifted patch across recordings hands each of these back before it clears the
+  // active patch across recordings hands each of these back before it clears the
   // tape, and the tape then says whether any was missed.
   //
   // `area` and the disturbance regime are not here: they are double. Nor are the

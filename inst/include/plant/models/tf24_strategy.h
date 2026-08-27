@@ -1145,7 +1145,7 @@ public:
   // rebuilt each call: the network is filled in place by the architecture model
   // and must NOT be moved from, because the leaf takes it by const reference
   // precisely so this buffer keeps its capacity across calls. All double -- the
-  // leaf is a node this strategy supplies rows for, not a scalar it lifts.
+  // leaf is a node this strategy supplies rows for, not a scalar it rebinds.
   phylloptim::gradient::Drivers leaf_drivers_;
 
   // Set where a row the UPTAKE outputs need does not exist. The first reason is

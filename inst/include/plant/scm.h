@@ -923,7 +923,7 @@ census_rows SCM<T, E>::census_state_and_trait_rows() const {
       y[m] = census_sum(active, metrics[m]);
     }
   };
-  // One recording, so the tape and the lift are odelia's to make. A sweep taking
+  // One recording, so the tape and the rebind are odelia's to make. A sweep taking
   // many hands in the tape it holds for the descent.
   odelia::ode::state_and_parameter_adjoints(
       patch, state, odelia::ode::adjoint_rows::all_rows(n_metric), reduce,

@@ -50,7 +50,7 @@ using adjoint = odelia::ode::active_scalar<double>;
 using adjoint_patch = plant::Patch<plant::at_scalar<strategy_type, adjoint>,
                                    plant::at_scalar<environment_type, adjoint>>;
 
-// One right-hand-side transpose, taken by the call the sweep takes: odelia lifts
+// One right-hand-side transpose, taken by the call the sweep takes: odelia rebinds
 // the patch to the adjoint scalar, records derivs() and sweeps the recording per
 // seed. Returns the recording's size. The tape is the caller's, as it is the
 // solver's in a sweep, so a caller repeating the call does not pay for it twice.
@@ -68,7 +68,7 @@ size_t rhs_adjoint(patch_type& patch,
     odelia::ode::adjoint_rows::one_row(lambda_dydt);
   odelia::ode::adjoint_rows swept;
   odelia::ode::adjoint_rows rows(1, patch.trait_adjoint_size());
-  odelia::ode::lifted_system<std::decay_t<decltype(patch)>> active{patch, tape};
+  odelia::ode::active_system<std::decay_t<decltype(patch)>> active{patch, tape};
   const size_t recording = odelia::ode::rates_adjoint(
     active, state, patch.time(), seeds, swept, rows);
   lambda_state.assign(swept[0].begin(), swept[0].end());
@@ -845,7 +845,7 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
   odelia::ode::adjoint_rows lambda_before;
   odelia::ode::adjoint_rows trait_adjoint(n_out, n_trait);
   ad_scalar::tape_type tape(false);
-  odelia::ode::lifted_system<std::decay_t<decltype(patch)>> active{patch, tape};
+  odelia::ode::active_system<std::decay_t<decltype(patch)>> active{patch, tape};
   odelia::ode::state_and_parameter_adjoints(active, state_before, seeds, widen,
                                             lambda_before, trait_adjoint);
 
