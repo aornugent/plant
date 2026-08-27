@@ -1010,8 +1010,10 @@ void Patch<T,E>::compute_environment_excl_capturing() {
     for (size_t i = 0; i < size(); ++i) {
       species[i].field_splits(x, competition_capture[i]);
       for (size_t k = 0; k < x.size(); ++k) {
-        y[k] += competition_capture[i][k].excl.first / area;
-        m[k] += competition_capture[i][k].excl.second / area;
+        const std::pair<value_type, value_type> open =
+          competition_capture[i][k].without_boundary();
+        y[k] += open.first / area;
+        m[k] += open.second / area;
       }
     }
   };

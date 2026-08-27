@@ -76,26 +76,32 @@ public:
   std::pair<value_type, value_type>
   compute_competition_and_slope(double height) const;
 
-  // What the reduction accumulates before its closing trapezium, plus the node
-  // it closed on. Holding this lets the field WITH the boundary interval be
-  // formed from the field without it in one operation, rather than by a second
-  // reduction over every node -- the two differ only in that trapezium, and the
-  // boundary node it needs is not known until the field without it exists.
+  // The reduction stopped before its closing trapezium: the sums so far and the
+  // last sample, which is everything one more interval needs. Holding it lets the
+  // field WITH the boundary interval be formed from the field without it in one
+  // operation rather than by a second reduction over every node -- the two differ
+  // only in that trapezium, and the boundary node it needs is not known until the
+  // field without it exists.
   struct competition_split {
     value_type tot{0.0}, tot_slope{0.0};
-    value_type f_h1{0.0}, s_h1{0.0}, x1{0.0};
-    bool closes{false};      // whether the closing trapezium is taken at all
-    bool from_loop{false};   // false when a short path returned before the loop
-    bool unordered{false};   // the sorted-view fallback, which splits no further
-    std::pair<value_type, value_type> excl{value_type(0.0), value_type(0.0)};
+    value_type f_h1{0.0}, s_h1{0.0};
+    // The abscissa is a position (abscissa_of takes it passive), so a width the
+    // closing forms from it is a position too and not state.
+    double x1{0.0};
+    bool closes{false};
+
+    // The field the nodes were rated in. close_competition_and_slope() is the
+    // same halved sums with the boundary interval added first.
+    std::pair<value_type, value_type> without_boundary() const {
+      return {tot / 2, tot_slope / 2};
+    }
 
     template <class F>
     void for_each_active(F&& f) {
-      odelia::ode::visit_active(f, tot, tot_slope, f_h1, s_h1, x1, excl);
+      odelia::ode::visit_active(f, tot, tot_slope, f_h1, s_h1);
     }
   };
-  competition_split compute_competition_and_slope_split(double height) const;
-  // The same split at every height of a set, from ONE pass over the nodes.
+  // A split at every height of a set, from ONE pass over the nodes.
   //
   // Q is a polynomial in w = (z / H)^eta and w separates into z^eta times H^-eta,
   // so the trapezium's intervals carry three running sums -- one per power -- and
@@ -271,13 +277,24 @@ public:
   strategy_type_ptr strategy_ptr() const {return this->strategy;}
 
 private:
-  // The fused reduction over a height-sorted view, for the case where the node
-  // heights are no longer ordered and the node list cannot be used directly as
-  // the quadrature grid. Height coordinate only -- it integrates in height, and
-  // the birth-date abscissa cannot invert (see compute_competition).
-  std::pair<value_type, value_type>
-  compute_competition_and_slope_unordered(double height,
-                                          bool include_boundary) const;
+  // The reduction, over the nodes in ascending abscissa. `order` names that order
+  // where the node list is not already in it and is empty where it is; the early
+  // exit is the decreasing heights', not this parameter's.
+  competition_split reduce_competition(double height,
+                                       const std::vector<std::size_t>& order) const;
+  // The node positions in ascending abscissa, for the case where the heights are
+  // no longer ordered and the node list cannot be the quadrature grid (#571).
+  // Positions only: nothing here evaluates a contribution, so no width the
+  // reduction forms out of it can carry a derivative.
+  std::vector<std::size_t> ascending_by_abscissa() const;
+  // Whether the closing trapezium to the boundary node is taken. Below a node
+  // that no longer contributes the density is zero and so is the interval; a
+  // single node has no interval but that one, and a birth-date abscissa does not
+  // order with the support at all.
+  bool closes_on(const value_type& f_h1) const {
+    return size() == 1 || control().node_density_in_birth_date || f_h1 > 0;
+  }
+  competition_split compute_competition_and_slope_split(double height) const;
 
   // Cache for scan_heights(). Every path that can change a node height must call
   // invalidate_height_scan(); a stale cache here would silently reintroduce the
@@ -486,9 +503,6 @@ Species<T,E>::compute_competition_and_slope(double height) const {
                                      height);
 }
 
-// The reduction up to its closing trapezium. Everything the closing term needs
-// travels in the result, so a caller that has to wait for the boundary node can
-// close it later without walking the nodes again.
 // One pass over the nodes for the whole height set. Where the prefix form does not
 // hold -- a broken ordering, or a profile that is not a polynomial in w -- every
 // height takes the walk, which is the same branch the walk's own early exit rests
@@ -594,63 +608,107 @@ void Species<T,E>::field_splits(const std::vector<double>& heights,
     c.x1 = abscissa[last];
     c.f_h1 = fs_last.first;
     c.s_h1 = fs_last.second;
-    c.closes = (n == 1 || birth_date || c.f_h1 > 0);
-    c.from_loop = true;
-    c.excl = {tot / 2, tot_slope / 2};
+    c.closes = closes_on(c.f_h1);
   }
 }
 
+// One reduction over the nodes in ascending abscissa. `order` names that order
+// where the node list is not in it; empty means in place, which is what the
+// decreasing heights buy -- abscissa_of negates height so that the two coincide.
+// The early exit belongs to those heights and not to this parameter: below the
+// query height a crown contributes an exact zero, so the reduction can stop
+// there only while the heights are known to keep falling.
 template <typename T, typename E>
 typename Species<T,E>::competition_split
-Species<T,E>::compute_competition_and_slope_split(double height) const {
-  competition_split c;
-  if (size() == 0) {
-    return c;
-  }
-  const HeightScan scan = scan_heights();
-  if (scan.h_max < height) {
-    return c;
-  }
+Species<T,E>::reduce_competition(double height,
+                                 const std::vector<std::size_t>& order) const {
   const bool birth_date = control().node_density_in_birth_date;
-  if (!birth_date && !scan.decreasing) {
-    c.unordered = true;
-    c.excl = compute_competition_and_slope_unordered(height, false);
-    return c;
+  const HeightScan scan = scan_heights();
+  const bool permuted = !order.empty();
+  const std::size_t n = size();
+  auto node_at = [&](std::size_t k) -> const node_type& {
+    return nodes[permuted ? order[k] : k];
+  };
+
+  const node_type& first = node_at(0);
+  const std::pair<value_type, value_type> fs1 =
+    first.compute_competition_and_slope(height);
+  if (!util::is_finite(fs1.first) || !util::is_finite(fs1.second)) {
+    util::stop("Detected non-finite contribution");
   }
   value_type tot = 0.0, tot_slope = 0.0;
-  nodes_const_iterator it = nodes.begin();
-  std::pair<value_type, value_type> fs1 =
-    it->compute_competition_and_slope(height);
-  value_type x1 = abscissa_of(*it, birth_date), f_h1 = fs1.first,
-             s_h1 = fs1.second;
+  double x1 = abscissa_of(first, birth_date);
+  value_type f_h1 = fs1.first, s_h1 = fs1.second;
 
-  for (++it; it != nodes.end(); ++it) {
+  for (std::size_t k = 1; k < n; ++k) {
+    const node_type& node = node_at(k);
     const std::pair<value_type, value_type> fs0 =
-      it->compute_competition_and_slope(height);
-    const value_type x0 = abscissa_of(*it, birth_date), h0 = it->height(),
-                     f_h0 = fs0.first, s_h0 = fs0.second;
-    if (!util::is_finite(f_h0) || !util::is_finite(s_h0)) {
+      node.compute_competition_and_slope(height);
+    const double x0 = abscissa_of(node, birth_date);
+    if (!util::is_finite(fs0.first) || !util::is_finite(fs0.second)) {
       util::stop("Detected non-finite contribution");
     }
-    tot       += (x0 - x1) * (f_h1 + f_h0);
-    tot_slope += (x0 - x1) * (s_h1 + s_h0);
+    tot       += (x0 - x1) * (f_h1 + fs0.first);
+    tot_slope += (x0 - x1) * (s_h1 + fs0.second);
     x1   = x0;
-    f_h1 = f_h0;
-    s_h1 = s_h0;
-    if (scan.decreasing && h0 < height) {
+    f_h1 = fs0.first;
+    s_h1 = fs0.second;
+    if (scan.decreasing && node.height() < height) {
       break;
     }
   }
 
+  competition_split c;
   c.tot = tot;
   c.tot_slope = tot_slope;
   c.x1 = x1;
   c.f_h1 = f_h1;
   c.s_h1 = s_h1;
-  c.closes = (size() == 1 || birth_date || f_h1 > 0);
-  c.from_loop = true;
-  c.excl = {tot / 2, tot_slope / 2};
+  c.closes = closes_on(f_h1);
   return c;
+}
+
+// Sorted on the abscissae rather than the nodes, so the scratch holds positions
+// and the contributions are evaluated by the one reduction, in the order this
+// hands it. Sorting the nodes' own heights instead put a subtraction of two live
+// scalars in every width, and the reduction then carried a weight derivative that
+// the walk it stands in for structurally cannot have.
+//
+// Dropping the zero-density nodes instead would be wrong. A node whose density
+// has collapsed to exactly zero contributes f = 0, and that zero is meaningful --
+// it is the reconstruction saying density vanishes at that size. Removing those
+// grid points would interpolate live density straight across the band and
+// overestimate it, so they stay in and the grid gets sorted.
+template <typename T, typename E>
+std::vector<std::size_t> Species<T,E>::ascending_by_abscissa() const {
+  const bool birth_date = control().node_density_in_birth_date;
+  std::vector<double> at(size());
+  std::vector<std::size_t> order(size());
+  for (std::size_t i = 0; i < order.size(); ++i) {
+    at[i] = abscissa_of(nodes[i], birth_date);
+    order[i] = i;
+  }
+  std::sort(order.begin(), order.end(),
+            [&at](std::size_t a, std::size_t b) -> bool { return at[a] < at[b]; });
+  return order;
+}
+
+// The reduction up to its closing trapezium. Everything the closing term needs
+// travels in the result, so a caller that has to wait for the boundary node can
+// close it later without walking the nodes again.
+template <typename T, typename E>
+typename Species<T,E>::competition_split
+Species<T,E>::compute_competition_and_slope_split(double height) const {
+  const HeightScan scan = scan_heights();
+  if (size() == 0 || scan.h_max < height) {
+    return competition_split();
+  }
+  // Introduction times ascend by construction; -height ascends only while the
+  // heights fall, and TF24's reserve-gated growth lets two cohorts cross (#571).
+  if (control().node_density_in_birth_date || scan.decreasing) {
+    return reduce_competition(height, {});
+  }
+  return reduce_competition(height, ascending_by_abscissa());
 }
 
 template <typename T, typename E>
@@ -658,92 +716,15 @@ std::pair<typename Species<T,E>::value_type,
           typename Species<T,E>::value_type>
 Species<T,E>::close_competition_and_slope(const competition_split& c,
                                           double height) const {
-  if (c.unordered) {
-    return compute_competition_and_slope_unordered(height, true);
+  if (!c.closes) {
+    return c.without_boundary();
   }
-  if (!c.from_loop) {
-    return c.excl;
-  }
-  value_type tot = c.tot, tot_slope = c.tot_slope;
-  if (c.closes) {
-    const std::pair<value_type, value_type> fs0 =
-      new_node.compute_competition_and_slope(height);
-    const value_type x0 =
-      abscissa_of(new_node, control().node_density_in_birth_date);
-    tot       += (x0 - c.x1) * (c.f_h1 + fs0.first);
-    tot_slope += (x0 - c.x1) * (c.s_h1 + fs0.second);
-  }
-  return {tot / 2, tot_slope / 2};
-}
-
-// The trapezium integral and its vertical derivative over a height-sorted view
-// of the nodes rather than the node list in place. Used only when the ordering
-// has broken (#571): it agrees with the in-place version whenever the ordering
-// holds, so this is a fallback rather than a change of method.
-//
-// Dropping the zero-density nodes instead would be wrong. A node whose density
-// has collapsed to exactly zero contributes f = 0, and that zero is meaningful --
-// it is the reconstruction saying density vanishes at that size. Removing those
-// grid points would interpolate live density straight across the band and
-// overestimate it, so they stay in and the grid gets sorted.
-//
-// No early exit here: it would need the same monotonicity that is missing. Nodes
-// below `height` contribute f = 0 at both ends, so including them costs time but
-// changes nothing. The scratch buffer is thread_local and reused, so the repeated
-// calls that build one spline do not each allocate.
-//
-// The grid is abscissa_of, as it is in the walk above, so the widths are positions
-// and not state. Sorting the nodes' own heights instead put a subtraction of two
-// live scalars in every width, and this reduction then carried a weight derivative
-// that the walk it stands in for structurally cannot have.
-template <typename T, typename E>
-std::pair<typename Species<T,E>::value_type,
-          typename Species<T,E>::value_type>
-Species<T,E>::compute_competition_and_slope_unordered(double height,
-                                                      bool include_boundary) const {
-  const bool birth_date = control().node_density_in_birth_date;
-  // Cleared on entry, so no element outlives the call that made it.
-  thread_local std::vector<
-    std::pair<double, std::pair<value_type, value_type>>> xfs;
-  xfs.clear();
-  xfs.reserve(size());
-
-  for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
-    const std::pair<value_type, value_type> fs =
-      it->compute_competition_and_slope(height);
-    if (!util::is_finite(fs.first) || !util::is_finite(fs.second)) {
-      util::stop("Detected non-finite contribution");
-    }
-    xfs.push_back({abscissa_of(*it, birth_date), fs});
-  }
-  std::sort(xfs.begin(), xfs.end(),
-            [](std::pair<double, std::pair<value_type, value_type>> const& a,
-               std::pair<double, std::pair<value_type, value_type>> const& b) {
-              return a.first < b.first;
-            });
-
-  value_type tot = 0.0, tot_slope = 0.0;
-  double x1 = xfs.front().first;
-  value_type f_h1 = xfs.front().second.first, s_h1 = xfs.front().second.second;
-  for (size_t j = 1; j < xfs.size(); ++j) {
-    const double x0 = xfs[j].first;
-    const value_type f_h0 = xfs[j].second.first, s_h0 = xfs[j].second.second;
-    tot       += (x0 - x1) * (f_h1 + f_h0);
-    tot_slope += (x0 - x1) * (s_h1 + s_h0);
-    x1   = x0;
-    f_h1 = f_h0;
-    s_h1 = s_h0;
-  }
-
-  if (include_boundary && (size() == 1 || f_h1 > 0)) {
-    const std::pair<value_type, value_type> fs0 =
-      new_node.compute_competition_and_slope(height);
-    const double x0 = abscissa_of(new_node, birth_date);
-    tot       += (x0 - x1) * (f_h1 + fs0.first);
-    tot_slope += (x0 - x1) * (s_h1 + fs0.second);
-  }
-
-  return {tot / 2, tot_slope / 2};
+  const std::pair<value_type, value_type> fs0 =
+    new_node.compute_competition_and_slope(height);
+  const double x0 =
+    abscissa_of(new_node, control().node_density_in_birth_date);
+  return {(c.tot + (x0 - c.x1) * (c.f_h1 + fs0.first)) / 2,
+          (c.tot_slope + (x0 - c.x1) * (c.s_h1 + fs0.second)) / 2};
 }
 
 template <typename T, typename E>

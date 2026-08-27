@@ -562,3 +562,62 @@ test_that("the crown's separable form is the same profile as its own kernel", {
   expect_identical(Q_direct(0, 3.2), 1)
   expect_identical(Q_moments(0, 3.2), 1)
 })
+
+# Defect: the reduction taken over the node list rather than over the abscissa
+# set. TF24's reserve-gated growth lets two cohorts cross in height (#571), and
+# in the height coordinate the abscissa is -height, so a crossing puts a negative
+# width in the trapezium. Nothing else here catches it: both the C++ and a by-hand
+# walk read the same defective grid.
+#
+# The check is permutation invariance, because that is what the quadrature grid
+# being a set means. It is bit-for-bit rather than approximate: restoring the
+# order gives the same intervals in the same sequence, so the sums associate
+# identically, and only the order the nodes are stored in differs.
+test_that("the competition reduction is invariant to the node order", {
+  # Written through the state vector, because the heights setter refuses a
+  # crossing and a run has no such guard.
+  build <- function(heights, log_densities) {
+    ctrl <- Control()
+    ctrl$node_density_in_birth_date <- FALSE
+    st <- FF16_Strategy()
+    st$control <- ctrl
+    s <- Species("FF16", "FF16_Env")(st)
+    env <- Environment("FF16")
+    env$set_fixed_environment(1.0, 200)
+    for (i in seq_along(heights)) {
+      s$compute_rates(env, 1.0, 1.0)
+      s$introduce_new_node()
+    }
+    state <- s$ode_state
+    names_j <- s$nodes[[1]]$ode_names
+    stride <- s$nodes[[1]]$ode_size
+    i_height <- match("height", names_j)
+    i_density <- match("log_density", names_j)
+    for (j in seq_along(heights)) {
+      base <- (j - 1L) * stride
+      state[[base + i_height]] <- heights[[j]]
+      state[[base + i_density]] <- log_densities[[j]]
+    }
+    s$ode_state <- state
+    s
+  }
+
+  h <- c(9, 6, 4, 2)
+  d <- log(c(0.4, 0.9, 1.7, 2.6))
+  ordered <- build(h, d)
+  expect_identical(ordered$heights, h)
+
+  # The same four (height, density) samples with two adjacent pairs swapped.
+  p <- c(2, 1, 4, 3)
+  crossed <- build(h[p], d[p])
+  expect_identical(crossed$heights, h[p])
+  expect_false(all(diff(crossed$heights) < 0))
+
+  # Below the canopy top, at the crown bases, and above every node. The value and
+  # the slope accumulate in one loop over one set of widths, so a width with the
+  # wrong sign cannot reach one channel and not the other.
+  for (z in c(0, 1, 2, 3, 4, 6, 8.5, 9.5)) {
+    expect_identical(crossed$compute_competition(z),
+                     ordered$compute_competition(z))
+  }
+})
