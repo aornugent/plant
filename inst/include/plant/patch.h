@@ -249,18 +249,19 @@ public:
   // what the run chose here. Opened by the walk around the whole evaluation, which
   // is what puts it before the field build below -- the inflow condition's own leaf
   // solves happen in there -- and closes it however the evaluation leaves.
-  void begin_stage(odelia::ode::recorded_stage at) {
-    if constexpr (KeepsSolvedChoices<strategy_type>) {
-      for (species_type& s : species) {
-        s.strategy_ptr()->begin_stage(at);
-      }
+  // Declared only where a strategy has a choice to keep, so a patch whose state
+  // determines everything it does does not answer for an extent it has no use for
+  // -- and the walk then opens none, rather than opening one that does nothing six
+  // times a step.
+  void begin_stage(odelia::ode::recorded_stage at)
+    requires KeepsSolvedChoices<strategy_type> {
+    for (species_type& s : species) {
+      s.strategy_ptr()->begin_stage(at);
     }
   }
-  void end_stage() {
-    if constexpr (KeepsSolvedChoices<strategy_type>) {
-      for (species_type& s : species) {
-        s.strategy_ptr()->end_stage();
-      }
+  void end_stage() requires KeepsSolvedChoices<strategy_type> {
+    for (species_type& s : species) {
+      s.strategy_ptr()->end_stage();
     }
   }
 
