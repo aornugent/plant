@@ -85,15 +85,16 @@ test_that("the boundary's own term enters once per stage of every step", {
     got <- ladder_boundary_evaluations_tf24(stand)
     list(steps = length(trajectory) - 1L,
          introductions = sum(diff(widths) != 0),
-         metrics = got$metrics, evaluations = got$evaluations)
+         metrics = got$metrics, evaluations = got$evaluations,
+         placements = got$placements)
   }
 
   short <- measure(0.4)
   long <- measure(0.8)
   for (m in list(short, long)) {
     message(sprintf(
-      "  %3d steps, %d introduction(s), %d metrics: %.0f evaluations",
-      m$steps, m$introductions, m$metrics, m$evaluations))
+      "  %3d steps, %d introduction(s), %d metrics: %.0f evaluations, %.0f placements",
+      m$steps, m$introductions, m$metrics, m$evaluations, m$placements))
     expect_gt(m$steps, 1L)
     expect_gt(m$metrics, 1L)
 
@@ -105,12 +106,25 @@ test_that("the boundary's own term enters once per stage of every step", {
     # recording taken per metric instead of per step would multiply it by the
     # metric count.
     expect_equal(m$evaluations, stages * m$steps)
+
+    # And the record ENGAGED. The sweep re-runs the model over the states the run
+    # already visited, so every operating point it needs was found once already and
+    # is placed rather than searched for -- but a record that quietly places nothing
+    # searches again and returns the same numbers, because the search answers from
+    # the same state. This count is the only thing that separates the two, and
+    # nothing was reading it.
+    #
+    # A floor rather than an equality: the sweep addresses five stages of every step
+    # and each places one point per cohort, so this is expected to be several times
+    # the step count and is asserted only to be past it.
+    expect_gt(m$placements, m$steps)
   }
 
   # Non-vacuity: the count has to be a count. A constant would satisfy every
   # equality above on one fixture and say nothing.
   expect_gt(long$steps, short$steps)
   expect_gt(long$evaluations, short$evaluations)
+  expect_gt(long$placements, short$placements)
   message(sprintf("  the count tracks the step count: %.0f over %d steps against %.0f over %d",
                   short$evaluations, short$steps, long$evaluations,
                   long$steps))
