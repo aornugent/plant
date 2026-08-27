@@ -154,7 +154,7 @@ public:
   // Cached: heights change only when the ODE state is set or a node is
   // introduced/cleared, whereas compute_competition() is called once per spline
   // knot, so this is hundreds of calls per change. Every mutator invalidates.
-  HeightScan scan_heights() const;
+  const HeightScan& scan_heights() const;
 
   // Setting the ODE state rewrites every node's height, so the cached scan goes
   // with it. Shadows (rather than uses) the SpeciesBase version for that reason.
@@ -393,23 +393,15 @@ void Species<T,E>::introduce_new_node() {
 // reserve-gated growth (#517) makes dh/dt depend on a cohort's own storage, so
 // two cohorts born moments apart into a rapidly changing environment can cross
 // in height. When they had, this returned a height 0.1 m *below* the tallest and
-// only living cohort, truncating the light spline's domain (#571). Scanning is
-// O(n) in heights only -- negligible against the crown integrals in
-// compute_competition -- and returns exactly nodes.front() whenever the ordering
-// does hold, so results are unchanged in that case.
+// only living cohort, truncating the light spline's domain (#571). The scan is
+// the pass that already answers this, and it is cached, so asking it here is what
+// makes the tallest height and the ordering one walk rather than two.
 template <typename T, typename E>
 typename Species<T,E>::value_type Species<T,E>::height_max() const {
   if (nodes.empty()) {
     return new_node.height();
   }
-  value_type ret = -std::numeric_limits<double>::infinity();
-  for (nodes_const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
-    const value_type h = it->height();
-    if (h > ret) {
-      ret = h;
-    }
-  }
-  return ret;
+  return scan_heights().h_max;
 }
 
 // Are the node heights still ordered largest to smallest? See height_max() above
@@ -421,7 +413,7 @@ bool Species<T,E>::heights_are_decreasing() const {
 }
 
 template <typename T, typename E>
-typename Species<T,E>::HeightScan Species<T,E>::scan_heights() const {
+const typename Species<T,E>::HeightScan& Species<T,E>::scan_heights() const {
   if (!height_scan_valid) {
     height_scan_cache = compute_height_scan();
     height_scan_valid = true;
@@ -514,7 +506,7 @@ void Species<T,E>::field_splits(const std::vector<double>& heights,
   if (size() == 0) {
     return;
   }
-  const HeightScan scan = scan_heights();
+  const HeightScan& scan = scan_heights();
   const bool birth_date = control().node_density_in_birth_date;
   const std::size_t n_moments = strategy->canopy_shape.n_moments();
   if (!scan.decreasing || n_moments == 0) {
@@ -623,7 +615,7 @@ typename Species<T,E>::competition_split
 Species<T,E>::reduce_competition(double height,
                                  const std::vector<std::size_t>& order) const {
   const bool birth_date = control().node_density_in_birth_date;
-  const HeightScan scan = scan_heights();
+  const HeightScan& scan = scan_heights();
   const bool permuted = !order.empty();
   const std::size_t n = size();
   auto node_at = [&](std::size_t k) -> const node_type& {
@@ -699,7 +691,7 @@ std::vector<std::size_t> Species<T,E>::ascending_by_abscissa() const {
 template <typename T, typename E>
 typename Species<T,E>::competition_split
 Species<T,E>::compute_competition_and_slope_split(double height) const {
-  const HeightScan scan = scan_heights();
+  const HeightScan& scan = scan_heights();
   if (size() == 0 || scan.h_max < height) {
     return competition_split();
   }
