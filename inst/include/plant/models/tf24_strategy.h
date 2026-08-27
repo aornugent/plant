@@ -1151,15 +1151,31 @@ public:
     }
   }
 
+  // The leaf's own sites, one site at a time. Reading them as a folded vector
+  // allocates, and a differentiated leaf evaluation reads them twice.
+  using leaf_clamp_tally =
+      std::array<std::size_t, phylloptim::CLAMP_SITE_COUNT>;
+  static_assert(CLAMP_LEAF_FIRST + phylloptim::CLAMP_SITE_COUNT ==
+                    CLAMP_SITE_COUNT,
+                "the leaf's sites are the last of plant's, so this tally maps "
+                "onto them by adding CLAMP_LEAF_FIRST");
+
+  leaf_clamp_tally leaf_clamps() const {
+    leaf_clamp_tally out{};
+    for (std::size_t s = 0; s < out.size(); ++s) {
+      out[s] = leaf.clamp_count(static_cast<int>(s));
+    }
+    return out;
+  }
+
   // What the leaf clamped between two readings of its own tally. Everything
   // between re-supplies and re-solves it many times, so anything clamped there
   // is the gradient's and the forward run's share is the total less this.
-  void note_leaf_clamps(const std::vector<std::size_t>& before) {
-    const std::vector<std::size_t> after = leaf.clamp_counts();
+  void note_leaf_clamps(const leaf_clamp_tally& before) {
+    const leaf_clamp_tally after = leaf_clamps();
     for (std::size_t s = 0; s < after.size(); ++s) {
-      const std::size_t at = CLAMP_LEAF_FIRST + s;
-      if (at < CLAMP_SITE_COUNT && after[s] > before[s]) {
-        (*clamps.differentiated)[at] += after[s] - before[s];
+      if (after[s] > before[s]) {
+        (*clamps.differentiated)[CLAMP_LEAF_FIRST + s] += after[s] - before[s];
       }
     }
   }
@@ -1315,7 +1331,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // The leaf clamps in double on both paths, so which path a clamp fired on is a
   // question of when rather than of the scalar, and a delta answers it. Taken on
   // the throwing exit too, because a refusal is still a pass over the leaf.
-  const std::vector<std::size_t> clamps_before = leaf.clamp_counts();
+  const leaf_clamp_tally clamps_before = leaf_clamps();
   Leaf::CollarCondition condition;
   Leaf::LeafOutputs<S> got;
   try {
