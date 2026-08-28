@@ -544,6 +544,60 @@ were not previously recorded here:
   flux the plant has moves establishment and every plant near its compensation
   point, so it wants its own change and its own re-blessing rather than being
   folded in here where one census movement would have two causes.
+* **Discrete events (#628).** `run_scm()` takes an `events` argument: a queue of
+  `(time, action)` items applied between solver legs, the way node introductions
+  always have been. Build one with `events()` and the typed constructors —
+  `node_introductions()`, `resource_pulse()`, `harvest()`, `climate_extreme()`.
+
+  The vocabulary is deliberately taxa- and model-agnostic, because the machinery
+  is shared by every strategy and environment: a resource pulse is water in TF24
+  and could be anything countable in a size-structured animal model, and a
+  climate extreme is heat in one model and could be cold or salinity in another.
+  Names that are only true of one model live with that model — `rainfall_pulse()`
+  is a resource pulse of water into TF24's surface soil layer, and
+  `TF24_Environment$add_water_pulse()` is the same action on the C++ side.
+
+  ```r
+  ev <- events(
+    node_introductions(p),
+    rainfall_pulse(time = c(1.5, 3.2), depth = c(0.013, 0.050)),
+    harvest(time = 20, fraction = 0.5, size_min = 10)
+  )
+  res <- run_scm(p, env = env, ctrl = ctrl, events = ev)
+  ```
+
+  Each event carries when it happens, its type, its target (`"environment"`,
+  `"patch"` or one `"species"`) and the values it needs. What each one actually
+  did — as against what was asked of it — is readable as `scm$event_log`; the two
+  differ routinely, because a pulse is capped at what the pool can hold and the
+  excess is shed.
+
+  Two things worth knowing. An event is also a **stop time** for the integrator,
+  so adding one changes the adaptive step sequence: a run with events legitimately
+  differs from one without, at solver tolerance, even away from the events. And
+  events are instantaneous *to the solver* only — an action may sub-integrate its
+  own fast model over a nominal duration with demography frozen, which is what
+  `climate_extreme()` does. Design notes in `notes/plan-events.md`.
+
+  `collect = TRUE` returns `events` and `event_log` alongside the tidied output,
+  since events are supplied separately from `p` and a collected result would
+  otherwise record neither what was asked for nor what was done.
+
+  Events are validated before the run rather than during it: an event past
+  `max_patch_lifetime`, a type aimed at a target it cannot act on, and
+  parameters an action cannot use (a non-finite intensity, a negative
+  sensitivity, an inverted size band) are all refused at construction.
+
+  Runs that supply no events are unaffected, and verified so: FF16, K93 and TF24
+  are `identical()` on ODE step times, fitness and state.
+
+  Also adopts odelia 0.3.1's opt-in domain checks. Two conditions that used to
+  kill a run outright are now rejected steps: a non-finite environment state
+  (measured in #608 to be integrator overshoot, which a smaller step recovers),
+  and an infeasible leaf probe out of phylloptim's collar root-find. Both are
+  inert when nothing goes wrong -- the three reference runs stay `identical()`.
+  A runaway cohort density stays fatal, because that divergence is in the
+  equations rather than the stepper and shrinking cannot recover it.
 
 * **`Control$node_density_in_birth_date`** (default `FALSE`) carries the SCM's
   size distribution as a density in birth date instead of in height.
