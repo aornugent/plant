@@ -82,11 +82,6 @@ public:
   // Run the whole schedule from t = 0 to completion.
   void run();
 
-  // Advance one step: introduce every node due at the current time, then
-  // integrate the patch forward to the next introduction (or over the fixed
-  // ode times). Returns the species indices introduced this step.
-  std::vector<size_t> run_next();
-
   // Replay the resident's saved environment for a mutant strategy: swap in
   // mutant parameters, reuse the cached environment/ode times, and run.
   void run_mutant(parameters_type p);
@@ -456,11 +451,12 @@ private:
   // Uniform grid for fixed-step forward-Euler integration (control.fixed_time_step).
   static std::vector<double> uniform_euler_times(double t0, double t1, double dt);
 
-  // Shared implementation of run_next(). The solver owns the patch system
-  // (odelia::ode::Solver), so the live state lives in solver.get_system_ref();
-  // sync_patch controls whether the `patch` member snapshot is refreshed from
-  // it on return (skipped inside the run() loop to avoid per-step copies).
-  std::vector<size_t> run_next_impl(bool sync_patch);
+  // Advance one event: introduce every node due at the current time, then
+  // integrate to the next introduction (or over the pinned ode times). Returns
+  // the species introduced. The solver owns the patch system, so the live state
+  // is solver.get_system_ref(); run() refreshes the `patch` snapshot once, after
+  // its loop, rather than per event.
+  std::vector<size_t> run_next();
 
   parameters_type parameters;
   Control control;
@@ -527,7 +523,7 @@ template <typename T, typename E> void SCM<T, E>::run() {
   }
 
   while (!complete()) {
-    std::vector<size_t> added = run_next_impl(false);
+    std::vector<size_t> added = run_next();
     if (collect_refinement_errors) {
       solver.get_system_ref().collect_competition_errors(added);
     }
@@ -540,12 +536,8 @@ template <typename T, typename E> void SCM<T, E>::run() {
   patch = solver.get_system_ref();
 }
 
-template <typename T, typename E> std::vector<size_t> SCM<T, E>::run_next() {
-  return run_next_impl(true);
-}
-
 template <typename T, typename E>
-std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
+std::vector<size_t> SCM<T, E>::run_next() {
   std::vector<size_t> ret;
   const double t0 = time();
   // The live patch system is owned by the solver; mutate it in place.
@@ -570,9 +562,6 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
           uniform_euler_times(t0, e.time_introduction(), control.fixed_time_step));
     } else {
       solver.advance_adaptive({solver.time(), e.time_introduction()});
-    }
-    if (sync_patch) {
-      patch = sys;
     }
     return ret; // empty: nothing introduced this step
   }
@@ -636,10 +625,6 @@ std::vector<size_t> SCM<T, E>::run_next_impl(bool sync_patch) {
         uniform_euler_times(t0, e.time_end(), control.fixed_time_step));
   } else {
     solver.advance_adaptive({solver.time(), e.time_end()});
-  }
-
-  if (sync_patch) {
-    patch = sys;
   }
 
   return ret;

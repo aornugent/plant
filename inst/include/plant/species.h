@@ -164,13 +164,6 @@ public:
   }
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
 
-  // -dg/dh on the cohort grid: node i spans the interval down to its lower
-  // neighbour, the lowest down to new_node. The spacing between two
-  // characteristics has an exact rate, d(dh)/dt = g_i - g_below, so this is
-  // exactly d(log dh)/dt rather than an estimate of dg/dh. Where the interval has
-  // no width the node takes the compression of the one above.
-  value_type growth_rate_gradient(std::size_t i) const;
-
   std::vector<double> net_reproduction_ratio_by_node() const;
   // Per-node lifetime offspring, weighted by patch-age density and S_D.
   std::vector<double> net_reproduction_ratio_by_node_weighted() const;
@@ -730,17 +723,6 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   // it -- so the two are the same function at different arguments rather than one
   // computed twice. This value is the one an introduced node inherits.
   new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
-}
-
-template <typename T, typename E>
-typename Species<T,E>::value_type
-Species<T,E>::growth_rate_gradient(std::size_t i) const {
-  const node_type& below = i + 1 < size() ? nodes[i + 1] : new_node;
-  const value_type dh = nodes[i].height() - below.height();
-  if (dh == 0.0) {
-    return i > 0 ? growth_rate_gradient(i - 1) : value_type(0.0);
-  }
-  return (nodes[i].growth_rate() - below.growth_rate()) / dh;
 }
 
 template <typename T, typename E>

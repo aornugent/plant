@@ -50,12 +50,6 @@ public:
       pr_patch_survival_at_birth;
   }
 
-  // The two rates the transport term is built from, and the write for its
-  // result. Species::growth_rate_gradient differences growth across neighbouring
-  // nodes, so it reads these rather than perturbing a copy.
-  value_type growth_rate() const {return individual.rate(HEIGHT_INDEX);}
-  value_type mortality_rate() const {return individual.rate(MORTALITY_INDEX);}
-
   // The height growth rate this node was born at, i.e. |dh/dtau| exactly, at
   // birth. Current only for the boundary node (re-evaluated every step); frozen
   // at its own birth for an introduced one. Zero for a node loaded from an
