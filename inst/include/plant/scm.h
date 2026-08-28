@@ -186,7 +186,7 @@ public:
   // strategy's ad_parameters() order, species-major. Requires an adaptive run to
   // have resolved the schedule this replays.
   //
-  // `extra_splits` names recorded steps at which the sweep stops and resumes. The
+  // `extra_stops` names recorded steps at which the sweep stops and resumes. The
   // adjoint recursion is linear in the step, so composition over steps is
   // associative and any split must give the same numbers bit for bit; a
   // difference is something carried across a step boundary that is not the
@@ -203,7 +203,7 @@ public:
   // not asked for is not seeded and not swept, so asking for one costs one --
   // which is what a caller differentiating a single census wants and what
   // computing all of them and subsetting the answer does not give.
-  census_trait_gradient(const std::vector<size_t>& extra_splits = {},
+  census_trait_gradient(const std::vector<size_t>& extra_stops = {},
                         const std::vector<std::string>& which_metrics = {});
 
   // The four references the ladder checks census_trait_gradient against.
@@ -989,7 +989,7 @@ SCM<T, E>::census_trait_difference(double rel) {
 // a snapshot the run copies out, and reading its accumulator gives zeros.
 template <typename T, typename E>
 census_gradient
-SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
+SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_stops,
                                  const std::vector<std::string>& which_metrics) {
   require_birth_date_coordinate("census_trait_gradient");
   // Which rows to sweep, resolved against the strategy's own list before
@@ -1068,7 +1068,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_splits,
     // One segment per width, highest first, narrowing across each widening and
     // transposing the map that took it. The solver owns that walk: what is left
     // here is the census the sweep is seeded from.
-    adjoint_segments = solver.solve_adjoint(lambda, trait_adjoint, extra_splits);
+    adjoint_segments = solver.solve_adjoint(lambda, trait_adjoint, extra_stops);
     adjoint_at_first_state = lambda.to_rows();
     why = recorded_refusal(live);
     if (why.happened()) {
