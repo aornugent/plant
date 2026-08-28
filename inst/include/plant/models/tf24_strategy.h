@@ -13,6 +13,10 @@
 #include <odelia/ode_util.hpp>
 #include <odelia/implicit_node.hpp>
 #include <array>
+// cstdio/cstdlib for the environment-gated curvature comparison in
+// record_leaf_outputs, and nothing else here.
+#include <cstdio>
+#include <cstdlib>
 #include <string_view>
 #include <utility>
 #include <type_traits>
@@ -1344,6 +1348,59 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       // The interior derivation divides by the profit's curvature. At a bound
       // the slope is the bound's own and this floor is not about it.
       note_curvature(condition.slope);
+
+      // ⚠️ THE CHECK THIS DERIVATION COULD NOT MAKE ABOUT ITSELF, on every interior
+      // point rather than only where it refuses -- so a fixture that answers can
+      // still say whether the curvature is right, and a cheap one is enough.
+      //
+      // Three readings of one quantity. `condition.marginal` is d(profit_at)/d(collar)
+      // from the same sweep as the curvature; `leaf.collar_resid_` is the marginal the
+      // SOLVE rooted, from its own implementation. They must agree, and both must be
+      // ~0, or profit_at is not the function that placed this collar. The centred
+      // difference is then the referee for the curvature itself.
+      //
+      // On a COPY of the leaf: dprofit_droot_collar_psi mutates, and collar_at and
+      // outputs_at below still read the leaf's own coefficients. Capped and gated,
+      // because it costs a leaf copy and two marginal evaluations apiece.
+      if (std::getenv("PLANT_COMPARE_COLLAR_CURVATURE") != nullptr) {
+        static int shown = 0;
+        phylloptim::Leaf probe = leaf;
+        const double x = leaf.opt_root_psi_;
+        const double hstep = std::max(std::abs(x), 1.0) * 1e-6;
+        bool lo_ok = false, hi_ok = false;
+        const double d_lo = probe.dprofit_droot_collar_psi(x - hstep, &lo_ok);
+        const double d_hi = probe.dprofit_droot_collar_psi(x + hstep, &hi_ok);
+        const double differenced = (d_hi - d_lo) / (2.0 * hstep);
+        const double rel =
+            std::abs(static_cast<double>(condition.slope) - differenced) /
+            std::max(std::abs(differenced), 1e-12);
+        // Only the DISAGREEMENTS. On a short stand these two agree to nine
+        // significant figures at every interior point, so printing all of them
+        // buries the one that matters; the century stand has 2.8 million and one
+        // known offender. The soil proximity is carried because the two branches
+        // that could explain a state-specific divergence -- roots.hpp's
+        // equal-potentials lift and its `is_same_v<T,double>`-gated gravity snap --
+        // both fire on a collar within 1e-8 of a layer's potential.
+        // 0.5, not 1e-6: at 1e-6 the century stand prints hundreds of benign
+        // disagreements around 1e-5 and buries the one that matters, whose
+        // relative gap is about 4.6 (AD +34.4 against a difference of -9.63).
+        if (rel > 0.5 && shown < 40) {
+          ++shown;
+          double near_soil = std::numeric_limits<double>::infinity();
+          for (const S& ps : psi_soil) {
+            near_soil = std::min(
+                near_soil, std::abs(x - odelia::util::to_passive(ps)));
+          }
+          std::fprintf(stderr,
+                       "# DISAGREE rel=%.3g curv AD=%.10g diff=%.10g | "
+                       "marginal AD=%.10g solve=%.10g | d(x-h)=%.10g(%d) "
+                       "d(x+h)=%.10g(%d) x=%.10g nearest_soil=%.10g\n",
+                       rel, static_cast<double>(condition.slope), differenced,
+                       condition.marginal, leaf.collar_resid_, d_lo,
+                       lo_ok ? 1 : 0, d_hi, hi_ok ? 1 : 0, x, near_soil);
+          std::fflush(stderr);
+        }
+      }
       // Two findings, and one sentence used to serve both -- so a positive
       // curvature was reported "against a floor of 0.001" at a value of 34.4,
       // four orders of magnitude ABOVE that floor, which reads as a magnitude
@@ -1351,45 +1408,39 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       // are not even the same KIND of problem: the floor limb is a real
       // degeneracy of the model, and the sign limb is a SOLVER failure.
       if (!(condition.slope < 0.0)) {
-        // ⚠️ WHAT A POSITIVE CURVATURE HERE PROVES, because it is not what it
-        // reads as. An interior point is reached only on a bracket where the
-        // marginal is positive at the wet end and negative at the dry one --
-        // maximise_profit_over_collar's own pin tests guarantee it. A monotone
-        // marginal crossing that way has exactly ONE root, with a negative slope
-        // at it. So a converged root with a POSITIVE slope proves the marginal is
-        // not monotone on the bracket, and that the solve returned a MINIMUM of
-        // profit rather than the maximum it was looking for.
+        // ⚠️ A POSITIVE CURVATURE HERE IS EVIDENCE AGAINST THE CURVATURE, not
+        // against the operating point. An interior collar is reached only on a
+        // bracket the marginal crosses downward, so the curvature at it must be
+        // non-positive -- and the collar solve now probes dry of every root it
+        // returns and counts the exceptions. On the 105-year stand in
+        // scripts/profile-stand-gradient.R it found the marginal rising ZERO times
+        // in 2,829,445 interior solves, while this reported +34.4; a centred
+        // difference of the solve's own marginal at that collar gave -9.63.
         //
-        // That solve catches the case where a minimum is the ONLY interior
-        // stationary point (`f_lo <= 0 && f_hi >= 0`, both ends falling inward)
-        // and tags it SolverRefused. This is the same finding by the other route
-        // -- a minimum COEXISTING with maxima -- and the bracket test cannot see
-        // it, because f_lo > 0 > f_hi still holds with three roots in between. The
-        // solve says so itself: monotonicity is "measured on all 240 feasible
-        // golden-grid rows, but that is a grid, not a theorem".
+        // So the two spellings of the marginal disagree, and the one that matches
+        // the difference is the solve's. `condition.marginal` and
+        // `leaf.collar_resid_` are those two spellings, carried here because their
+        // disagreement is the finding -- both must be ~0 at an interior point, and
+        // where they are not, profit_at is not the function that placed this
+        // collar and its second derivative belongs to something else.
         //
-        // How far from stationary, in the collar's own units, rather than a
-        // threshold on the residual: the residual is |slope| x the offset, and
-        // collar_root_tol is a tolerance on the collar, not on the marginal. Both
-        // numbers come from work the solve has already done.
-        // format_double, not to_string: the two numbers that carry the proof are
-        // ~1e-6 and ~1e-8, and to_string's six DECIMAL places print both as
-        // "0.000000". util::format_double keeps six SIGNIFICANT figures and exists
-        // for exactly this.
-        const double offset =
-            std::abs(leaf.collar_resid_) / std::abs(condition.slope);
+        // format_double, not to_string: these numbers run to ~1e-6 and below,
+        // where to_string's six DECIMAL places print "0.000000". format_double
+        // keeps six SIGNIFICANT figures and exists in util.h for this.
         refuse(std::string("TF24 gradient: the profit curvature at this "
                            "operating point is ") +
                util::format_double(condition.slope) +
-               ", which is not negative, and the marginal profit there is " +
+               ", which is not negative -- so the interior derivation cannot "
+               "divide by it. The marginal at this collar reads " +
+               util::format_double(condition.marginal) +
+               " differentiating profit_at and " +
                util::format_double(leaf.collar_resid_) +
                (leaf.collar_resid_placed_ ? "" : " (NOT placed)") +
-               " -- a root within " + util::format_double(offset) +
-               " of stationary, with a POSITIVE slope. An interior collar is only "
-               "reached on a bracket the marginal crosses downward, so the "
-               "marginal is not monotone here and the solve returned a MINIMUM of "
-               "profit rather than the maximum. The collar is " +
-               util::format_double(leaf.opt_root_psi_));
+               " from the solve that placed it; the collar is " +
+               util::format_double(leaf.opt_root_psi_) +
+               ". An interior collar sits on a downward crossing, so a positive "
+               "curvature here indicts this derivation rather than the point. See "
+               "docs/design/one-program.md");
       } else if (std::abs(condition.slope) < curvature_floor()) {
         // format_double for the same reason: a curvature inside a floor of 1e-3 is
         // where to_string's six decimal places start losing the number.
