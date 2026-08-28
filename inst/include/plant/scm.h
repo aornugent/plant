@@ -1147,7 +1147,12 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   forward.set_collect(false);
   forward.set_state_from_system();
 
-  odelia::ode::advance_over_insertions(forward, rec, 0, 0);
+  // From row 0, whose own junction this walk still owes: the state seeded above is
+  // that row's, at its own width.
+  forward.advance_recorded(odelia::ode::program_from(
+      rec, 0,
+      {forward.time(), std::numeric_limits<double>::quiet_NaN(),
+       rec[0].junction}));
 
   // Leave the double system where the run left it, so this call is repeatable
   // beside the sweep that shares its trajectory.
@@ -1205,8 +1210,13 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   forward.set_collect(false);
   forward.set_state_from_system();
 
-  odelia::ode::advance_over_insertions(forward, rec, from_segment,
-                                     start);
+  // state_at_segment applied the junction at `start` where it resumed at a
+  // segment. At segment 0 it positions on row 0 and applies nothing, so row 0's
+  // own junction is still this walk's to make.
+  const bool pending = from_segment == 0 && rec[start].junction;
+  forward.advance_recorded(odelia::ode::program_from(
+      rec, start,
+      {forward.time(), std::numeric_limits<double>::quiet_NaN(), pending}));
 
   // Leave the double system where the run left it, so this call is repeatable
   // beside the sweep that shares its trajectory.
