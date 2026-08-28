@@ -1201,6 +1201,14 @@ public:
   void end_solved() { leaf_points->end(); }
   size_t leaf_placements() const { return leaf_points->placements(); }
 
+  // How often the collar solve returned an interior root that is a MINIMUM of
+  // profit. Zero is what every fixture this model was validated on reports; a
+  // non-zero count is a forward-model error that, until it was counted, was
+  // visible only as a refused gradient.
+  size_t nonmonotone_collars() const {
+    return leaf.nonmonotone_collar_count();
+  }
+
   // The leaf's two outputs on the active chain, carrying its supplied Jacobian.
   // Written by net_mass_production_dt before compute_rates reads either.
   S leaf_profit_;
@@ -1366,11 +1374,37 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
         static int shown = 0;
         phylloptim::Leaf probe = leaf;
         const double x = leaf.opt_root_psi_;
-        const double hstep = std::max(std::abs(x), 1.0) * 1e-6;
+        // ⚠️ A DIFFERENCE IS ONLY A REFEREE IF ITS STEP STAYS ON ONE SIDE OF
+        // EVERY FEATURE. At the century stand's one offending point the collar sits
+        // 5.6e-08 from a soil layer's potential -- where the mean conductivity is a
+        // 0/0 the model names as "the ONE coincidence a derivative kernel here
+        // cannot answer at" -- and a 1e-6 relative step straddles it by a factor of
+        // 32. That difference reported -9.63 against two analytic routes agreeing on
+        // +34.41, and it was the difference that was wrong: it measures the trend
+        // ACROSS the feature, not the slope at the root. So the step is refined
+        // until it agrees with itself, and every reading is printed.
+        const double h0 = std::max(std::abs(x), 1.0);
         bool lo_ok = false, hi_ok = false;
-        const double d_lo = probe.dprofit_droot_collar_psi(x - hstep, &lo_ok);
-        const double d_hi = probe.dprofit_droot_collar_psi(x + hstep, &hi_ok);
-        const double differenced = (d_hi - d_lo) / (2.0 * hstep);
+        double differenced = std::numeric_limits<double>::quiet_NaN();
+        double d_lo = 0.0, d_hi = 0.0;
+        double refined[3] = {std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::quiet_NaN()};
+        const double fracs[3] = {1e-6, 1e-8, 1e-10};
+        for (int k = 0; k < 3; ++k) {
+          const double h = h0 * fracs[k];
+          bool a_ok = false, b_ok = false;
+          const double a = probe.dprofit_droot_collar_psi(x - h, &a_ok);
+          const double b = probe.dprofit_droot_collar_psi(x + h, &b_ok);
+          if (a_ok && b_ok && std::isfinite(a) && std::isfinite(b)) {
+            refined[k] = (b - a) / (2.0 * h);
+          }
+          if (k == 0) {
+            lo_ok = a_ok; hi_ok = b_ok; d_lo = a; d_hi = b;
+            differenced = refined[0];
+          }
+        }
+        const double hstep = h0 * 1e-6;
         const double rel =
             std::abs(static_cast<double>(condition.slope) - differenced) /
             std::max(std::abs(differenced), 1e-12);
@@ -1392,12 +1426,16 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                 near_soil, std::abs(x - odelia::util::to_passive(ps)));
           }
           std::fprintf(stderr,
-                       "# DISAGREE rel=%.3g curv AD=%.10g diff=%.10g | "
-                       "marginal AD=%.10g solve=%.10g | d(x-h)=%.10g(%d) "
-                       "d(x+h)=%.10g(%d) x=%.10g nearest_soil=%.10g\n",
+                       "# DISAGREE rel=%.3g curv AD=%.10g diff=%.10g "
+                       "assembled=%.10g | marginal AD=%.10g solve=%.10g | "
+                       "d(x-h)=%.10g(%d) d(x+h)=%.10g(%d) x=%.10g "
+                       "nearest_soil=%.10g | diff@1e-6=%.10g 1e-8=%.10g "
+                       "1e-10=%.10g\n",
                        rel, static_cast<double>(condition.slope), differenced,
-                       condition.marginal, leaf.collar_resid_, d_lo,
-                       lo_ok ? 1 : 0, d_hi, hi_ok ? 1 : 0, x, near_soil);
+                       probe.marginal_collar_slope(), condition.marginal,
+                       leaf.collar_resid_, d_lo, lo_ok ? 1 : 0, d_hi,
+                       hi_ok ? 1 : 0, x, near_soil, refined[0], refined[1],
+                       refined[2]);
           std::fflush(stderr);
         }
       }
