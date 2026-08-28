@@ -624,13 +624,6 @@ Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<pla
   // And whether there is an answer at all. A refused sweep costs what an accepted
   // one costs, so a caller timing this without reading the refusal is timing work
   // whose result was thrown away -- which is what the profile scripts were doing.
-  // How many interior roots the run placed at a MINIMUM of profit. A forward-model
-  // error, and the count is the only thing that says whether it is rare or common.
-  double minima = 0.0;
-  for (size_t i = 0; i < obj_->r_patch().size(); ++i) {
-    minima += static_cast<double>(
-      obj_->r_patch().at_species(i).strategy_ptr()->nonmonotone_collars());
-  }
   const std::string refused =
     result.why.empty() ? std::string() : result.why.front().reason;
   // And how many operating points the sweep placed rather than searched for. A
@@ -647,7 +640,6 @@ Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<pla
     Rcpp::_["placements"] = placed,
     Rcpp::_["segments"] = segments,
     Rcpp::_["refusal"] = refused,
-    Rcpp::_["collar_minima"] = minima,
     Rcpp::_["metrics"] = static_cast<int>(result.gradient.size()));
 }
 

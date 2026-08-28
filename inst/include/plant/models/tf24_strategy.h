@@ -1201,13 +1201,6 @@ public:
   void end_solved() { leaf_points->end(); }
   size_t leaf_placements() const { return leaf_points->placements(); }
 
-  // How often the collar solve returned an interior root that is a MINIMUM of
-  // profit. Zero is what every fixture this model was validated on reports; a
-  // non-zero count is a forward-model error that, until it was counted, was
-  // visible only as a refused gradient.
-  size_t nonmonotone_collars() const {
-    return leaf.nonmonotone_collar_count();
-  }
 
   // The leaf's two outputs on the active chain, carrying its supplied Jacobian.
   // Written by net_mass_production_dt before compute_rates reads either.
