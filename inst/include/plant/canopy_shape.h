@@ -276,20 +276,35 @@ private:
   typedef S (*pow_eta_fn)(S, S);
   typedef S (*leaf_above_fn)(const CanopyShape&, S);
 
-  // u^eta. On double the multiplication chain selected in initialise(); on an
-  // active scalar the library pow, whose recorded eta derivative u^eta * log(u)
-  // the chain does not carry. That derivative is 0 * (-inf) -- a NaN -- at u = 0,
-  // where the profile's value is 0, so the guard returns 0 there outright.
+  // u^eta, by THE SAME ALGORITHM AT BOTH SCALARS.
+  //
+  // ⚠️ It used to be two: the multiplication chain at double, and the library pow
+  // at an active scalar so that the recorded eta derivative u^eta * log(u) would
+  // be carried. Those are different algorithms for one quantity, and they disagree
+  // in the last bits -- at the default eta = 12 the chain is four roundings
+  // (u2=u*u; u4=u2*u2; u8=u4*u4; u8*u4) against a correctly-rounded pow, which
+  // differs on about 82% of u in (0,1) by up to 8 ulp, and Q = (1 - u^eta)^2
+  // cancels near the crown top and turns that into ~4e-9 relative. So the
+  // DIFFERENTIATED light environment was not the FORWARD light environment, and no
+  // check could see it because both are plausible.
+  //
+  // The derivative that justified the second algorithm is one nothing may read:
+  // TF24_Strategy declares `eta` undifferentiable, for exactly the reason the old
+  // comment here gave -- u^eta*log(u) is 0*(-inf) at u = 0 and the guard returns a
+  // constant zero, "so a row here would be a silently wrong zero". A branch whose
+  // only product is a forbidden row is a branch that earns nothing.
+  //
+  // The guard stays and stays active-only: pow_eta_ may be pow_eta_general, which
+  // is pow, and at u = 0 its eta row is that same NaN. At double the chain gives 0
+  // there anyway, so leaving the guard off that side keeps the forward numbers
+  // bit-identical to what they have always been.
   S pow_eta(S u) const {
-    if constexpr (std::is_same_v<S, double>) {
-      return pow_eta_(u, eta_);
-    } else {
+    if constexpr (!std::is_same_v<S, double>) {
       if (odelia::util::to_passive(u) <= 0.0) {
         return S(0.0);
       }
-      using std::pow;
-      return pow(u, eta_);
     }
+    return pow_eta_(u, eta_);
   }
 
   // Smooth Yokozawa profile -- the correct shading a crown casts.
