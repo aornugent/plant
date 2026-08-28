@@ -1344,22 +1344,58 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       // The interior derivation divides by the profit's curvature. At a bound
       // the slope is the bound's own and this floor is not about it.
       note_curvature(condition.slope);
-      // Two findings, and one sentence used to serve both -- so a convex point
-      // was reported "against a floor of 0.001" with a curvature of 34.4, which
-      // reads as a magnitude failure and is not one. A session lost a day to it.
-      // Split, because they mean different things: a convex point is the wrong
-      // SHAPE and no floor would admit it, while a flat one is the right shape
-      // with too little left to divide by.
+      // Two findings, and one sentence used to serve both -- so a positive
+      // curvature was reported "against a floor of 0.001" at a value of 34.4,
+      // four orders of magnitude ABOVE that floor, which reads as a magnitude
+      // failure and is not one. A session lost a day to it. Split, because they
+      // are not even the same KIND of problem: the floor limb is a real
+      // degeneracy of the model, and the sign limb is a SOLVER failure.
       if (!(condition.slope < 0.0)) {
-        refuse("TF24 gradient: the leaf's profit curvature at this operating "
-               "point is " + util::to_string(condition.slope) +
-               ", which is not negative -- the profit is convex here, so the "
-               "collar's own response is amplification rather than an answer. "
-               "No curvature floor admits this point");
+        // ⚠️ WHAT A POSITIVE CURVATURE HERE PROVES, because it is not what it
+        // reads as. An interior point is reached only on a bracket where the
+        // marginal is positive at the wet end and negative at the dry one --
+        // maximise_profit_over_collar's own pin tests guarantee it. A monotone
+        // marginal crossing that way has exactly ONE root, with a negative slope
+        // at it. So a converged root with a POSITIVE slope proves the marginal is
+        // not monotone on the bracket, and that the solve returned a MINIMUM of
+        // profit rather than the maximum it was looking for.
+        //
+        // That solve catches the case where a minimum is the ONLY interior
+        // stationary point (`f_lo <= 0 && f_hi >= 0`, both ends falling inward)
+        // and tags it SolverRefused. This is the same finding by the other route
+        // -- a minimum COEXISTING with maxima -- and the bracket test cannot see
+        // it, because f_lo > 0 > f_hi still holds with three roots in between. The
+        // solve says so itself: monotonicity is "measured on all 240 feasible
+        // golden-grid rows, but that is a grid, not a theorem".
+        //
+        // How far from stationary, in the collar's own units, rather than a
+        // threshold on the residual: the residual is |slope| x the offset, and
+        // collar_root_tol is a tolerance on the collar, not on the marginal. Both
+        // numbers come from work the solve has already done.
+        // format_double, not to_string: the two numbers that carry the proof are
+        // ~1e-6 and ~1e-8, and to_string's six DECIMAL places print both as
+        // "0.000000". util::format_double keeps six SIGNIFICANT figures and exists
+        // for exactly this.
+        const double offset =
+            std::abs(leaf.collar_resid_) / std::abs(condition.slope);
+        refuse(std::string("TF24 gradient: the profit curvature at this "
+                           "operating point is ") +
+               util::format_double(condition.slope) +
+               ", which is not negative, and the marginal profit there is " +
+               util::format_double(leaf.collar_resid_) +
+               (leaf.collar_resid_placed_ ? "" : " (NOT placed)") +
+               " -- a root within " + util::format_double(offset) +
+               " of stationary, with a POSITIVE slope. An interior collar is only "
+               "reached on a bracket the marginal crosses downward, so the "
+               "marginal is not monotone here and the solve returned a MINIMUM of "
+               "profit rather than the maximum. The collar is " +
+               util::format_double(leaf.opt_root_psi_));
       } else if (std::abs(condition.slope) < curvature_floor()) {
+        // format_double for the same reason: a curvature inside a floor of 1e-3 is
+        // where to_string's six decimal places start losing the number.
         refuse("TF24 gradient: the leaf's profit curvature at this operating "
-               "point is " + util::to_string(condition.slope) +
-               ", inside the floor of " + util::to_string(curvature_floor()) +
+               "point is " + util::format_double(condition.slope) +
+               ", inside the floor of " + util::format_double(curvature_floor()) +
                ", so the interior derivation would divide by too little to "
                "answer");
       }
