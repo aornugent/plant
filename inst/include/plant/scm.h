@@ -425,19 +425,6 @@ public:
   // ---- Public state ------------------------------------------------------
   // The two toggles are exposed to R directly (access: field), so they need
   // no getter/setter wrappers.
-  // How many backward ranges the last census_trait_gradient swept: one per width,
-  // and one more per split that fell inside one -- which is what says a requested
-  // split cut. Not multiplied by the metric count: one recording is swept once per
-  // metric, so the ranges walked are the same ranges however many are carried.
-  size_t adjoint_segments = 0;
-
-  // The adjoint the last census_trait_gradient's walk ended holding: one row per
-  // metric swept, one column per entry of the first recorded state. It is
-  // d(census)/d(that state), which census_initial_state_tangent computes forwards
-  // from the same state and over the same steps.
-  std::vector<std::vector<double>> adjoint_at_first_state;
-
-
   bool collect;                    // record a patch snapshot after each step
   bool collect_refinement_errors;  // accumulate competition errors during run
   std::vector<patch_type> history; // per-step patch snapshots when collect
@@ -748,8 +735,6 @@ template <typename T, typename E> void SCM<T, E>::reset() {
   solver.reset();
   patch = solver.get_system_ref();
   history.clear();
-  adjoint_segments = 0;
-  adjoint_at_first_state.clear();
 }
 
 
@@ -1032,8 +1017,6 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_stops,
 
   patch_type& live = solver.get_system_ref();
 
-  adjoint_segments = 0;
-  adjoint_at_first_state.clear();
   // Cleared here so that a previous call's degeneracy cannot refuse this one.
   clear_recorded_refusal(live);
   // The seeds and the direct term are on the gradient path too, so a refusal is
@@ -1045,6 +1028,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_stops,
   const size_t width = live.trait_adjoint_size();
   refusal why = recorded_refusal(live);
   odelia::ode::adjoint_rows trait_adjoint;
+  census_gradient ret;
   if (!why.happened()) {
     // Every metric's sweep visits the same trajectory and differs only in its
     // seed, so they are carried TOGETHER: a block is recorded once and swept once
@@ -1068,12 +1052,18 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_stops,
     // One segment per width, highest first, narrowing across each widening and
     // transposing the map that took it. The solver owns that walk: what is left
     // here is the census the sweep is seeded from.
-    adjoint_segments = solver.solve_adjoint(lambda, trait_adjoint, extra_stops);
-    adjoint_at_first_state = lambda.to_rows();
+    const size_t segments =
+        solver.solve_adjoint(lambda, trait_adjoint, extra_stops);
+    std::vector<std::vector<double>> at_first_state = lambda.to_rows();
+
+    // Polled again, because the sweep is where most refusals are raised. The two
+    // diagnostics cross to the answer only here, on the one path that has a sweep
+    // to describe -- so a refusal leaves them at their defaults rather than being
+    // cleared back to them.
     why = recorded_refusal(live);
-    if (why.happened()) {
-      adjoint_segments = 0;
-      adjoint_at_first_state.clear();
+    if (!why.happened()) {
+      ret.segments = segments;
+      ret.at_first_state = std::move(at_first_state);
     }
   }
 
@@ -1081,7 +1071,6 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_stops,
   // row that could not be supplied is an intermediate of a recording spanning six
   // stages and every cohort in them, so no seed carries a component to attribute
   // it to.
-  census_gradient ret;
   ret.gradient.reserve(rows.size());
   ret.why.reserve(rows.size());
   for (size_t m = 0; m < rows.size(); ++m) {

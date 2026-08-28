@@ -618,6 +618,9 @@ Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<pla
   obj_->clear_boundary_condition_evaluations();
   const plant::census_gradient result =
     obj_->census_trait_gradient();
+  // Every count here comes off the one gradient above, the ranges it walked
+  // included. Read through its own accessor they could describe a different call.
+  const double segments = static_cast<double>(result.segments);
   // And how many operating points the sweep placed rather than searched for. A
   // record that engages and one that quietly does not produce the same numbers, so
   // this is the only thing that tells them apart.
@@ -630,6 +633,7 @@ Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<pla
     Rcpp::_["evaluations"] =
       static_cast<double>(obj_->boundary_condition_evaluations()),
     Rcpp::_["placements"] = placed,
+    Rcpp::_["segments"] = segments,
     Rcpp::_["metrics"] = static_cast<int>(result.gradient.size()));
 }
 
@@ -1045,25 +1049,6 @@ census_trait_gradient_split_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_St
     at.push_back(static_cast<size_t>(s - 1));
   }
   return census_gradient_to_r(obj_->census_trait_gradient(at));
-}
-
-// How many backward ranges the last gradient swept. A requested split that fell
-// on a segment boundary rather than inside one changes nothing, so this is what
-// says a split actually cut.
-// [[Rcpp::export]]
-double census_adjoint_segments_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  return static_cast<double>(obj_->adjoint_segments);
-}
-
-// The adjoint the last gradient's walk ended holding: d(census)/d(the first
-// recorded state), one row per metric swept and one column per entry of that
-// state. Reaching it means carrying lambda over the range below the first
-// widening, so a run with steps there is what separates a walk that ran that
-// range from one that started above it.
-// [[Rcpp::export]]
-std::vector<std::vector<double>>
-census_adjoint_at_first_state_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  return obj_->adjoint_at_first_state;
 }
 
 // The forward run's classification tally: one row per species, one column per

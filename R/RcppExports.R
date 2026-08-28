@@ -4509,14 +4509,6 @@ census_trait_gradient_split_tf24 <- function(obj_, splits) {
     .Call('_plant_census_trait_gradient_split_tf24', PACKAGE = 'plant', obj_, splits)
 }
 
-census_adjoint_segments_tf24 <- function(obj_) {
-    .Call('_plant_census_adjoint_segments_tf24', PACKAGE = 'plant', obj_)
-}
-
-census_adjoint_at_first_state_tf24 <- function(obj_) {
-    .Call('_plant_census_adjoint_at_first_state_tf24', PACKAGE = 'plant', obj_)
-}
-
 census_operating_point_counts_tf24 <- function(obj_) {
     .Call('_plant_census_operating_point_counts_tf24', PACKAGE = 'plant', obj_)
 }

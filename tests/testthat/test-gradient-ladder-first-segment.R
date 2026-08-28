@@ -42,11 +42,12 @@ test_that("the sweep runs the range below the first widening", {
   n_widening <- sum(diff(widths) != 0)
   steps <- length(trajectory) - 1L
 
-  # One sweep, read twice: the boundary count is taken from it and the range
-  # count is what that same sweep left behind.
+  # One sweep, and both counts are its own return. They used to be one call and
+  # one read off the solver afterwards, which is a pair that can describe two
+  # different sweeps.
   ladder_gradient_or_skip(stand)
   counts <- ladder_boundary_evaluations_tf24(stand)
-  ranges <- census_adjoint_segments_tf24(stand)
+  ranges <- counts$segments
 
   # One range per width, and every width here has a step in it, so the count is
   # one MORE than the number of widenings. A walk beginning at the first widening
@@ -72,9 +73,10 @@ test_that("the adjoint the walk ends holding is the census's sensitivity to the 
   metrics <- census_metric_names_tf24()
 
   # Through stand_gradient so a sweep that refuses this stand skips by the
-  # ladder's one gate and a sweep that BREAKS is re-raised.
+  # ladder's one gate and a sweep that BREAKS is re-raised. The adjoint itself
+  # comes back with the gradient that ended holding it.
   ladder_gradient_or_skip(stand)
-  lambda <- do.call(rbind, census_adjoint_at_first_state_tf24(stand))
+  lambda <- do.call(rbind, census_trait_gradient_tf24(stand)$at_first_state)
   rownames(lambda) <- metrics
 
   base <- ladder_segment_base_state_tf24(stand, 0L)

@@ -62,8 +62,9 @@ test_that("a sweep split at an interior step equals the whole sweep", {
   # The short fixture keeps all five widenings and a quarter of the steps, and the
   # comparison below is bit-identity, so nothing here is re-blessed.
   stand <- ladder_stand_introductions_short()
-  whole <- do.call(rbind, census_trait_gradient_tf24(stand)$gradient)
-  unsplit_ranges <- census_adjoint_segments_tf24(stand)
+  unsplit <- census_trait_gradient_tf24(stand)
+  whole <- do.call(rbind, unsplit$gradient)
+  unsplit_ranges <- unsplit$segments
 
   widths <- vapply(stand$store_trajectory(), function(s) length(s$state),
                    numeric(1))
@@ -79,9 +80,9 @@ test_that("a sweep split at an interior step equals the whole sweep", {
                  "all three at once" = c(interior, widening[[2]] - 1,
                                          widening[[2]] + 1))
   for (name in names(points)) {
-    split <- do.call(rbind,
-                     census_trait_gradient_split_tf24(stand, points[[name]])$gradient)
-    ranges <- census_adjoint_segments_tf24(stand)
+    cut <- census_trait_gradient_split_tf24(stand, points[[name]])
+    split <- do.call(rbind, cut$gradient)
+    ranges <- cut$segments
     # Non-vacuity, and it is not decoration: a split landing ON a segment
     # boundary is outside every segment's interior and cuts nothing, so the
     # equality below would hold between two identical sweeps. The range count is
@@ -94,9 +95,7 @@ test_that("a sweep split at an interior step equals the whole sweep", {
 
   # And the boundary case stated rather than left as a trap: naming a widening
   # itself requests a split no segment contains.
-  boundary_split <- do.call(rbind,
-                            census_trait_gradient_split_tf24(stand,
-                                                             widening[[2]])$gradient)
-  expect_equal(census_adjoint_segments_tf24(stand), unsplit_ranges)
-  expect_identical(boundary_split, whole)
+  on_boundary <- census_trait_gradient_split_tf24(stand, widening[[2]])
+  expect_equal(on_boundary$segments, unsplit_ranges)
+  expect_identical(do.call(rbind, on_boundary$gradient), whole)
 })

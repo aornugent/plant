@@ -31,6 +31,25 @@ struct census_gradient {
   // metric-major, one column per registered parameter
   std::vector<std::vector<double>> gradient;
   std::vector<refusal> why;
+
+  // What the sweep that produced the rows above did, carried beside them rather
+  // than left on the solver. Beside, because a count read through its own
+  // accessor is a count that can disagree with the refusal it belongs to -- and
+  // did, for a day, while one of two refusal mechanisms zeroed it and the other
+  // did not. They are written only where there is an answer to describe, so a
+  // refused metric leaves them at the defaults instead of clearing back to them.
+
+  // How many backward ranges were walked: one per width, plus one per requested
+  // split that fell inside a range, which is what says a split cut.  Not
+  // multiplied by the metric count -- one recording is swept once per metric, so
+  // the ranges walked are the same however many rows are carried.
+  size_t segments = 0;
+
+  // The adjoint the walk ended holding: one row per metric swept, one column per
+  // entry of the first recorded state. It is d(census)/d(that state), which
+  // census_initial_state_tangent computes forwards from the same state over the
+  // same steps.
+  std::vector<std::vector<double>> at_first_state;
 };
 
 }  // namespace plant

@@ -67,7 +67,11 @@ Rcpp::List census_gradient_to_r(const plant::census_gradient& g) {
     }
   }
   return Rcpp::List::create(Rcpp::_["gradient"] = gradient,
-                            Rcpp::_["refusal"] = refusal);
+                            Rcpp::_["refusal"] = refusal,
+                            Rcpp::_["segments"] =
+                                static_cast<double>(g.segments),
+                            Rcpp::_["at_first_state"] =
+                                Rcpp::wrap(g.at_first_state));
 }
 
 // One row per census metric, one column per trait in census_trait_names_tf24()
