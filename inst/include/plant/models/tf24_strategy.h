@@ -1344,12 +1344,23 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       // The interior derivation divides by the profit's curvature. At a bound
       // the slope is the bound's own and this floor is not about it.
       note_curvature(condition.slope);
-      if (!(condition.slope < 0.0) ||
-          std::abs(condition.slope) < curvature_floor()) {
+      // Two findings, and one sentence used to serve both -- so a convex point
+      // was reported "against a floor of 0.001" with a curvature of 34.4, which
+      // reads as a magnitude failure and is not one. A session lost a day to it.
+      // Split, because they mean different things: a convex point is the wrong
+      // SHAPE and no floor would admit it, while a flat one is the right shape
+      // with too little left to divide by.
+      if (!(condition.slope < 0.0)) {
         refuse("TF24 gradient: the leaf's profit curvature at this operating "
                "point is " + util::to_string(condition.slope) +
-               ", against a floor of " + util::to_string(curvature_floor()) +
-               ", so the collar's own response is amplification rather than an "
+               ", which is not negative -- the profit is convex here, so the "
+               "collar's own response is amplification rather than an answer. "
+               "No curvature floor admits this point");
+      } else if (std::abs(condition.slope) < curvature_floor()) {
+        refuse("TF24 gradient: the leaf's profit curvature at this operating "
+               "point is " + util::to_string(condition.slope) +
+               ", inside the floor of " + util::to_string(curvature_floor()) +
+               ", so the interior derivation would divide by too little to "
                "answer");
       }
     }

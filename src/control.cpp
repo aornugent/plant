@@ -57,6 +57,15 @@ Control::Control() {
   // strictly negative curvature and the smallest magnitude was 0.0623. This sits
   // sixty times below that, so it separates a divergence from the range the
   // model occupies rather than narrowing what answers.
+  //
+  // ⚠️ The MAGNITUDE claim above is what this number rests on, and it holds. The
+  // SIGN claim -- "every one strictly negative" -- does not: the century stand in
+  // scripts/profile-stand-gradient.R refuses on an interior point whose curvature
+  // is +34.414226, and no floor admits that point. The sweep was over static leaf
+  // states in the box named above; a stand integrated for 105 years reaches
+  // operating points outside it. So the guard's sign limb is live in practice and
+  // is not a defensive branch -- which is why it says something different from the
+  // floor limb when it fires.
   gradient_curvature_floor = 1e-3;
 
   // Bracket tolerance of the collar-potential search. It has only to land inside

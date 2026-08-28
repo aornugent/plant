@@ -621,6 +621,11 @@ Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<pla
   // Every count here comes off the one gradient above, the ranges it walked
   // included. Read through its own accessor they could describe a different call.
   const double segments = static_cast<double>(result.segments);
+  // And whether there is an answer at all. A refused sweep costs what an accepted
+  // one costs, so a caller timing this without reading the refusal is timing work
+  // whose result was thrown away -- which is what the profile scripts were doing.
+  const std::string refused =
+    result.why.empty() ? std::string() : result.why.front().reason;
   // And how many operating points the sweep placed rather than searched for. A
   // record that engages and one that quietly does not produce the same numbers, so
   // this is the only thing that tells them apart.
@@ -634,6 +639,7 @@ Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<pla
       static_cast<double>(obj_->boundary_condition_evaluations()),
     Rcpp::_["placements"] = placed,
     Rcpp::_["segments"] = segments,
+    Rcpp::_["refusal"] = refused,
     Rcpp::_["metrics"] = static_cast<int>(result.gradient.size()));
 }
 
