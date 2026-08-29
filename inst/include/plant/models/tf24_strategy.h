@@ -1486,8 +1486,14 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     }
     // Placed, then evaluated. Which condition placed it is the leaf's to say;
     // whether the curvature it divides by is usable was this caller's, above.
-    const S collar = leaf.collar_at<S>(in);
-    got = leaf.outputs_at<S>(collar, in);
+    // The supply, taken ONCE at the point the solve left. The soil reaches
+    // everything the leaf answers with through this and nothing else, so both
+    // calls below read it instead of re-recording the same Ohm's law over the
+    // same tabulated integral.
+    const phylloptim::Leaf::SupplyDraw<S> draw =
+        leaf.supply_draw_at<S>(S(leaf.opt_root_psi_), in.supply);
+    const S collar = leaf.collar_at<S>(in, draw);
+    got = leaf.outputs_at<S>(collar, in, draw);
   } catch (const std::runtime_error& e) {
     note_leaf_clamps(clamps_before);
     // The leaf produced nothing to record a row against, so every output takes
