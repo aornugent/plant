@@ -1486,7 +1486,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     }
     // Placed, then evaluated. Which condition placed it is the leaf's to say;
     // whether the curvature it divides by is usable was this caller's, above.
-    const S collar = leaf.collar_at<S>(in, got.point);
+    const S collar = leaf.collar_at<S>(in);
     got = leaf.outputs_at<S>(collar, in);
   } catch (const std::runtime_error& e) {
     note_leaf_clamps(clamps_before);
@@ -1505,13 +1505,10 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   note_leaf_clamps(clamps_before);
 
   // A collar the theorem could not place costs every output that reads it, and
-  // profit is not one of them: at an interior point it reads the collar held.
-  // The water rows go, and every later plant's go with them, because a metric is
-  // a sum and a sum has no defined value with an undefined term.
-  if (!got.point.whole) {
-    refuse("TF24 gradient: the operating point cannot be recorded at an "
-           "interior point: " + got.point.why);
-  }
+  // profit is not one of them: at an interior point it reads the collar held. That
+  // used to be checked here, off a report the interior arm alone filled; every arm
+  // now throws instead and the catch above refuses with the same grain, so the
+  // report and the branch that read it are gone.
 
   // ⚠️ THE VALUE IS THE LEAF'S, NOT THIS COMPOSITION'S. The solve is what plant's
   // rates read, so a second copy of it could only disagree; what is taken here is
