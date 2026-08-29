@@ -1340,15 +1340,20 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // question of when rather than of the scalar, and a delta answers it. Taken on
   // the throwing exit too, because a refusal is still a pass over the leaf.
   const leaf_clamp_tally clamps_before = leaf_clamps();
-  Leaf::CollarCondition condition;
+  // ⚠️ THE SAME NUMBER THE CLOSURE DIVIDES BY. This used to be a second-order pass
+  // over `profit_at` whose slope the guard tested while the interior closure divided
+  // by it -- and whose PARAMETER rows nothing refereed at all. Both are now
+  // marginal_collar_slope(): dM/dp taken as a first derivative of the marginal the
+  // solve roots, and the rows are taped from M inside collar_at.
+  double slope = std::numeric_limits<double>::quiet_NaN();
   Leaf::LeafOutputs<S> got;
   try {
     if (leaf.operating_point_kind() == Leaf::OperatingPointKind::Interior) {
-      condition = leaf.collar_condition(leaf.opt_psi_stem_, leaf.ci_,
-                                        in.template rebind_from<double>());
+      slope = leaf.marginal_collar_slope(
+          in.profit.template rebind_from<double>());
       // The interior derivation divides by the profit's curvature. At a bound
       // the slope is the bound's own and this floor is not about it.
-      note_curvature(condition.slope);
+      note_curvature(slope);
 
       // ⚠️ THE CHECK THIS DERIVATION COULD NOT MAKE ABOUT ITSELF, on every interior
       // point rather than only where it refuses -- so a fixture that answers can
@@ -1399,7 +1404,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
         }
         const double hstep = h0 * 1e-6;
         const double rel =
-            std::abs(static_cast<double>(condition.slope) - differenced) /
+            std::abs(slope - differenced) /
             std::max(std::abs(differenced), 1e-12);
         // Only the DISAGREEMENTS. On a short stand these two agree to nine
         // significant figures at every interior point, so printing all of them
@@ -1424,8 +1429,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                        "d(x-h)=%.10g(%d) d(x+h)=%.10g(%d) x=%.10g "
                        "nearest_soil=%.10g | diff@1e-6=%.10g 1e-8=%.10g "
                        "1e-10=%.10g\n",
-                       rel, static_cast<double>(condition.slope), differenced,
-                       probe.marginal_collar_slope(), condition.marginal,
+                       rel, slope, differenced, slope, leaf.collar_resid_,
                        leaf.collar_resid_, d_lo, lo_ok ? 1 : 0, d_hi,
                        hi_ok ? 1 : 0, x, near_soil, refined[0], refined[1],
                        refined[2]);
@@ -1438,7 +1442,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       // failure and is not one. A session lost a day to it. Split, because they
       // are not even the same KIND of problem: the floor limb is a real
       // degeneracy of the model, and the sign limb is a SOLVER failure.
-      if (!(condition.slope < 0.0)) {
+      if (!(slope < 0.0)) {
         // ⚠️ A POSITIVE CURVATURE HERE IS EVIDENCE AGAINST THE CURVATURE, not
         // against the operating point. An interior collar is reached only on a
         // bracket the marginal crosses downward, so the curvature at it must be
@@ -1460,23 +1464,21 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
         // keeps six SIGNIFICANT figures and exists in util.h for this.
         refuse(std::string("TF24 gradient: the profit curvature at this "
                            "operating point is ") +
-               util::format_double(condition.slope) +
+               util::format_double(slope) +
                ", which is not negative -- so the interior derivation cannot "
-               "divide by it. The marginal at this collar reads " +
-               util::format_double(condition.marginal) +
-               " differentiating profit_at and " +
+               "divide by it. The marginal at this collar is " +
                util::format_double(leaf.collar_resid_) +
                (leaf.collar_resid_placed_ ? "" : " (NOT placed)") +
-               " from the solve that placed it; the collar is " +
+               "; the collar is " +
                util::format_double(leaf.opt_root_psi_) +
                ". An interior collar sits on a downward crossing, so a positive "
                "curvature here indicts this derivation rather than the point. See "
                "docs/design/one-program.md");
-      } else if (std::abs(condition.slope) < curvature_floor()) {
+      } else if (std::abs(slope) < curvature_floor()) {
         // format_double for the same reason: a curvature inside a floor of 1e-3 is
         // where to_string's six decimal places start losing the number.
         refuse("TF24 gradient: the leaf's profit curvature at this operating "
-               "point is " + util::format_double(condition.slope) +
+               "point is " + util::format_double(slope) +
                ", inside the floor of " + util::format_double(curvature_floor()) +
                ", so the interior derivation would divide by too little to "
                "answer");
@@ -1484,7 +1486,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     }
     // Placed, then evaluated. Which condition placed it is the leaf's to say;
     // whether the curvature it divides by is usable was this caller's, above.
-    const S collar = leaf.collar_at<S>(in, condition, got.point);
+    const S collar = leaf.collar_at<S>(in, got.point);
     got = leaf.outputs_at<S>(collar, in);
   } catch (const std::runtime_error& e) {
     note_leaf_clamps(clamps_before);
