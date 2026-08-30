@@ -299,6 +299,55 @@ test_that("TF24 patch aux reports the per-layer uptake", {
   expect_lt(uptake[[n_layers]], 0)
 })
 
+# A rate evaluation is a function of the state and the time it is given, and of
+# nothing the patch is carrying from the last one.
+#
+# ⚠️ THIS IS THE ONE PROPERTY NOTHING ELSE CHECKS, and it has already been broken
+# three times. `Internals` holds what an evaluation is given beside what it
+# produces, so a produced value read before it is written this pass reads the
+# PREVIOUS evaluation's -- and on the tape it is worse than stale, because an
+# active read before it is written is an unregistered input to the recorded
+# function whose row is then dropped in silence. The rates and consumption rates
+# are filled with NA at construction and so say so on the first pass; the
+# auxiliaries are filled with zero, which is a plausible number, and they have the
+# most readers.
+#
+# Revisiting a state is what makes it observable: an evaluation that reads
+# something it did not write reads what the intervening state left, so the two
+# visits disagree. Both published channels, because they are written in different
+# places -- the rates by compute_rates, the auxiliaries by compute_rates AND by
+# the state load.
+for (x in names(strategy_types)) {
+  test_that(sprintf("a rate evaluation carries nothing between calls (%s)", x), {
+    s <- strategy_types[[x]]()
+    s$birth_rate_y <- 1
+    s$is_variable_birth_rate <- FALSE
+    e <- environment_types[[x]]
+    p <- Parameters(x, e)(strategies = list(s), patch_type = "meta-population")
+    patch <- Patch(x, e)(p, Environment(x), Control())
+    patch$introduce_new_node(1, 0)
+
+    y <- patch$ode_state
+    # Displaced by a relative step, floored so a zero state still moves.
+    away <- y + 0.05 * pmax(abs(y), 1e-3)
+    time <- 0.1
+
+    first <- patch$derivs(y, time)
+    first_aux <- patch$ode_aux
+    invisible(patch$derivs(away, time))
+    again <- patch$derivs(y, time)
+    again_aux <- patch$ode_aux
+
+    # Bit-exact, not close: the two visits run the same arithmetic on the same
+    # numbers, so anything else is state that survived the first one.
+    expect_identical(again, first)
+    expect_identical(again_aux, first_aux)
+    # The displaced state must actually reach the rates, or the two visits agree
+    # for the reason that nothing happened.
+    expect_false(identical(patch$derivs(away, time), first))
+  })
+}
+
 test_that("TF24 patch aux goes back the way it came", {
   s <- get_list_of_strategy_types()$TF24()
   s$birth_rate_y <- 1
