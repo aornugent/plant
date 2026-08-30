@@ -780,8 +780,8 @@ public:
   virtual void solve_leaf();
 
   // Read how the leaf's outputs respond to what it was given, and record each
-  // output that re-enters the active chain carrying that response. The leaf
-  // drives and solves itself from `leaf_drivers_`; nothing here re-supplies it.
+  // output that re-enters the active chain carrying that response. The leaf is
+  // already driven and solved; nothing here re-supplies it.
   void record_leaf_outputs(const S& radiation, const std::vector<S>& psi_soil,
                            const S& conductance_max);
   // Strategy-agnostic entry point used by Individual<TF24> (#266): reads the
@@ -1142,12 +1142,14 @@ public:
   // reason the buffer above is.
   std::vector<double> root_carbon_value_;
 
-  // Everything the leaf is driven with, in one object, refilled rather than
-  // rebuilt each call: the network is filled in place by the architecture model
-  // and must NOT be moved from, because the leaf takes it by const reference
-  // precisely so this buffer keeps its capacity across calls. All double -- the
-  // leaf is a node this strategy supplies rows for, not a scalar it rebinds.
-  phylloptim::gradient::Drivers leaf_drivers_;
+  // Filled in place by the architecture model each call and taken by the leaf as
+  // a const reference, so it must not be moved from: that is what keeps its
+  // capacity across calls.
+  phylloptim::RootNetwork root_network_;
+
+  // The soil potentials with the derivative stripped, for the reason
+  // root_carbon_value_ is.
+  std::vector<double> psi_soil_value_;
 
   // The first reason is kept: a later one is a consequence of the same
   // degeneracy.
@@ -1991,7 +1993,7 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // would be a silent squared factor neither side could detect.
   phylloptim::root_network_from_carbon(
       root_carbon_value_, phylloptim::layer_thickness(soil_depths_), beta_R_H,
-      beta_R_V, leaf_drivers_.root_network);
+      beta_R_V, root_network_);
 
   // Reuse geometry precomputed by environment; avoids rebuilding z midpoints each call.
   leaf.roots_.z_soil_mid_ = environment.get_soil_mid_depths();
@@ -2016,35 +2018,29 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   S radiation_used = 0.0;
   auto optimise_at = [&](const S& radiation) -> void {
     radiation_used = radiation;
+    // The leaf takes double, and everything the environment supplies already is
+    // one. Three of its arguments are this strategy's own and carry a derivative;
+    // psi_soil is the one that needs a buffer to be stripped into.
     if constexpr (std::is_same_v<S, double>) {
-      leaf.set_physiology(leaf_drivers_.root_network, radiation, psi_soil,
-                          soil_depths_, leaf_specific_conductance_max,
+      leaf.set_physiology(root_network_, radiation, psi_soil, soil_depths_,
+                          leaf_specific_conductance_max,
                           environment.get_atm_vpd(), environment.get_ca(),
                           environment.get_leaf_temp(),
                           environment.get_atm_o2_kpa(),
                           environment.get_atm_kpa());
     } else {
       using odelia::util::to_passive;
-      // One object holds what the leaf is driven with, so this supply and the
-      // perturbed ones its rows are read through cannot disagree about any of
-      // it.
-      leaf_drivers_.psi_soil.resize(psi_soil.size());
+      psi_soil_value_.resize(psi_soil.size());
       for (size_t a = 0; a < psi_soil.size(); ++a) {
-        leaf_drivers_.psi_soil[a] = to_passive(psi_soil[a]);
+        psi_soil_value_[a] = to_passive(psi_soil[a]);
       }
-      leaf_drivers_.PPFD = to_passive(radiation);
-      leaf_drivers_.soil_depth = soil_depths_;
-      leaf_drivers_.atm_vpd = environment.get_atm_vpd();
-      leaf_drivers_.ca = environment.get_ca();
-      leaf_drivers_.leaf_temp = environment.get_leaf_temp();
-      leaf_drivers_.atm_o2_kpa = environment.get_atm_o2_kpa();
-      leaf_drivers_.atm_kpa = environment.get_atm_kpa();
-      leaf.set_physiology(leaf_drivers_.root_network, leaf_drivers_.PPFD,
-                          leaf_drivers_.psi_soil, leaf_drivers_.soil_depth,
+      leaf.set_physiology(root_network_, to_passive(radiation), psi_soil_value_,
+                          soil_depths_,
                           to_passive(leaf_specific_conductance_max),
-                          leaf_drivers_.atm_vpd, leaf_drivers_.ca,
-                          leaf_drivers_.leaf_temp, leaf_drivers_.atm_o2_kpa,
-                          leaf_drivers_.atm_kpa);
+                          environment.get_atm_vpd(), environment.get_ca(),
+                          environment.get_leaf_temp(),
+                          environment.get_atm_o2_kpa(),
+                          environment.get_atm_kpa());
     }
     solve_leaf();
   };
