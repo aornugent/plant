@@ -88,7 +88,7 @@ public:
   }
 
   // The competition contribution and its vertical derivative, from the one pass
-  // the strategy makes. `value` equals compute_competition(z) exactly.
+  // the strategy makes. `value` equals compute_competition(z) bit for bit.
   with_slope<value_type>
   compute_competition_and_slope(const value_type& z) const {
     return strategy->compute_competition_and_slope(z, vars);

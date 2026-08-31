@@ -116,13 +116,9 @@ public:
   std::vector<std::vector<double>> net_reproduction_ratio_errors() const;
 
   // * Schedule-refinement error collection
-  // Sample the competition error for each species introduced this step and
-  // fold it into the running per-node max (ignoring NA, matching na.rm=TRUE in
-  // R). Accumulated across the run; cleared by reset().
+  // Accumulated across the run and cleared by reset(); see the definition.
   void collect_competition_errors(const std::vector<size_t>& added);
-  // Combine the competition error (sampled during the run) with the
-  // reproduction error (computed now) into a single per-node error vector per
-  // species. An all-NA node yields -Inf. Drives schedule refinement.
+  // What drives schedule refinement; see the definition.
   std::vector<std::vector<double>> refinement_error_by_node() const;
 
   // The species gaining a node at one introduction. Named here because it is
