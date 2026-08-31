@@ -25,10 +25,10 @@ struct with_slope {
   T slope;
 
   // ⚠️ WITHOUT THIS THE TAPE AUDIT SKIPS THE PAIR IN SILENCE. odelia's
-  // visit_active opens a std::pair by looking for .first and .second, and passes
-  // over any shape it does not recognise without refusing it -- so replacing the
-  // pair with a named type takes the two members off the walk unless the type
-  // says what it holds. Both are scalars, so the visitor is called on each.
+  // visit_active passes over any shape it does not open, without refusing it, and
+  // it does not open an aggregate of two scalars -- so this type has to say what
+  // it holds or its two members leave the walk. Both are scalars, so the visitor
+  // takes each directly. active_system::release is what reports a miss.
   template <class F>
   void for_each_active(F&& f) {
     f(value);
