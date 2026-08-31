@@ -190,7 +190,7 @@ public:
   // adjoint recursion is linear in the step, so composition over steps is
   // associative and any split must give the same numbers bit for bit; a
   // difference is something carried across a step boundary that is not the
-  // adjoint. Splits outside a segment's interior are ignored, so a caller may
+  // adjoint. Splits outside a range's interior are ignored, so a caller may
   // pass a boundary index without special-casing it.
   //
   // Returns the numbers AND what each of them is. The two travel together
@@ -233,7 +233,7 @@ public:
   // No trait, no derived quantity and no census direct term is on this path, so
   // it isolates how the trajectory carries a perturbation to a state a cohort
   // starts at, and census_initial_state_replay is what refereees it.
-  // `segment` picks where the seeding happens, and the states it can pick are
+  // `range` picks where the seeding happens, and the states it can pick are
   // the ones a sweep can be RE-ENTERED at -- those whose width matches a piece's
   // start, since a walk resuming at any other state is a width apart from the
   // rows it would carry. `j >= 1` is the state the run reached just after the jth
@@ -244,12 +244,12 @@ public:
   // at the initial time, or the cohorts a resumed patch was seeded with -- which
   // can be several per species, at birth dates before the run began. So a cohort
   // coordinate is seedable at 0 on such a stand, and
-  // test-gradient-ladder-first-segment.R is the fixture that seeds one there and
+  // test-gradient-ladder-first-range.R is the fixture that seeds one there and
   // measures that it reaches the census.
   std::vector<double>
   census_initial_state_tangent(const std::vector<double>& direction,
                                std::vector<double>& value,
-                               size_t segment = 0);
+                               size_t range = 0);
 
   // The census a plain-double replay of the recorded steps reaches from
   // `state0`. Differencing it moves the state the tangent above seeds, through
@@ -257,11 +257,11 @@ public:
   // function and a disagreement is the propagation's own.
   std::vector<double>
   census_initial_state_replay(const std::vector<double>& state0,
-                              size_t segment = 0);
+                              size_t range = 0);
 
-  // The state a segment's first step ran from, which is what the two calls above
+  // The state a range's first step ran from, which is what the two calls above
   // index their arguments against.
-  std::vector<double> segment_base_state(size_t segment);
+  std::vector<double> range_base_state(size_t range);
 
   // The replay both entry points above run. `seed` fills the scalar state the
   // replay starts from, given the recorded one.
@@ -270,7 +270,7 @@ public:
   // applied by the caller: a caller reading the recorded state for itself would
   // store twice and run twice.
   template <class Scalar, class Seed>
-  std::vector<Scalar> replay_initial_state(size_t from_segment, Seed seed);
+  std::vector<Scalar> replay_initial_state(size_t from_range, Seed seed);
 
   // The Control entries that move the trajectory or move which states answer,
   // and so move the gradient, in the order stand_gradient() compares them. The
@@ -571,10 +571,10 @@ std::vector<size_t> SCM<T, E>::run_next() {
 
   sys.introduce_nodes(ret, e.time_introduction());
   solver.set_state_from_system();
-  // The junction, as its own row: it holds the wider state the introduction just
+  // The introduction, as its own row: it holds the wider state the introduction just
   // reached, which is what the next step runs from and which no step reached.
   // Recorded here because this is where the width changes.
-  solver.push_junction();
+  solver.push_insertion();
 
   // Three integration modes:
   //  - pinned ode times (resident replay for a mutant): step exactly to the
@@ -841,7 +841,9 @@ Rcpp::List SCM<T, E>::r_store_trajectory() {
         Rcpp::_["time"] = rec[i].time,
         Rcpp::_["step_size"] = rec[i].step_size,
         // Which of the two kinds a row is.
-        Rcpp::_["junction"] = rec[i].junction,
+        // odelia records an insertion; to a reader of plant it is the
+        // introduction that made it.
+        Rcpp::_["introduction"] = rec[i].insertion,
         Rcpp::_["state"] = rec[i].state);
   }
   return ret;
@@ -1052,10 +1054,10 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_stops,
     trait_adjoint = both.trait.select(rows);
     util::check_length(trait_adjoint.width(), width);
 
-    // One segment per width, highest first, narrowing across each widening and
+    // One range per width, highest first, narrowing across each introduction and
     // transposing the map that took it. The solver owns that walk: what is left
     // here is the census the sweep is seeded from.
-    const size_t segments =
+    const size_t ranges =
         solver.solve_adjoint(lambda, trait_adjoint, extra_stops);
     std::vector<std::vector<double>> at_first_state = lambda.to_rows();
 
@@ -1065,7 +1067,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_stops,
     // cleared back to them.
     why = recorded_refusal(live);
     if (!why.happened()) {
-      ret.segments = segments;
+      ret.ranges = ranges;
       ret.at_first_state = std::move(at_first_state);
     }
   }
@@ -1140,7 +1142,7 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   forward.set_state_from_system();
 
   // From row 0: the state seeded above is that row's, at its own width, and any
-  // junction the run made is a row of its own above it.
+  // introduction the run made is a row of its own above it.
   forward.advance_recorded(odelia::ode::program_from(
       rec, 0, {forward.time(), std::numeric_limits<double>::quiet_NaN()}));
 
@@ -1167,13 +1169,13 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
 
 
 template <typename T, typename E>
-std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
+std::vector<double> SCM<T, E>::range_base_state(size_t range) {
   const trajectory rec = store_trajectory();
   patch_type& live = solver.get_system_ref();
 
   std::vector<double> base;
   size_t start = 0;
-  odelia::ode::state_at_segment(live, rec, segment, base,
+  odelia::ode::state_at_range(live, rec, range, base,
                                 start);
   odelia::ode::be_at_step(live, rec, rec.size() - 1);
   return base;
@@ -1181,15 +1183,15 @@ std::vector<double> SCM<T, E>::segment_base_state(size_t segment) {
 
 template <typename T, typename E>
 template <class Scalar, class Seed>
-std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
+std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_range,
                                                     Seed seed) {
   const trajectory rec = store_trajectory();
   patch_type& live = solver.get_system_ref();
 
   std::vector<double> base;
   size_t start = 0;
-  const double t0 = odelia::ode::state_at_segment(live, rec,
-                                                  from_segment, base, start);
+  const double t0 = odelia::ode::state_at_range(live, rec,
+                                                  from_range, base, start);
 
   auto active = live.template rebind_from<Scalar>();
   std::vector<Scalar> x0(base.size());
@@ -1201,7 +1203,7 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   forward.set_state_from_system();
 
   // `start` is the row the System was put on, so the program is what follows it
-  // whether that row is the beginning of the recording or a junction already
+  // whether that row is the beginning of the recording or an introduction already
   // applied.
   forward.advance_recorded(odelia::ode::program_from(
       rec, start, {forward.time(), std::numeric_limits<double>::quiet_NaN()}));
@@ -1224,11 +1226,11 @@ template <typename T, typename E>
 std::vector<double>
 SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
                                         std::vector<double>& value,
-                                        size_t segment) {
+                                        size_t range) {
   require_birth_date_coordinate("census_initial_state_tangent");
 
   const std::vector<tangent> reached =
-    replay_initial_state<tangent>(segment,
+    replay_initial_state<tangent>(range,
       [&](std::vector<tangent>& x0,
           const std::vector<double>& base) -> void {
         util::check_length(direction.size(), base.size());
@@ -1252,9 +1254,9 @@ SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
 template <typename T, typename E>
 std::vector<double>
 SCM<T, E>::census_initial_state_replay(const std::vector<double>& state0,
-                                       size_t segment) {
+                                       size_t range) {
   require_birth_date_coordinate("census_initial_state_replay");
-  return replay_initial_state<double>(segment,
+  return replay_initial_state<double>(range,
     [&](std::vector<double>& x0, const std::vector<double>& base) -> void {
       util::check_length(state0.size(), base.size());
       x0 = state0;

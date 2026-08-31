@@ -4,7 +4,7 @@
 # needs a reference and none of them is a statement about run length: composition
 # over steps is associative or it is not, a sweep is repeatable or it is not, and a
 # permutation of the metric order changes the numbers or it does not. That is why
-# they run on the short fixture -- the same five widenings over a quarter of the
+# they run on the short fixture -- the same five introductions over a quarter of the
 # steps -- and why nothing in this file was re-blessed to put them there.
 #
 # Their whole assurance is the non-vacuity clause beside each one: prove the two
@@ -50,8 +50,8 @@ test_that("a gradient is bit-identical under a permutation of the sweep order", 
 
 test_that("a sweep split at an interior step equals the whole sweep", {
   # The reverse pass is a backward linear recursion over recorded steps, chopped
-  # into one segment per width. Composition over steps is therefore associative,
-  # and splitting a segment must give the whole sweep BIT FOR BIT -- tolerance is
+  # into one range per width. Composition over steps is therefore associative,
+  # and splitting a range must give the whole sweep BIT FOR BIT -- tolerance is
   # exactly zero, and no reference is needed because this is a property the
   # implementation either has or does not.
   #
@@ -59,33 +59,33 @@ test_that("a sweep split at an interior step equals the whole sweep", {
   # adjoint. The trait accumulator accumulates by design, but the block
   # workspace, the tape, the knot adjoints and the strategy templates all live
   # across steps, and a split forces a clean re-entry at the cut.
-  # The short fixture keeps all five widenings and a quarter of the steps, and the
+  # The short fixture keeps all five introductions and a quarter of the steps, and the
   # comparison below is bit-identity, so nothing here is re-blessed.
   stand <- ladder_stand_introductions_short()
   unsplit <- census_trait_gradient_tf24(stand)
   whole <- do.call(rbind, unsplit$gradient)
-  unsplit_ranges <- unsplit$segments
+  unsplit_ranges <- unsplit$ranges
 
-  junctions <- ladder_junction_rows(stand$store_trajectory())
-  expect_gte(length(junctions), 3L)
+  introductions <- ladder_introduction_rows(stand$store_trajectory())
+  expect_gte(length(introductions), 3L)
 
-  # A cut names the row the descent resumes at, counted from one. A junction is
+  # A cut names the row the descent resumes at, counted from one. A introduction is
   # already such a row, and so is the row below it -- carrying the adjoint across
-  # a widening leaves the descent there -- so a cut that adds a range is a step
-  # row that is neither, which is why the two either side of a widening are two
+  # an introduction leaves the descent there -- so a cut that adds a range is a step
+  # row that is neither, which is why the two either side of an introduction are two
   # rows apart rather than adjacent. The boundary case is stated at the end.
-  interior <- floor((junctions[[2]] + junctions[[3]]) / 2)
+  interior <- floor((introductions[[2]] + introductions[[3]]) / 2)
   points <- list("an interior step" = interior,
-                 "one step below a widening" = junctions[[2]] - 2,
-                 "one step above a widening" = junctions[[2]] + 1,
-                 "all three at once" = c(interior, junctions[[2]] - 2,
-                                         junctions[[2]] + 1))
+                 "one step below an introduction" = introductions[[2]] - 2,
+                 "one step above an introduction" = introductions[[2]] + 1,
+                 "all three at once" = c(interior, introductions[[2]] - 2,
+                                         introductions[[2]] + 1))
   for (name in names(points)) {
     cut <- census_trait_gradient_split_tf24(stand, points[[name]])
     split <- do.call(rbind, cut$gradient)
-    ranges <- cut$segments
-    # Non-vacuity, and it is not decoration: a split landing ON a segment
-    # boundary is outside every segment's interior and cuts nothing, so the
+    ranges <- cut$ranges
+    # Non-vacuity, and it is not decoration: a split landing ON a range
+    # boundary is outside every range's interior and cuts nothing, so the
     # equality below would hold between two identical sweeps. The range count is
     # what says the cut happened.
     expect_gt(ranges, unsplit_ranges)
@@ -94,9 +94,9 @@ test_that("a sweep split at an interior step equals the whole sweep", {
     expect_identical(split, whole)
   }
 
-  # And the boundary case stated rather than left as a trap: naming a widening
-  # itself requests a split no segment contains.
-  on_boundary <- census_trait_gradient_split_tf24(stand, junctions[[2]])
-  expect_equal(on_boundary$segments, unsplit_ranges)
+  # And the boundary case stated rather than left as a trap: naming an introduction
+  # itself requests a split no range contains.
+  on_boundary <- census_trait_gradient_split_tf24(stand, introductions[[2]])
+  expect_equal(on_boundary$ranges, unsplit_ranges)
   expect_identical(do.call(rbind, on_boundary$gradient), whole)
 })

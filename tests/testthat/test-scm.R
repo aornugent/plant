@@ -420,23 +420,23 @@ test_that("store_trajectory records one state per instruction", {
     expect_identical(traj[[length(traj)]]$state, forward_state)
 
     ## One record per instruction, which is a row per accepted step and a row per
-    ## junction. The steps are the resolved grid itself rather than any second list
-    ## of times, and the schedule is the steps, so a junction cannot reach it.
-    is_junction <- vapply(traj, function(r) r$junction, logical(1))
+    ## introduction. The steps are the resolved grid itself rather than any second list
+    ## of times, and the schedule is the steps, so an introduction cannot reach it.
+    is_junction <- vapply(traj, function(r) r$introduction, logical(1))
     steps <- traj[!is_junction]
     expect_equal(length(steps), length(grid))
     expect_identical(vapply(steps, function(r) r$time, numeric(1)), grid)
 
     ## No step reached the first time, and every later time is its predecessor
     ## advanced by the recorded size, which is how the stepper reached it. A
-    ## junction between two steps does not disturb this, because it takes no time.
+    ## introduction between two steps does not disturb this, because it takes no time.
     h <- vapply(steps, function(r) r$step_size, numeric(1))
     times <- vapply(steps, function(r) r$time, numeric(1))
     expect_true(is.na(h[[1]]))
     expect_true(all(h[-1] > 0))
     expect_identical(times[-1], times[-length(times)] + h[-1])
 
-    ## And what a junction row is: no size, because no step reached it, and the
+    ## And what an introduction row is: no size, because no step reached it, and the
     ## time of the row below it, which holds the state its map ran on. Never the
     ## first row, for the same reason.
     at <- which(is_junction)

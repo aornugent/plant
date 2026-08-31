@@ -340,7 +340,7 @@ ladder_stand_introductions <- function() {
 # At the shipped constant the fixture's recruits sit at ratio 36 and 21, which is
 # the flat region where the check would prove nothing; the scale is what moves
 # them onto the peak.
-# The same widenings over a quarter of the run, for the checks whose assertion is
+# The same introductions over a quarter of the run, for the checks whose assertion is
 # an exact identity rather than a measured margin.
 #
 # Composition over steps is associative or it is not; a sweep is repeatable or it is
@@ -349,7 +349,7 @@ ladder_stand_introductions <- function() {
 # expect_identical at tolerance zero -- so a shorter fixture tests the same claim and
 # re-blesses nothing. What it must keep is the SHAPE: five introductions in the same
 # order, so the node stride is still exercised in both directions and the split still
-# has interior steps either side of a widening to cut at.
+# has interior steps either side of an introduction to cut at.
 #
 # The schedule is compressed rather than truncated for that reason, and the dates
 # stay mutually non-commensurate.
@@ -362,10 +362,10 @@ ladder_stand_introductions_short <- function() {
 # A run that starts from a patch already carrying cohorts, so the recording holds
 # seventeen steps before the state first widens.
 #
-# Every other stand introduces at the initial time, which puts the first widening
-# at the first recorded step and leaves the lowest segment with no step in it. A
-# walk that ran that segment and a walk that started above it are then the same
-# walk. Here they are not: half the run sits below the first widening, and the
+# Every other stand introduces at the initial time, which puts the first introduction
+# at the first recorded step and leaves the lowest range with no step in it. A
+# walk that ran that range and a walk that started above it are then the same
+# walk. Here they are not: half the run sits below the first introduction, and the
 # census depends on the state there through three cohorts rather than through the
 # soil alone.
 #
@@ -384,20 +384,20 @@ ladder_stand_resumed <- function() {
   ladder_run(set_initial_state(p, state))
 }
 
-# Which rows of a recording are junctions, and how many of its rows are steps.
+# Which rows of a recording are introductions, and how many of its rows are steps.
 #
-# A recording holds one row per instruction, and a junction is an instruction: it
+# A recording holds one row per instruction, and an introduction is an instruction: it
 # shares its time with the row below it and no step reached it. So the number of
-# steps is not the number of rows, and the row a widening happens at is a row of
+# steps is not the number of rows, and the row an introduction happens at is a row of
 # its own rather than the gap between two.
-ladder_junction_rows <- function(trajectory) {
-  which(vapply(trajectory, function(s) s$junction, logical(1)))
+ladder_introduction_rows <- function(trajectory) {
+  which(vapply(trajectory, function(s) s$introduction, logical(1)))
 }
 
 # The first row is where the run started and no step reached it either, so it comes
-# off with the junctions.
+# off with the introductions.
 ladder_step_count <- function(trajectory) {
-  length(trajectory) - length(ladder_junction_rows(trajectory)) - 1L
+  length(trajectory) - length(ladder_introduction_rows(trajectory)) - 1L
 }
 
 ladder_stand_marginal_recruit <- function(scale = 30, lifetime = 0.45) {

@@ -4449,16 +4449,16 @@ ladder_seed_geometry_tangent_tf24 <- function(obj_, index) {
     .Call('_plant_ladder_seed_geometry_tangent_tf24', PACKAGE = 'plant', obj_, index)
 }
 
-ladder_census_initial_state_tangent_tf24 <- function(obj_, direction, segment) {
-    .Call('_plant_ladder_census_initial_state_tangent_tf24', PACKAGE = 'plant', obj_, direction, segment)
+ladder_census_initial_state_tangent_tf24 <- function(obj_, direction, range) {
+    .Call('_plant_ladder_census_initial_state_tangent_tf24', PACKAGE = 'plant', obj_, direction, range)
 }
 
-ladder_segment_base_state_tf24 <- function(obj_, segment) {
-    .Call('_plant_ladder_segment_base_state_tf24', PACKAGE = 'plant', obj_, segment)
+ladder_range_base_state_tf24 <- function(obj_, range) {
+    .Call('_plant_ladder_range_base_state_tf24', PACKAGE = 'plant', obj_, range)
 }
 
-ladder_census_initial_state_replay_tf24 <- function(obj_, state0, segment) {
-    .Call('_plant_ladder_census_initial_state_replay_tf24', PACKAGE = 'plant', obj_, state0, segment)
+ladder_census_initial_state_replay_tf24 <- function(obj_, state0, range) {
+    .Call('_plant_ladder_census_initial_state_replay_tf24', PACKAGE = 'plant', obj_, state0, range)
 }
 
 ladder_boundary_evaluations_tf24 <- function(obj_) {

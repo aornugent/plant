@@ -1,7 +1,7 @@
 # Rung 5: introductions, where the state changes dimension.
 #
 # The minimum fixture is two species and three introductions in the order
-# species 1, species 2, species 1 -- four segments, with the node stride
+# species 1, species 2, species 1 -- four ranges, with the node stride
 # exercised in both directions. Introducing into species 1 while species 2 exists
 # is the arrangement a narrowing implemented as a truncation of the tail fails
 # on.
@@ -18,7 +18,7 @@ test_that("the fixture actually widens, in both stride directions", {
   trajectory <- stand$store_trajectory()
   widths <- vapply(trajectory, function(s) length(s$state), numeric(1))
   changes <- which(diff(widths) != 0)
-  message(sprintf("\n  %d recorded steps, %d widenings, widths %s",
+  message(sprintf("\n  %d recorded steps, %d introductions, widths %s",
                   length(widths), length(changes),
                   paste(unique(widths), collapse = " -> ")))
   expect_gte(length(changes), 3L)
@@ -156,14 +156,14 @@ test_that("the introduction map's whole Jacobian agrees entry by entry", {
   stand <- ladder_run(p)
   trajectory <- stand$store_trajectory()
   widths <- vapply(trajectory, function(s) length(s$state), numeric(1))
-  widening <- which(diff(widths) != 0)
+  introduction <- which(diff(widths) != 0)
   times <- vapply(trajectory, function(s) s$time, numeric(1))
 
   patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), ladder_control())
-  for (k in seq_along(widening)) {
-    b <- widening[[k]]
+  for (k in seq_along(introduction)) {
+    b <- introduction[[k]]
     pre <- trajectory[[b]]$state
-    # The first widening introduces both species at t = 0; the second is species 1
+    # The first introduction introduces both species at t = 0; the second is species 1
     # alone, into a patch that already carries nodes -- which is the arrangement a
     # narrowing written as a truncation of the tail fails on.
     who <- if (k == 1L) c(1L, 2L) else 1L
@@ -173,16 +173,16 @@ test_that("the introduction map's whole Jacobian agrees entry by entry", {
     scale <- max(abs(j$forward))
     expect_gt(scale, 0)
     gap <- max(abs(j$forward - j$reverse)) / scale
-    message(sprintf("\n  widening %d: %d rows x %d columns", k, nrow(j$forward),
+    message(sprintf("\n  introduction %d: %d rows x %d columns", k, nrow(j$forward),
                     ncol(j$forward)))
-    ladder_report_margin(sprintf("  introduction Jacobian, widening %d", k),
+    ladder_report_margin(sprintf("  introduction Jacobian, introduction %d", k),
                          gap, 1e-12)
     for (i in who) patch$introduce_new_node(i, times[[b]])
   }
 })
 
-test_that("the state a segment resumes from is the one the introduction made", {
-  # The state the segment above an introduction linearises its first step at is
+test_that("the state a range resumes from is the one the introduction made", {
+  # The state the range above an introduction linearises its first step at is
   # rebuilt rather than recorded -- no record holds it -- and the sweep only
   # length-checks the rebuild. Two things must hold of it and neither was asserted:
   # the rows an introduction does not touch come through unchanged, and the rows it
@@ -195,12 +195,12 @@ test_that("the state a segment resumes from is the one the introduction made", {
   stand <- ladder_run(p)
   trajectory <- stand$store_trajectory()
   widths <- vapply(trajectory, function(s) length(s$state), numeric(1))
-  widening <- which(diff(widths) != 0)
+  introduction <- which(diff(widths) != 0)
   times <- vapply(trajectory, function(s) s$time, numeric(1))
 
   patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), ladder_control())
-  for (k in seq_along(widening)) {
-    b <- widening[[k]]
+  for (k in seq_along(introduction)) {
+    b <- introduction[[k]]
     pre <- trajectory[[b]]$state
     who <- if (k == 1L) c(1L, 2L) else 1L
     patch$set_ode_state(pre, times[[b]])
@@ -265,13 +265,13 @@ test_that("the newcomer depends on the state it was introduced into", {
 
   trajectory <- stand$store_trajectory()
   widths <- vapply(trajectory, function(s) length(s$state), numeric(1))
-  widening <- which(diff(widths) != 0)
-  b <- widening[[2]]                      # a widening with a populated field
+  introduction <- which(diff(widths) != 0)
+  b <- introduction[[2]]                      # an introduction with a populated field
   pre <- trajectory[[b]]$state
   at <- trajectory[[b]]$time
 
   # The pre-introduction width is two founding nodes, one per species, which is
-  # what the recorded state at this widening is a state of.
+  # what the recorded state at this introduction is a state of.
   founding_patch <- function() {
     patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), ladder_control())
     for (i in 1:2) {
@@ -314,10 +314,10 @@ test_that("the newcomer depends on the state it was introduced into", {
 })
 
 test_that("the initial condition carries no trait row on these fixtures", {
-  # The last segment's state adjoint is the initial-condition term, and the sweep
+  # The last range's state adjoint is the initial-condition term, and the sweep
   # discards the final narrowed vector. That is exact here and it is a scope
   # statement rather than a check passing: every fixture in this ladder starts
-  # from bare ground, so the first segment is the empty patch and y(0) is the soil
+  # from bare ground, so the first range is the empty patch and y(0) is the soil
   # alone. No trait reaches it, so there is nothing in the discarded vector.
   #
   # What the discard would lose is a run resumed from a populated exported state,
@@ -331,11 +331,11 @@ test_that("the initial condition carries no trait row on these fixtures", {
   trajectory <- stand$store_trajectory()
   widths <- vapply(trajectory, function(s) length(s$state), numeric(1))
   # Bare ground: the first recorded width is the narrowest the run ever has, and
-  # the very first step is already a widening, so nothing was integrated before the
+  # the very first step is already an introduction, so nothing was integrated before the
   # first introduction. There is no cohort in y(0) for a trait to reach.
   expect_identical(widths[[1]], min(widths))
   expect_gt(widths[[2]], widths[[1]])
-  message(sprintf("\n  bare ground: first width %.0f, widening at step 1",
+  message(sprintf("\n  bare ground: first width %.0f, introduction at step 1",
                   widths[[1]]))
 })
 
@@ -373,7 +373,7 @@ test_that("a newcomer's leaf area reaches the census through a field built witho
   # does not contribute to, which is a distinct path from every cohort's.
   #
   # The probe is a field-borne parameter, compared column by column against a
-  # tangent of the same trajectory. On the introductions fixture every widening is
+  # tangent of the same trajectory. On the introductions fixture every introduction is
   # on the path, so this is also where the introduction boundary's own residual is
   # measured rather than inferred.
   shared <- ladder_shared("introductions")
@@ -396,8 +396,8 @@ test_that("a newcomer's leaf area reaches the census through a field built witho
   # own size. The birth-size class is here because a row missing where a newborn's
   # state is written moved all eight of them together, on this fixture, while the
   # field-borne columns held -- and only two of the eight were being compared, under
-  # a bound widened for them. The class is what a widening puts on the path, so the
-  # class is what a widening's rung asks for.
+  # a bound widened for them. The class is what an introduction puts on the path, so the
+  # class is what an introduction's rung asks for.
   wanted <- c("1.k_I", "2.k_I",
               paste0("1.", ladder_birth_size_parameters()),
               paste0("2.", ladder_birth_size_parameters()))
@@ -421,8 +421,8 @@ test_that("a newcomer's leaf area reaches the census through a field built witho
 })
 
 
-test_that("the census's sensitivity to a segment's starting state is refereed", {
-  # A segment's first step runs from a state no record holds -- the widened one,
+test_that("the census's sensitivity to a range's starting state is refereed", {
+  # A range's first step runs from a state no record holds -- the widened one,
   # after the introduction and before the step. The three probes here are the only
   # way to reach it: one names the state, one differentiates the whole remaining
   # trajectory from it exactly, and one replays that trajectory in plain double so
@@ -432,12 +432,12 @@ test_that("the census's sensitivity to a segment's starting state is refereed", 
   # adjoint it holds after the last introduction is d(census)/d(this state). None
   # of the reverse pass is on this path, so the two share no code.
   stand <- ladder_stand_introductions_short()
-  base <- ladder_segment_base_state_tf24(stand, 0L)
+  base <- ladder_range_base_state_tf24(stand, 0L)
 
   # Segment 0 is the state no step reached, which on this coordinate holds the
   # environment and no cohort -- so its width is the soil column's.
   expect_gt(length(base), 0L)
-  message(sprintf("\n  segment 0 starts from %d components", length(base)))
+  message(sprintf("\n  range 0 starts from %d components", length(base)))
 
   # An unseeded direction differentiates nothing, which pins that the tangent is
   # carried by the seed rather than by the replay.
@@ -491,12 +491,12 @@ test_that("the census's sensitivity to a segment's starting state is refereed", 
       # and lands here. Holding it to 1e-12 would report the census's own last
       # bits as a disagreement between the two routes.
       ladder_report_margin(
-        sprintf("d(census)/d(segment 0 state %d) is zero on both routes", i),
+        sprintf("d(census)/d(range 0 state %d) is zero on both routes", i),
         max(abs(tangent)) / max(abs(none$value)), 1e-9)
       next
     }
     floor <- max(max(abs(coarse - fine)) / scale, 4 * .Machine$double.eps)
-    ladder_report_margin(sprintf("d(census)/d(segment 0 state %d)", i),
+    ladder_report_margin(sprintf("d(census)/d(range 0 state %d)", i),
                          max(abs(tangent - fine)) / scale, 10 * floor)
   }
 })

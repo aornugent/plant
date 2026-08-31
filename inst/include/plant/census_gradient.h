@@ -43,7 +43,7 @@ struct census_gradient {
   // split that fell inside a range, which is what says a split cut.  Not
   // multiplied by the metric count -- one recording is swept once per metric, so
   // the ranges walked are the same however many rows are carried.
-  size_t segments = 0;
+  size_t ranges = 0;
 
   // The adjoint the walk ended holding: one row per metric swept, one column per
   // entry of the first recorded state. It is d(census)/d(that state), which

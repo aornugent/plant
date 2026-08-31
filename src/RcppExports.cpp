@@ -12517,40 +12517,40 @@ BEGIN_RCPP
 END_RCPP
 }
 // ladder_census_initial_state_tangent_tf24
-Rcpp::List ladder_census_initial_state_tangent_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<double> direction, int segment);
-RcppExport SEXP _plant_ladder_census_initial_state_tangent_tf24(SEXP obj_SEXP, SEXP directionSEXP, SEXP segmentSEXP) {
+Rcpp::List ladder_census_initial_state_tangent_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<double> direction, int range);
+RcppExport SEXP _plant_ladder_census_initial_state_tangent_tf24(SEXP obj_SEXP, SEXP directionSEXP, SEXP rangeSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
     Rcpp::traits::input_parameter< std::vector<double> >::type direction(directionSEXP);
-    Rcpp::traits::input_parameter< int >::type segment(segmentSEXP);
-    rcpp_result_gen = Rcpp::wrap(ladder_census_initial_state_tangent_tf24(obj_, direction, segment));
+    Rcpp::traits::input_parameter< int >::type range(rangeSEXP);
+    rcpp_result_gen = Rcpp::wrap(ladder_census_initial_state_tangent_tf24(obj_, direction, range));
     return rcpp_result_gen;
 END_RCPP
 }
-// ladder_segment_base_state_tf24
-std::vector<double> ladder_segment_base_state_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, int segment);
-RcppExport SEXP _plant_ladder_segment_base_state_tf24(SEXP obj_SEXP, SEXP segmentSEXP) {
+// ladder_range_base_state_tf24
+std::vector<double> ladder_range_base_state_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, int range);
+RcppExport SEXP _plant_ladder_range_base_state_tf24(SEXP obj_SEXP, SEXP rangeSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
-    Rcpp::traits::input_parameter< int >::type segment(segmentSEXP);
-    rcpp_result_gen = Rcpp::wrap(ladder_segment_base_state_tf24(obj_, segment));
+    Rcpp::traits::input_parameter< int >::type range(rangeSEXP);
+    rcpp_result_gen = Rcpp::wrap(ladder_range_base_state_tf24(obj_, range));
     return rcpp_result_gen;
 END_RCPP
 }
 // ladder_census_initial_state_replay_tf24
-std::vector<double> ladder_census_initial_state_replay_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<double> state0, int segment);
-RcppExport SEXP _plant_ladder_census_initial_state_replay_tf24(SEXP obj_SEXP, SEXP state0SEXP, SEXP segmentSEXP) {
+std::vector<double> ladder_census_initial_state_replay_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_, std::vector<double> state0, int range);
+RcppExport SEXP _plant_ladder_census_initial_state_replay_tf24(SEXP obj_SEXP, SEXP state0SEXP, SEXP rangeSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
     Rcpp::traits::input_parameter< std::vector<double> >::type state0(state0SEXP);
-    Rcpp::traits::input_parameter< int >::type segment(segmentSEXP);
-    rcpp_result_gen = Rcpp::wrap(ladder_census_initial_state_replay_tf24(obj_, state0, segment));
+    Rcpp::traits::input_parameter< int >::type range(rangeSEXP);
+    rcpp_result_gen = Rcpp::wrap(ladder_census_initial_state_replay_tf24(obj_, state0, range));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -14121,7 +14121,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_ladder_boundary_density_tangent_tf24", (DL_FUNC) &_plant_ladder_boundary_density_tangent_tf24, 2},
     {"_plant_ladder_seed_geometry_tangent_tf24", (DL_FUNC) &_plant_ladder_seed_geometry_tangent_tf24, 2},
     {"_plant_ladder_census_initial_state_tangent_tf24", (DL_FUNC) &_plant_ladder_census_initial_state_tangent_tf24, 3},
-    {"_plant_ladder_segment_base_state_tf24", (DL_FUNC) &_plant_ladder_segment_base_state_tf24, 2},
+    {"_plant_ladder_range_base_state_tf24", (DL_FUNC) &_plant_ladder_range_base_state_tf24, 2},
     {"_plant_ladder_census_initial_state_replay_tf24", (DL_FUNC) &_plant_ladder_census_initial_state_replay_tf24, 3},
     {"_plant_ladder_boundary_evaluations_tf24", (DL_FUNC) &_plant_ladder_boundary_evaluations_tf24, 1},
     {"_plant_ladder_trait_names_tf24", (DL_FUNC) &_plant_ladder_trait_names_tf24, 1},

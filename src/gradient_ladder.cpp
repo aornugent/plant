@@ -572,22 +572,22 @@ Rcpp::List ladder_seed_geometry_tangent_tf24(plant::RcppR6::RcppR6<plant::Patch<
 // [[Rcpp::export]]
 Rcpp::List ladder_census_initial_state_tangent_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                                     std::vector<double> direction,
-                                                    int segment) {
+                                                    int range) {
   std::vector<double> value;
   const std::vector<double> tangent =
     obj_->census_initial_state_tangent(
-      direction, value, static_cast<size_t>(segment));
+      direction, value, static_cast<size_t>(range));
   return Rcpp::List::create(Rcpp::_["value"] = value,
                             Rcpp::_["tangent"] = tangent);
 }
 
-// The state a segment's first step ran from, which is what `direction` and
+// The state a range's first step ran from, which is what `direction` and
 // `state0` are indexed against. A widened state is not what any record holds, so
 // a caller cannot read it off the trajectory.
 // [[Rcpp::export]]
-std::vector<double> ladder_segment_base_state_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
-                                                   int segment) {
-  return obj_->segment_base_state(static_cast<size_t>(segment));
+std::vector<double> ladder_range_base_state_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+                                                   int range) {
+  return obj_->range_base_state(static_cast<size_t>(range));
 }
 
 // The census a plain-double replay of the recorded steps reaches from `state0`.
@@ -596,9 +596,9 @@ std::vector<double> ladder_segment_base_state_tf24(plant::RcppR6::RcppR6<plant::
 // [[Rcpp::export]]
 std::vector<double> ladder_census_initial_state_replay_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                                             std::vector<double> state0,
-                                                            int segment) {
+                                                            int range) {
   return obj_->census_initial_state_replay(
-    state0, static_cast<size_t>(segment));
+    state0, static_cast<size_t>(range));
 }
 
 // How many times the inflow boundary's own term entered the trait adjoint over one
@@ -620,7 +620,7 @@ Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<pla
     obj_->census_trait_gradient();
   // Every count here comes off the one gradient above, the ranges it walked
   // included. Read through its own accessor they could describe a different call.
-  const double segments = static_cast<double>(result.segments);
+  const double ranges = static_cast<double>(result.ranges);
   // And whether there is an answer at all. A refused sweep costs what an accepted
   // one costs, so a caller timing this without reading the refusal is timing work
   // whose result was thrown away -- which is what the profile scripts were doing.
@@ -638,7 +638,7 @@ Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<pla
     Rcpp::_["evaluations"] =
       static_cast<double>(obj_->boundary_condition_evaluations()),
     Rcpp::_["placements"] = placed,
-    Rcpp::_["segments"] = segments,
+    Rcpp::_["ranges"] = ranges,
     Rcpp::_["refusal"] = refused,
     Rcpp::_["metrics"] = static_cast<int>(result.gradient.size()));
 }
@@ -791,7 +791,7 @@ std::vector<double> ladder_block_direction_difference_tf24(plant::RcppR6::RcppR6
   return out;
 }
 
-// The introduction map's whole Jacobian, both ways, at one widening.
+// The introduction map's whole Jacobian, both ways, at one introduction.
 //
 // This is rung 5's own unit and the one object it had no reference for. The map is
 // the pre-introduction state and the traits in, the whole widened state out; the
@@ -828,7 +828,7 @@ Rcpp::List ladder_introduction_jacobian_tf24(plant::RcppR6::RcppR6<plant::Patch<
   // the shape the trajectory sweep takes. The trait accumulator adds by design,
   // so it is cleared before the call and again after it.
   const odelia::ode::adjoint_rows seeds = odelia::ode::adjoint_rows::all_rows(n_out);
-  // The transpose the sweep takes at a widening, taken here on its own: the same
+  // The transpose the sweep takes at an introduction, taken here on its own: the same
   // tape and the same product the solver's walk runs, with the trajectory and the
   // segmentation left out so a disagreement is the map's.
   using ad_scalar = odelia::ode::active_scalar<double>;
