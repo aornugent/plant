@@ -74,14 +74,6 @@ public:
             class T2 = at_scalar<T, U>, class E2 = at_scalar<E, U>>
   Patch<T2,E2> rebind_from() const;
 
-  // The values rebind_from copies, written into a patch that already exists: the
-  // strategies, the environment, the node structure and its birth stamps, by the
-  // same calls in the same order, so what is left is what a rebind would have
-  // returned. An active patch holding what a recording wrote carries that recording's tape
-  // slots into the next one, and the sweep comes back wrong with nothing raised,
-  // so it is assigned before every recording rather than once per step.
-  template <typename T1, typename E1>
-  void assign_from(const Patch<T1,E1>& src);
 
   // Every scalar's Patch is one class, so a rebind reaches the rebound patch's
   // members.
@@ -201,7 +193,6 @@ public:
   // Hand them back, in the order ode_aux wrote them
   template <typename It> It set_ode_aux(It it);
 
-  size_t node_count() const;
 
   // Every species' differentiable parameters, species-major: the order a trait
   // row is indexed in, answered once rather than walked by each caller.
@@ -524,43 +515,6 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
   // computing them here solves the boundary leaf twice per right-hand side and
   // then discards it. A caller that reads before setting gets an unbuilt field.
   return out;
-}
-
-template <typename T, typename E>
-template <typename T1, typename E1>
-void Patch<T,E>::assign_from(const Patch<T1,E1>& src) {
-  using U = value_type;
-  if (species.size() != src.species.size()) {
-    util::stop("assign_from: this patch runs a different number of species from "
-               "the one it is assigned from");
-  }
-
-
-  environment = src.environment.template rebind_from<U>();
-  environment.set_shading_model(control.shading_model,
-                                control.ppa_layer_optical_depth,
-                                control.ppa_layer_smoothing);
-
-  for (size_t i = 0; i < species.size(); ++i) {
-    *species[i].strategy_ptr() =
-      src.species[i].strategy_ptr()->template rebind_from<U>();
-    // Back to the state reset() leaves a species in, so the nodes pushed below
-    // are the same copies of the same boundary node a rebind pushes.
-    species[i].clear();
-    species[i].resize_consumption_rates(environment.n_resources());
-    for (size_t j = 0; j < src.species[i].size(); ++j) {
-      species[i].introduce_new_node();
-    }
-    species[i].set_birth_state(src.species[i].node_times(),
-                               src.species[i].r_patch_densities(),
-                               src.species[i].r_pr_patch_survival_at_birth());
-  }
-
-  std::vector<U> node_state(src.node_ode_size());
-  odelia::ode::ode_state(src.species.begin(), src.species.end(),
-                         node_state.begin());
-  odelia::ode::set_ode_state(species.begin(), species.end(),
-                             node_state.begin());
 }
 
 template <typename T, typename E>
@@ -1246,14 +1200,6 @@ It Patch<T,E>::set_ode_aux(It it) {
   return it;
 }
 
-template <typename T, typename E>
-size_t Patch<T,E>::node_count() const {
-  size_t n = 0;
-  for (size_t i = 0; i < species.size(); ++i) {
-    n += species[i].size();
-  }
-  return n;
-}
 
 // The differentiable parameters of every species, species-major, which is the
 // order every row indexed by a trait is in. A patch answers for this rather than

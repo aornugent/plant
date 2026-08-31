@@ -654,7 +654,12 @@ std::vector<std::string> ladder_trait_names_tf24(plant::RcppR6::RcppR6<plant::Pa
 // How many nodes the block loop visits, which is what a node index runs over.
 // [[Rcpp::export]]
 int ladder_node_count_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  return static_cast<int>(obj_->node_count());
+  const patch_type& patch = *obj_;
+  size_t n = 0;
+  for (size_t i = 0; i < patch.size(); ++i) {
+    n += patch.at_species(i).size();
+  }
+  return static_cast<int>(n);
 }
 
 // The field's knot data, which is what the recorded step reads. The reduction
@@ -910,112 +915,6 @@ Rcpp::NumericMatrix ladder_rhs_trait_difference_tf24(plant::RcppR6::RcppR6<plant
   }
   rates_at(up);
   return out;
-}
-
-
-// A rebind and an assignment have to leave a patch holding the same thing: they
-// are one map reached two ways, and every comment in the tree says so. Nothing
-// checked it, and they had already drifted.
-//
-// A rebind hands back a fresh object, so a member it does not write is
-// default-constructed; an assignment writes into one that exists, so a member it
-// does not write keeps what it had. Every member is a place they can differ.
-//
-// What is compared is not what the two arrive holding. Neither is required to
-// arrive with a field: the light spline is derived from the state, and both
-// operations leave building it to the caller. What they are required to do is
-// reach the same place from the same state, so both are put through the call
-// every caller makes -- and then the rates are compared, because the rates are
-// what a stage recording records.
-// [[Rcpp::export]]
-Rcpp::List ladder_rebind_matches_assign_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  const patch_type& patch = *obj_;
-
-  std::vector<double> y(patch.ode_size());
-  patch.ode_state(y.begin());
-  const double t = patch.time();
-
-  adjoint_patch rebound = patch.template rebind_from<adjoint>();
-
-  // Assigned into a patch that has already been used, because that is the only
-  // patch the sweep ever assigns into: one holding the last recording's state,
-  // its field, and scalars carrying that recording's tape slots. Assigning into a
-  // fresh one tests the easy half and passes while the real path is wrong.
-  adjoint_patch assigned = patch.template rebind_from<adjoint>();
-  {
-    std::vector<adjoint> used(y.size());
-    for (size_t i = 0; i < y.size(); ++i) { used[i] = adjoint(y[i] * 1.01); }
-    assigned.set_ode_state(used.begin(), t + 1.0);
-    std::vector<adjoint> scratch(assigned.ode_size());
-    assigned.ode_rates(scratch.begin());
-  }
-  assigned.assign_from(patch);
-
-  std::vector<adjoint> x(y.size());
-  for (size_t i = 0; i < y.size(); ++i) { x[i] = adjoint(y[i]); }
-  rebound.set_ode_state(x.begin(), t);
-  assigned.set_ode_state(x.begin(), t);
-
-  auto values = [](const std::vector<adjoint>& v) {
-    std::vector<double> out(v.size());
-    for (size_t i = 0; i < v.size(); ++i) {
-      out[i] = odelia::util::to_passive(v[i]);
-    }
-    return out;
-  };
-  auto state_of = [&](adjoint_patch& p) {
-    std::vector<adjoint> raw(p.ode_size());
-    p.ode_state(raw.begin());
-    return values(raw);
-  };
-  auto rates_of = [&](adjoint_patch& p) {
-    std::vector<adjoint> raw(p.ode_size());
-    p.ode_rates(raw.begin());
-    return values(raw);
-  };
-  auto field_of = [&](adjoint_patch& p) {
-    const auto env = p.r_environment();
-    std::vector<adjoint> raw(env.n_cohort_reads());
-    // Held against the width rather than discarded: the buffer starts at zero, so
-    // a fill that writes nothing reads the same as one that writes zeros, and the
-    // comparison this feeds would pass on two buffers neither side had filled.
-    const auto end = env.cohort_reads(raw.begin());
-    plant::util::check_length(
-      static_cast<size_t>(std::distance(raw.begin(), end)), raw.size());
-    return values(raw);
-  };
-  auto parameters_of = [](adjoint_patch& p) {
-    std::vector<double> out;
-    for (const adjoint* q : p.ad_parameters()) {
-      out.push_back(odelia::util::to_passive(*q));
-    }
-    return out;
-  };
-  auto worst = [](const std::vector<double>& a, const std::vector<double>& b) {
-    if (a.size() != b.size()) {
-      return std::numeric_limits<double>::infinity();
-    }
-    double m = 0.0;
-    for (size_t i = 0; i < a.size(); ++i) {
-      const double d = std::abs(a[i] - b[i]);
-      if (d > m) { m = d; }
-    }
-    return m;
-  };
-
-  return Rcpp::List::create(
-    Rcpp::_["ode_size"] = Rcpp::IntegerVector::create((int) rebound.ode_size(),
-                                                      (int) assigned.ode_size()),
-    Rcpp::_["aux_size"] = Rcpp::IntegerVector::create((int) rebound.aux_size(),
-                                                      (int) assigned.aux_size()),
-    Rcpp::_["n_cohort_reads"] =
-      Rcpp::IntegerVector::create((int) rebound.r_environment().n_cohort_reads(),
-                                  (int) assigned.r_environment().n_cohort_reads()),
-    Rcpp::_["state_gap"] = worst(state_of(rebound), state_of(assigned)),
-    Rcpp::_["rate_gap"] = worst(rates_of(rebound), rates_of(assigned)),
-    Rcpp::_["field_gap"] = worst(field_of(rebound), field_of(assigned)),
-    Rcpp::_["parameter_gap"] = worst(parameters_of(rebound),
-                                     parameters_of(assigned)));
 }
 
 // Defined in census_gradient.cpp beside the whole-sweep entry point, so a

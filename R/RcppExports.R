@@ -4465,10 +4465,6 @@ ladder_rhs_trait_difference_tf24 <- function(obj_, rel) {
     .Call('_plant_ladder_rhs_trait_difference_tf24', PACKAGE = 'plant', obj_, rel)
 }
 
-ladder_rebind_matches_assign_tf24 <- function(obj_) {
-    .Call('_plant_ladder_rebind_matches_assign_tf24', PACKAGE = 'plant', obj_)
-}
-
 census_trait_direct_tf24 <- function(obj_) {
     .Call('_plant_census_trait_direct_tf24', PACKAGE = 'plant', obj_)
 }
