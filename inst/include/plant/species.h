@@ -278,7 +278,7 @@ private:
   competition_split reduce_competition(double height,
                                        const std::vector<std::size_t>& order) const;
   // The node positions in ascending abscissa, for the case where the heights are
-  // no longer ordered and the node list cannot be the quadrature grid (#571).
+  // no longer ordered and the node list cannot be the quadrature grid.
   // Positions only: nothing here evaluates a contribution, so no width the
   // reduction forms out of it can carry a derivative.
   std::vector<std::size_t> ascending_by_abscissa() const;
@@ -292,11 +292,11 @@ private:
   }
   competition_split compute_competition_and_slope_split(double height) const;
 
-  // Cache for scan_heights(). Every path that can change a node height must call
-  // invalidate_height_scan(); a stale cache here would silently reintroduce the
-  // wrong competition profile of #571, so the coverage of these calls was checked
-  // by asserting cache == freshly-computed on every call across the whole suite
-  // and the scenario gateway.
+  // Cache for scan_heights(). ⚠️ EVERY PATH THAT CAN CHANGE A NODE HEIGHT MUST
+  // CALL invalidate_height_scan(): a stale cache here reports the wrong ordering
+  // and so the wrong competition profile, with nothing raised. Check the coverage
+  // by asserting cache == freshly-computed on every call across the suite and the
+  // scenario gateway.
   HeightScan compute_height_scan() const;
   void invalidate_height_scan() { height_scan_valid = false; }
   mutable HeightScan height_scan_cache{value_type(0.0), true};
@@ -399,9 +399,9 @@ typename Species<T,E>::value_type Species<T,E>::height_max() const {
   return scan_heights().h_max;
 }
 
-// Are the node heights still ordered largest to smallest? See height_max() above
-// for why this can no longer be assumed. Heights only, so this is cheap relative
-// to the per-node crown integrals it guards.
+// Are the node heights ordered largest to smallest? See height_max() above for
+// why this cannot be assumed. Heights only, so this is cheap relative to the
+// per-node crown integrals it guards.
 template <typename T, typename E>
 bool Species<T,E>::heights_are_decreasing() const {
   return scan_heights().decreasing;

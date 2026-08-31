@@ -26,10 +26,10 @@ namespace plant {
 
 // Biological (user-settable) parameters for the TF24 strategy. Held as a value
 // member `pars` on TF24_Strategy and exposed to R as a nested RcppR6 list class
-// (access as `s$pars$lma`). Only parameters that were previously exposed to R
-// live here; derived quantities (eta_c, height_0, ...), the embedded Leaf
-// model, solver tolerances and hard-coded hydraulic-root constants stay as
-// plain members on the strategy.
+// (access as `s$pars$lma`). Only R-settable parameters live here; derived
+// quantities (eta_c, height_0, ...), the embedded Leaf model, solver
+// tolerances and hard-coded hydraulic-root constants stay as plain members
+// on the strategy.
 template <typename S = double>
 struct TF24_Pars {
   using value_type = S;
@@ -74,12 +74,11 @@ struct TF24_Pars {
   S S_D    = 0.25;           // Probability of survival during dispersal
   S a_d0   = 0.1;            // Parameter for seedling survival
   S d_I    = 0.01;           // Baseline intrinsic mortality [/yr]
-  // a_dG1 / a_dG2 now shape the *storage-dependent* growth mortality (#517):
+  // a_dG1 / a_dG2 shape the *storage-dependent* growth mortality:
   //   mortality_storage_dependent_dt(r) = a_dG1 * exp(-a_dG2 * r),  r = S/S_max.
-  // Previously these fed the instantaneous productivity mortality
-  // a_dG1*exp(-a_dG2*productivity_area), which overflowed to ~1e32 under deep
-  // carbon deficit (the #550 blow-up). Buffering through the NSC pool bounds the
-  // argument to r in [0,1], so this term is now bounded in [a_dG1*e^-a_dG2, a_dG1].
+  // ⚠️ DO NOT feed productivity_area to this exponent in place of r: under deep
+  // carbon deficit it overflows to ~1e32. Reserves keep r in [0,1], so the term
+  // is bounded in [a_dG1*e^-a_dG2, a_dG1].
   S a_dG1  = 5.5;            // Max growth-related (low-reserve) mortality [/yr]
   S a_dG2  = 20.0;           // Sensitivity of mortality to relative reserves
   // * NSC storage pool (#517) -- buffers growth & mortality against short-term
@@ -123,9 +122,9 @@ struct TF24_Pars {
   // * Root hydraulics
   // Root vulnerability curve, proportion of conductivity =
   // exp(-(psi/root_b)^root_c). Declared before root_psi_crit, which derives
-  // from them. Previously fixed members of TF24_Strategy and unreachable from
-  // R, which pinned root shutoff at ~5.87 MPa -- too conservative for taxa that
-  // operate below that (e.g. Acacia aneura), and unavailable for calibration.
+  // from them. Both are settable from R, because the defaults put root shutoff
+  // at ~5.87 MPa: too conservative for taxa that operate below that (e.g.
+  // Acacia aneura).
   S root_c = 2.680147;
   S root_b = 3.898245;
   // Potential at 5% remaining root conductivity [MPa]. Derived, exactly as
@@ -1215,16 +1214,11 @@ typename TF24_Strategy<S>::ptr make_strategy_ptr(TF24_Strategy<S> s);
 // rescales total fine-root mass into the per-layer carbon units expected by the
 // root hydraulic network in Leaf::set_physiology.
 inline const double root_mass_carbon_scale = 83.26 * 0.5;
-// The rooting depth cap moved to TF24_Pars::rooting_depth_max so it can be set
-// from R; it is no longer a file-static constant here.
-
-// NOTE (review #9): the per-second -> annual factor 60*60*12*365 (seconds of
-// daylight per year, 12 h day x 365 d) recurs in compute_rates and
-// net_mass_production_dt below. It is deliberately left inline rather than
-// hoisted to a constant: collapsing the 4-step integer product into one double
-// changes the floating-point rounding, and the adaptive ODE amplifies it
-// (offspring_production shifts ~0.2%). Kept inline to preserve bit-identical
-// results.
+// ⚠️ DO NOT HOIST the per-second -> annual factor 60*60*12*365 (seconds of
+// daylight per year, 12 h day x 365 d) to a constant. It recurs in compute_rates
+// and net_mass_production_dt below; collapsing the 4-step integer product into
+// one double changes the floating-point rounding, and the adaptive ODE amplifies
+// it (offspring_production shifts ~0.2%).
 
 // TODO: Document consistent argument order: l, b, s, h, r
 // TODO: Document ordering of different types of variables (size
@@ -1422,12 +1416,12 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
           std::fflush(stderr);
         }
       }
-      // Two findings, and one sentence used to serve both -- so a positive
-      // curvature was reported "against a floor of 0.001" at a value of 34.4,
-      // four orders of magnitude ABOVE that floor, which reads as a magnitude
-      // failure and is not one. A session lost a day to it. Split, because they
-      // are not even the same KIND of problem: the floor limb is a real
-      // degeneracy of the model, and the sign limb is a SOLVER failure.
+      // Two findings, two messages: DO NOT merge them into one sentence. They
+      // are not the same KIND of problem -- the floor limb is a real degeneracy
+      // of the model, the sign limb is a SOLVER failure -- and one sentence
+      // reports a positive curvature of 34.4 "against a floor of 0.001", four
+      // orders of magnitude ABOVE that floor, which reads as a magnitude
+      // failure and is not one.
       if (!(slope < 0.0)) {
         // ⚠️ A POSITIVE CURVATURE HERE IS EVIDENCE AGAINST THE CURVATURE, not
         // against the operating point. An interior collar is reached only on a
@@ -1546,8 +1540,8 @@ void TF24_Strategy<S>::refresh_indices () {
     this->aux_index[aux_names_vec[i]] = i;
   }
 
-  // Cache integer indices for the keys used in the hot compute_rates path, so
-  // it no longer does a std::map<string,int> lookup per derivs evaluation.
+  // Cache integer indices for the keys used in the hot compute_rates path, so it
+  // does no std::map<string,int> lookup per derivs evaluation.
   aux_idx_competition_effect    = this->aux_index.at("competition_effect");
   aux_idx_height_inverse        = this->aux_index.at("height_inverse");
   aux_idx_net_mass_production_dt = this->aux_index.at("net_mass_production_dt");
@@ -1746,7 +1740,7 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
     fecundity_dt(growth_flux, fraction_allocation_reproduction_));
 
   // Sapwood -> heartwood conversion is turnover-driven, so it proceeds
-  // regardless of carbon status (previously gated behind net>0).
+  // regardless of carbon status. DO NOT gate it behind net production > 0.
   vars.set_rate(state_idx_area_heartwood, area_heartwood_dt(area_leaf_));
   const S area_sapwood_ = area_sapwood(area_leaf_);
   const S mass_sapwood_ = mass_sapwood(area_sapwood_, height);
