@@ -16,7 +16,7 @@ incidence_run <- function(rain, lifetime, k_I = 0.5) {
   ctrl <- Control()
   ctrl$node_density_in_birth_date <- TRUE
   scm <- SCM("TF24", "TF24_Env")(p, env, ctrl)
-  census_clear_operating_point_counts_tf24(scm)
+  census_clear_diagnostics_tf24(scm)
   scm$run()
   scm
 }
@@ -63,7 +63,7 @@ test_that("the classification tally is the route to a regime's incidence", {
   # The tally is cleared and re-accumulated per run rather than carried, or a
   # second measurement would read the first one's states as well.
   scm <- incidence_stand(2.0, 5)
-  census_clear_operating_point_counts_tf24(scm)
+  census_clear_diagnostics_tf24(scm)
   expect_equal(sum(incidence_of(scm)), 0)
 })
 

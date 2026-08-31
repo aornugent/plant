@@ -287,23 +287,20 @@ public:
   parameters_type r_parameters() const { return parameters; }
   const patch_type &r_patch() const { return patch; }
 
-  // The classification tally the FORWARD run built, one row per species and one
-  // column per operating-point kind. Read off the live system rather than
-  // r_patch(), which is a snapshot the run copies out and whose counters are
-  // whatever they were when it was taken.
-  // One environment serves every species, so its tally has no species of its
-  // own; it lands on the first row rather than being dropped or duplicated.
-  static void add_environment_clamps(std::vector<std::vector<size_t>>& ret,
-                                     const std::vector<size_t>& env) {
-    if (ret.empty()) {
-      ret.push_back(env);
-      return;
-    }
-    for (size_t s = 0; s < env.size() && s < ret[0].size(); ++s) {
-      ret[0][s] += env[s];
-    }
-  }
+  // Every diagnostic below reads the LIVE system rather than r_patch(), and the
+  // reason is narrower than r_patch() being a snapshot: it is live for the tallies
+  // a strategy owns and stale for the ones the environment owns.
+  //
+  // Species::strategy_ptr() hands back the shared_ptr by value, so a copied Patch
+  // shares one strategy with the live one and every tally on it aliases -- which
+  // is why the ladder reads leaf_placements() straight off r_patch(). The
+  // environment is a Patch member by value, so its half is a real copy, and a
+  // sweep advances the live one afterwards through be_at_step's
+  // compute_environment. Reading the live system is what covers both halves under
+  // one rule.
 
+  // The classification tally the FORWARD run built, one row per species and one
+  // column per operating-point kind.
   std::vector<std::vector<size_t>> operating_point_counts() {
     const patch_type& live = solver.get_system_ref();
     std::vector<std::vector<size_t>> ret;
@@ -369,7 +366,15 @@ public:
     return ret;
   }
 
-  void clear_operating_point_counts() {
+  // Every diagnostic this SCM reports, back to where a run starts from: the
+  // operating-point tally, the strategy's clamp counts on both paths, the leaf's
+  // and its root model's, the curvature margin, and the environment's clamps.
+  //
+  // One call rather than five, because a caller wanting one of them before a run
+  // wants all of them: a count carried in from an earlier run reads as this run's.
+  // Named for that rather than for the first of them, which is what it used to be
+  // called.
+  void clear_diagnostics() {
     const patch_type& live = solver.get_system_ref();
     for (size_t i = 0; i < live.size(); ++i) {
       std::vector<size_t>& c =
@@ -430,6 +435,20 @@ public:
   std::vector<patch_type> history; // per-step patch snapshots when collect
 
 private:
+  // One environment serves every species, so its tally has no species of its own;
+  // it lands on the first row rather than being dropped or duplicated. Private
+  // because the two readers above are the only callers.
+  static void add_environment_clamps(std::vector<std::vector<size_t>>& ret,
+                                     const std::vector<size_t>& env) {
+    if (ret.empty()) {
+      ret.push_back(env);
+      return;
+    }
+    for (size_t s = 0; s < env.size() && s < ret[0].size(); ++s) {
+      ret[0][s] += env[s];
+    }
+  }
+
   // Upwind bisection: insert the midpoint of the interval below each flagged
   // node. Mirrors split_times() in build_schedule.R.
   static std::vector<double> bisect_flagged_intervals(const std::vector<double>& times,

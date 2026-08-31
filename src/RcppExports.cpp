@@ -12630,13 +12630,13 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// census_clear_operating_point_counts_tf24
-void census_clear_operating_point_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
-RcppExport SEXP _plant_census_clear_operating_point_counts_tf24(SEXP obj_SEXP) {
+// census_clear_diagnostics_tf24
+void census_clear_diagnostics_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_);
+RcppExport SEXP _plant_census_clear_diagnostics_tf24(SEXP obj_SEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > >::type obj_(obj_SEXP);
-    census_clear_operating_point_counts_tf24(obj_);
+    census_clear_diagnostics_tf24(obj_);
     return R_NilValue;
 END_RCPP
 }
@@ -14051,7 +14051,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_census_trait_difference_tf24", (DL_FUNC) &_plant_census_trait_difference_tf24, 2},
     {"_plant_census_trait_gradient_split_tf24", (DL_FUNC) &_plant_census_trait_gradient_split_tf24, 2},
     {"_plant_census_operating_point_counts_tf24", (DL_FUNC) &_plant_census_operating_point_counts_tf24, 1},
-    {"_plant_census_clear_operating_point_counts_tf24", (DL_FUNC) &_plant_census_clear_operating_point_counts_tf24, 1},
+    {"_plant_census_clear_diagnostics_tf24", (DL_FUNC) &_plant_census_clear_diagnostics_tf24, 1},
     {"_plant_census_operating_point_names_tf24", (DL_FUNC) &_plant_census_operating_point_names_tf24, 0},
     {"_plant_census_clamp_counts_tf24", (DL_FUNC) &_plant_census_clamp_counts_tf24, 1},
     {"_plant_census_clamp_counts_differentiated_tf24", (DL_FUNC) &_plant_census_clamp_counts_differentiated_tf24, 1},

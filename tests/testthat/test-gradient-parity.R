@@ -26,7 +26,7 @@ parity_stand <- function(rain, lifetime, k_I = 0.5, amplitude = 0) {
   ctrl <- Control()
   ctrl$node_density_in_birth_date <- TRUE
   scm <- SCM("TF24", "TF24_Env")(p, env, ctrl)
-  census_clear_operating_point_counts_tf24(scm)
+  census_clear_diagnostics_tf24(scm)
   scm$run()
   scm
 }

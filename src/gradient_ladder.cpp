@@ -1076,8 +1076,8 @@ census_operating_point_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_
 }
 
 // [[Rcpp::export]]
-void census_clear_operating_point_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  obj_->clear_operating_point_counts();
+void census_clear_diagnostics_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  obj_->clear_diagnostics();
 }
 
 // The kinds, in the order the counts are reported.

@@ -4485,8 +4485,8 @@ census_operating_point_counts_tf24 <- function(obj_) {
     .Call('_plant_census_operating_point_counts_tf24', PACKAGE = 'plant', obj_)
 }
 
-census_clear_operating_point_counts_tf24 <- function(obj_) {
-    invisible(.Call('_plant_census_clear_operating_point_counts_tf24', PACKAGE = 'plant', obj_))
+census_clear_diagnostics_tf24 <- function(obj_) {
+    invisible(.Call('_plant_census_clear_diagnostics_tf24', PACKAGE = 'plant', obj_))
 }
 
 census_operating_point_names_tf24 <- function() {
