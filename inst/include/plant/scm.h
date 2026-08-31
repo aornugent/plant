@@ -232,20 +232,16 @@ public:
   //
   // No trait, no derived quantity and no census direct term is on this path, so
   // it isolates how the trajectory carries a perturbation to a state a cohort
-  // starts at, and census_initial_state_replay is what refereees it.
-  // `range` picks where the seeding happens, and the states it can pick are
-  // the ones a sweep can be RE-ENTERED at -- those whose width matches a piece's
-  // start, since a walk resuming at any other state is a width apart from the
-  // rows it would carry. `j >= 1` is the state the run reached just after the jth
-  // introduction, which no record holds and the map rebuilds.
+  // starts at, and census_initial_state_replay is what referees it.
   //
-  // 0 is the first recorded state, and what it carries is the run's setup rather
-  // than a property of the index: nothing, or an introduction the schedule placed
-  // at the initial time, or the cohorts a resumed patch was seeded with -- which
-  // can be several per species, at birth dates before the run began. So a cohort
-  // coordinate is seedable at 0 on such a stand, and
-  // test-gradient-ladder-first-range.R is the fixture that seeds one there and
-  // measures that it reaches the census.
+  // `range` picks where the seeding happens, and only a state a sweep can be
+  // RE-ENTERED at will do -- one whose width matches a piece's start, since a
+  // walk resuming anywhere else is a width apart from the rows it would carry.
+  // `j >= 1` is the state reached just after the jth introduction, which no
+  // record holds and the map rebuilds. 0 is the first recorded state, and what
+  // it carries is the run's setup: nothing, an introduction the schedule placed
+  // at the initial time, or the cohorts a resumed patch was seeded with, which
+  // can be several per species at birth dates before the run began.
   std::vector<double>
   census_initial_state_tangent(const std::vector<double>& direction,
                                std::vector<double>& value,

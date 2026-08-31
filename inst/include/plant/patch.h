@@ -929,7 +929,7 @@ void Patch<T,E>::compute_environment() {
   // previous derivs call's time and shorten the boundary interval by a
   // Runge-Kutta stage. The measured effect is below 1e-6, but the interval is
   // then a function of the step size, which the spatial quadrature has no
-  // business depending on, and the whole integral *is* that one segment while a
+  // business depending on, and the whole integral *is* that one interval while a
   // species has a single node. No-op for the height coordinate, where this
   // abscissa is the constant initial height.
   for (auto& s : species) {

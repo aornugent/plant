@@ -188,7 +188,7 @@ public:
   // compute_rates as a pure function of its own states, the environment's
   // cohort reads and the strategy's differentiable parameters, in that order.
 
-  // Each segment is sized by the class that owns it, so the pack and the
+  // Each section is sized by the class that owns it, so the pack and the
   // adjoint scatter read one layout and cannot drift apart.
   size_t block_input_size(const environment_type& environment) const {
     return strategy_type::state_size() + environment.n_cohort_reads() +

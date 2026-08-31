@@ -383,15 +383,14 @@ void Species<T,E>::introduce_new_node() {
 // seed of the species.  Otherwise we return the height of the largest
 // individual, which will be at least as tall as a seed.
 //
-// This used to return nodes.front(), relying on the decreasing-height ordering
-// asserted below. That ordering is guaranteed only while height growth is a
-// function of height and the shared environment, which TF24 broke: its
-// reserve-gated growth (#517) makes dh/dt depend on a cohort's own storage, so
-// two cohorts born moments apart into a rapidly changing environment can cross
-// in height. When they had, this returned a height 0.1 m *below* the tallest and
-// only living cohort, truncating the light spline's domain (#571). The scan is
-// the pass that already answers this, and it is cached, so asking it here is what
-// makes the tallest height and the ordering one walk rather than two.
+// ⚠️ DO NOT RETURN nodes.front() ON THE DECREASING-HEIGHT ORDERING. That ordering
+// holds only while height growth is a function of height and the shared
+// environment, and TF24's reserve-gated growth makes dh/dt depend on a cohort's
+// own storage, so two cohorts born moments apart into a rapidly changing
+// environment can cross in height. The front is then a height below the tallest
+// living cohort, which truncates the light spline's domain. The cached scan
+// already answers this, so asking it here makes the tallest height and the
+// ordering one walk rather than two.
 template <typename T, typename E>
 typename Species<T,E>::value_type Species<T,E>::height_max() const {
   if (nodes.empty()) {
