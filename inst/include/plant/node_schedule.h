@@ -91,10 +91,8 @@ private:
   // schedule, so what the run reads and what a caller set are one object.
   size_t at;
   double max_time;
-  // The run this schedule replays, if it holds one. A schedule with a recording
-  // replays it; there is no third state and so no flag. What used to be two
-  // vectors and a bool was one recording split three ways, held together by a
-  // rule about which setter cleared which.
+  // The recorded ODE steps this schedule replays, when it holds any. Holding
+  // them is what makes a schedule a replay, so no flag says so separately.
   std::vector<odelia::ode::instruction> ode_steps;
 };
 

@@ -154,8 +154,8 @@ public:
   // -- which is what lets the solver ask for this knowing only a recorded time.
   template <typename It>
   void apply_insertion(double time, It x, std::vector<value_type>& y);
-  // The same map for a caller naming the species itself, which an oracle
-  // differencing one insertion does.
+  // The same map for a caller naming the species itself, which a finite
+  // difference of one insertion does.
   template <typename It>
   void apply_insertion(const introduction& species_index, double time, It x,
                        std::vector<value_type>& y);

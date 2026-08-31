@@ -24,18 +24,6 @@
 
 namespace plant {
 
-// A parameter's table entry declares three things, all of them about what the
-// parameter IS: where it lives, what it is called, and the leaf's index for it.
-// Nothing on it says what its gradient will be.
-//
-// It used to carry a fourth: a six-valued enum saying what an exact zero in its
-// column meant. Forty-four of the sixty-two said nothing, fifteen said "this is
-// not a column" -- which is not a reading of any number -- and three said
-// something. So one enum answered two questions and mostly restated silence.
-// What replaces it is `undifferentiable` below: a short list of the parameters
-// no gradient exists for, each with the sentence that says why. Everything else
-// gets a column, and an exact zero in one is the sweep's answer.
-
 // Biological (user-settable) parameters for the TF24 strategy. Held as a value
 // member `pars` on TF24_Strategy and exposed to R as a nested RcppR6 list class
 // (access as `s$pars$lma`). Only parameters that were previously exposed to R
@@ -159,15 +147,12 @@ struct TF24_Pars {
   S use_energy_balance = 0.0;
   S d = 0.05;
 
-  // What a parameter IS -- where it lives, what it is called, and the leaf's own
-  // Nothing here says what its gradient will be: that is a property of the
-  // number the sweep computes, and the sweep computes one for every parameter
-  // except the few `undifferentiable` names below.
+  // Where a parameter lives and what it is called. Nothing here says what its
+  // gradient will be: the sweep computes one for every parameter except the
+  // `undifferentiable` names below.
   struct ad_parameter {
-    // Where the parameter lives in the struct, rather than in one instance of
-    // it. That is what lets the table below be constexpr: a table of instance
-    // addresses has to be rebuilt per object and per call, which is why its
-    // length used to be a literal and why callers were told to hold it.
+    // A member pointer rather than an address in one instance, which is what
+    // lets the table below be constexpr.
     S TF24_Pars::* at;
     const char* name;
   };
@@ -550,10 +535,9 @@ public:
   // match on discrete counts is a sharper statement than any tolerance-based check
   // that the swap preserves TF24's science.
   //
-  // The fix itself is NOT undone -- an off-sea-level run still gets a self-consistent
-  // Gamma*/Kc/Ko/Km and conductance side, which is the whole point of item 10c. Set
-  // `atm_kpa` per site if you mean altitude; it just no longer defaults to an
-  // altitude nobody chose.
+  // The fix itself is NOT undone: an off-sea-level run still gets a self-consistent
+  // Gamma*/Kc/Ko/Km and conductance side. Set `atm_kpa` per site if you mean
+  // altitude; it no longer defaults to an altitude nobody chose.
   // v9: as FF16 v2 -- the light field and the census take their trapezium widths
   // from the coordinate the density is carried in. TF24 defaults to the
   // birth-date coordinate, so this moves its output; the water reduction already
@@ -884,9 +868,8 @@ public:
 
   // The competition contribution and its vertical derivative from one pass, so
   // u^eta is evaluated once. `value` is bit-for-bit the one
-  // compute_competition() returns, and both read the shading model's own profile:
-  // the value used to read the smooth one directly, so under a flat-top profile
-  // the two disagreed while a comment said they could not.
+  // compute_competition() returns: both read the shading model's own profile,
+  // which is what keeps them equal under a flat-top one.
   with_slope<S> compute_competition_and_slope(const S& z, const Internals<S>& vars) const {
     const S& area_leaf_ = vars.aux(aux_idx_competition_effect);
     const S height_inverse = vars.aux(aux_idx_height_inverse);
@@ -1105,10 +1088,9 @@ public:
   std::vector<size_t> operating_point_counts =
     std::vector<size_t>(Leaf::operating_point_kind_count, 0);
 
-  // The root-architecture model's two constants. They used to be handed to the
-  // Leaf constructor; since phylloptim #33 the leaf takes the RESISTANCES and this
-  // strategy owns the model that produces them, which is where they belong -- the
-  // 1/3 : 2/3 root split and the dz^2 vertical scaling were never gas exchange.
+  // The root-architecture model's two constants. The leaf takes resistances and
+  // this strategy owns the model that produces them: the 1/3 : 2/3 root split
+  // and the dz^2 vertical scaling are not gas exchange.
   double beta_R_H = 3.4e2;
   double beta_R_V = 9.4e3;
 
@@ -1345,10 +1327,9 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // question of when rather than of the scalar, and a delta answers it. Taken on
   // the throwing exit too, because a refusal is still a pass over the leaf.
   const leaf_clamp_tally clamps_before = leaf_clamps();
-  // ⚠️ THE SAME NUMBER THE CLOSURE DIVIDES BY. This used to be a second-order pass
-  // over `profit_at` whose slope the guard tested while the interior closure divided
-  // by it -- and whose PARAMETER rows nothing refereed at all. Both are now
-  // marginal_collar_slope(): dM/dp taken as a first derivative of the marginal the
+  // ⚠️ THE SAME NUMBER THE INTERIOR CLOSURE DIVIDES BY, so a guard that tests a
+  // different one passes while the closure divides by a bad slope.
+  // marginal_collar_slope() is dM/dp as a first derivative of the marginal the
   // solve roots, and the rows are taped from M inside collar_at.
   double slope = std::numeric_limits<double>::quiet_NaN();
   Leaf::LeafOutputs<S> got;
@@ -1516,10 +1497,8 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   note_leaf_clamps(clamps_before);
 
   // A collar the theorem could not place costs every output that reads it, and
-  // profit is not one of them: at an interior point it reads the collar held. That
-  // used to be checked here, off a report the interior arm alone filled; every arm
-  // now throws instead and the catch above refuses with the same grain, so the
-  // report and the branch that read it are gone.
+  // profit is not one of them: at an interior point it reads the collar held. An
+  // unplaceable collar throws, and the catch above refuses at that grain.
 
   // ⚠️ THE VALUE IS THE LEAF'S, NOT THIS COMPOSITION'S. The solve is what plant's
   // rates read, so a second copy of it could only disagree; what is taken here is
@@ -1936,10 +1915,6 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // eta_c: accounts for average position of leaf mass
   // height: maximum plant height
   const S leaf_specific_conductance_max = pars.K_s * pars.theta / (height * eta_c);
-
-  // Sapwood volume per leaf area (pars.theta * height * eta_c) used to be handed
-  // to the leaf, which stored it and never read it. Recompute it here if a
-  // caller ever needs it.
 
   // Fine-root carbon is distributed over depth using the same cumulative shape
   // function Q() used for the leaf canopy, but parameterised over soil depth

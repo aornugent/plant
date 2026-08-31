@@ -372,8 +372,6 @@ public:
   //
   // One call rather than five, because a caller wanting one of them before a run
   // wants all of them: a count carried in from an earlier run reads as this run's.
-  // Named for that rather than for the first of them, which is what it used to be
-  // called.
   void clear_diagnostics() {
     const patch_type& live = solver.get_system_ref();
     for (size_t i = 0; i < live.size(); ++i) {
@@ -875,9 +873,8 @@ std::vector<double> SCM<T, E>::census() const {
 }
 
 // The census differentiated with respect to the state AND the traits, from ONE
-// recording of one metric algebra. The two used to be two functions over the same
-// arithmetic, which put the seam between the halves in two places; here it is the
-// solver's own, written once for every transpose in the tree.
+// recording of one metric algebra, so the seam between the halves is the solver's
+// own rather than a second one written here.
 //
 // The order the halves are written in is the reason they are one recording rather
 // than two calls: the traits are placed first and the state loaded after, so a

@@ -798,8 +798,8 @@ std::vector<double> ladder_block_direction_difference_tf24(plant::RcppR6::RcppR6
 
 // The introduction map's whole Jacobian, both ways, at one introduction.
 //
-// This is rung 5's own unit and the one object it had no reference for. The map is
-// the pre-introduction state and the traits in, the whole widened state out; the
+// The introduction checks have no other reference for this map. It takes the
+// pre-introduction state and the traits in, the whole widened state out; the
 // forward side seeds one tangent per input column, and the reverse side is the
 // transpose the sweep actually runs, seeded with one unit output adjoint per row.
 // Both go through introduce_over, so the reference traverses the forward function

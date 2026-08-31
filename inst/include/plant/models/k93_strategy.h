@@ -123,9 +123,8 @@ public:
 
   // The competition contribution and its vertical derivative from one pass, so
   // u^eta is evaluated once. The first entry is bit-for-bit the one
-  // compute_competition() returns, and both read the shading model's own profile:
-  // the value used to read the smooth one directly, so under a flat-top profile
-  // the two disagreed while a comment said they could not.
+  // compute_competition() returns: both read the shading model's own profile,
+  // which is what keeps them equal under a flat-top one.
   with_slope<double>
   compute_competition_and_slope(double z, const Internals<double>& vars) const {
     const double whole_plant_competition = vars.aux(COMPETITION_EFFECT_AUX_INDEX);

@@ -278,15 +278,13 @@ private:
 
   // u^eta, by THE SAME ALGORITHM AT BOTH SCALARS.
   //
-  // ⚠️ It used to be two: the multiplication chain at double, and the library pow
-  // at an active scalar so that the recorded eta derivative u^eta * log(u) would
-  // be carried. Those are different algorithms for one quantity, and they disagree
-  // in the last bits -- at the default eta = 12 the chain is four roundings
-  // (u2=u*u; u4=u2*u2; u8=u4*u4; u8*u4) against a correctly-rounded pow, which
-  // differs on about 82% of u in (0,1) by up to 8 ulp, and Q = (1 - u^eta)^2
-  // cancels near the crown top and turns that into ~4e-9 relative. So the
-  // DIFFERENTIATED light environment was not the FORWARD light environment, and no
-  // check could see it because both are plausible.
+  // ⚠️ Two algorithms here make the DIFFERENTIATED light environment a different
+  // quantity from the FORWARD one, and no check can see it because both are
+  // plausible. A multiplication chain at double against a correctly-rounded pow
+  // at an active scalar disagree in the last bits: at the default eta = 12 the
+  // chain is four roundings (u2=u*u; u4=u2*u2; u8=u4*u4; u8*u4), differing on
+  // about 82% of u in (0,1) by up to 8 ulp, and Q = (1 - u^eta)^2 cancels near
+  // the crown top and turns that into ~4e-9 relative.
   //
   // The derivative that justified the second algorithm is one nothing may read:
   // TF24_Strategy declares `eta` undifferentiable, for exactly the reason the old
