@@ -83,7 +83,7 @@ test_that("the boundary's own term enters once per stage of every step", {
     trajectory <- stand$store_trajectory()
     widths <- vapply(trajectory, function(s) length(s$state), numeric(1))
     got <- ladder_boundary_evaluations_tf24(stand)
-    list(steps = length(trajectory) - 1L,
+    list(steps = ladder_step_count(trajectory),
          introductions = sum(diff(widths) != 0),
          metrics = got$metrics, evaluations = got$evaluations,
          placements = got$placements)

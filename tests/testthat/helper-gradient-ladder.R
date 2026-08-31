@@ -384,6 +384,22 @@ ladder_stand_resumed <- function() {
   ladder_run(set_initial_state(p, state))
 }
 
+# Which rows of a recording are junctions, and how many of its rows are steps.
+#
+# A recording holds one row per instruction, and a junction is an instruction: it
+# shares its time with the row below it and no step reached it. So the number of
+# steps is not the number of rows, and the row a widening happens at is a row of
+# its own rather than the gap between two.
+ladder_junction_rows <- function(trajectory) {
+  which(vapply(trajectory, function(s) s$junction, logical(1)))
+}
+
+# The first row is where the run started and no step reached it either, so it comes
+# off with the junctions.
+ladder_step_count <- function(trajectory) {
+  length(trajectory) - length(ladder_junction_rows(trajectory)) - 1L
+}
+
 ladder_stand_marginal_recruit <- function(scale = 30, lifetime = 0.45) {
   p <- ladder_parameters(c("fast", "slow"), lifetime = lifetime)
   strategies <- p$strategies

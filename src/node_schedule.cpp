@@ -121,7 +121,7 @@ void NodeSchedule::distribute_ode_steps() {
   events_iterator e = queue.begin();
   size_t i = 0;
   while (e != queue.end()) {
-    std::vector<odelia::ode::recorded_step> inside;
+    std::vector<odelia::ode::instruction> inside;
     while (i < ode_steps.size() && ode_steps[i].time < e->time_end()) {
       // Excludes times that exactly match an interval boundary; the run stops
       // there anyway, and the interval above it starts from there.
@@ -137,7 +137,7 @@ void NodeSchedule::distribute_ode_steps() {
       e->steps.insert(e->steps.end(), inside.begin(), inside.end());
       std::vector<double> extra;
       extra.reserve(inside.size());
-      for (const odelia::ode::recorded_step& r : inside) {
+      for (const odelia::ode::instruction& r : inside) {
         extra.push_back(r.time);
       }
       std::vector<double>::iterator at = ++e->times.begin();
@@ -205,7 +205,7 @@ void NodeSchedule::r_set_max_time(double x) {
 std::vector<double> NodeSchedule::r_ode_times() const {
   std::vector<double> ret;
   ret.reserve(ode_steps.size());
-  for (const odelia::ode::recorded_step& r : ode_steps) {
+  for (const odelia::ode::instruction& r : ode_steps) {
     ret.push_back(r.time);
   }
   return ret;
@@ -214,7 +214,7 @@ std::vector<double> NodeSchedule::r_ode_times() const {
 std::vector<double> NodeSchedule::r_ode_step_sizes() const {
   std::vector<double> ret;
   ret.reserve(ode_steps.size());
-  for (const odelia::ode::recorded_step& r : ode_steps) {
+  for (const odelia::ode::instruction& r : ode_steps) {
     ret.push_back(r.step_size);
   }
   return ret;

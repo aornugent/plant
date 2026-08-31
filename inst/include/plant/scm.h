@@ -571,10 +571,10 @@ std::vector<size_t> SCM<T, E>::run_next() {
 
   sys.introduce_nodes(ret, e.time_introduction());
   solver.set_state_from_system();
-  // The wider state the introduction just reached, onto the row it followed: it
-  // is what the next step runs from, and no step reached it. Recorded here
-  // because this is where the width changes.
-  solver.push_inserted();
+  // The junction, as its own row: it holds the wider state the introduction just
+  // reached, which is what the next step runs from and which no step reached.
+  // Recorded here because this is where the width changes.
+  solver.push_junction();
 
   // Three integration modes:
   //  - pinned ode times (resident replay for a mutant): step exactly to the
@@ -707,12 +707,12 @@ void SCM<T, E>::refine_schedule() {
   // one record rather than through two accessors: a time and the size that
   // reached it are paired there, and pairing them again here is a chance to
   // pair them wrong.
-  const std::vector<odelia::ode::recorded_step> taken = solver.schedule();
+  const std::vector<odelia::ode::instruction> taken = solver.schedule();
   parameters.ode_times.clear();
   parameters.ode_step_sizes.clear();
   parameters.ode_times.reserve(taken.size());
   parameters.ode_step_sizes.reserve(taken.size());
-  for (const odelia::ode::recorded_step& step : taken) {
+  for (const odelia::ode::instruction& step : taken) {
     parameters.ode_times.push_back(step.time);
     parameters.ode_step_sizes.push_back(step.step_size);
   }
@@ -837,9 +837,14 @@ Rcpp::List SCM<T, E>::r_store_trajectory() {
   const trajectory rec = store_trajectory();
   Rcpp::List ret(rec.size());
   for (size_t i = 0; i < rec.size(); ++i) {
-    ret[i] = Rcpp::List::create(Rcpp::_["time"] = rec[i].time,
-                                Rcpp::_["step_size"] = rec[i].step_size,
-                                Rcpp::_["state"] = rec[i].state);
+    ret[i] = Rcpp::List::create(
+        Rcpp::_["time"] = rec[i].time,
+        Rcpp::_["step_size"] = rec[i].step_size,
+        // Which of the two a row is, rather than every reader inferring it from a
+        // NaN size or from a width that grew.
+        Rcpp::_["junction"] =
+            rec[i].kind == odelia::ode::instruction::op::junction,
+        Rcpp::_["state"] = rec[i].state);
   }
   return ret;
 }
@@ -1136,12 +1141,10 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   forward.set_collect(false);
   forward.set_state_from_system();
 
-  // From row 0, whose own junction this walk still owes: the state seeded above is
-  // that row's, at its own width.
+  // From row 0: the state seeded above is that row's, at its own width, and any
+  // junction the run made is a row of its own above it.
   forward.advance_recorded(odelia::ode::program_from(
-      rec, 0,
-      {forward.time(), std::numeric_limits<double>::quiet_NaN(),
-       rec[0].junction}));
+      rec, 0, {forward.time(), std::numeric_limits<double>::quiet_NaN()}));
 
   // Leave the double system where the run left it, so this call is repeatable
   // beside the sweep that shares its trajectory.
@@ -1199,13 +1202,11 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_segment,
   forward.set_collect(false);
   forward.set_state_from_system();
 
-  // state_at_segment applied the junction at `start` where it resumed at a
-  // segment. At segment 0 it positions on row 0 and applies nothing, so row 0's
-  // own junction is still this walk's to make.
-  const bool pending = from_segment == 0 && rec[start].junction;
+  // `start` is the row the System was put on, so the program is what follows it
+  // whether that row is the beginning of the recording or a junction already
+  // applied.
   forward.advance_recorded(odelia::ode::program_from(
-      rec, start,
-      {forward.time(), std::numeric_limits<double>::quiet_NaN(), pending}));
+      rec, start, {forward.time(), std::numeric_limits<double>::quiet_NaN()}));
 
   // Leave the double system where the run left it, so this call is repeatable
   // beside the sweep that shares its trajectory.

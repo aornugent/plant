@@ -40,7 +40,7 @@ test_that("the sweep runs the range below the first widening", {
   trajectory <- stand$store_trajectory()
   widths <- vapply(trajectory, function(s) length(s$state), numeric(1))
   n_widening <- sum(diff(widths) != 0)
-  steps <- length(trajectory) - 1L
+  steps <- ladder_step_count(trajectory)
 
   # One sweep, and both counts are its own return. They used to be one call and
   # one read off the solver afterwards, which is a pair that can describe two

@@ -66,19 +66,20 @@ test_that("a sweep split at an interior step equals the whole sweep", {
   whole <- do.call(rbind, unsplit$gradient)
   unsplit_ranges <- unsplit$segments
 
-  widths <- vapply(stand$store_trajectory(), function(s) length(s$state),
-                   numeric(1))
-  widening <- which(diff(widths) != 0)
-  expect_gte(length(widening), 3L)
+  junctions <- ladder_junction_rows(stand$store_trajectory())
+  expect_gte(length(junctions), 3L)
 
-  # An interior step, one either side of a widening, and all three at once. The
-  # step counted here is the one the split names, from one.
-  interior <- floor((widening[[2]] + widening[[3]]) / 2)
+  # A cut names the row the descent resumes at, counted from one. A junction is
+  # already such a row, and so is the row below it -- carrying the adjoint across
+  # a widening leaves the descent there -- so a cut that adds a range is a step
+  # row that is neither, which is why the two either side of a widening are two
+  # rows apart rather than adjacent. The boundary case is stated at the end.
+  interior <- floor((junctions[[2]] + junctions[[3]]) / 2)
   points <- list("an interior step" = interior,
-                 "one step before a widening" = widening[[2]] - 1,
-                 "one step after a widening" = widening[[2]] + 1,
-                 "all three at once" = c(interior, widening[[2]] - 1,
-                                         widening[[2]] + 1))
+                 "one step below a widening" = junctions[[2]] - 2,
+                 "one step above a widening" = junctions[[2]] + 1,
+                 "all three at once" = c(interior, junctions[[2]] - 2,
+                                         junctions[[2]] + 1))
   for (name in names(points)) {
     cut <- census_trait_gradient_split_tf24(stand, points[[name]])
     split <- do.call(rbind, cut$gradient)
@@ -95,7 +96,7 @@ test_that("a sweep split at an interior step equals the whole sweep", {
 
   # And the boundary case stated rather than left as a trap: naming a widening
   # itself requests a split no segment contains.
-  on_boundary <- census_trait_gradient_split_tf24(stand, widening[[2]])
+  on_boundary <- census_trait_gradient_split_tf24(stand, junctions[[2]])
   expect_equal(on_boundary$segments, unsplit_ranges)
   expect_identical(do.call(rbind, on_boundary$gradient), whole)
 })

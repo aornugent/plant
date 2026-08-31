@@ -38,7 +38,7 @@ public:
   // The ODE steps a recorded run took inside this interval, each carrying the
   // time it reached and the size that reached it. Empty unless the schedule
   // holds a recording.
-  std::vector<odelia::ode::recorded_step> steps;
+  std::vector<odelia::ode::instruction> steps;
 };
 
 class NodeSchedule {
@@ -92,7 +92,7 @@ private:
   // replays it; there is no third state and so no flag. What used to be two
   // vectors and a bool was one recording split three ways, held together by a
   // rule about which setter cleared which.
-  std::vector<odelia::ode::recorded_step> ode_steps;
+  std::vector<odelia::ode::instruction> ode_steps;
 };
 
 }

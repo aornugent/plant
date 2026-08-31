@@ -397,7 +397,7 @@ test_that("A second run on one SCM reproduces the first", {
 
 
 
-test_that("store_trajectory records one state per accepted step", {
+test_that("store_trajectory records one state per instruction", {
   for (x in names(strategy_types)) {
     e <- environment_types[[x]]
     s <- strategy_types[[x]]()
@@ -419,18 +419,32 @@ test_that("store_trajectory records one state per accepted step", {
     traj <- scm$store_trajectory()
     expect_identical(traj[[length(traj)]]$state, forward_state)
 
-    ## One record per accepted step, and the times are the resolved grid itself
-    ## rather than any second list of times.
-    expect_equal(length(traj), length(grid))
-    expect_identical(vapply(traj, function(r) r$time, numeric(1)), grid)
+    ## One record per instruction, which is a row per accepted step and a row per
+    ## junction. The steps are the resolved grid itself rather than any second list
+    ## of times, and the schedule is the steps, so a junction cannot reach it.
+    is_junction <- vapply(traj, function(r) r$junction, logical(1))
+    steps <- traj[!is_junction]
+    expect_equal(length(steps), length(grid))
+    expect_identical(vapply(steps, function(r) r$time, numeric(1)), grid)
 
     ## No step reached the first time, and every later time is its predecessor
-    ## advanced by the recorded size, which is how the stepper reached it.
-    h <- vapply(traj, function(r) r$step_size, numeric(1))
-    times <- vapply(traj, function(r) r$time, numeric(1))
+    ## advanced by the recorded size, which is how the stepper reached it. A
+    ## junction between two steps does not disturb this, because it takes no time.
+    h <- vapply(steps, function(r) r$step_size, numeric(1))
+    times <- vapply(steps, function(r) r$time, numeric(1))
     expect_true(is.na(h[[1]]))
     expect_true(all(h[-1] > 0))
     expect_identical(times[-1], times[-length(times)] + h[-1])
+
+    ## And what a junction row is: no size, because no step reached it, and the
+    ## time of the row below it, which holds the state its map ran on. Never the
+    ## first row, for the same reason.
+    at <- which(is_junction)
+    expect_gt(length(at), 0L)
+    expect_true(all(at > 1L))
+    expect_true(all(is.na(vapply(traj[at], function(r) r$step_size, numeric(1)))))
+    expect_identical(vapply(traj[at], function(r) r$time, numeric(1)),
+                     vapply(traj[at - 1L], function(r) r$time, numeric(1)))
 
     ## The state widens at introductions, so the records are ragged, and the
     ## last is as wide as the patch the run ended on.
