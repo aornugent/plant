@@ -840,8 +840,7 @@ Rcpp::List SCM<T, E>::r_store_trajectory() {
     ret[i] = Rcpp::List::create(
         Rcpp::_["time"] = rec[i].time,
         Rcpp::_["step_size"] = rec[i].step_size,
-        // Which of the two a row is, rather than every reader inferring it from a
-        // NaN size or from a width that grew.
+        // Which of the two kinds a row is.
         Rcpp::_["junction"] =
             rec[i].kind == odelia::ode::instruction::op::junction,
         Rcpp::_["state"] = rec[i].state);
