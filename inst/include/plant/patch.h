@@ -10,6 +10,7 @@
 #include <odelia/sweep.hpp>
 
 #include <plant/disturbance_regime.h>
+#include <plant/with_slope.h>
 
 #include <algorithm>
 #include <cmath>
@@ -96,14 +97,14 @@ public:
 
   // The competition profile and its vertical derivative at z, from one pass over
   // the species. The first entry equals compute_competition(z) bit for bit.
-  std::pair<value_type, value_type>
+  with_slope<value_type>
   compute_competition_and_slope(double z) const;
   // The same pair for R, which takes only doubles: value first, then slope.
   std::vector<double> r_compute_competition_and_slope(double z) const {
-    const std::pair<value_type, value_type> fs =
+    const with_slope<value_type> fs =
       compute_competition_and_slope(z);
-    return {odelia::util::to_passive(fs.first),
-            odelia::util::to_passive(fs.second)};
+    return {odelia::util::to_passive(fs.value),
+            odelia::util::to_passive(fs.slope)};
   }
 
 
@@ -799,20 +800,20 @@ typename Patch<T,E>::value_type Patch<T,E>::height_max() const {
 template <typename T, typename E>
 typename Patch<T,E>::value_type
 Patch<T,E>::compute_competition(double height) const {
-  return compute_competition_and_slope(height).first;
+  return compute_competition_and_slope(height).value;
 }
 
 template <typename T, typename E>
-std::pair<typename Patch<T,E>::value_type, typename Patch<T,E>::value_type>
+with_slope<typename Patch<T,E>::value_type>
 Patch<T,E>::compute_competition_and_slope(double z) const {
-  value_type tot = 0.0, tot_slope = 0.0;
+  with_slope<value_type> sum{0.0, 0.0};
   for (size_t i = 0; i < species.size(); ++i) {
-    const std::pair<value_type, value_type> fs =
+    const with_slope<value_type> fs =
       species[i].compute_competition_and_slope(z);
-    tot       += fs.first / area;
-    tot_slope += fs.second / area;
+    sum.value += fs.value / area;
+    sum.slope += fs.slope / area;
   }
-  return {tot, tot_slope};
+  return sum;
 }
 
 template <typename T, typename E>
@@ -1004,10 +1005,10 @@ void Patch<T,E>::compute_environment_excl_capturing() {
     for (size_t i = 0; i < size(); ++i) {
       species[i].field_splits(x, competition_capture[i]);
       for (size_t k = 0; k < x.size(); ++k) {
-        const std::pair<value_type, value_type> open =
+        const with_slope<value_type> open =
           competition_capture[i][k].without_boundary();
-        y[k] += open.first / area;
-        m[k] += open.second / area;
+        y[k] += open.value / area;
+        m[k] += open.slope / area;
       }
     }
   };
@@ -1032,10 +1033,10 @@ void Patch<T,E>::compute_environment_closing() {
                    "boundary interval was built over a different knot set");
       }
       for (size_t k = 0; k < x.size(); ++k) {
-        const std::pair<value_type, value_type> fs =
+        const with_slope<value_type> fs =
           species[i].close_competition_and_slope(competition_capture[i][k], x[k]);
-        y[k] += fs.first / area;
-        m[k] += fs.second / area;
+        y[k] += fs.value / area;
+        m[k] += fs.slope / area;
       }
     }
   };

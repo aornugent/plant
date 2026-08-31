@@ -6,6 +6,7 @@
 #include <plant/strategy.h>
 #include <plant/models/k93_environment.h>
 #include <plant/canopy_shape.h>
+#include <plant/with_slope.h>
 
 namespace plant {
 
@@ -125,7 +126,7 @@ public:
   // compute_competition() returns, and both read the shading model's own profile:
   // the value used to read the smooth one directly, so under a flat-top profile
   // the two disagreed while a comment said they could not.
-  std::pair<double, double>
+  with_slope<double>
   compute_competition_and_slope(double z, const Internals<double>& vars) const {
     const double whole_plant_competition = vars.aux(COMPETITION_EFFECT_AUX_INDEX);
     const double height_inverse = vars.aux(HEIGHT_INVERSE_AUX_INDEX);

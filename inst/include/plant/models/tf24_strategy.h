@@ -12,6 +12,7 @@
 #include <plant/canopy_shape.h>
 #include <odelia/ode_util.hpp>
 #include <odelia/implicit_node.hpp>
+#include <plant/with_slope.h>
 #include <array>
 // cstdio/cstdlib for the environment-gated curvature comparison in
 // record_leaf_outputs, and nothing else here.
@@ -882,16 +883,18 @@ public:
   }
 
   // The competition contribution and its vertical derivative from one pass, so
-  // u^eta is evaluated once. The first entry is bit-for-bit the one
+  // u^eta is evaluated once. `value` is bit-for-bit the one
   // compute_competition() returns, and both read the shading model's own profile:
   // the value used to read the smooth one directly, so under a flat-top profile
   // the two disagreed while a comment said they could not.
-  std::pair<S, S> compute_competition_and_slope(const S& z, const Internals<S>& vars) const {
+  with_slope<S> compute_competition_and_slope(const S& z, const Internals<S>& vars) const {
     const S& area_leaf_ = vars.aux(aux_idx_competition_effect);
     const S height_inverse = vars.aux(aux_idx_height_inverse);
     const S scale = pars.k_I * area_leaf_;
     const std::pair<S, S> Qq =
       canopy_shape.Q_and_q(z * height_inverse, z, height_inverse);
+    // Negated on the way out: q is -dQ/dz and everything above here carries the
+    // signed slope.
     return {scale * Qq.first, -(scale * Qq.second)};
   }
 

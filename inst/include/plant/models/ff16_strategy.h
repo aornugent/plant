@@ -7,6 +7,7 @@
 #include <plant/qag.h>
 #include <plant/canopy_shape.h>
 #include <plant/models/ff16_production_kernel.h>
+#include <plant/with_slope.h>
 
 namespace plant {
 
@@ -408,7 +409,7 @@ public:
   // The competition contribution and its vertical derivative from one pass, so
   // u^eta is evaluated once. The first entry is bit-for-bit the one
   // compute_competition() returns.
-  std::pair<double, double>
+  with_slope<double>
   compute_competition_and_slope(double z, const Internals<double>& vars) const {
     const double area_leaf_ = vars.aux(COMPETITION_EFFECT_AUX_INDEX);
     const double height_inverse = vars.aux(HEIGHT_INVERSE_AUX_INDEX);

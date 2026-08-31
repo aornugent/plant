@@ -6,6 +6,7 @@
 #include <plant/gradient.h>
 #include <plant/individual.h>
 #include <odelia/ode_interface.hpp>
+#include <plant/with_slope.h>
 #include <limits> // std::numeric_limits
 
 namespace plant {
@@ -31,7 +32,7 @@ public:
   value_type compute_competition(const value_type& z) const;
   // The node's competition contribution and its vertical derivative, both
   // weighted by density. The first entry equals compute_competition(z) exactly.
-  std::pair<value_type, value_type>
+  with_slope<value_type>
   compute_competition_and_slope(const value_type& z) const;
   value_type fecundity() const {return offspring_produced_survival_weighted;}
 
@@ -269,11 +270,11 @@ Node<T,E>::compute_competition(const value_type& height_) const {
 }
 
 template <typename T, typename E>
-std::pair<typename Node<T,E>::value_type, typename Node<T,E>::value_type>
+with_slope<typename Node<T,E>::value_type>
 Node<T,E>::compute_competition_and_slope(const value_type& height_) const {
-  const std::pair<value_type, value_type> fs =
+  const with_slope<value_type> fs =
     individual.compute_competition_and_slope(height_);
-  return {density * fs.first, density * fs.second};
+  return {density * fs.value, density * fs.slope};
 }
 
 // ODE interface -- note that the don't care about time in the node;

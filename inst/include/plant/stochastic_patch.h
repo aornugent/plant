@@ -5,6 +5,7 @@
 #include <plant/parameters.h>
 #include <plant/stochastic_species.h>
 #include <plant/util.h>
+#include <plant/with_slope.h>
 #include <numeric> // std::accumulate, in compute_rates
 
 namespace plant {
@@ -40,7 +41,7 @@ public:
   // [eqn 11] Canopy openness at `height`
   value_type compute_competition(double height) const;
   // That profile and its vertical derivative, from one pass over the species.
-  std::pair<value_type, value_type>
+  with_slope<value_type>
   compute_competition_and_slope(double height) const;
 
   bool introduce_new_node(size_t species_index);
@@ -153,17 +154,16 @@ StochasticPatch<T,E>::compute_competition(double height) const {
 }
 
 template <typename T, typename E>
-std::pair<typename StochasticPatch<T,E>::value_type,
-          typename StochasticPatch<T,E>::value_type>
+with_slope<typename StochasticPatch<T,E>::value_type>
 StochasticPatch<T,E>::compute_competition_and_slope(double height) const {
-  value_type tot = 0.0, tot_slope = 0.0;
+  with_slope<value_type> sum{0.0, 0.0};
   for (size_t i = 0; i < species.size(); ++i) {
-    const std::pair<value_type, value_type> fs =
+    const with_slope<value_type> fs =
       species[i].compute_competition_and_slope(height);
-    tot       += fs.first / area;
-    tot_slope += fs.second / area;
+    sum.value += fs.value / area;
+    sum.slope += fs.slope / area;
   }
-  return {tot, tot_slope};
+  return sum;
 }
 
 template <typename T, typename E>
@@ -179,9 +179,9 @@ void StochasticPatch<T,E>::compute_environment() {
     auto f = [&] (const std::vector<double>& x, std::vector<value_type>& y,
                   std::vector<value_type>& m) -> void {
       for (size_t k = 0; k < x.size(); ++k) {
-        const std::pair<value_type, value_type> fs = compute_competition_and_slope(x[k]);
-        y[k] = fs.first;
-        m[k] = fs.second;
+        const with_slope<value_type> fs = compute_competition_and_slope(x[k]);
+        y[k] = fs.value;
+        m[k] = fs.slope;
       }
     };
     environment.compute_environment(f, height_max());

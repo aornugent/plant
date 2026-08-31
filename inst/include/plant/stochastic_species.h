@@ -10,6 +10,7 @@
 #include <plant/species_base.h>
 #include <plant/stochastic_node.h>
 #include <odelia/ode_interface.hpp>
+#include <plant/with_slope.h>
 
 namespace plant {
 
@@ -64,8 +65,8 @@ public:
   value_type height_max() const;
   value_type compute_competition(double height) const;
   // The same sum and its vertical derivative, from one pass over the living
-  // individuals. The first entry equals compute_competition(height) bit for bit.
-  std::pair<value_type, value_type>
+  // individuals. `value` equals compute_competition(height) bit for bit.
+  with_slope<value_type>
   compute_competition_and_slope(double height) const;
   void compute_rates(const E& environment);
   double consumption_rate(int i) const;
@@ -205,26 +206,25 @@ StochasticSpecies<T,E>::compute_competition(double height) const {
 }
 
 template <typename T, typename E>
-std::pair<typename StochasticSpecies<T,E>::value_type,
-          typename StochasticSpecies<T,E>::value_type>
+with_slope<typename StochasticSpecies<T,E>::value_type>
 StochasticSpecies<T,E>::compute_competition_and_slope(double height) const {
   if (size() == 0 || height_max() < height) {
     return {value_type(0.0), value_type(0.0)};
   }
-  value_type tot = 0.0, tot_slope = 0.0;
+  with_slope<value_type> sum{0.0, 0.0};
   for (auto& n : nodes) {
     if (n.alive) {
       if (n.height() > height) {
-        const std::pair<value_type, value_type> fs =
+        const with_slope<value_type> fs =
           n.compute_competition_and_slope(height);
-        tot       += fs.first;
-        tot_slope += fs.second;
+        sum.value += fs.value;
+        sum.slope += fs.slope;
       } else {
         break;
       }
     }
   }
-  return {tot, tot_slope};
+  return sum;
 }
 
 template <typename T, typename E>

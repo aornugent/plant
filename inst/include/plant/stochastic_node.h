@@ -4,6 +4,7 @@
 
 #include <plant/individual.h>
 #include <odelia/ode_interface.hpp>
+#include <plant/with_slope.h>
 
 namespace plant {
 
@@ -43,7 +44,7 @@ public:
   value_type compute_competition(const value_type& z) const {
     return individual.compute_competition(z);
   }
-  std::pair<value_type, value_type>
+  with_slope<value_type>
   compute_competition_and_slope(const value_type& z) const {
     return individual.compute_competition_and_slope(z);
   }

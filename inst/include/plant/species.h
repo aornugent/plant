@@ -15,6 +15,7 @@
 #include <plant/species_base.h>
 #include <plant/census.h>
 #include <odelia/drivers.hpp>
+#include <plant/with_slope.h>
 
 namespace plant {
 
@@ -73,7 +74,7 @@ public:
   // The reduction and its vertical derivative from one traversal, so each node's
   // u^eta is evaluated once and the two sums add their terms in the same order.
   // The first entry equals compute_competition(height) bit for bit.
-  std::pair<value_type, value_type>
+  with_slope<value_type>
   compute_competition_and_slope(double height) const;
 
   // The reduction stopped before its closing trapezium: the sums so far and the
@@ -83,8 +84,9 @@ public:
   // only in that trapezium, and the boundary node it needs is not known until the
   // field without it exists.
   struct competition_split {
-    value_type tot{0.0}, tot_slope{0.0};
-    value_type f_h1{0.0}, s_h1{0.0};
+    // The running sums, and the sample at x1 that one more interval needs.
+    with_slope<value_type> sum{value_type(0.0), value_type(0.0)};
+    with_slope<value_type> at_x1{value_type(0.0), value_type(0.0)};
     // The abscissa is a position (abscissa_of takes it passive), so a width the
     // closing forms from it is a position too and not state.
     double x1{0.0};
@@ -92,13 +94,13 @@ public:
 
     // The field the nodes were rated in. close_competition_and_slope() is the
     // same halved sums with the boundary interval added first.
-    std::pair<value_type, value_type> without_boundary() const {
-      return {tot / 2, tot_slope / 2};
+    with_slope<value_type> without_boundary() const {
+      return {sum.value / 2, sum.slope / 2};
     }
 
     template <class F>
     void for_each_active(F&& f) {
-      odelia::ode::visit_active(f, tot, tot_slope, f_h1, s_h1);
+      odelia::ode::visit_active(f, sum, at_x1);
     }
   };
   // A split at every height of a set, from ONE pass over the nodes.
@@ -113,7 +115,7 @@ public:
   // The inclusive reduction, from a split taken at the same height. Bit-identical
   // to compute_competition_and_slope(height) at the boundary node it is closed
   // with.
-  std::pair<value_type, value_type>
+  with_slope<value_type>
   close_competition_and_slope(const competition_split& c, double height) const;
 
   // Evaluate the inflow boundary condition in the environment passed. Split out
@@ -284,8 +286,9 @@ private:
   // that no longer contributes the density is zero and so is the interval; a
   // single node has no interval but that one, and a birth-date abscissa does not
   // order with the support at all.
-  bool closes_on(const value_type& f_h1) const {
-    return size() == 1 || control().node_density_in_birth_date || f_h1 > 0;
+  bool closes_on(const value_type& value_at_x1) const {
+    return size() == 1 || control().node_density_in_birth_date ||
+           value_at_x1 > 0;
   }
   competition_split compute_competition_and_slope_split(double height) const;
 
@@ -471,7 +474,7 @@ Species<T,E>::compute_competition(double height) const {
   // path arrives here -- it takes compute_competition_and_slope_split() and
   // closes it -- so this serves the accessors, where the pair was already being
   // computed one call away.
-  return compute_competition_and_slope(height).first;
+  return compute_competition_and_slope(height).value;
 }
 
 // The same trapezium integral as compute_competition(), and alongside it the
@@ -481,8 +484,7 @@ Species<T,E>::compute_competition(double height) const {
 // lives in test-canopy-methods.R. The early exit and the closing boundary
 // trapezium are driven by the value, as they are there.
 template <typename T, typename E>
-std::pair<typename Species<T,E>::value_type,
-          typename Species<T,E>::value_type>
+with_slope<typename Species<T,E>::value_type>
 Species<T,E>::compute_competition_and_slope(double height) const {
   return close_competition_and_slope(compute_competition_and_slope_split(height),
                                      height);
@@ -567,10 +569,10 @@ void Species<T,E>::field_splits(const std::vector<double>& heights,
 
     strategy->canopy_shape.height_weights(height, weight);
     strategy->canopy_shape.height_weight_slopes(height, weight_slope);
-    value_type tot = value_type(0.0), tot_slope = value_type(0.0);
+    with_slope<value_type> sum{value_type(0.0), value_type(0.0)};
     for (std::size_t j = 0; j < n_moments; ++j) {
-      tot       += weight[j] * prefix[summed][j];
-      tot_slope += weight_slope[j] * prefix[summed][j];
+      sum.value += weight[j] * prefix[summed][j];
+      sum.slope += weight_slope[j] * prefix[summed][j];
     }
 
     // The interval the support crosses is the one place the separated form does
@@ -578,22 +580,20 @@ void Species<T,E>::field_splits(const std::vector<double>& heights,
     // the polynomial would evaluate (z / H)^eta above one there rather than the
     // zero the profile has. It is the interval the walk closes by hand too.
     competition_split& c = out[k];
-    const std::pair<value_type, value_type> fs_last =
+    const with_slope<value_type> fs_last =
       nodes[last].compute_competition_and_slope(height);
     if (crossing < n) {
-      const std::pair<value_type, value_type> fs_above =
+      const with_slope<value_type> fs_above =
         nodes[crossing - 1].compute_competition_and_slope(height);
       const double width = abscissa[crossing] - abscissa[crossing - 1];
-      tot       += width * (fs_above.first + fs_last.first);
-      tot_slope += width * (fs_above.second + fs_last.second);
+      sum.value += width * (fs_above.value + fs_last.value);
+      sum.slope += width * (fs_above.slope + fs_last.slope);
     }
 
-    c.tot = tot;
-    c.tot_slope = tot_slope;
+    c.sum = sum;
     c.x1 = abscissa[last];
-    c.f_h1 = fs_last.first;
-    c.s_h1 = fs_last.second;
-    c.closes = closes_on(c.f_h1);
+    c.at_x1 = fs_last;
+    c.closes = closes_on(c.at_x1.value);
   }
 }
 
@@ -616,40 +616,37 @@ Species<T,E>::reduce_competition(double height,
   };
 
   const node_type& first = node_at(0);
-  const std::pair<value_type, value_type> fs1 =
+  const with_slope<value_type> fs1 =
     first.compute_competition_and_slope(height);
-  if (!util::is_finite(fs1.first) || !util::is_finite(fs1.second)) {
+  if (!util::is_finite(fs1.value) || !util::is_finite(fs1.slope)) {
     util::stop("Detected non-finite contribution");
   }
-  value_type tot = 0.0, tot_slope = 0.0;
+  with_slope<value_type> sum{value_type(0.0), value_type(0.0)};
   double x1 = abscissa_of(first, birth_date);
-  value_type f_h1 = fs1.first, s_h1 = fs1.second;
+  with_slope<value_type> at_x1 = fs1;
 
   for (std::size_t k = 1; k < n; ++k) {
     const node_type& node = node_at(k);
-    const std::pair<value_type, value_type> fs0 =
+    const with_slope<value_type> fs0 =
       node.compute_competition_and_slope(height);
     const double x0 = abscissa_of(node, birth_date);
-    if (!util::is_finite(fs0.first) || !util::is_finite(fs0.second)) {
+    if (!util::is_finite(fs0.value) || !util::is_finite(fs0.slope)) {
       util::stop("Detected non-finite contribution");
     }
-    tot       += (x0 - x1) * (f_h1 + fs0.first);
-    tot_slope += (x0 - x1) * (s_h1 + fs0.second);
-    x1   = x0;
-    f_h1 = fs0.first;
-    s_h1 = fs0.second;
+    sum.value += (x0 - x1) * (at_x1.value + fs0.value);
+    sum.slope += (x0 - x1) * (at_x1.slope + fs0.slope);
+    x1    = x0;
+    at_x1 = fs0;
     if (scan.decreasing && node.height() < height) {
       break;
     }
   }
 
   competition_split c;
-  c.tot = tot;
-  c.tot_slope = tot_slope;
+  c.sum = sum;
   c.x1 = x1;
-  c.f_h1 = f_h1;
-  c.s_h1 = s_h1;
-  c.closes = closes_on(f_h1);
+  c.at_x1 = at_x1;
+  c.closes = closes_on(at_x1.value);
   return c;
 }
 
@@ -697,19 +694,18 @@ Species<T,E>::compute_competition_and_slope_split(double height) const {
 }
 
 template <typename T, typename E>
-std::pair<typename Species<T,E>::value_type,
-          typename Species<T,E>::value_type>
+with_slope<typename Species<T,E>::value_type>
 Species<T,E>::close_competition_and_slope(const competition_split& c,
                                           double height) const {
   if (!c.closes) {
     return c.without_boundary();
   }
-  const std::pair<value_type, value_type> fs0 =
+  const with_slope<value_type> fs0 =
     new_node.compute_competition_and_slope(height);
   const double x0 =
     abscissa_of(new_node, control().node_density_in_birth_date);
-  return {(c.tot + (x0 - c.x1) * (c.f_h1 + fs0.first)) / 2,
-          (c.tot_slope + (x0 - c.x1) * (c.s_h1 + fs0.second)) / 2};
+  return {(c.sum.value + (x0 - c.x1) * (c.at_x1.value + fs0.value)) / 2,
+          (c.sum.slope + (x0 - c.x1) * (c.at_x1.slope + fs0.slope)) / 2};
 }
 
 template <typename T, typename E>
