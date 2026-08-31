@@ -1,38 +1,19 @@
+# Walk the schedule the way a run does: one entry per introduction, whatever
+# species it names. There is no second shape for a schedule holding a recording,
+# because an introduction is the same thing either way.
 drain_schedule <- function(sched) {
   sched$reset()
   cmp <- vector("list", sched$size)
   for (i in seq_len(sched$size)) {
-    e <- sched$next_event
-    cmp[[i]] <- c(e$species_index,
-                  e$time_introduction,
-                  e$times,
-                  e$time_end)
+    cmp[[i]] <- sched$next_introduction
     sched$pop()
-  }
-  if (!sched$using_ode_steps) {
-    if (!all(sapply(cmp, length) == 5)) {
-      stop("Expected exactly five elements for each schedule")
-    }
-    cmp <- do.call("rbind", as.list(cmp))
   }
   cmp
 }
 
-
-test_that("NodeScheduleEvent", {
-  e <- NodeScheduleEvent(pi, 1)
-
-  expect_identical(e$species_index, 1L)
-  expect_identical(e$species_index_raw, 0.0)
-
-  e$species_index <- 2L
-  expect_identical(e$species_index, 2L)
-  expect_identical(e$species_index_raw, 1.0)
-
-  expect_identical(e$times, pi)
-  expect_identical(e$time_introduction, pi)
-  expect_identical(e$time_end, pi)
-})
+drain_column <- function(cmp, field) {
+  vapply(cmp, function(x) x[[field]], numeric(1))
+}
 
 test_that("Empty NodeSchedule", {
   n_species <- 2
@@ -44,7 +25,7 @@ test_that("Empty NodeSchedule", {
 
   expect_equal(sched$remaining, 0)
   expect_equal(sched$max_time, Inf)
-  expect_error(sched$next_event)
+  expect_error(sched$next_introduction)
   expect_false(sched$using_ode_steps)
   expect_equal(sched$ode_times, numeric(0))
 })
@@ -82,19 +63,20 @@ test_that("Set times (one species)", {
   species_index <- 1
   expect_equal(sched$times(species_index), t1)
   expect_false(sched$using_ode_steps)
-  e <- sched$next_event
-  expect_identical(e$time_introduction, t1[[1]])
-  expect_equal(e$species_index, species_index)
+  e <- sched$next_introduction
+  expect_identical(e$time, t1[[1]])
+  expect_equal(e$species, species_index)
 
   cmp <- drain_schedule(sched)
 
   expect_equal(sched$remaining, 0)
-  n <- length(t1)
-  expect_equal(cmp[,1], rep(1, n))
-  expect_equal(cmp[,2], t1)
-  expect_equal(cmp[,3], t1)
-  expect_equal(cmp[,4], c(t1[-1], Inf))
-  expect_equal(cmp[,5], c(t1[-1], Inf))
+  expect_equal(drain_column(cmp, "time"), t1)
+  # One interval ends where the next begins, and the last at max_time.
+  expect_equal(drain_column(cmp, "time_end"), c(t1[-1], Inf))
+  # One species set, so every introduction names it and only it.
+  for (e in cmp) {
+    expect_equal(e$species, species_index)
+  }
 })
 
 test_that("Set times (two species)", {
@@ -109,30 +91,36 @@ test_that("Set times (two species)", {
 
   expect_equal(sched$times(1), t1)
   expect_equal(sched$times(2), t2)
-  expect_equal(sched$size, length(t1) + length(t2))
+  ## Introductions, not species-times: both species start at zero, so that time
+  ## is one introduction naming both of them.
+  expected_times <- sort(unique(c(t1, t2)))
+  expect_equal(sched$size, length(expected_times))
+  expect_lt(sched$size, length(t1) + length(t2))
 
   ## Force a max_time for this run through:
   max_t <- max(c(t1, t2)) + mean(diff(sort(c(t1, t2))))
   sched$max_time <- max_t
 
-  ## Come up with the expected times (2nd argument ensures stable sort)
-  expected <- rbind(data.frame(species_index=1, start=t1),
-                    data.frame(species_index=2, start=t2))
-  expected <- expected[order(expected$start, -expected$species_index),]
-  expected$end <- c(expected$start[-1], max_t)
-
   cmp <- drain_schedule(sched)
 
-  expect_equal(cmp[,1], expected$species_index)
-  expect_equal(cmp[,2], expected$start)
-  expect_equal(cmp[,3], expected$start)
-  expect_equal(cmp[,4], expected$end)
-  expect_equal(cmp[,5], expected$end)
+  expect_equal(drain_column(cmp, "time"), expected_times)
+  expect_equal(drain_column(cmp, "time_end"),
+               c(expected_times[-1], max_t))
 
-  expect_error(sched$next_event, "All events completed")
+  ## Species ascending within an introduction, which is the order
+  ## Patch::introduced_at rebuilds off the same times -- so the schedule and the
+  ## patch agree rather than being each other's reverse.
+  for (i in seq_along(cmp)) {
+    expect_equal(cmp[[i]]$species,
+                 c(if (expected_times[[i]] %in% t1) 1,
+                   if (expected_times[[i]] %in% t2) 2))
+  }
+  expect_equal(cmp[[1]]$species, c(1, 2))
+
+  expect_error(sched$next_introduction, "All introductions completed")
   expect_equal(sched$max_time, max_t)
   sched$reset()
-  expect_identical(sched$next_event$time_introduction, min(c(t1, t2)))
+  expect_identical(sched$next_introduction$time, min(c(t1, t2)))
 })
 
 test_that("Resetting times replaces them", {
@@ -165,12 +153,12 @@ test_that("Setting max time behaves sensibly", {
     while (x$remaining > 1L) {
       x$pop()
     }
-    x$next_event
+    x$next_introduction
   }
 
   ## Before setting max_time, the finishing time will be Inf:
   e <- last_event(sched)
-  expect_equal(e$time_introduction, dplyr::last(t1))
+  expect_equal(e$time, dplyr::last(t1))
   expect_equal(e$time_end, Inf)
 
   ## Set max_time to something stupid:
@@ -181,9 +169,9 @@ test_that("Setting max time behaves sensibly", {
   max_t <- max(t1) + 0.1
   sched$max_time <- max_t
 
-  ## Make sure that the last event has been modified:
+  ## Make sure that the last introduction has been modified:
   e <- last_event(sched)
-  expect_equal(e$time_introduction, dplyr::last(t1))
+  expect_equal(e$time, dplyr::last(t1))
   expect_equal(e$time_end, max_t)
 
   ## Now this will fail
@@ -238,22 +226,7 @@ test_that("ode_times", {
   expect_false(sched$using_ode_steps)
   expect_equal(sched$ode_times, numeric(0))
 
-  ## So, now, manually get the times set up.  For a real challenge, we
-  ## should add some more exact hits in here.  Building the expected
-  ## times in R is hard enough!
-  expected <- rbind(data.frame(species_index=1, start=t1),
-                    data.frame(species_index=2, start=t2))
-  expected <- expected[order(expected$start, -expected$species_index),]
-  expected$end <- c(expected$start[-1], max_t)
-
   t_ode <- seq(0, sched$max_time, length.out=14)
-  idx <- findInterval(t_ode, c(expected$start, max_t), TRUE)
-  tmp <- unname(t(apply(expected[c("start", "end")], 1, unlist)))
-
-  expected_ode <- lapply(seq_len(nrow(expected)), function(i)
-                         c(tmp[i,1],
-                           setdiff(t_ode[idx == i], tmp[i,]),
-                           tmp[i,2]))
 
   ## New schedule because setting and resetting may have changed node
   ## order.
@@ -268,13 +241,17 @@ test_that("ode_times", {
   expect_identical(sched$ode_times, t_ode)
   expect_true(all(is.na(sched$ode_step_sizes)))
 
+  ## Installing a recording does not change what the introductions are, which is
+  ## what it used to do: the steps were copied into each interval on reset, and
+  ## the interval's own time list grew to match.
   cmp <- drain_schedule(sched)
+  expect_equal(drain_column(cmp, "time"), sort(unique(c(t1, t2))))
+  expect_equal(dplyr::last(drain_column(cmp, "time_end")), max_t)
 
-  expect_equal(sapply(cmp, dplyr::first), expected$species_index)
-  expect_equal(sapply(cmp, dplyr::nth, n=2), expected$start)
-  expect_equal(sapply(cmp, dplyr::last), expected$end)
-
-  expect_equal(lapply(cmp, function(x) x[3:(length(x) - 1)]), expected_ode)
+  ## Which recorded steps fall inside which interval is no longer stored, so
+  ## there is nothing here that can be stale. It is arithmetic at the point of
+  ## use, and that a pinned replay reproduces its own run is checked end to end
+  ## in test-scm.R.
 
   ## check we can clear times:
   sched$clear_ode_steps()

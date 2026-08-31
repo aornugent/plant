@@ -530,7 +530,7 @@ std::vector<size_t> SCM<T, E>::run_next() {
   // The live patch system is owned by the solver; mutate it in place.
   auto &sys = solver.get_system_ref();
 
-  NodeSchedule::Event e = node_schedule.next_event();
+  const introduction& intro = node_schedule.next();
 
   // Resume support: if the next scheduled introduction is in the future,
   // integrate the gap up to it without introducing any node. This happens on
@@ -538,40 +538,33 @@ std::vector<size_t> SCM<T, E>::run_next() {
   // already populated (in reset()) and starts at parameters.initial_time, which
   // falls before the first residual schedule entry. It never happens for an
   // empty patch, whose schedule always starts at t0 = 0, so the normal path
-  // below is unchanged. The next call will then introduce at e's time.
-  if (e.time_introduction() > t0) {
+  // below is unchanged. The next call will then introduce at that time.
+  if (intro.time > t0) {
     solver.set_state_from_system();
     if (node_schedule.using_ode_steps()) {
       util::stop("Resuming from an initial state is not supported for "
                  "replaying a recorded run");
     } else if (control.fixed_time_step > 0.0) {
       solver.advance_euler(
-          uniform_euler_times(t0, e.time_introduction(), control.fixed_time_step));
+          uniform_euler_times(t0, intro.time, control.fixed_time_step));
     } else {
-      solver.advance_adaptive({solver.time(), e.time_introduction()});
+      solver.advance_adaptive({solver.time(), intro.time});
     }
     return ret; // empty: nothing introduced this step
   }
 
-  // Consume every event scheduled at the current time t0: each contributes a
-  // species to introduce. Stop once the next event ends later than t0 (i.e. it
-  // belongs to a later introduction) or the schedule is exhausted.
-  while (true) {
-    if (!util::identical(t0, e.time_introduction())) {
-      util::stop("Start time not what was expected");
-    }
-    ret.push_back(e.species_index);
-    node_schedule.pop();
-    if (e.time_end() > t0 || complete()) {
-      break;
-    } else {
-      e = node_schedule.next_event();
-    }
+  if (!util::identical(t0, intro.time)) {
+    util::stop("Start time not what was expected");
   }
+  // The species this introduction names, which the schedule grouped when it was
+  // set rather than the run regrouping them by walking equal times.
+  ret = intro.species;
+  const double t_end = node_schedule.time_end();
+  node_schedule.pop();
 
-  sys.introduce_nodes(ret, e.time_introduction());
+  sys.introduce_nodes(ret, intro.time);
   solver.set_state_from_system();
-  // The introduction, as its own row: it holds the wider state the introduction just
+  // The insertion, as its own row: it holds the wider state the introduction just
   // reached, which is what the next step runs from and which no step reached.
   // Recorded here because this is where the width changes.
   solver.push_insertion();
@@ -581,8 +574,8 @@ std::vector<size_t> SCM<T, E>::run_next() {
   //    cached times via the full RKCK stepper, by their recorded step sizes
   //    when the schedule carries them;
   //  - fixed-step forward Euler (control.fixed_time_step > 0): walk a uniform
-  //    sub-grid between this event and the next introduction;
-  //  - otherwise: adaptive, error-controlled RKCK to the next event time.
+  //    sub-grid between this introduction and the next;
+  //  - otherwise: adaptive, error-controlled RKCK to the next introduction.
   if (node_schedule.using_ode_steps()) {
     if (control.fixed_time_step > 0.0) {
       // The replay relies on the RK sub-step environment cache, which forward
@@ -603,15 +596,17 @@ std::vector<size_t> SCM<T, E>::run_next() {
     // step, so there is nothing to replay before the step to its end. Deciding
     // that per interval rather than per schedule is what silently integrated
     // those intervals adaptively.
-    if (!e.steps.empty()) {
-      solver.advance_recorded(e.steps);
+    const std::vector<odelia::ode::instruction> inside =
+        node_schedule.program_within(t0, t_end);
+    if (!inside.empty()) {
+      solver.advance_recorded(inside);
     }
-    solver.advance_fixed({solver.time(), e.times.back()});
+    solver.advance_fixed({solver.time(), t_end});
   } else if (control.fixed_time_step > 0.0) {
     solver.advance_euler(
-        uniform_euler_times(t0, e.time_end(), control.fixed_time_step));
+        uniform_euler_times(t0, t_end, control.fixed_time_step));
   } else {
-    solver.advance_adaptive({solver.time(), e.time_end()});
+    solver.advance_adaptive({solver.time(), t_end});
   }
 
   return ret;

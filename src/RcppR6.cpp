@@ -828,40 +828,6 @@ plant::tools::IndividualRunner<plant::K93_Strategy, plant::K93_Environment> OdeR
 
 
 // [[Rcpp::export]]
-plant::NodeScheduleEvent NodeScheduleEvent__ctor(double introduction, plant::util::index species_index) {
-  return plant::NodeScheduleEvent(introduction, species_index);
-}
-// [[Rcpp::export]]
-plant::util::index NodeScheduleEvent__species_index__get(plant::RcppR6::RcppR6<plant::NodeScheduleEvent> obj_) {
-  return obj_->species_index;
-}
-// [[Rcpp::export]]
-void NodeScheduleEvent__species_index__set(plant::RcppR6::RcppR6<plant::NodeScheduleEvent> obj_, plant::util::index value) {
-  obj_->species_index = value;
-}
-
-// [[Rcpp::export]]
-std::vector<double> NodeScheduleEvent__times__get(plant::RcppR6::RcppR6<plant::NodeScheduleEvent> obj_) {
-  return obj_->times;
-}
-
-// [[Rcpp::export]]
-double NodeScheduleEvent__time_introduction__get(plant::RcppR6::RcppR6<plant::NodeScheduleEvent> obj_) {
-  return obj_->time_introduction();
-}
-
-// [[Rcpp::export]]
-double NodeScheduleEvent__time_end__get(plant::RcppR6::RcppR6<plant::NodeScheduleEvent> obj_) {
-  return obj_->time_end();
-}
-
-// [[Rcpp::export]]
-size_t NodeScheduleEvent__species_index_raw__get(plant::RcppR6::RcppR6<plant::NodeScheduleEvent> obj_) {
-  return obj_->species_index_raw();
-}
-
-
-// [[Rcpp::export]]
 plant::NodeSchedule NodeSchedule__ctor(size_t n_species) {
   return plant::NodeSchedule(n_species);
 }
@@ -912,8 +878,8 @@ size_t NodeSchedule__n_species__get(plant::RcppR6::RcppR6<plant::NodeSchedule> o
 }
 
 // [[Rcpp::export]]
-plant::NodeScheduleEvent NodeSchedule__next_event__get(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_) {
-  return obj_->next_event();
+SEXP NodeSchedule__next_introduction__get(plant::RcppR6::RcppR6<plant::NodeSchedule> obj_) {
+  return obj_->r_next_introduction();
 }
 
 // [[Rcpp::export]]

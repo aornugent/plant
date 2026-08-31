@@ -34,8 +34,6 @@ template <> odelia::ode::Solver<plant::tools::IndividualRunner<plant::TF24f_Stra
 
 template <> SEXP wrap(const odelia::ode::Solver<plant::tools::IndividualRunner<plant::K93_Strategy, plant::K93_Environment> >&);
 template <> odelia::ode::Solver<plant::tools::IndividualRunner<plant::K93_Strategy, plant::K93_Environment> > as(SEXP);
-template <> SEXP wrap(const plant::NodeScheduleEvent&);
-template <> plant::NodeScheduleEvent as(SEXP);
 template <> SEXP wrap(const plant::NodeSchedule&);
 template <> plant::NodeSchedule as(SEXP);
 template <> SEXP wrap(const plant::Control&);

@@ -13,38 +13,21 @@
 
 namespace plant {
 
-// This could be done via a list object, but I think this is OK for
-// now.  The main reason for keeping this as a separate class is it
-// only makes sense to have a nontrivial constructor, and that's not
-// yet supported for RcppR6 lists.
-class NodeScheduleEvent {
-public:
-  NodeScheduleEvent(double introduction, size_t species_index_)
-    : species_index(species_index_) {
-    times.push_back(introduction);
-  }
-  size_t species_index_raw() const {
-    return species_index;
-  }
-  double time_introduction() const {
-    return times.front();
-  }
-  double time_end() const {
-    return times.back();
-  }
-
-  size_t species_index;
-  std::vector<double> times;
-  // The ODE steps a recorded run took inside this interval, each carrying the
-  // time it reached and the size that reached it. Empty unless the schedule
-  // holds a recording.
-  std::vector<odelia::ode::instruction> steps;
+// One introduction: the time, and the species that gain a node at it, ascending.
+//
+// A time naming several species is ONE introduction, because the run introduces
+// them together and computes the environment once for the set. The type Patch
+// takes is this species list, so the schedule hands over what introduce_nodes
+// already wants.
+struct introduction {
+  double time;
+  std::vector<size_t> species;
 };
 
 class NodeSchedule {
 public:
-  typedef NodeScheduleEvent Event;
   NodeSchedule(size_t n_species_);
+  // Introductions, not species-times: a time naming three species is one.
   size_t size() const;
   size_t get_n_species() const;
   NodeSchedule expand(size_t n_extra, std::vector<double> times);
@@ -52,10 +35,25 @@ public:
   void set_times(const std::vector<double>& times_, size_t species_index);
   void set_times(const std::vector<std::vector<double> >& times);
   std::vector<double> times(size_t species_index) const;
+  // Puts the walk back at the first introduction. The schedule itself is not
+  // consumed by a run, so this restores a position and nothing else.
   void reset();
+
+  // Where the walk is, where its interval ends, and moving past it. `next()`
+  // stays valid across a pop, which only moves the position.
+  const introduction& next() const;
+  double time_end() const;
   void pop();
-  Event next_event() const;
   size_t remaining() const;
+
+  // The program a replay of the interval `(start, end)` takes: the state it
+  // starts from, then the recorded steps strictly inside it. Empty where the
+  // recording put no step in there, and empty on a schedule holding no recording.
+  //
+  // Boundaries are excluded because the run stops at them anyway and the
+  // interval above starts from there -- so a step at one would be taken twice.
+  std::vector<odelia::ode::instruction>
+  program_within(double start, double end) const;
 
   double get_max_time() const;
   std::vector<std::vector<double> > get_times() const;
@@ -72,21 +70,26 @@ public:
   // paired across different runs and nothing says so.
   void r_set_ode_steps(std::vector<double> times, std::vector<double> sizes);
   void r_clear_ode_steps();
+  // Where the walk is, as a list: the time, the species from one, and the time
+  // its interval ends. The species are one number each, counted the way R counts
+  // them, where the class this replaces reported the same index twice under two
+  // names.
+  SEXP r_next_introduction() const;
   SEXP r_all_times() const;
   void r_set_all_times(SEXP x);
   NodeSchedule r_copy() const;
 
 private:
-  typedef std::list<Event>::iterator events_iterator;
-  typedef std::list<Event>::const_iterator events_const_iterator;
-
-  events_iterator add_time(double times, size_t species_index,
-                           events_iterator it);
-  void distribute_ode_steps();
+  void insert(double time, size_t species_index);
 
   size_t n_species;
-  std::list<Event> events;
-  std::list<Event> queue;
+  // Ascending by time, one entry per distinct time, species ascending within an
+  // entry -- which is the order Patch::introduced_at rebuilds off the same times,
+  // so the two agree.
+  std::vector<introduction> schedule;
+  // How far the run has got. A position rather than a consumed copy of the
+  // schedule, so what the run reads and what a caller set are one object.
+  size_t at;
   double max_time;
   // The run this schedule replays, if it holds one. A schedule with a recording
   // replays it; there is no third state and so no flag. What used to be two

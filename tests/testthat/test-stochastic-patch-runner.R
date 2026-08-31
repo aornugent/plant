@@ -64,7 +64,7 @@ test_that("empty", {
 
     ## Importantly, this moves time forward to where the first
     ## introduction will be!
-    expect_identical(obj$time, sched2$next_event$time_introduction)
+    expect_identical(obj$time, sched2$next_introduction$time)
 
     ## We're empty though.... The ODE system still carries the environment's own
     ## states (TF24's soil water and cumulative fluxes; none for FF16 or K93).

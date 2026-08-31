@@ -749,34 +749,6 @@ OdeRunner___K93__object__get <- function(obj_) {
     .Call('_plant_OdeRunner___K93__object__get', PACKAGE = 'plant', obj_)
 }
 
-NodeScheduleEvent__ctor <- function(introduction, species_index) {
-    .Call('_plant_NodeScheduleEvent__ctor', PACKAGE = 'plant', introduction, species_index)
-}
-
-NodeScheduleEvent__species_index__get <- function(obj_) {
-    .Call('_plant_NodeScheduleEvent__species_index__get', PACKAGE = 'plant', obj_)
-}
-
-NodeScheduleEvent__species_index__set <- function(obj_, value) {
-    invisible(.Call('_plant_NodeScheduleEvent__species_index__set', PACKAGE = 'plant', obj_, value))
-}
-
-NodeScheduleEvent__times__get <- function(obj_) {
-    .Call('_plant_NodeScheduleEvent__times__get', PACKAGE = 'plant', obj_)
-}
-
-NodeScheduleEvent__time_introduction__get <- function(obj_) {
-    .Call('_plant_NodeScheduleEvent__time_introduction__get', PACKAGE = 'plant', obj_)
-}
-
-NodeScheduleEvent__time_end__get <- function(obj_) {
-    .Call('_plant_NodeScheduleEvent__time_end__get', PACKAGE = 'plant', obj_)
-}
-
-NodeScheduleEvent__species_index_raw__get <- function(obj_) {
-    .Call('_plant_NodeScheduleEvent__species_index_raw__get', PACKAGE = 'plant', obj_)
-}
-
 NodeSchedule__ctor <- function(n_species) {
     .Call('_plant_NodeSchedule__ctor', PACKAGE = 'plant', n_species)
 }
@@ -825,8 +797,8 @@ NodeSchedule__n_species__get <- function(obj_) {
     .Call('_plant_NodeSchedule__n_species__get', PACKAGE = 'plant', obj_)
 }
 
-NodeSchedule__next_event__get <- function(obj_) {
-    .Call('_plant_NodeSchedule__next_event__get', PACKAGE = 'plant', obj_)
+NodeSchedule__next_introduction__get <- function(obj_) {
+    .Call('_plant_NodeSchedule__next_introduction__get', PACKAGE = 'plant', obj_)
 }
 
 NodeSchedule__remaining__get <- function(obj_) {

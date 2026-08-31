@@ -254,17 +254,6 @@ OdeRunner:
     set_state: {return_type: void, args: [y: "std::vector<double>", time: double]}
     set_state_from_system: {return_type: void}
 
-NodeScheduleEvent:
-  name_cpp: "plant::NodeScheduleEvent"
-  constructor:
-    args: [introduction: double, species_index: "plant::util::index"]
-  active:
-    species_index: {type: "plant::util::index", access: field, name_cpp: species_index}
-    times: {type: "std::vector<double>", access: field, readonly: true}
-    time_introduction: {type: double, access: member}
-    time_end: {type: double, access: member}
-    species_index_raw: {type: "size_t", access: member, name_cpp: species_index_raw}
-
 NodeSchedule:
   name_cpp: "plant::NodeSchedule"
   constructor:
@@ -276,7 +265,7 @@ NodeSchedule:
   active:
     size: {type: size_t, access: member}
     n_species: {type: size_t, access: member, name_cpp: get_n_species}
-    next_event: {type: "plant::NodeScheduleEvent", access: member}
+    next_introduction: {type: SEXP, access: member, name_cpp: r_next_introduction}
     remaining: {type: size_t, access: member}
     max_time: {type: double, access: member, name_cpp: get_max_time, name_cpp_set: r_set_max_time}
     ode_times: {type: "std::vector<double>", access: member, name_cpp: r_ode_times}

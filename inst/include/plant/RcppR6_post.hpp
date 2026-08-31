@@ -29,9 +29,6 @@ template <> inline std::string generator_name<odelia::ode::Solver<plant::tools::
 template <> inline std::string   class_name_r<odelia::ode::Solver<plant::tools::IndividualRunner<plant::K93_Strategy, plant::K93_Environment> > >() {return "OdeRunner<K93>";}
 template <> inline std::string   package_name<odelia::ode::Solver<plant::tools::IndividualRunner<plant::K93_Strategy, plant::K93_Environment> > >() {return "plant";}
 template <> inline std::string generator_name<odelia::ode::Solver<plant::tools::IndividualRunner<plant::K93_Strategy, plant::K93_Environment> > >() {return ".R6_OdeRunner___K93";}
-template <> inline std::string   class_name_r<plant::NodeScheduleEvent >() {return "NodeScheduleEvent";}
-template <> inline std::string   package_name<plant::NodeScheduleEvent >() {return "plant";}
-template <> inline std::string generator_name<plant::NodeScheduleEvent >() {return ".R6_NodeScheduleEvent";}
 template <> inline std::string   class_name_r<plant::NodeSchedule >() {return "NodeSchedule";}
 template <> inline std::string   package_name<plant::NodeSchedule >() {return "plant";}
 template <> inline std::string generator_name<plant::NodeSchedule >() {return ".R6_NodeSchedule";}
@@ -329,12 +326,6 @@ template <> inline SEXP wrap(const odelia::ode::Solver<plant::tools::IndividualR
 }
 template <> inline odelia::ode::Solver<plant::tools::IndividualRunner<plant::K93_Strategy, plant::K93_Environment> > as(SEXP x) {
   return *(plant::RcppR6::RcppR6<odelia::ode::Solver<plant::tools::IndividualRunner<plant::K93_Strategy, plant::K93_Environment> > >(x));
-}
-template <> inline SEXP wrap(const plant::NodeScheduleEvent& x) {
-  return wrap(plant::RcppR6::RcppR6<plant::NodeScheduleEvent>(x));
-}
-template <> inline plant::NodeScheduleEvent as(SEXP x) {
-  return *(plant::RcppR6::RcppR6<plant::NodeScheduleEvent>(x));
 }
 template <> inline SEXP wrap(const plant::NodeSchedule& x) {
   return wrap(plant::RcppR6::RcppR6<plant::NodeSchedule>(x));
