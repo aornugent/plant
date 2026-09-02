@@ -414,9 +414,21 @@ static_assert(sizeof(TF24_Pars<double>) ==
 // At most one handle is open, and which one is the constness of what was handed
 // over. Nothing here remembers a mode, so nothing can outlive the list it
 // described.
+// What a pass records about one leaf solve: the collar it placed, and the ARM it
+// placed it on.
+//
+// Two values rather than a class, because that is all a recorded decision is --
+// the collar MOVES and is re-derived from, the arm SELECTS and is replayed. What
+// used to sit here held five fields and a predicate; four of them were rederivable
+// from the collar alone, which is what phylloptim's evaluate_root_collar_psi does.
+struct leaf_solved_point {
+  double collar = 0.0;
+  Leaf::OperatingPointKind kind = Leaf::OperatingPointKind::Unsolved;
+};
+
 class leaf_solved_points {
 public:
-  using points = std::vector<Leaf::SolvedPoint>;
+  using points = std::vector<leaf_solved_point>;
 
   void store_into(points& into) {
     solved = 0;
@@ -445,9 +457,9 @@ public:
   // entry per solve at this evaluation, so a pass that asks for more is a pass
   // whose model disagrees with the record it was handed, and searching from here
   // would tape a discretisation the run never took with every number finite.
-  Leaf::SolvedPoint load() {
+  leaf_solved_point load() {
     if (loading == nullptr) {
-      return Leaf::SolvedPoint();
+      return leaf_solved_point();
     }
     if (solved >= loading->size()) {
       util::stop("leaf_solved_points: this rate evaluation asked for operating "
@@ -463,7 +475,7 @@ public:
   // produces is the number a search produces, so nothing else can tell them apart.
   size_t placements() const { return placed; }
 
-  void store(const Leaf::SolvedPoint& point) {
+  void store(const leaf_solved_point& point) {
     if (storing != nullptr) {
       storing->push_back(point);
     }
@@ -1363,21 +1375,35 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // values the leaf's kernels take. The Arrhenius is linear in its reference
   // value, so the chain from the trait is the factor between them and the tape
   // carries the rest.
-  phylloptim::LeafInputs<S> in;
-  in.profit = phylloptim::ProfitInputs<S>{
-      pars.vcmax_25 * (leaf.vcmax_ / leaf.vcmax_25),
-      pars.jmax_25 * (leaf.jmax_ / leaf.jmax_25),
-      pars.a,
-      pars.curv_fact_elec_trans,
-      pars.curv_fact_colim,
-      radiation,
-      pars.R_d_25 * (leaf.R_d_ / leaf.R_d_25),
-      conductance_max,
-      pars.stem_b,
-      pars.stem_c,
-      pars.TF24_beta2,
-      pars.TF24_cost_scale};
-  in.supply.psi_soil = psi_soil;
+  // ⚠️ THE TRAITS THEMSELVES, AND EVERY SLOT NAMED. The pack is the leaf model's
+  // own parameter enumeration, so the temperature responses, both Weibull scale
+  // parameters and both critical potentials are DERIVED inside the leaf from
+  // these -- which is what puts their chains on this tape instead of asking this
+  // caller to hand over four numbers it would have to keep consistent.
+  //
+  // Filled by NAMED INDEX rather than as an aggregate: an initialiser shorter
+  // than the array zero-fills the rest with no diagnostic at all, and this list
+  // has been the wrong length twice.
+  phylloptim::leaf_pars<S> in;
+  in.fill(S(0.0));
+  in[phylloptim::par_vcmax_25] = pars.vcmax_25;
+  in[phylloptim::par_stem_c] = pars.stem_c;
+  in[phylloptim::par_stem_P50] = pars.stem_P50;
+  in[phylloptim::par_root_c] = pars.root_c;
+  in[phylloptim::par_root_P50] = pars.root_P50;
+  in[phylloptim::par_TF24_beta2] = pars.TF24_beta2;
+  in[phylloptim::par_jmax_25] = pars.jmax_25;
+  in[phylloptim::par_a] = pars.a;
+  in[phylloptim::par_curv_fact_elec_trans] = pars.curv_fact_elec_trans;
+  in[phylloptim::par_curv_fact_colim] = pars.curv_fact_colim;
+  in[phylloptim::par_TF24_cost_scale] = pars.TF24_cost_scale;
+  in[phylloptim::par_R_d_25] = pars.R_d_25;
+  in[phylloptim::par_kmax] = conductance_max;
+  // Radiation reaches the leaf through set_physiology's PPFD, which the forward
+  // pass already seated; it is not one of the pack's slots.
+  (void)radiation;
+
+  std::vector<S> r_R_H_min, r_R_V_sum;
   // Carbon becomes resistance HERE, at this scalar, because the architecture
   // model is this strategy's -- the leaf takes the resistances and knows nothing
   // about carbon. So the chain lands on the same tape as everything else rather
@@ -1385,13 +1411,19 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // The thickness is read off the leaf's own soil profile rather than derived
   // again here: the vertical resistance scales with dz^2, so two definitions
   // drifting apart would be a silent squared factor neither side could see.
-  phylloptim::root_resistances_from_carbon<S>(
-      root_carbon_per_leaf_area_, leaf.roots_.dz_, beta_R_H, beta_R_V,
-      in.supply.r_R_H_min, in.supply.r_R_V_sum);
-  in.supply.root_b = pars.root_b;
-  in.supply.root_c = pars.root_c;
-  in.psi_crit = pars.psi_crit;
-  in.root_psi_crit = pars.root_psi_crit;
+  // ⚠️ THROUGH layer_thicknesses, THE ONE DEFINITION OF dz, and off the LEAF's
+  // own profile rather than a second copy of the environment's. The vertical
+  // resistance scales with dz^2, so two definitions drifting apart would be a
+  // silent SQUARED factor that neither side could detect.
+  phylloptim::root_network_from_carbon<S>(
+      root_carbon_per_leaf_area_,
+      phylloptim::layer_thicknesses(leaf.roots_.soil_depth_),
+      beta_R_H, beta_R_V, r_R_H_min, r_R_V_sum);
+  // The supply as a VIEW over what this caller owns. The curve arrives as
+  // (root_P50, root_c) -- root_b is derived and a row in it reaches nothing.
+  const phylloptim::SupplyAt<S> supply{psi_soil, r_R_H_min, r_R_V_sum,
+                                       in[phylloptim::par_root_P50],
+                                       in[phylloptim::par_root_c]};
 
   // The leaf clamps in double on both paths, so which path a clamp fired on is a
   // question of when rather than of the scalar, and a delta answers it. Taken on
@@ -1401,105 +1433,37 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // different one passes while the closure divides by a bad slope.
   // marginal_collar_slope() is dM/dp as a first derivative of the marginal the
   // solve roots, and the rows are taped from M inside collar_at.
+  // The marginal at the collar the solve left, for a refusal message. On a COPY
+  // because dprofit_at_collar_psi drives the model to that collar and this sits
+  // on a path that is about to throw with the leaf's own state still readable.
+  auto marginal_here = [&]() -> double {
+    phylloptim::Leaf probe = leaf;
+    bool ok = false;
+    const double m = probe.dprofit_at_collar_psi<
+        phylloptim::Leaf::CostCurve::TF24>(leaf.opt_root_psi_, &ok);
+    return ok ? m : std::numeric_limits<double>::quiet_NaN();
+  };
   double slope = std::numeric_limits<double>::quiet_NaN();
   Leaf::LeafOutputs<S> got;
   try {
     if (leaf.operating_point_kind() == Leaf::OperatingPointKind::Interior) {
-      slope = leaf.marginal_collar_slope(
-          in.profit.template rebind_from<double>());
+      slope = leaf.template marginal_collar_slope<
+          phylloptim::Leaf::CostCurve::TF24>();
       // The interior derivation divides by the profit's curvature. At a bound
       // the slope is the bound's own and this floor is not about it.
       note_curvature(slope);
 
-      // ⚠️ THE CHECK THIS DERIVATION COULD NOT MAKE ABOUT ITSELF, on every interior
-      // point rather than only where it refuses -- so a fixture that answers can
-      // still say whether the curvature is right, and a cheap one is enough.
+      // ⚠️ THE DISAGREEMENT PROBE THAT SAT HERE IS GONE, AND SO IS WHAT IT
+      // CHECKED. It differenced the marginal and compared that against the
+      // curvature, because the curvature was an ANALYTIC assembly that could be
+      // wrong in a way nothing else could see -- on the century stand it caught a
+      // +34.41 where the difference said -9.63.
       //
-      // Three readings of one quantity. `condition.marginal` is d(profit_at)/d(collar)
-      // from the same sweep as the curvature; `leaf.collar_resid_` is the marginal the
-      // SOLVE rooted, from its own implementation. They must agree, and both must be
-      // ~0, or profit_at is not the function that placed this collar. The centred
-      // difference is then the referee for the curvature itself.
-      //
-      // On a COPY of the leaf: dprofit_droot_collar_psi mutates, and collar_at and
-      // outputs_at below still read the leaf's own coefficients. Capped and gated,
-      // because it costs a leaf copy and two marginal evaluations apiece.
-      // Read once. getenv walks the environment on every call, and this sits on
-      // every interior placement -- 2.33 million of them on the century stand, for
-      // a flag that is unset in every run that is not chasing this. DO NOT put the
-      // call back inline: the cost is the scan, not the comparison it gates. The
-      // flag is therefore latched at the first interior placement of the process,
-      // so set it before the run rather than between two of them.
-      static const bool compare_curvature =
-          std::getenv("PLANT_COMPARE_COLLAR_CURVATURE") != nullptr;
-      if (compare_curvature) {
-        static int shown = 0;
-        phylloptim::Leaf probe = leaf;
-        const double x = leaf.opt_root_psi_;
-        // ⚠️ A DIFFERENCE IS ONLY A REFEREE IF ITS STEP STAYS ON ONE SIDE OF
-        // EVERY FEATURE. At the century stand's one offending point the collar sits
-        // 5.6e-08 from a soil layer's potential -- where the mean conductivity is a
-        // 0/0 the model names as "the ONE coincidence a derivative kernel here
-        // cannot answer at" -- and a 1e-6 relative step straddles it by a factor of
-        // 32. That difference reported -9.63 against two analytic routes agreeing on
-        // +34.41, and it was the difference that was wrong: it measures the trend
-        // ACROSS the feature, not the slope at the root. So the step is refined
-        // until it agrees with itself, and every reading is printed.
-        const double h0 = std::max(std::abs(x), 1.0);
-        bool lo_ok = false, hi_ok = false;
-        double differenced = std::numeric_limits<double>::quiet_NaN();
-        double d_lo = 0.0, d_hi = 0.0;
-        double refined[3] = {std::numeric_limits<double>::quiet_NaN(),
-                             std::numeric_limits<double>::quiet_NaN(),
-                             std::numeric_limits<double>::quiet_NaN()};
-        const double fracs[3] = {1e-6, 1e-8, 1e-10};
-        for (int k = 0; k < 3; ++k) {
-          const double h = h0 * fracs[k];
-          bool a_ok = false, b_ok = false;
-          const double a = probe.dprofit_droot_collar_psi(x - h, &a_ok);
-          const double b = probe.dprofit_droot_collar_psi(x + h, &b_ok);
-          if (a_ok && b_ok && std::isfinite(a) && std::isfinite(b)) {
-            refined[k] = (b - a) / (2.0 * h);
-          }
-          if (k == 0) {
-            lo_ok = a_ok; hi_ok = b_ok; d_lo = a; d_hi = b;
-            differenced = refined[0];
-          }
-        }
-        const double hstep = h0 * 1e-6;
-        const double rel =
-            std::abs(slope - differenced) /
-            std::max(std::abs(differenced), 1e-12);
-        // Only the DISAGREEMENTS. On a short stand these two agree to nine
-        // significant figures at every interior point, so printing all of them
-        // buries the one that matters; the century stand has 2.8 million and one
-        // known offender. The soil proximity is carried because the two branches
-        // that could explain a state-specific divergence -- roots.hpp's
-        // equal-potentials lift and its `is_same_v<T,double>`-gated gravity snap --
-        // both fire on a collar within 1e-8 of a layer's potential.
-        // 0.5, not 1e-6: at 1e-6 the century stand prints hundreds of benign
-        // disagreements around 1e-5 and buries the one that matters, whose
-        // relative gap is about 4.6 (AD +34.4 against a difference of -9.63).
-        if (rel > 0.5 && shown < 40) {
-          ++shown;
-          double near_soil = std::numeric_limits<double>::infinity();
-          for (const S& ps : psi_soil) {
-            near_soil = std::min(
-                near_soil, std::abs(x - odelia::util::to_passive(ps)));
-          }
-          std::fprintf(stderr,
-                       "# DISAGREE rel=%.3g curv AD=%.10g diff=%.10g "
-                       "assembled=%.10g | marginal AD=%.10g solve=%.10g | "
-                       "d(x-h)=%.10g(%d) d(x+h)=%.10g(%d) x=%.10g "
-                       "nearest_soil=%.10g | diff@1e-6=%.10g 1e-8=%.10g "
-                       "1e-10=%.10g\n",
-                       rel, slope, differenced, slope, leaf.collar_resid_,
-                       leaf.collar_resid_, d_lo, lo_ok ? 1 : 0, d_hi,
-                       hi_ok ? 1 : 0, x, near_soil, refined[0], refined[1],
-                       refined[2]);
-          std::fflush(stderr);
-        }
-      }
+      // marginal_collar_slope IS that difference now, measured rather than
+      // assembled, so the probe would compare a difference with itself. The
+      // reason it is a difference is in phylloptim: the analytic route needs four
+      // significant digits held through a 1e+05 cancellation and then multiplied
+      // by 8.1e+04, and returns an eighth of the answer with the right sign.
       // Two findings, two messages: DO NOT merge them into one sentence. They
       // are not the same KIND of problem -- the floor limb is a real degeneracy
       // of the model, the sign limb is a SOLVER failure -- and one sentence
@@ -1531,8 +1495,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                util::format_double(slope) +
                ", which is not negative -- so the interior derivation cannot "
                "divide by it. The marginal at this collar is " +
-               util::format_double(leaf.collar_resid_) +
-               (leaf.collar_resid_placed_ ? "" : " (NOT placed)") +
+               util::format_double(marginal_here()) +
                "; the collar is " +
                util::format_double(leaf.opt_root_psi_) +
                ". An interior collar sits on a downward crossing, so a positive "
@@ -1555,12 +1518,15 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     // calls below read it instead of re-recording the same Ohm's law over the
     // same tabulated integral.
     const phylloptim::Leaf::SupplyDraw<S> draw =
-        leaf.supply_draw_at<S>(S(leaf.opt_root_psi_), in.supply);
+        leaf.template supply_draw_at<S>(S(leaf.opt_root_psi_), supply);
     // `slope` is NaN unless the point is interior, which is the one kind that
     // divides by it -- so this hands over the number the guard above refused on
     // and leaves every other kind to close on its own condition.
-    const S collar = leaf.collar_at<S>(in, draw, slope);
-    got = leaf.outputs_at<S>(collar, in, draw);
+    const S collar =
+        leaf.template collar_at<phylloptim::Leaf::CostCurve::TF24, S>(draw, in,
+                                                                      slope);
+    got = leaf.template outputs_at<phylloptim::Leaf::CostCurve::TF24, S>(
+        collar, draw, in);
   } catch (const std::runtime_error& e) {
     note_leaf_clamps(clamps_before);
     // The leaf produced nothing to record a row against, so every output takes
@@ -2047,11 +2013,11 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // nothing about root carbon, the horizontal/vertical split or the layer
   // thickness, so this strategy owns the model exactly as it already owns the
   // conductance-versus-height model above, and hands over the reduced quantity.
-  // layer_thickness is the shared definition of dz -- do not open-code it, since
+  // layer_thicknesses is the shared definition of dz -- do not open-code it, since
   // the vertical resistance scales with dz^2 and the two sides drifting apart
   // would be a silent squared factor neither side could detect.
   phylloptim::root_network_from_carbon(
-      root_carbon_value_, phylloptim::layer_thickness(soil_depths_), beta_R_H,
+      root_carbon_value_, phylloptim::layer_thicknesses(soil_depths_), beta_R_H,
       beta_R_V, root_network_);
 
   // Reuse geometry precomputed by environment; avoids rebuilding z midpoints each call.
@@ -2214,10 +2180,16 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
 // on feasibility, or an evaluation the run addressed no record against.
 template <typename S>
 void TF24_Strategy<S>::solve_leaf() {
-  if (!leaf.place_solved_point(leaf_points->load())) {
+  const leaf_solved_point recorded = leaf_points->load();
+  if (recorded.kind == Leaf::OperatingPointKind::Unsolved) {
     leaf.find_root_collar_psi();
+  } else {
+    // ⚠️ ONE CALL, because the collar and the arm have to go back together:
+    // evaluating at a target restores every number and then tags the point
+    // `prescribed`, and collar_at switches on the kind.
+    leaf.replay_operating_point(recorded.collar, recorded.kind);
   }
-  leaf_points->store(leaf.solved_point());
+  leaf_points->store({leaf.opt_root_psi_, leaf.operating_point_kind()});
   // The classification is decided by the branch taken and then overwritten by
   // the next plant, so without a tally the only route to its incidence is a
   // refusal message -- which reports the FIRST non-interior point and nothing

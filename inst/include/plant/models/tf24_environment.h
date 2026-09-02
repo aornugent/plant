@@ -812,22 +812,29 @@ public:
     if (!util::is_finite(depth) || depth < 0.0) {
       util::stop("Water pulse depth must be finite and non-negative");
     }
-    const double theta = vars.state(layer);
-    const double sat =
-      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
-    const double capacity = std::max(0.0, (sat - theta) * dz[layer]);
+    // ⚠️ THE STATE IS AT THIS ENVIRONMENT'S SCALAR, NOT double. A pulse is an
+    // instantaneous state increment applied between legs, so it is arithmetic on
+    // whatever the state is -- and the two doubles crossing the boundary are the
+    // ARGUMENT and the report, which is why they are read passive here rather
+    // than the state being narrowed.
+    const S theta = vars.state(layer);
+    const S sat = S(
+      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer));
+    const S capacity_raw = (sat - theta) * dz[layer];
+    const double capacity =
+        std::max(0.0, odelia::util::to_passive(capacity_raw));
     const double accepted = std::min(depth, capacity);
     const double excess = depth - accepted;
 
-    vars.set_state(layer, theta + accepted / dz[layer]);
+    vars.set_state(layer, theta + S(accepted / dz[layer]));
     // Direct state increments, not rates: the trailing slots are integrated
     // from their rates during a leg, and a pulse happens between legs.
     const size_t n = soil_number_of_depths;
-    vars.set_state(n,     vars.state(n)     + depth);     // sum_rainfall
-    vars.set_state(n + 1, vars.state(n + 1) + accepted);  // sum_infiltration
-    vars.set_state(n + 4, vars.state(n + 4) + excess);    // sum_pulse_runoff
+    vars.set_state(n,     vars.state(n)     + S(depth));     // sum_rainfall
+    vars.set_state(n + 1, vars.state(n + 1) + S(accepted));  // sum_infiltration
+    vars.set_state(n + 4, vars.state(n + 4) + S(excess));    // sum_pulse_runoff
 
-    psi_soil_cache_valid_ = false;
+    psi_soil_valid_ = false;
     return {accepted, excess};
   }
 

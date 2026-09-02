@@ -1258,7 +1258,11 @@ EventRecord Patch<T,E>::apply_event(const NodeScheduleEvent& event) {
   // Anything that changed the vegetation changes the light profile too, and
   // every cohort's rates are computed against it.
   if (event.type != EventType::ResourcePulse) {
-    compute_environment(false);
+    // No `rescale` argument: this branch's competition field is built on fixed
+    // knot fractions of height_max, so there is nothing to rescale and the
+    // parameter upstream threads here does not exist. Upstream's event
+    // SEMANTICS, this branch's machinery.
+    compute_environment();
   }
   return rec;
 }
@@ -1573,7 +1577,7 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
   return ret;
 }
 
-
+template <typename T, typename E>
 bool Patch<T,E>::ode_state_valid(const std::vector<double>& y) const {
   // The environment block first, and separately: it is the trailing part of the
   // ODE vector, it is where integrator overshoot shows up (TF24's soil water,
