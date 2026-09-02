@@ -942,8 +942,13 @@ ladder_leaf_own_traits <- function() {
   # rather than anything about the gradient, which is the good case. Report 02
   # §4 item 4 is the general form: a list read off a signature goes silently
   # incomplete when the signature grows.
-  c("c", "b", "beta2", "g1_TF24", "a", "curv_fact_elec_trans",
-    "curv_fact_colim", "vcmax_25", "jmax_25", "R_d_25", "root_c", "root_b")
+  # Renamed with the (P50, c) reparameterisation: `c` and `b` are the STEM pair
+  # and are `stem_c` and `stem_P50`; `root_b` is `root_P50`; `beta2` carries its
+  # curve's name. `g1_TF24` is gone -- the leaf takes no Medlyn slope on this
+  # path. Exactly the drift this comment predicts, arriving a fourth time.
+  c("stem_c", "stem_P50", "TF24_beta2", "TF24_cost_scale", "a",
+    "curv_fact_elec_trans", "curv_fact_colim", "vcmax_25", "jmax_25",
+    "R_d_25", "root_c", "root_P50")
 }
 
 # ---- the regime a fixture has to sit in --------------------------------------
@@ -1335,7 +1340,16 @@ ladder_injected <- function(name = NULL) {
 # minimum, that row is exactly minus the unit vector in its own direction. The
 # fixtures are pinned interior, so nothing here exercises it.
 ladder_zero_at_an_interior_optimum <- function() {
-  c("psi_crit", "root_psi_crit")
+  # ⚠️ EMPTY, AND NOT BECAUSE THE ARGUMENT STOPPED HOLDING. psi_crit and
+  # root_psi_crit were here while they were free parameters PASSED to the leaf.
+  # They are derived from (P50, c) inside it now and the strategy hands over
+  # neither, so there is no column to classify -- the complementary-slackness
+  # reasoning above is still true of the bound and no longer describes a trait.
+  #
+  # Kept as a named empty list rather than deleted: the reasoning is what a pinned
+  # operating point would need, and a curve whose critical potential becomes free
+  # again belongs here.
+  character(0)
 }
 
 # The accessory cost of a seed. It reaches two rates and no others -- offspring
@@ -1739,7 +1753,17 @@ ladder_soil_row_agreement <- function() 8e-08
 # A parameter the boundary cannot answer for. A refusal, never a number, and an
 # unknown parameter must refuse by name rather than return anything at all.
 ladder_refused_by_name <- function() {
-  c("p_50")
+  # The price of a cost curve this strategy does not run. TF24_floor is TF24 plus
+  # a floor on the marginal value of water, and its lambda_o is that floor: the
+  # leaf carries the parameter because the curve exists, and no equation TF24
+  # evaluates reads it. So the column is exactly zero, and it is zero for a reason
+  # that is a property of WHICH CURVE is seated rather than of the model's
+  # sensitivity -- which is why it is refused by name rather than declared as an
+  # insensitivity.
+  #
+  # `p_50` was here and is gone: it is `stem_P50` now, it is an ordinary trait of
+  # the vulnerability curve, and its column is live.
+  c("TF24_floor_lambda_o")
 }
 
 # The band a registered parameter that reaches no equation comes back in. It is
