@@ -33,13 +33,15 @@ NodeSchedule NodeSchedule::expand(size_t n_extra,
 }
 
 void NodeSchedule::clear_times(size_t species_index) {
-  std::vector<introduction>::iterator it = schedule.begin();
+  std::vector<schedule_entry>::iterator it = schedule.begin();
   while (it != schedule.end()) {
     std::vector<size_t>& species = it->species;
     species.erase(std::remove(species.begin(), species.end(), species_index),
                   species.end());
-    // A time no species is introduced at is not a time.
-    it = species.empty() ? schedule.erase(it) : it + 1;
+    // A time no species is introduced at is not a time -- unless something else
+    // happens there. Every non-introduction event acts on the patch or the
+    // environment, so clearing one species' schedule must not take them with it.
+    it = (species.empty() && it->actions.empty()) ? schedule.erase(it) : it + 1;
   }
   reset();
 }
@@ -75,7 +77,7 @@ void NodeSchedule::set_times(const std::vector<std::vector<double> >& times_) {
 
 std::vector<double> NodeSchedule::times(size_t species_index) const {
   std::vector<double> ret;
-  for (const introduction& i : schedule) {
+  for (const schedule_entry& i : schedule) {
     if (std::find(i.species.begin(), i.species.end(), species_index) !=
         i.species.end()) {
       ret.push_back(i.time);
@@ -84,11 +86,65 @@ std::vector<double> NodeSchedule::times(size_t species_index) const {
   return ret;
 }
 
+// The queue flattened back to the wire format: an instant's actions in their
+// application order, then its introductions, one Event each.
+std::vector<NodeScheduleEvent> NodeSchedule::get_events() const {
+  std::vector<Event> ret;
+  for (const schedule_entry& e : schedule) {
+    for (const Event& a : e.actions) {
+      ret.push_back(a);
+    }
+    for (size_t sp : e.species) {
+      ret.push_back(Event(e.time, sp));
+    }
+  }
+  return ret;
+}
+
+// Insert one at a time rather than sorting a copy, so the caller's order is
+// irrelevant and the grouping and tie-breaking rules live in one place.
+// Introductions join their instant's species list; everything else joins its
+// actions, held in event_type_rank order and stable within a rank -- two pulses
+// at one instant are capped in sequence against the same pool, so the order they
+// were given in is the order they must be applied in.
+void NodeSchedule::set_all_events(const std::vector<Event>& events_) {
+  schedule.clear();
+  for (std::vector<Event>::const_iterator e = events_.begin();
+       e != events_.end(); ++e) {
+    if (e->is_node_introduction()) {
+      insert(e->time_introduction(), e->target_index);
+    } else {
+      std::vector<schedule_entry>::iterator it = entry_at(e->time_introduction());
+      std::vector<Event>::iterator a = it->actions.begin();
+      while (a != it->actions.end() &&
+             event_type_rank(a->type) <= event_type_rank(e->type)) {
+        ++a;
+      }
+      it->actions.insert(a, Event(e->time_introduction(), e->target_index,
+                                  e->type, e->target, e->params));
+    }
+  }
+  reset();
+}
+
+// Find the instant, or make it. Every entry seeds `times` with its own time, so
+// time_introduction() and time_end() are answerable the moment it exists.
+std::vector<schedule_entry>::iterator NodeSchedule::entry_at(double time) {
+  std::vector<schedule_entry>::iterator it = schedule.begin();
+  while (it != schedule.end() && it->time < time) {
+    ++it;
+  }
+  if (it == schedule.end() || !util::identical(it->time, time)) {
+    it = schedule.insert(it, schedule_entry{time, {}, {}, {time}});
+  }
+  return it;
+}
+
 void NodeSchedule::reset() {
   at = 0;
 }
 
-const introduction& NodeSchedule::next() const {
+const schedule_entry& NodeSchedule::next() const {
   if (at >= schedule.size()) {
     Rcpp::stop("All introductions completed");
   }
@@ -242,7 +298,7 @@ void NodeSchedule::r_clear_ode_steps() {
 
 
 SEXP NodeSchedule::r_next_introduction() const {
-  const introduction& i = next();
+  const schedule_entry& i = next();
   std::vector<size_t> species;
   species.reserve(i.species.size());
   for (const size_t s : i.species) {
@@ -281,13 +337,7 @@ NodeSchedule NodeSchedule::r_copy() const {
 // the one it expected, so two species share an introduction when they share that
 // value and not otherwise.
 void NodeSchedule::insert(double time, size_t species_index) {
-  std::vector<introduction>::iterator it = schedule.begin();
-  while (it != schedule.end() && it->time < time) {
-    ++it;
-  }
-  if (it == schedule.end() || !util::identical(it->time, time)) {
-    it = schedule.insert(it, introduction{time, {}});
-  }
+  std::vector<schedule_entry>::iterator it = entry_at(time);
   std::vector<size_t>& species = it->species;
   std::vector<size_t>::iterator s =
     std::lower_bound(species.begin(), species.end(), species_index);

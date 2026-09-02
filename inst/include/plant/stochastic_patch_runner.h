@@ -82,9 +82,16 @@ size_t StochasticPatchRunner<T, E>::run_next() {
   const double t0 = time();
   auto& patch_solver = solver.get_system_ref();
 
-  const introduction& intro = node_schedule.next();
+  const schedule_entry& intro = node_schedule.next();
   if (!util::identical(t0, intro.time)) {
     util::stop("Start time not what was expected");
+  }
+  // The stochastic tower only knows about node introductions; an instant
+  // carrying any other event type belongs to the deterministic solver until
+  // this runner is migrated onto the shared queue too (#601).
+  if (!intro.actions.empty()) {
+    util::stop("The stochastic solver does not yet apply scheduled events "
+               "other than node introductions");
   }
   const double t_end = node_schedule.time_end();
   node_schedule.pop();

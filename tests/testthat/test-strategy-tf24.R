@@ -38,14 +38,15 @@ test_that("Defaults", {
     theta  = 1.0/4669,
     k_I = 0.5,
     vcmax_25 = 96,
-    p_50 = 1.85,
+    stem_P50 = 1.85,
     K_s = 1,
-    c = log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16)),
-    b = 1.85 /((-log(1 - 50.0 / 100.0))^(1 / (log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16))))),
+    stem_c = log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16)),
+    stem_b = 1.85 /((-log(1 - 50.0 / 100.0))^(1 / (log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16))))),
     psi_crit = (1.85 /((-log(1 - 50.0 / 100.0))^(1 / (log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16))))))*log(1/0.05)^(1/(log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16)))),
     beta1 = 20000,
-    beta2 = 1.5,
-    g1_TF24 = 7.5,
+    TF24_beta2 = 1.5,
+    TF24_cost_scale = 7.5,
+    TF24_floor_lambda_o = 0,
     jmax_25 = 157.44,
     R_d_25 = 1.44,
     a = 0.3,
@@ -89,8 +90,8 @@ test_that("TF24 collect_all_auxiliary option", {
 
   s <- TF24_Strategy()
   p <- TF24_Individual(s)
-  expect_equal(p$aux_size, 11)
-  expect_equal(length(p$internals$auxs), 11)
+  expect_equal(p$aux_size, 12)
+  expect_equal(length(p$internals$auxs), 12)
 expect_equal(p$aux_names, c(
     "competition_effect",
     "height_inverse",
@@ -101,6 +102,7 @@ expect_equal(p$aux_names, c(
     "transpiration",
     "E_up_",
     "profit",
+    "shadow_cost",
     "stom_cond_CO2",
     "assimilation"
   ))
@@ -108,8 +110,8 @@ expect_equal(p$aux_names, c(
   s <- TF24_Strategy(collect_all_auxiliary=TRUE)
   expect_true(s$collect_all_auxiliary)
   p <- TF24_Individual(s)
-  expect_equal(p$aux_size, 12)
-  expect_equal(length(p$internals$auxs), 12)
+  expect_equal(p$aux_size, 13)
+  expect_equal(length(p$internals$auxs), 13)
   expect_equal(p$aux_names, c(
     "competition_effect",
     "height_inverse",
@@ -120,6 +122,7 @@ expect_equal(p$aux_names, c(
     "transpiration",
     "E_up_",
     "profit",
+    "shadow_cost",
     "stom_cond_CO2",
     "assimilation",
     "area_sapwood"
@@ -176,9 +179,9 @@ test_that("TF24_Strategy hyper-parameterisation", {
   rho <- c(200,300)
   tf24_hyperpar_rho <- make_TF24_hyperpar(B_hks2 = 1)
   ret <- tf24_hyperpar_rho(trait_matrix(rho, "rho"), s)
-  expect_true(all(c("rho", "g1_TF24", "r_s", "r_b") %in% colnames(ret)))
+  expect_true(all(c("rho", "TF24_cost_scale", "r_s", "r_b") %in% colnames(ret)))
   expect_equal(ret[, "rho"], rho)
-  expect_equal(ret[, "g1_TF24"], 7.5 * (rho / 608)^(-1), tolerance = 1e-8)
+  expect_equal(ret[, "TF24_cost_scale"], 7.5 * (rho / 608)^(-1), tolerance = 1e-8)
   expect_equal(ret[, "r_s"], c(20.06000,13.37333), tolerance=1e-5)
   expect_equal(ret[, "r_b"], 2*ret[, "r_s"])
 
@@ -288,7 +291,7 @@ test_that("offspring arrival", {
                        hyperpar = TF24_hyperpar, birth_rate = list(20))
 
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 82.09077702, tolerance = 2e-2)
+  expect_equal(out$offspring_production, 30.22207354, tolerance = 2e-2)
 
   # two species: the second strategy has a moderately higher lma (0.10 vs
   # 0.0825), so it grows more slowly and is more heavily shaded. We pin the
@@ -302,7 +305,7 @@ test_that("offspring arrival", {
                        hyperpar = TF24_hyperpar, birth_rate = list(20, 20))
 
   out <- run_scm(p2, env, ctrl)
-  expect_equal(out$offspring_production[[1]], 67.54060383, tolerance = 2e-2)
+  expect_equal(out$offspring_production[[1]], 23.20349831, tolerance = 2e-2)
   expect_lt(out$offspring_production[[2]], 0.5)
 
   # Same two species, integrated in birth date (#590). They coexist at
@@ -324,9 +327,22 @@ test_that("offspring arrival", {
   # 67.32/73.18/74.98) and the exclusion ratio does not shrink toward the
   # birth-date one, it grows: 2.43e5/2.49e5/2.51e5. Quadrature error would
   # close; a different derivative does not.
+  #
+  # Bounding the storage pool by the shape of its flow (#609) moved all four
+  # numbers here, and moved them by very different amounts: the height answers
+  # fall by a factor of about 2.7 (82.09 -> 30.22, 67.54 -> 23.20) and the
+  # birth-date ones by 19 and 27 per cent. That gap is the same probe again --
+  # the height coordinate differences growth against height at fixed absolute
+  # carbon, so it reads the reserve fraction moving and amplifies any change to
+  # the pool, while the birth-date density rate never asks.
+  #
+  # Most of the movement is the *fill* limiter rather than the drain: the pool
+  # previously had no upper bound and the median cohort of a mature stand sat at
+  # a reserve fraction of exactly 1 with the read clipped there, where it now
+  # sits at 0.62 with nothing on the clip.
   out_bd <- run_scm(p2, env, Control(node_density_in_birth_date = TRUE))
-  expect_equal(out_bd$offspring_production[[1]], 287.16043704, tolerance = 2e-2)
-  expect_equal(out_bd$offspring_production[[2]], 59.53195639, tolerance = 2e-2)
+  expect_equal(out_bd$offspring_production[[1]], 233.05915606, tolerance = 2e-2)
+  expect_equal(out_bd$offspring_production[[2]], 43.63800899, tolerance = 2e-2)
 })
 
 # Water mass-balance: transpiration integrated up the stem side of every
@@ -403,182 +419,184 @@ test_that("SCM completes under extreme seasonal drought (#517, #550)", {
 })
 
 
-compile_tf24_ad_parameters <- function() {
-  cand <- c(tryCatch(here::here("inst/include"), error = function(e) ""),
-            system.file("include", package = "plant"))
-  has_hdr <- file.exists(file.path(cand, "plant/models/tf24_strategy.h"))
-  testthat::skip_if(!any(has_hdr), "TF24 strategy header not found on include path.")
-  plant_inc <- cand[has_hdr][1]
-  # Every package plant LinkingTo's, because <plant.h> reaches all of them and a
-  # probe compiled without one skips on a missing header rather than failing on
-  # what it was written to check.
-  linked_inc <- vapply(c("BH", "odelia", "phylloptim"),
-                       function(p) system.file("include", package = p),
-                       character(1L))
-  testthat::skip_if(!all(nzchar(linked_inc)),
-                    "headers not found for a package plant links to.")
-  odelia_inc <- linked_inc[["odelia"]]
-  odelia_so <- system.file("libs", "odelia.so", package = "odelia")
-  loaded <- getLoadedDLLs()
-  plant_so <- if ("plant" %in% names(loaded)) loaded[["plant"]][["path"]] else ""
-  testthat::skip_if(!nzchar(odelia_so) || !file.exists(odelia_so) ||
-                    !nzchar(plant_so) || !file.exists(plant_so),
-                    "shared libraries not found for linking.")
-  withr::local_envvar(
-    PKG_CPPFLAGS = paste(c(paste0("-I", shQuote(plant_inc)),
-                           paste0("-I", shQuote(linked_inc))),
-                         collapse = " "),
-    PKG_LIBS = paste(shQuote(normalizePath(plant_so)),
-                     shQuote(normalizePath(odelia_so))))
-  tryCatch({
-    Rcpp::sourceCpp(code = '
-      // [[Rcpp::plugins(cpp20)]]
-      // Here rather than in PKG_CPPFLAGS: R places those before its own -std=,
-      // which then wins, and every concept in the headers reads as a syntax error.
-      #include <plant.h>
-      #include <string>
-      #include <vector>
+# --- NSC storage bounds (#609) -----------------------------------------------
+#
+# dS/dt is a charge minus a drain, each non-negative without a test and each
+# limited by the same reserve fraction, so [0, S_max] is a property of the flow
+# rather than of a clamp on either consumer. A clamp would satisfy the bound
+# assertions while leaving the rate kinked, so the smoothness check is what
+# distinguishes the two.
 
-      // [[Rcpp::export]]
-      Rcpp::List tf24_ad_parameter_probe() {
-        plant::TF24_Strategy<double> s;
-        const std::vector<std::string> names = s.ad_parameter_names();
-        const std::size_t n = s.ad_parameters().size();
-        const Rcpp::List base = Rcpp::wrap(plant::TF24_Strategy<double>().pars);
-        const Rcpp::CharacterVector fields = base.names();
-        Rcpp::List changed(n);
-        Rcpp::NumericVector written(n), read_back(n);
-        for (std::size_t i = 0; i < n; ++i) {
-          plant::TF24_Strategy<double> t;
-          std::vector<double*> p = t.ad_parameters();
-          const double v = -7.25 - static_cast<double>(i);
-          *p[i] = v;
-          const Rcpp::List got = Rcpp::wrap(t.pars);
-          std::vector<std::string> diff;
-          for (int j = 0; j < fields.size(); ++j) {
-            const std::string f = Rcpp::as<std::string>(fields[j]);
-            if (Rcpp::as<double>(got[f]) != Rcpp::as<double>(base[f])) {
-              diff.push_back(f);
-            }
-          }
-          changed[i] = Rcpp::wrap(diff);
-          written[i] = v;
-          read_back[i] = Rcpp::as<double>(got[names[i]]);
-        }
-        return Rcpp::List::create(
-          Rcpp::_["names"] = Rcpp::wrap(names),
-          Rcpp::_["n_pointers"] = static_cast<double>(n),
-          Rcpp::_["changed"] = changed,
-          Rcpp::_["written"] = written,
-          Rcpp::_["read_back"] = read_back,
-          Rcpp::_["fields"] = fields);
-      }
-    ', env = environment(), rebuild = FALSE, verbose = FALSE)
-    tf24_ad_parameter_probe
-  }, error = function(e) {
-    testthat::skip(paste("could not compile the TF24 parameter probe:",
-                         conditionMessage(e)))
-  })
+# Capacity from the model's own allometry rather than a second copy of it.
+tf24_storage_capacity_r <- function(height, s = TF24_Strategy()) {
+  z <- rep(0, length(height))
+  s$pars$a_st1 * TF24_strategy_expand_allometry(s, height, z, z)$mass_sapwood
 }
 
-test_that("ad_parameters and ad_parameter_names agree with the yml", {
-  testthat::skip_if_not_installed("yaml")
-  probe <- compile_tf24_ad_parameters()
-  res <- probe()
+tf24_storage_at <- function(storage, height = 5, light = 1, theta = 0.4,
+                            s = TF24_Strategy()) {
+  env <- Environment("TF24")
+  env$set_fixed_environment(light, height_max = 150)
+  env$set_soil_water_state(rep(theta, env$get_soil_number_of_depths()))
+  env$time <- 5
+  ind <- Individual("TF24", "TF24_Env")(s)
+  ind$set_state("height", height)
+  ind$set_state("storage", storage)
+  ind$compute_rates(env)
+  list(dS = ind$internals$rates[[match("storage", ind$ode_names)]],
+       P = ind$aux("net_mass_production_dt"))
+}
 
-  # The parameters with no gradient column, read off the model rather than
-  # restated here. This was a third copy of that list -- the strategy declared
-  # it, the ladder declared it, and so did this -- and a copy is only ever right
-  # until one of the three moves. Each carries the sentence saying why, which is
-  # what a caller asking for one is refused in.
-  omitted <- names(census_undifferentiable_tf24())
-  expect_gt(length(omitted), 0L)
-
-  # Sources, then the installed package: this check is what says the registered
-  # parameter list and the declared one agree, so it should not go quiet because
-  # one path-finding package is absent.
-  yml_cand <- c(tryCatch(file.path(here::here("inst"), "RcppR6_classes.yml"),
-                         error = function(e) ""),
-                "../../inst/RcppR6_classes.yml",
-                system.file("RcppR6_classes.yml", package = "plant"))
-  yml_cand <- yml_cand[nzchar(yml_cand) & file.exists(yml_cand)]
-  testthat::skip_if(length(yml_cand) == 0L, "RcppR6_classes.yml not found.")
-  yml <- yaml::read_yaml(yml_cand[[1]])
-  declared <- vapply(yml$TF24_Pars$list, function(x) names(x)[[1]], character(1))
-  expect_setequal(declared, as.character(res$fields))
-  # Set plus length, not sequence: the two lists are ordered independently, and
-  # requiring them to agree on order is a constraint neither side means.
-  expect_setequal(res$names, setdiff(declared, omitted))
-  expect_identical(length(res$names), length(setdiff(declared, omitted)))
-  expect_identical(res$n_pointers, as.numeric(length(res$names)))
-
-  # Every index reaches exactly the field its name denotes, and nothing else.
-  expect_identical(res$read_back, res$written)
-  expect_identical(lapply(res$changed, sort), as.list(res$names))
+test_that("the capacity a test computes is the capacity the model uses", {
+  # A newborn is seeded at a_st3 of its own capacity, so the model states the
+  # quantity once and this recovers it -- without which the bounds below would
+  # be asserted against a second implementation of the allometry.
+  s <- TF24_Strategy()
+  env <- Environment("TF24")
+  env$set_fixed_environment(1, height_max = 150)
+  env$set_soil_water_state(rep(0.4, env$get_soil_number_of_depths()))
+  born <- Individual("TF24", "TF24_Env")(s)
+  born$set_initial_states(env)
+  st <- born$internals$states
+  h0 <- st[[match("height", born$ode_names)]]
+  S0 <- st[[match("storage", born$ode_names)]]
+  expect_equal(S0 / s$pars$a_st3, tf24_storage_capacity_r(h0), tolerance = 1e-12)
 })
 
-test_that("every registered TF24 parameter reaches an output", {
-  probe <- compile_tf24_ad_parameters()
-  registered <- probe()$names
+test_that("storage cannot leave [0, S_max] under the exact flow", {
+  height <- 5
+  cap <- tf24_storage_capacity_r(height)
 
-  # Every output the parameters can reach: the rates and aux at a state, the
-  # establishment probability, and the state a newborn is seeded with.
-  outputs_at <- function(s, state) {
-    env <- Environment("TF24")
-    env$set_fixed_environment(state$light, height_max = 150)
-    env$set_soil_water_state(rep(state$theta, env$get_soil_number_of_depths()))
-    # Recruitment decays with patch age, so at time zero its rate cannot move.
-    env$time <- 5
+  # A light range carrying net production from clearly positive to clearly
+  # negative, so the charge and the drain are each live somewhere in it.
+  lights <- c(1, 0.3, 0.2122, 0.15, 0.05)
+  production <- vapply(lights, function(L) tf24_storage_at(cap / 2, height, L)$P,
+                       numeric(1))
+  expect_gt(max(production), 0)
+  expect_lt(min(production), 0)
 
-    ind <- Individual("TF24", "TF24_Env")(s)
-    ind$set_state("height", state$height)
-    # A fresh individual holds zero storage, and relative reserves of zero make the
-    # reserve gate and the storage-dependent mortality insensitive to their own
-    # parameters -- a degenerate state rather than a dead channel.
-    ind$set_state("storage", 1e-3)
-    ind$compute_rates(env)
-
-    born <- Individual("TF24", "TF24_Env")(s)
-    born$set_initial_states(env)
-
-    vars <- ind$internals
-    c(vars$rates, vars$auxs, ind$establishment_probability(env),
-      born$internals$states)
+  for (L in lights) {
+    expect_gte(tf24_storage_at(0, height, L)$dS, 0)
+    expect_lte(tf24_storage_at(cap, height, L)$dS, 0)
   }
 
-  # Four states, because a parameter can reach only one of them: fecundity is zero
-  # below the maturation height, the storage outflow gate opens only where carbon is
-  # negative, and the collar operating point reaches its own bound only in dry soil
-  # -- dry enough to pin it (above 1.5 MPa) and not so dry that the leaf shuts down
-  # before computing the bound at all (below psi_crit, 7.1 MPa): 0.14 is 2.8 MPa.
-  hmat <- TF24_Strategy()$pars$hmat
-  states <- list(seedling = list(height = 0.4, light = 1, theta = 0.4),
-                 mature = list(height = 0.9 * hmat, light = 1, theta = 0.4),
-                 shaded = list(height = 5, light = 0.02, theta = 0.4),
-                 dry = list(height = 5, light = 1, theta = 0.14))
-  base <- lapply(states, function(st) outputs_at(TF24_Strategy(), st))
+  # Strict at each bound in the regime that drives it, so neither is held by a
+  # rate that merely happens to be zero there.
+  expect_gt(tf24_storage_at(0, height, 1)$dS, 0)
+  expect_lt(tf24_storage_at(cap, height, 0.05)$dS, 0)
+})
 
-  reaches_an_output <- function(name) {
-    s <- TF24_Strategy()
-    value <- s$pars[[name]]
-    s$pars[[name]] <- if (value == 0) 0.05 else value * 1.05
-    any(vapply(seq_along(states), function(i) {
-      got <- tryCatch(outputs_at(s, states[[i]]), error = function(e) NULL)
-      # A parameter whose change stops the solve has certainly been read.
-      is.null(got) || !identical(got, base[[i]])
-    }, logical(1)))
-  }
+test_that("the storage rate has no kink where the net flux changes sign", {
+  # The rate this replaced was net_flux > 0 ? net_flux : floor_gate * net_flux,
+  # so d(dS/dt)/dP stepped by 1/floor_gate = (r + 1e-3)/r across the crossing --
+  # a factor of two at r = 1e-3 and unbounded as the pool empties. Measured on
+  # that rate: 1.972 against the 2.000 predicted.
+  height <- 5
+  r_target <- 1e-3
+  S0 <- r_target * tf24_storage_capacity_r(height)
 
-  # root_psi_crit reaches an output only where the collar operating point is pinned
-  # at its bound and that bound is the root's rather than the stem's. That regime
-  # needs a driver rather than a state -- zero incidence on the production driver,
-  # a third of solves at a twentyfold rainfall reduction -- so it is registered
-  # deliberately and no state this probe can pose will move it.
-  only_at_the_bound <- "root_psi_crit"
-  unreached <- Filter(function(name) !reaches_an_output(name),
-                      setdiff(registered, only_at_the_bound))
+  G <- 1 / (1 + exp(-(r_target - TF24_Strategy()$pars$a_st2) / 0.1))
+  eps <- 1e-4
+  net_flux_of <- function(P) P - 0.5 * (P + sqrt(P * P + eps * eps)) * G
+  Lstar <- uniroot(function(L) net_flux_of(tf24_storage_at(S0, height, L)$P),
+                   c(1e-4, 1), tol = 1e-14)$root
 
-  # A registered parameter no equation reads gives a gradient row that is exactly
-  # zero, which is this design's worst failure mode because it reads as an answer.
-  expect_equal(unreached, character(0))
+  # Asserted by convergence rather than at one step width, because at a single
+  # width the two answers are not separable: the smoothed positive part of
+  # production has a curvature of order 1/eps here, so a one-sided difference
+  # carries an O(d) error of its own -- measured 1.0785, 1.0076, 1.00076 and
+  # 1.000076 at d = 1e-5 to 1e-8. The rate this replaced reads 1.972 at *every*
+  # width, so what separates a kink from a stencil is that only one of them
+  # shrinks.
+  mid <- tf24_storage_at(S0, height, Lstar)
+  ds <- c(1e-5, 1e-6, 1e-7, 1e-8)
+  ratio <- vapply(ds, function(d) {
+    lo <- tf24_storage_at(S0, height, Lstar * (1 - d))
+    hi <- tf24_storage_at(S0, height, Lstar * (1 + d))
+    ((hi$dS - mid$dS) / (hi$P - mid$P)) / ((mid$dS - lo$dS) / (mid$P - lo$P))
+  }, numeric(1))
+
+  expect_lt(abs(ratio[length(ratio)] - 1), 1e-3)
+  # Each decade of step width removes about a decade of the excess, which is
+  # first order; a kink's excess is flat in the width.
+  excess <- abs(ratio - 1)
+  expect_lt(max(excess[-1] / excess[-length(excess)]), 0.3)
+})
+
+test_that("the storage rate relaxes on the pool's own timescale near empty", {
+  # The drain limiter's shape decides how fast the rate relaxes just above the
+  # empty boundary, and that is what the solver has to resolve. Limited by r the
+  # eigenvalue is (charge + drain)/S_max, the pool's own depletion rate. Limited
+  # by r/(r + D) it is drain * D/(r + D)^2 / S_max, which at r = D is 250 times
+  # larger for D = 1e-3 -- an attracting fixed point with a sub-hour time
+  # constant for a seedling, against a solver stepping in days, measured at 26
+  # times the accepted steps and 38 times the wall clock.
+  #
+  # Asserted as a ratio against the pool's own rate rather than as a step count,
+  # so it is a property of the form and not a benchmark.
+  height <- 5
+  cap <- tf24_storage_capacity_r(height)
+  light <- 0.05                        # deep shade, so the drain is what acts
+  r0 <- 1e-3                           # where a narrow limiter's knee would sit
+  S0 <- r0 * cap
+
+  s <- TF24_Strategy()
+  P <- tf24_storage_at(S0, height, light)$P
+  expect_lt(P, 0)                      # non-vacuity: the pool is draining here
+  Ppos <- 0.5 * (P + sqrt(P * P + 1e-4 * 1e-4))
+  G <- 1 / (1 + exp(-(r0 - s$pars$a_st2) / 0.1))
+  own_rate <- (Ppos * (1 - G) + (Ppos - P)) / cap
+
+  h <- 1e-6 * cap
+  lambda <- (tf24_storage_at(S0 + h, height, light)$dS -
+             tf24_storage_at(S0 - h, height, light)$dS) / (2 * h)
+  expect_lt(lambda, 0)                 # the boundary attracts, as it must
+  expect_lt(abs(lambda) / own_rate, 10)
+})
+
+test_that("a run keeps every storage state inside [0, capacity]", {
+  # Asserted on the state rather than on the read, which is the distinction
+  # #609 is about: before this the state reached 1.035 of capacity while every
+  # read of it said 1.
+  #
+  # Both bounds hold, and by different mechanisms. Above, the fill limiter goes
+  # negative past capacity and pushes back, so nothing reaches it -- capping the
+  # ratio would have removed that term. Below, the rate refuses a negative pool
+  # and the solver rejects the step, so what used to be 3 per cent of records at
+  # 4.5 per cent of capacity is now none.
+  p <- scm_base_parameters("TF24")
+  p$max_patch_lifetime <- 10
+  p <- add_strategies(p, trait_matrix(0.0825, "lma"), hyperpar = TF24_hyperpar,
+                      birth_rate = list(1.10))
+  out <- run_scm(p, ctrl = Control(node_density_in_birth_date = TRUE),
+                 collect = TRUE)
+
+  d <- out$species
+  cap <- tf24_storage_capacity_r(d$height)
+  ok <- is.finite(d$storage) & is.finite(cap) & cap > 0
+  r <- d$storage[ok] / cap[ok]
+
+  expect_gt(sum(ok), 500L)                     # non-vacuity: a populated run
+  expect_lte(max(r), 1)
+  expect_gte(min(r), 0)
+})
+
+test_that("a negative storage state is refused by name, not floored", {
+  # The refusal is what replaces the read-clamp: the solver catches it, shrinks
+  # and retries, so a step that would leave the pool negative is never accepted.
+  # Posed directly here, because on a run it is unreachable -- which is the
+  # point, and is why the check needs an out-of-domain state written by hand.
+  s <- TF24_Strategy()
+  env <- Environment("TF24")
+  env$set_fixed_environment(1, height_max = 150)
+  env$set_soil_water_state(rep(0.4, env$get_soil_number_of_depths()))
+  ind <- Individual("TF24", "TF24_Env")(s)
+  ind$set_state("height", 5)
+  ind$set_state("storage", -1e-4)
+  expect_error(ind$compute_rates(env), "storage is negative")
+
+  # A positive pool is untouched by the refusal, so the check above is about the
+  # domain and not about compute_rates refusing generally.
+  ind$set_state("storage", 1e-4)
+  expect_no_error(ind$compute_rates(env))
 })

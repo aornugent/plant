@@ -39,14 +39,15 @@ test_that("Defaults", {
     theta  = 1.0/4669,
     k_I = 0.5,
     vcmax_25 = 96,
-    p_50 = 1.85,
+    stem_P50 = 1.85,
     K_s = 1,
-    c = log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16)),
-    b = 1.85 /((-log(1 - 50.0 / 100.0))^(1 / (log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16))))),
+    stem_c = log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16)),
+    stem_b = 1.85 /((-log(1 - 50.0 / 100.0))^(1 / (log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16))))),
     psi_crit = (1.85 /((-log(1 - 50.0 / 100.0))^(1 / (log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16))))))*log(1/0.05)^(1/(log(log(1-0.5)/log(1-0.88))/(log(1.85) - log(5.16)))),
     beta1 = 20000,
-    beta2 = 1.5,
-    g1_TF24 = 7.5,
+    TF24_beta2 = 1.5,
+    TF24_cost_scale = 7.5,
+    TF24_floor_lambda_o = 0,
     jmax_25 = 157.44,
     R_d_25 = 1.44,
     a = 0.3,
@@ -108,8 +109,8 @@ test_that("TF24f collect_all_auxiliary option", {
 
   s <- TF24f_Strategy()
   p <- TF24f_Individual(s)
-  expect_equal(p$aux_size, 11)
-  expect_equal(length(p$internals$auxs), 11)
+  expect_equal(p$aux_size, 12)
+  expect_equal(length(p$internals$auxs), 12)
 expect_equal(p$aux_names, c(
     "competition_effect",
     "height_inverse",
@@ -120,6 +121,7 @@ expect_equal(p$aux_names, c(
     "transpiration",
     "E_up_",
     "profit",
+    "shadow_cost",
     "stom_cond_CO2",
     "assimilation"
   ))
@@ -127,8 +129,8 @@ expect_equal(p$aux_names, c(
   s <- TF24f_Strategy(collect_all_auxiliary=TRUE)
   expect_true(s$collect_all_auxiliary)
   p <- TF24f_Individual(s)
-  expect_equal(p$aux_size, 12)
-  expect_equal(length(p$internals$auxs), 12)
+  expect_equal(p$aux_size, 13)
+  expect_equal(length(p$internals$auxs), 13)
   expect_equal(p$aux_names, c(
     "competition_effect",
     "height_inverse",
@@ -139,6 +141,7 @@ expect_equal(p$aux_names, c(
     "transpiration",
     "E_up_",
     "profit",
+    "shadow_cost",
     "stom_cond_CO2",
     "assimilation",
     "area_sapwood"
@@ -188,18 +191,18 @@ test_that("TF24f_Strategy hyper-parameterisation", {
   rho <- c(200,300)
   tf24f_hyperpar_rho <- make_TF24f_hyperpar(B_hks2 = 1)
   ret <- tf24f_hyperpar_rho(trait_matrix(rho, "rho"), s)
-  expect_true(all(c("rho", "g1_TF24", "r_s", "r_b") %in% colnames(ret)))
+  expect_true(all(c("rho", "TF24_cost_scale", "r_s", "r_b") %in% colnames(ret)))
   expect_equal(ret[, "rho"], rho)
-  expect_equal(ret[, "g1_TF24"], 7.5 * (rho / 608)^(-1), tolerance = 1e-8)
+  expect_equal(ret[, "TF24_cost_scale"], 7.5 * (rho / 608)^(-1), tolerance = 1e-8)
   expect_equal(ret[, "r_s"], c(20.06000,13.37333), tolerance=1e-5)
   expect_equal(ret[, "r_b"], 2*ret[, "r_s"])
 
   # sapwood conductivity and hydraulic traits
   K_s <- c(1, 2, 3)
   ret <- TF24f_hyperpar(trait_matrix(K_s, "K_s"), s)
-  expect_true(all(c("K_s", "p_50", "c", "b", "psi_crit") %in% colnames(ret)))
+  expect_true(all(c("K_s", "stem_P50", "stem_c", "stem_b", "psi_crit") %in% colnames(ret)))
   expect_equal(ret[, "K_s"], K_s)
-  expect_true(all(diff(ret[, "p_50"]) < 0))
+  expect_true(all(diff(ret[, "stem_P50"]) < 0))
 
   # vcmax_25 contributes to leaf N and therefore respiration
   vcmax_25 <- c(0, 96, 160)

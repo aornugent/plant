@@ -50,6 +50,10 @@ scm_base_parameters <- function(type = NA, env = environment_type(type)) {
 ##' @param p Parameters object
 ##' @param env Environment object (defaults to the strategy's environment)
 ##' @param ctrl Control object
+##' @param events An \code{\link{events}} object giving the discrete events to
+##'   apply during the run — rainfall pulses, harvest, and node introductions
+##'   themselves. When \code{NULL} (the default) the schedule is taken from
+##'   \code{p$node_schedule_times}, i.e. introductions only.
 ##' @param refine_schedule Should the node-introduction schedule be adaptively
 ##'   refined before/while running (using \code{schedule_eps} and
 ##'   \code{schedule_nsteps} from \code{ctrl})? Refinement records the ODE
@@ -75,7 +79,7 @@ scm_base_parameters <- function(type = NA, env = environment_type(type)) {
 run_scm <- function(p, env = NULL,
                     ctrl = control(),
                     refine_schedule = FALSE, collect = FALSE,
-                    record_trajectory = FALSE) {
+                    record_trajectory = FALSE, events = NULL) {
 
   types <- extract_RcppR6_template_types(p, "Parameters")
 
@@ -86,7 +90,14 @@ run_scm <- function(p, env = NULL,
   # there to be used: p$ode_times with p$ode_step_sizes replays a recorded run
   # exactly, and p$ode_times alone stops at a grid the caller chose. To integrate
   # freely, carry neither.
-  scm <- do.call('SCM', types)(p, env, ctrl)
+
+  ## No events supplied: the schedule comes from p$node_schedule_times, as it
+  ## did before events existed. An empty Events object is how that is signalled
+  ## across the boundary.
+  if (is.null(events))
+    events <- empty_events()
+
+  scm <- do.call('SCM', types)(p, env, events, ctrl)
   if (collect) {
     scm$collect <- TRUE
   }
@@ -112,6 +123,12 @@ run_scm <- function(p, env = NULL,
   results[["offspring_production"]] <- scm$offspring_production
   results[["net_reproduction_ratios"]] <- scm$net_reproduction_ratios
   results[["p"]] <- scm$parameters
+  ## Events are supplied separately from `p`, so `p` alone does not describe the
+  ## run. Carry both the requested schedule and what was actually applied, or a
+  ## collected result silently loses the whole event record -- including how much
+  ## of each pulse the soil accepted and how much it shed.
+  results[["events"]] <- scm$events
+  results[["event_log"]] <- scm$event_log
 
   results
 }

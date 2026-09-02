@@ -5,6 +5,7 @@
 
 #include <plant/census.h>
 #include <plant/strategy.h>
+#include <odelia/ode_util.hpp>
 #include <plant/models/tf24_environment.h>
 #include <plant/census_gradient.h>
 #include <plant/qag.h>
@@ -93,22 +94,66 @@ struct TF24_Pars {
   S k_I = 0.5;
   // * Leaf hydraulic / photosynthesis traits (default Eucalyptus saligna)
   S vcmax_25 = 96;
-  S p_50 = 1.85;
+  // ⚠️ THE LEAF TRAITS CARRY PHYLLOPTIM'S NAMES, and that is a rule rather than a
+  // tidy-up. These are handed to the `Leaf` constructor POSITIONALLY, so a
+  // mismatch between what a name says here and which slot it lands in is silent:
+  // `g1_TF24` was the old name for what phylloptim calls `TF24_cost_scale`, and it
+  // reads as a stomatal-slope g1 -- a quantity the leaf also has, under `g1`, in
+  // the Medlyn path. One name per quantity, spelled the same on both sides of the
+  // boundary, is what makes the hand-over at prepare_strategy() checkable by eye.
+  //
+  // ⚠️ `stem_b` AND `psi_crit` ARE DERIVED HERE AND HANDED OVER TO NOBODY.
+  // phylloptim takes (stem_P50, stem_c) and derives both itself, by these same
+  // formulas -- so these two members are TF24_hyperpar's reporting copies, not
+  // inputs to the model. Setting one does not change the curve.
+  S stem_P50 = 1.85;
   S K_s = 1;
-  S c = log(log(1-0.5)/log(1-0.88))/(log(p_50) - log(5.16));
-  S b = p_50 / power(-log(1 - 50.0 / 100.0), 1 / c);
-  S psi_crit = b*power(log(1/0.05),1/c); // derived from b and c
+  S stem_c = log(log(1-0.5)/log(1-0.88))/(log(stem_P50) - log(5.16));
+  S stem_b = stem_P50 / power(-log(1 - 50.0 / 100.0), 1 / stem_c);
+  S psi_crit = stem_b*power(log(1/0.05),1/stem_c); // derived from stem_b and stem_c
+  // Read by nothing: not passed to the leaf, not read by any equation here. Kept
+  // only because it is in the R-visible parameter list.
   S beta1 = 20000;
-  S beta2 = 1.5;
-  S g1_TF24 = 7.5;
+  S TF24_beta2 = 1.5;
+  S TF24_cost_scale = 7.5;
+  // THE PRICE OF WATER AS TRANSPIRATION GOES TO ZERO, umol C (kg H2O)^-1: the
+  // `lambda_o` of phylloptim's TF24_floor cost curve, which TF24 and TF24f are
+  // seated on (#634).
+  //
+  // WHY IT EXISTS. Every conductance-loss cost -- TF24's included -- prices water
+  // at zero as E goes to zero, since no conductivity is lost when nothing flows,
+  // so water is free precisely when it is abundant. TF24_floor splits the cost
+  // into a part depending on potential alone and a part linear in the flux,
+  // Theta(E) = Theta~(psi) + lambda_o*E, with Theta~ being TF24's own cost at
+  // TF24's own traits. So this is the curve's ONLY parameter, and **TF24 is
+  // TF24_floor at lambda_o = 0, at identical parameter values** -- which makes
+  // "is TF24 missing a price of water?" a one-restriction question.
+  //
+  // ⚠️ DEFAULTS TO ZERO, WHICH IS TF24 EXACTLY -- not approximately. phylloptim
+  // asserts the reduction bit-for-bit rather than to a tolerance, because each
+  // term is the parent's own expression so zeroing the price adds an exact zero to
+  // TF24's exact value (it survives fused multiply-add for the same reason). So
+  // every result this repo has recorded is unchanged at the default, and a moved
+  // regression baseline means a mistake rather than a new expected value.
+  //
+  // ⚠️ IT IS A SHADOW PRICE, NOT A COST, and that distinction is why
+  // net_mass_production_dt adds `leaf.shadow_cost()` back to `leaf.profit_` before
+  // converting to carbon. `Theta~` is carbon actually forgone; `lambda_o` is the
+  // value of water in its best alternative use, which for a leaf is assimilation
+  // later. Paying it changes the aperture chosen and loses no carbon.
+  //
+  // ⚠️ ITS SCALE IS SET BY THE LEAF, not chosen freely: phylloptim's own marginal
+  // cost of water runs ~9e4 to 3e5 in these units at its defaults, so a value far
+  // outside that band pins the optimum against a bracket bound and the answer
+  // describes the bracket rather than the model.
+  S TF24_floor_lambda_o = 0.0;
   S jmax_25 = vcmax_25*1.64;
   S a = 0.30; // effective quantum yield of electron transport
   S curv_fact_elec_trans = 0.7;
   S curv_fact_colim = 0.99;
-  // Dark respiration at 25 C, the term net assimilation subtracts. The Leaf
-  // constructor does not take it, so until this member existed the leaf ran at
-  // its own default and no parameter could move it; the value here is that
-  // default, which is what keeps the forward model unchanged.
+  // Dark respiration at 25 C, the term net assimilation subtracts. It is handed
+  // over now that set_traits takes it, rather than left to the leaf's own
+  // default -- so a parameter can move it and a gradient can see it.
   S R_d_25 = 1.44;
   S var_sapwood_volume_cost = 1;
   // nitrogen allocation traits (parameterised from Austraits 4.1.0)
@@ -126,7 +171,11 @@ struct TF24_Pars {
   // at ~5.87 MPa: too conservative for taxa that operate below that (e.g.
   // Acacia aneura).
   S root_c = 2.680147;
-  S root_b = 3.898245;
+  // THE SCALE PARAMETER IS P50, matching the stem side and phylloptim, which
+  // takes (root_c, root_P50) and derives the other two itself by these same
+  // formulas. 3.4 reproduces the old root_b = 3.898245 exactly.
+  S root_P50 = 3.4;
+  S root_b = root_P50 / power(-log(1 - 50.0 / 100.0), 1 / root_c);
   // Potential at 5% remaining root conductivity [MPa]. Derived, exactly as
   // psi_crit is from b and c: if you set root_b or root_c directly, set this
   // too, or the vulnerability curve and the shutoff threshold disagree.
@@ -186,11 +235,12 @@ struct TF24_Pars {
       no_gradient{"use_energy_balance",
                   "a gate, compared rather than differentiated"},
       // No equation reads them.
+      no_gradient{"stem_b", "derived from (stem_P50, stem_c); phylloptim derives it itself, so setting it reaches nothing and a row here would describe a path the model does not take"},
+      no_gradient{"psi_crit", "derived from (stem_P50, stem_c), as above"},
+      no_gradient{"root_b", "derived from (root_P50, root_c), as above"},
+      no_gradient{"root_psi_crit", "derived from (root_P50, root_c), as above"},
       no_gradient{"a_p1", "the light-response curve the Farquhar leaf replaced"},
       no_gradient{"a_p2", "the light-response curve the Farquhar leaf replaced"},
-      no_gradient{"p_50",
-                  "read only by c's and b's default initialisers, so a value "
-                  "set after construction reaches nothing"},
       no_gradient{"beta1", "no equation on this path reads it"},
       no_gradient{"S_D",
                   "survival during dispersal, which multiplies a census "
@@ -249,17 +299,18 @@ struct TF24_Pars {
       // Read only by c's and b's default initialisers, so a value set after
       // construction reaches nothing here; d/dp_50 belongs to whatever computes
       // c and b, which for a run driven from traits is the R hyperparameters.
-      PLANT_TF24_AD_PARAMETER(p_50),
+      PLANT_TF24_AD_PARAMETER(stem_P50),
       PLANT_TF24_AD_PARAMETER(K_s),
-      PLANT_TF24_AD_PARAMETER(c),
-      PLANT_TF24_AD_PARAMETER(b),
+      PLANT_TF24_AD_PARAMETER(stem_c),
+      PLANT_TF24_AD_PARAMETER(stem_b),
       // A limit: it sets the dry end of the interval the operating point moves
       // in. Its column is zero while the point is away from that end and
       // non-zero the moment the point sits on it.
       PLANT_TF24_AD_PARAMETER(psi_crit),
       PLANT_TF24_AD_PARAMETER(beta1),
-      PLANT_TF24_AD_PARAMETER(beta2),
-      PLANT_TF24_AD_PARAMETER(g1_TF24),
+      PLANT_TF24_AD_PARAMETER(TF24_beta2),
+      PLANT_TF24_AD_PARAMETER(TF24_cost_scale),
+      PLANT_TF24_AD_PARAMETER(TF24_floor_lambda_o),
       PLANT_TF24_AD_PARAMETER(jmax_25),
       PLANT_TF24_AD_PARAMETER(a),
       PLANT_TF24_AD_PARAMETER(curv_fact_elec_trans),
@@ -273,6 +324,7 @@ struct TF24_Pars {
       PLANT_TF24_AD_PARAMETER(dmass_dN),
       PLANT_TF24_AD_PARAMETER(root_depth_shape_eta),
       PLANT_TF24_AD_PARAMETER(root_c),
+      PLANT_TF24_AD_PARAMETER(root_P50),
       PLANT_TF24_AD_PARAMETER(root_b),
       // The root curve's dry limit, and a limit for the same reason.
       PLANT_TF24_AD_PARAMETER(root_psi_crit),
@@ -534,13 +586,19 @@ public:
   // match on discrete counts is a sharper statement than any tolerance-based check
   // that the swap preserves TF24's science.
   //
-  // The fix itself is NOT undone: an off-sea-level run still gets a self-consistent
-  // Gamma*/Kc/Ko/Km and conductance side. Set `atm_kpa` per site if you mean
-  // altitude; it no longer defaults to an altitude nobody chose.
-  // v9: as FF16 v2 -- the light field and the census take their trapezium widths
-  // from the coordinate the density is carried in. TF24 defaults to the
-  // birth-date coordinate, so this moves its output; the water reduction already
-  // integrated over birth dates and is unchanged.
+  // The fix itself is NOT undone -- an off-sea-level run still gets a self-consistent
+  // Gamma*/Kc/Ko/Km and conductance side, which is the whole point of item 10c. Set
+  // `atm_kpa` per site if you mean altitude; it just no longer defaults to an
+  // altitude nobody chose.
+  // v9: the storage pool's rate is a charge and a drain limited separately, so
+  // the pool stays within capacity by the shape of its own flow. Storage
+  // previously had no upper bound at all -- the read was clipped at capacity
+  // while the state ran to 1.035 of it, with half a full-lifetime stand sitting
+  // at or above the clip -- and that surplus now stays in production instead.
+  // v9 also: the light field and the census take their trapezium widths from the
+  // coordinate the density is carried in. TF24 defaults to the birth-date
+  // coordinate, so this moves its output; the water reduction already integrated
+  // over birth dates and is unchanged.
   static constexpr int scientific_version = 9;
 
   S compute_average_light_environment(const S& z, const S& height,
@@ -605,6 +663,11 @@ public:
     return metrics;
   }
 
+  // The storage pool. Its rate holds the exact flow inside [0, S_max], so a
+  // negative value is a step that overshot rather than a state the model has,
+  // and the solver rejects it and retries smaller.
+  static std::vector<std::string> non_negative_states() { return {"storage"}; }
+
   std::vector<std::string> aux_names() {
     std::vector<std::string> ret({
       "competition_effect",
@@ -616,6 +679,14 @@ public:
       "transpiration",
       "E_up_",
       "profit",
+      // The part of the cost the objective deducted that is a PRICE rather than
+      // a realised carbon loss (umol C m^-2 s^-1): `TF24_floor_lambda_o * E` on
+      // the seated curve, and exactly zero at the default price. Reported beside
+      // `profit` because without it the two cannot be separated after the fact
+      // from plant's own output, and the distinction is the whole point of the
+      // curve: the carbon the plant actually kept is `profit + shadow_cost`,
+      // which is what net_mass_production_dt grows on.
+      "shadow_cost",
       "stom_cond_CO2",
       // Net CO2 assimilation at the optimal operating point, per unit leaf
       // area (umol CO2 m^-2 s^-1). Net, not gross: Leaf::assim_colimited()
@@ -1029,6 +1100,10 @@ public:
   // (replacing the old hard net>0 growth cutoff) for AD-readiness.
   double storage_gate_width = 0.1;
   double storage_prod_eps   = 1e-4;
+  // How far below empty the storage pool may sit before the solver is told the
+  // step is invalid, as a fraction of capacity. A draining cohort approaches the
+  // boundary, so this separates round-off there from a real excursion.
+  double storage_domain_tol = 1e-8;
 
   // The clamp sites this strategy reaches; the list itself is shared with the
   // environment, which reaches the others.
@@ -1105,6 +1180,7 @@ public:
   int aux_idx_transpiration = -1;
   int aux_idx_E_up = -1;
   int aux_idx_profit = -1;
+  int aux_idx_shadow_cost = -1;
   int aux_idx_stom_cond_CO2 = -1;
   int aux_idx_assimilation = -1;
   int aux_idx_area_sapwood = -1;       // only present when collect_all_auxiliary
@@ -1297,10 +1373,10 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       radiation,
       pars.R_d_25 * (leaf.R_d_ / leaf.R_d_25),
       conductance_max,
-      pars.b,
-      pars.c,
-      pars.beta2,
-      pars.g1_TF24};
+      pars.stem_b,
+      pars.stem_c,
+      pars.TF24_beta2,
+      pars.TF24_cost_scale};
   in.supply.psi_soil = psi_soil;
   // Carbon becomes resistance HERE, at this scalar, because the architecture
   // model is this strategy's -- the leaf takes the resistances and knows nothing
@@ -2499,13 +2575,16 @@ void TF24_Strategy<S>::prepare_strategy() {
     this->extrinsic_drivers.set_constant("birth_rate", this->birth_rate_y[0]);
   }
   if constexpr (std::is_same_v<S, double>) {
-    leaf = Leaf(pars.vcmax_25, pars.c, pars.b, pars.psi_crit,
-                pars.root_c, pars.root_b, pars.root_psi_crit,
-                pars.beta2, pars.jmax_25, pars.a,
+    // (P50, c) per curve, and phylloptim derives b and psi_crit itself. Handing
+    // over the derived pair instead would state the curve twice and let the two
+    // disagree silently, which is the reason #126 took them out of the trait set.
+    leaf = Leaf(pars.vcmax_25, pars.stem_c, pars.stem_P50,
+                pars.root_c, pars.root_P50,
+                pars.TF24_beta2, pars.jmax_25, pars.a,
                 pars.curv_fact_elec_trans, pars.curv_fact_colim,
                 this->control.GSS_tol_abs, this->control.vulnerability_curve_ncontrol,
                 this->control.ci_abs_tol, this->control.ci_niter,
-                pars.g1_TF24);
+                pars.TF24_cost_scale);
     // Not a constructor argument, and written before any physiology is set, so
     // the temperature block derives R_d_ from it on the first call.
     leaf.R_d_25 = pars.R_d_25;

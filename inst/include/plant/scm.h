@@ -75,7 +75,9 @@ public:
   typedef Parameters<T, E> parameters_type;
 
   // ---- Construction ------------------------------------------------------
-  SCM(parameters_type p, environment_type e, plant::Control c);
+  // An empty `ev` means "no events supplied": the schedule then comes from
+  // p.node_schedule_times exactly as it always has (#522).
+  SCM(parameters_type p, environment_type e, plant::Events ev, plant::Control c);
 
   // ---- Simulation lifecycle ----------------------------------------------
 
@@ -405,6 +407,14 @@ public:
 
   // Node schedule access
   NodeSchedule r_node_schedule() const { return node_schedule; }
+  // The schedule read back out in the R-facing wire format, so that a run
+  // whose schedule was refined can be re-run, or inspected, as events.
+  Events r_events() const {
+    return events_from_schedule_events(node_schedule.get_events());
+  }
+  // What the events actually did, in the order they were applied. Cleared by
+  // reset(), so it always describes the run you are looking at.
+  EventLog r_event_log() const { return event_log_from_records(event_log); }
   void r_set_node_schedule(NodeSchedule x);
   void r_set_node_schedule_times(std::vector<std::vector<double>> x);
 
@@ -462,15 +472,19 @@ private:
   Control control;
   patch_type patch;
   NodeSchedule node_schedule;
+  // Lives on the runner rather than the patch: the patch is copied into
+  // `history` once per step, and a log that grew with the run would be copied
+  // with it every time.
+  std::vector<EventRecord> event_log;
   odelia::ode::Solver<patch_type> solver;
 };
 
 // ---- Construction --------------------------------------------------------
 
 template <typename T, typename E>
-SCM<T, E>::SCM(parameters_type p, environment_type e, Control c)
+SCM<T, E>::SCM(parameters_type p, environment_type e, Events ev, Control c)
     : parameters(p), control(c), patch(parameters, e, c),
-      node_schedule(make_node_schedule(parameters)),
+      node_schedule(make_node_schedule(parameters, ev)),
       solver(patch, make_ode_control(c)) {
 
   parameters.validate();
@@ -543,7 +557,7 @@ std::vector<size_t> SCM<T, E>::run_next() {
   // The live patch system is owned by the solver; mutate it in place.
   auto &sys = solver.get_system_ref();
 
-  const introduction& intro = node_schedule.next();
+  const schedule_entry& intro = node_schedule.next();
 
   // Resume support: if the next scheduled introduction is in the future,
   // integrate the gap up to it without introducing any node. This happens on
@@ -575,6 +589,13 @@ std::vector<size_t> SCM<T, E>::run_next() {
   const double t_end = node_schedule.time_end();
   node_schedule.pop();
 
+  // Every action at this instant applies before the introductions, so a node
+  // introduced here sees the post-event environment (#628). The schedule holds
+  // them already ordered by event_type_rank, so this is a walk and not a sort --
+  // and `intro` stays valid across the pop, which only moved the cursor.
+  for (const auto& a : intro.actions) {
+    event_log.push_back(sys.apply_event(a));
+  }
   sys.introduce_nodes(ret, intro.time);
   solver.set_state_from_system();
   // The insertion, as its own row: it holds the wider state the introduction just
@@ -743,6 +764,7 @@ template <typename T, typename E> void SCM<T, E>::reset() {
   solver.reset();
   patch = solver.get_system_ref();
   history.clear();
+  event_log.clear();
 }
 
 
