@@ -1384,8 +1384,19 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   // Filled by NAMED INDEX rather than as an aggregate: an initialiser shorter
   // than the array zero-fills the rest with no diagnostic at all, and this list
   // has been the wrong length twice.
+  //
+  // ⚠️ SEATED FIRST, THEN OVERRIDDEN. Starting from the leaf's OWN pack means no
+  // slot is left at a value this caller did not choose: the parameters of the
+  // seven cost curves this strategy does not run are carried as the leaf's
+  // constants rather than as zeros, which is what a bare fill() would have made
+  // them -- a wrong VALUE, not merely a missing row, in any expression that
+  // reads one.
   phylloptim::leaf_pars<S> in;
-  in.fill(S(0.0));
+  const phylloptim::leaf_pars<double> seated = leaf.passive_pars();
+  for (std::size_t i = 0; i < in.size(); ++i) {
+    in[i] = S(seated[i]);
+  }
+  // What THIS strategy owns, and therefore what carries rows.
   in[phylloptim::par_vcmax_25] = pars.vcmax_25;
   in[phylloptim::par_stem_c] = pars.stem_c;
   in[phylloptim::par_stem_P50] = pars.stem_P50;
@@ -1399,6 +1410,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   in[phylloptim::par_TF24_cost_scale] = pars.TF24_cost_scale;
   in[phylloptim::par_R_d_25] = pars.R_d_25;
   in[phylloptim::par_kmax] = conductance_max;
+  in[phylloptim::par_TF24_floor_lambda_o] = pars.TF24_floor_lambda_o;
   // Radiation reaches the leaf through set_physiology's PPFD, which the forward
   // pass already seated; it is not one of the pack's slots.
   (void)radiation;
