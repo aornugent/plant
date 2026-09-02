@@ -78,14 +78,19 @@ S QK::integrate(Function f, const S& a, const S& b) {
                std::to_string(to_passive(center)));
   }
 
-  S result_gauss = 0.0;
+  // The Gauss sum exists only to form the error estimate, which is a last_*
+  // diagnostic -- so it is accumulated at the values, like the other three. DO NOT
+  // make it S: at the active scalar it records a statement per Gauss node whose
+  // row nothing ever reads, because the only thing downstream of it is
+  // to_passive(err). That was 8-11% of this rule's tape.
+  double result_gauss = 0.0;
   S result_kronrod = f_center * wgk[n - 1];
   // The four last_* diagnostics are read by a user, not differentiated, so the
   // absolute and ascending sums are accumulated at the values throughout.
   double result_abs = std::abs(to_passive(result_kronrod));
 
   if (n % 2 == 0) {
-    result_gauss = f_center * wg[n / 2 - 1];
+    result_gauss = to_passive(f_center) * wg[n / 2 - 1];
   }
 
   for (size_t j = 0; j < (n - 1) / 2; j++) {
@@ -96,7 +101,7 @@ S QK::integrate(Function f, const S& a, const S& b) {
     const S fsum = fval1 + fval2;
     fv1[jtw] = to_passive(fval1);
     fv2[jtw] = to_passive(fval2);
-    result_gauss   += wg[j] * fsum;
+    result_gauss   += wg[j] * to_passive(fsum);
     result_kronrod += wgk[jtw] * fsum;
     result_abs     += wgk[jtw] * (std::abs(fv1[jtw]) + std::abs(fv2[jtw]));
   }
@@ -112,8 +117,9 @@ S QK::integrate(Function f, const S& a, const S& b) {
     result_abs     += wgk[jtwm1] * (std::abs(fv1[jtwm1]) + std::abs(fv2[jtwm1]));
   };
 
-  const S mean = result_kronrod * 0.5;
-  const double mean_value = to_passive(mean);
+  // The mean only centres the ascending sum, which is a diagnostic, so it is
+  // taken at the value for the same reason the Gauss sum is.
+  const double mean_value = to_passive(result_kronrod) * 0.5;
 
   double result_asc =
     wgk[n - 1] * std::abs(to_passive(f_center) - mean_value);
@@ -125,7 +131,8 @@ S QK::integrate(Function f, const S& a, const S& b) {
 
   /* scale by the width of the integration region */
 
-  const S err = (result_kronrod - result_gauss) * half_length;
+  const double err =
+    (to_passive(result_kronrod) - result_gauss) * to_passive(half_length);
 
   result_kronrod *= half_length;
   result_abs *= abs_half_length;
@@ -134,7 +141,7 @@ S QK::integrate(Function f, const S& a, const S& b) {
   last_result     = to_passive(result_kronrod);
   last_result_abs = result_abs;
   last_result_asc = result_asc;
-  last_error      = rescale_error(to_passive(err), result_abs, result_asc);
+  last_error      = rescale_error(err, result_abs, result_asc);
 
   if (std::isnan(last_result)) {
     util::stop("Integrand produced NaN result over [" +

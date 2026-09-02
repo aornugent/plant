@@ -1348,7 +1348,15 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       // On a COPY of the leaf: dprofit_droot_collar_psi mutates, and collar_at and
       // outputs_at below still read the leaf's own coefficients. Capped and gated,
       // because it costs a leaf copy and two marginal evaluations apiece.
-      if (std::getenv("PLANT_COMPARE_COLLAR_CURVATURE") != nullptr) {
+      // Read once. getenv walks the environment on every call, and this sits on
+      // every interior placement -- 2.33 million of them on the century stand, for
+      // a flag that is unset in every run that is not chasing this. DO NOT put the
+      // call back inline: the cost is the scan, not the comparison it gates. The
+      // flag is therefore latched at the first interior placement of the process,
+      // so set it before the run rather than between two of them.
+      static const bool compare_curvature =
+          std::getenv("PLANT_COMPARE_COLLAR_CURVATURE") != nullptr;
+      if (compare_curvature) {
         static int shown = 0;
         phylloptim::Leaf probe = leaf;
         const double x = leaf.opt_root_psi_;
@@ -1472,7 +1480,10 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     // same tabulated integral.
     const phylloptim::Leaf::SupplyDraw<S> draw =
         leaf.supply_draw_at<S>(S(leaf.opt_root_psi_), in.supply);
-    const S collar = leaf.collar_at<S>(in, draw);
+    // `slope` is NaN unless the point is interior, which is the one kind that
+    // divides by it -- so this hands over the number the guard above refused on
+    // and leaves every other kind to close on its own condition.
+    const S collar = leaf.collar_at<S>(in, draw, slope);
     got = leaf.outputs_at<S>(collar, in, draw);
   } catch (const std::runtime_error& e) {
     note_leaf_clamps(clamps_before);
