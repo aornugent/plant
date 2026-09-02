@@ -28,13 +28,18 @@ compile_ff16_resident_ad <- function() {
                     "odelia shared library not found for tape linking.")
   withr::local_envvar(
     PKG_CPPFLAGS = paste(paste0("-I", shQuote(plant_inc)),
-                         paste0("-I", shQuote(odelia_inc))),
+                         paste0("-I", shQuote(odelia_inc)),
+                         "-DXAD_NO_THREADLOCAL -DXAD_USE_STRONG_INLINE"),
     PKG_LIBS = shQuote(normalizePath(odelia_so)))
 
   res <- tryCatch({
     Rcpp::sourceCpp(code = '
       #include <Rcpp.h>
       #include <vector>
+      // [[Rcpp::plugins(cpp20)]]
+      // ^ NOT PKG_CPPFLAGS: R places that BEFORE its own -std=,
+      // which then wins, and the odelia headers name concepts.
+      #include <odelia/ode_interface.hpp>
       #include <cmath>
             #include <odelia/interpolator.hpp>
       #include <plant/models/ff16_production_kernel.h>
