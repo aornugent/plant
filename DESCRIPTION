@@ -19,7 +19,7 @@ Depends:
     R (>= 4.5.0)
 Encoding: UTF-8
 License: AGPL (>= 3)
-LinkingTo: Rcpp, BH, odelia (== 0.4.0), phylloptim (== 0.8.0)
+LinkingTo: Rcpp, BH, odelia (== 0.4.0), phylloptim (== 0.9.0)
 Imports:
     Rcpp,
     R6,

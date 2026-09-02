@@ -25,7 +25,7 @@ parity_stand <- function(rain, lifetime, k_I = 0.5, amplitude = 0) {
   env <- ladder_environment(rain, amplitude, lifetime)
   ctrl <- Control()
   ctrl$node_density_in_birth_date <- TRUE
-  scm <- SCM("TF24", "TF24_Env")(p, env, ctrl)
+  scm <- SCM("TF24", "TF24_Env")(p, env, empty_events(), ctrl)
   census_clear_diagnostics_tf24(scm)
   scm$run()
   scm

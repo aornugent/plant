@@ -15,7 +15,7 @@ incidence_run <- function(rain, lifetime, k_I = 0.5) {
   env <- ladder_environment(rain, 0, lifetime)
   ctrl <- Control()
   ctrl$node_density_in_birth_date <- TRUE
-  scm <- SCM("TF24", "TF24_Env")(p, env, ctrl)
+  scm <- SCM("TF24", "TF24_Env")(p, env, empty_events(), ctrl)
   census_clear_diagnostics_tf24(scm)
   scm$run()
   scm

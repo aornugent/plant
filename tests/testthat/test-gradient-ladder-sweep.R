@@ -95,7 +95,7 @@ test_that("a fold refuses every metric, and on this census nothing would be spar
   env <- Environment("TF24")
   env$set_soil_water_state(rep(0.428 * 0.5, 5))
   env$extrinsic_drivers_set_constant("rainfall", 2.0)
-  scm <- SCM("TF24", "TF24_Env")(p, env, ctrl)
+  scm <- SCM("TF24", "TF24_Env")(p, env, empty_events(), ctrl)
   scm$run()
   g <- stand_gradient(scm)
 

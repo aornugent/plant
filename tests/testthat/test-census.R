@@ -76,7 +76,7 @@ solved_stand <- function(lifetime = 20, schedule = NULL) {
   if (!is.null(schedule)) {
     p$node_schedule_times <- schedule
   }
-  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"),
+  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(),
                                  Control(node_density_in_birth_date = TRUE))
   scm$run()
   scm

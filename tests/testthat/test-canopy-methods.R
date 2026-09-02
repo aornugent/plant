@@ -342,7 +342,7 @@ test_that("the light interpolant's knot positions are run-constant", {
   p0 <- scm_base_parameters("TF24", "TF24_Env")
   p0$max_patch_lifetime <- 8
   p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
-  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(), Control())
   scm$collect <- TRUE
   scm$run()
 
@@ -360,7 +360,7 @@ test_that("the light interpolant is a function of the state, not of the build be
   p0 <- scm_base_parameters("TF24", "TF24_Env")
   p0$max_patch_lifetime <- 8
   p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
-  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(), Control())
   scm$run()
 
   ran <- scm$patch
@@ -384,7 +384,7 @@ test_that("the light field carries Beer's law and its derivative at every knot",
   p0 <- scm_base_parameters("TF24", "TF24_Env")
   p0$max_patch_lifetime <- 8
   p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
-  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), Control())
+  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(), Control())
   scm$run()
   patch <- scm$patch
   # Rebuilt at the clock it is read at. On the birth-date coordinate the closing

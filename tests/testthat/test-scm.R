@@ -170,11 +170,11 @@ test_that("A pinned replay of a run's own steps reproduces it", {
     p <- add_strategies(scm_base_parameters(x), traits[[x]])
     env <- Environment(x)
 
-    free <- SCM(x, environment_types[[x]])(p, env, Control())
+    free <- SCM(x, environment_types[[x]])(p, env, empty_events(), Control())
     free$run()
 
     replay <- function(with_sizes) {
-      scm <- SCM(x, environment_types[[x]])(p, env, Control())
+      scm <- SCM(x, environment_types[[x]])(p, env, empty_events(), Control())
       sched <- scm$node_schedule
       sched$all_times <- free$node_schedule$all_times
       sched$set_ode_steps(free$ode_times,
@@ -200,7 +200,7 @@ test_that("A pinned replay of a run's own steps reproduces it", {
 test_that("an ODE schedule is installed whole or refused", {
   p <- scm_base_parameters("FF16")
   p <- add_strategies(p, trait_matrix(0.0825, "lma"))
-  scm <- SCM("FF16", "FF16_Env")(p, Environment("FF16"), Control())
+  scm <- SCM("FF16", "FF16_Env")(p, Environment("FF16"), empty_events(), Control())
   scm$run()
   sched <- scm$node_schedule
 
@@ -402,7 +402,7 @@ test_that("store_trajectory records one state per instruction", {
     e <- environment_types[[x]]
     s <- strategy_types[[x]]()
     p <- Parameters(x, e)(strategies = list(s), patch_area = 1)
-    scm <- SCM(x, e)(p, Environment(x), Control())
+    scm <- SCM(x, e)(p, Environment(x), empty_events(), Control())
 
     ## A short schedule: eight introductions from t = 0 to t = 2.
     sched <- scm$node_schedule
