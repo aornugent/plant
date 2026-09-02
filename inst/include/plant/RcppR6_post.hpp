@@ -1400,6 +1400,7 @@ template <> inline SEXP wrap(const plant::TF24_Pars<double>& x) {
   ret["dmass_dN"] = Rcpp::wrap(x.dmass_dN);
   ret["root_depth_shape_eta"] = Rcpp::wrap(x.root_depth_shape_eta);
   ret["root_c"] = Rcpp::wrap(x.root_c);
+  ret["root_P50"] = Rcpp::wrap(x.root_P50);
   ret["root_b"] = Rcpp::wrap(x.root_b);
   ret["root_psi_crit"] = Rcpp::wrap(x.root_psi_crit);
   ret["rooting_depth_max"] = Rcpp::wrap(x.rooting_depth_max);
@@ -1532,6 +1533,8 @@ template <> inline plant::TF24_Pars<double> as(SEXP x) {
   ret.root_depth_shape_eta = Rcpp::as<double >(xl["root_depth_shape_eta"]);
   // ret.root_c = Rcpp::as<decltype(retroot_c) >(xl["root_c"]);
   ret.root_c = Rcpp::as<double >(xl["root_c"]);
+  // ret.root_P50 = Rcpp::as<decltype(retroot_P50) >(xl["root_P50"]);
+  ret.root_P50 = Rcpp::as<double >(xl["root_P50"]);
   // ret.root_b = Rcpp::as<decltype(retroot_b) >(xl["root_b"]);
   ret.root_b = Rcpp::as<double >(xl["root_b"]);
   // ret.root_psi_crit = Rcpp::as<decltype(retroot_psi_crit) >(xl["root_psi_crit"]);

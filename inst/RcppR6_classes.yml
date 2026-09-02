@@ -1379,6 +1379,12 @@ TF24_Pars:
     - dmass_dN: double
     - root_depth_shape_eta: double
     - root_c: double
+    # ⚠️ THE ROOT CURVE'S TRAIT, and the only one of these three that reaches the
+    # model. root_b and root_psi_crit are DERIVED from it -- the strategy hands
+    # (root_P50, root_c) to the leaf and the leaf re-derives the rest -- so
+    # setting either of those from R changes nothing. stem_P50 is here for the
+    # stem curve and its pair was the same asymmetry.
+    - root_P50: double
     - root_b: double
     - root_psi_crit: double
     - rooting_depth_max: double

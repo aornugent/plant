@@ -1452,7 +1452,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     phylloptim::Leaf probe = leaf;
     bool ok = false;
     const double m = probe.dprofit_at_collar_psi<
-        phylloptim::Leaf::CostCurve::TF24>(leaf.opt_root_psi_, &ok);
+        phylloptim::Leaf::CostCurve::TF24_floor>(leaf.opt_root_psi_, &ok);
     return ok ? m : std::numeric_limits<double>::quiet_NaN();
   };
   double slope = std::numeric_limits<double>::quiet_NaN();
@@ -1460,7 +1460,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   try {
     if (leaf.operating_point_kind() == Leaf::OperatingPointKind::Interior) {
       slope = leaf.template marginal_collar_slope<
-          phylloptim::Leaf::CostCurve::TF24>();
+          phylloptim::Leaf::CostCurve::TF24_floor>();
       // The interior derivation divides by the profit's curvature. At a bound
       // the slope is the bound's own and this floor is not about it.
       note_curvature(slope);
@@ -1535,9 +1535,9 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
     // divides by it -- so this hands over the number the guard above refused on
     // and leaves every other kind to close on its own condition.
     const S collar =
-        leaf.template collar_at<phylloptim::Leaf::CostCurve::TF24, S>(draw, in,
+        leaf.template collar_at<phylloptim::Leaf::CostCurve::TF24_floor, S>(draw, in,
                                                                       slope);
-    got = leaf.template outputs_at<phylloptim::Leaf::CostCurve::TF24, S>(
+    got = leaf.template outputs_at<phylloptim::Leaf::CostCurve::TF24_floor, S>(
         collar, draw, in);
   } catch (const std::runtime_error& e) {
     note_leaf_clamps(clamps_before);
@@ -1616,6 +1616,7 @@ void TF24_Strategy<S>::refresh_indices () {
   aux_idx_transpiration         = this->aux_index.at("transpiration");
   aux_idx_E_up                  = this->aux_index.at("E_up_");
   aux_idx_profit                = this->aux_index.at("profit");
+  aux_idx_shadow_cost           = this->aux_index.at("shadow_cost");
   aux_idx_stom_cond_CO2         = this->aux_index.at("stom_cond_CO2");
   aux_idx_assimilation          = this->aux_index.at("assimilation");
   // area_sapwood is only registered when collect_all_auxiliary is set.
@@ -1735,6 +1736,11 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
   vars.set_aux(aux_idx_transpiration, leaf.transpiration_);
   vars.set_aux(aux_idx_E_up, leaf.E_up_);
   vars.set_aux(aux_idx_profit, leaf.profit_);
+  // ⚠️ THE INDEX WAS DECLARED AND NEVER ASSIGNED, AND THE AUX NEVER WRITTEN, so
+  // shadow_cost reported whatever the slot last held -- zero at the default
+  // price, which is also its correct value there, so nothing could tell the two
+  // apart until a price was set.
+  vars.set_aux(aux_idx_shadow_cost, S(leaf.shadow_cost()));
   vars.set_aux(aux_idx_stom_cond_CO2, leaf.stom_cond_CO2_);
   vars.set_aux(aux_idx_assimilation, leaf.assim_colimited_);
 
@@ -2194,7 +2200,12 @@ template <typename S>
 void TF24_Strategy<S>::solve_leaf() {
   const leaf_solved_point recorded = leaf_points->load();
   if (recorded.kind == Leaf::OperatingPointKind::Unsolved) {
-    leaf.find_root_collar_psi();
+    // ⚠️ THE CURVE-TYPED FORM. find_root_collar_psi() is the TF24 SHORTHAND and
+    // solves TF24 whatever set_model seated, so calling it here would optimise
+    // one curve, differentiate another, and report a shadow price the solve
+    // never paid.
+    leaf.template find_root_collar_psi_for<
+        phylloptim::Leaf::CostCurve::TF24_floor>();
   } else {
     // ⚠️ ONE CALL, because the collar and the arm have to go back together:
     // evaluating at a target restores every number and then tags the point
@@ -2572,6 +2583,14 @@ void TF24_Strategy<S>::prepare_strategy() {
     // Not a constructor argument, and written before any physiology is set, so
     // the temperature block derives R_d_ from it on the first call.
     leaf.R_d_25 = pars.R_d_25;
+    // ⚠️ SEATED ON TF24_floor, WHICH IS TF24 AT lambda_o = 0 -- and exactly, not
+    // approximately: each term is TF24's own expression, so zeroing the price
+    // adds an exact zero to TF24's exact value. The default price IS zero, so no
+    // run moves; what changes is that the price now reaches the model at all.
+    // Without this the parameter is settable and inert, which is the silent
+    // failure the whole (P50, c) reparameterisation was about avoiding.
+    leaf.TF24_floor_lambda_o = pars.TF24_floor_lambda_o;
+    leaf.set_model(phylloptim::Leaf::CostCurve::TF24_floor, true);
   } else {
     static_assert(std::is_same_v<S, double>,
                   "Leaf carries double; an active strategy must supply the leaf's "

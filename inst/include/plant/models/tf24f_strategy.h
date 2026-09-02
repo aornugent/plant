@@ -161,7 +161,9 @@ void TF24f_Strategy<S>::solve_leaf() {
   if (initializing_) {
     // Birth initialisation: run the full optimiser so set_initial_states can
     // read the optimum collar psi.
-    this->leaf.find_root_collar_psi();
+    // The curve-typed form, for the reason TF24_Strategy::solve_leaf gives.
+    this->leaf.template find_root_collar_psi_for<
+        phylloptim::Leaf::CostCurve::TF24_floor>();
     return;
   }
   if (use_ad_gradient) {
@@ -192,7 +194,7 @@ void TF24f_Strategy<S>::solve_leaf() {
     // them per eval (the old four-evaluate_root_collar_psi form) was the ~29%
     // cost over the forward difference.
     double bound_a, bound_b;
-    if (!this->leaf.template prepare_collar_solve<phylloptim::Leaf::CostCurve::TF24>(bound_a, bound_b)) {
+    if (!this->leaf.template prepare_collar_solve<phylloptim::Leaf::CostCurve::TF24_floor>(bound_a, bound_b)) {
       // Operating point fully determined by feasibility handling (shutdown /
       // assim<0 / collapsed interval); no interior interval to perturb in, so the
       // gradient is zero (matching the old form, where every clamped eval
@@ -204,10 +206,10 @@ void TF24f_Strategy<S>::solve_leaf() {
     // `used` is the tracked state clamped into the feasible interval -- the same
     // value the old leading evaluate_root_collar_psi(tracked_root_psi_) produced.
     const double used = std::min(std::max(tracked_root_psi_, bound_a), bound_b);
-    const double p_plus  = this->leaf.template profit_at_collar_psi<phylloptim::Leaf::CostCurve::TF24>(used + h, bound_a, bound_b);
-    const double p_minus = this->leaf.template profit_at_collar_psi<phylloptim::Leaf::CostCurve::TF24>(used - h, bound_a, bound_b);
+    const double p_plus  = this->leaf.template profit_at_collar_psi<phylloptim::Leaf::CostCurve::TF24_floor>(used + h, bound_a, bound_b);
+    const double p_minus = this->leaf.template profit_at_collar_psi<phylloptim::Leaf::CostCurve::TF24_floor>(used - h, bound_a, bound_b);
     dprofit_dpsi_ = (p_plus - p_minus) / (2.0 * h);
-    this->leaf.template profit_at_collar_psi<phylloptim::Leaf::CostCurve::TF24>(used, bound_a, bound_b);  // restore operating point
+    this->leaf.template profit_at_collar_psi<phylloptim::Leaf::CostCurve::TF24_floor>(used, bound_a, bound_b);  // restore operating point
   }
 }
 
