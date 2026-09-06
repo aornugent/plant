@@ -1568,8 +1568,12 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
       into = S(value);
       return;
     }
+    // Named rather than braced: the rows cross as a span, which borrows storage
+    // instead of owning it, so a stack array is what holds them here -- and is
+    // what the span was for, since a braced list built a vector per call.
+    const odelia::input_and_derivative<S> rows[]{{from, 1.0}};
     const odelia::record_report report =
-        odelia::record_with_derivatives<S>(value, {{from, 1.0}}, into);
+        odelia::record_with_derivatives<S>(value, rows, into);
     if (report.whole) {
       return;
     }
