@@ -1216,13 +1216,14 @@ test_that("Leaf() errors on misspelled argument names (issue #377)", {
 # sits on the wet bound instead, where profit is not stationary.
 polish_leaf <- function(psi_soil, height, GSS_tol_abs) {
   theta <- 0.000157; root_c <- 2.65; root_b <- 1.29
-  root_psi_crit <- root_b * (log(1.0 / 0.05))^(1.0 / root_c)
-  l <- Leaf(vcmax_25 = 96, jmax_25 = 96 * 1.64, c = 2.04, b = 3, psi_crit = 5,
-            root_c = root_c, root_b = root_b, root_psi_crit = root_psi_crit,
-            beta2 = 1, a = 0.3, curv_fact_elec_trans = 0.7,
+  stem_c <- 2.04; stem_b <- 3
+  l <- Leaf(vcmax_25 = 96, jmax_25 = 96 * 1.64, stem_c = stem_c,
+            stem_P50 = stem_b * (log(2))^(1 / stem_c),
+            root_c = root_c, root_P50 = root_b * (log(2))^(1 / root_c),
+            TF24_beta2 = 1, a = 0.3, curv_fact_elec_trans = 0.7,
             curv_fact_colim = 0.99, GSS_tol_abs = GSS_tol_abs,
             vulnerability_curve_ncontrol = 100, ci_abs_tol = 1e-6,
-            ci_niter = 1000, g1_TF24 = 46.32995)
+            ci_niter = 1000, TF24_cost_scale = 46.32995)
   n <- length(psi_soil)
   soil_depth <- seq_len(n)
   # Root carbon per unit leaf area, as the boundary requires: the leaf takes the
