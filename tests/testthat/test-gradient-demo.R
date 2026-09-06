@@ -1,10 +1,10 @@
-# Smoke test for the staging reverse-mode gradient demos. Exercises the exact
-# helpers the two vignettes use, so they cannot silently rot.
+# Smoke test for the staging reverse-mode gradient study. Exercises the exact
+# helpers TF24_gradient_tradeoffs.qmd uses, so they cannot silently rot.
 # overstorey_staging/ is .Rbuildignore'd (not installed), so this is dev-only:
 # skip when the helper file is absent (installed/CRAN checks).
 #
 # A short stand on purpose: this is a smoke test of the helpers, not of the
-# model, and the demos run at 30 years.
+# model, and the study runs at 30 years.
 
 helpers_or_skip <- function() {
   skip_on_cran()
@@ -97,19 +97,6 @@ test_that("a trade-off is the elasticity ratio, and an unmoved parameter gives N
   # c moves the metric not at all, so nothing offsets a change in it.
   expect_true(all(is.na(tr[, "1.c"])))
   expect_true(all(is.na(diag(tr))))
-})
-
-test_that("largest lever reports its margin, and the angle is in degrees", {
-  source(helpers_or_skip(), local = TRUE)
-  e <- matrix(c(4, 2, 1), nrow = 1,
-              dimnames = list("m", c("1.a", "1.b", "1.c")))
-  lev <- gd_largest_lever(e, "m")
-  expect_equal(lev$name, "1.a")
-  expect_equal(unname(lev$margin), 2)
-
-  expect_equal(gd_angle(c(1, 0), c(1, 0)), 0)
-  expect_equal(gd_angle(c(1, 0), c(0, 1)), 90)
-  expect_equal(gd_angle(c(1, 0), c(-1, 0)), 180)
 })
 
 test_that("a shared node schedule holds the node set fixed across trait points", {

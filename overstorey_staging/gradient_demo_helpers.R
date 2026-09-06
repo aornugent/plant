@@ -1,4 +1,4 @@
-## Shared driving and interpretation code for the reverse-mode gradient demos.
+## Shared driving and interpretation code for the reverse-mode gradient study.
 ##
 ## Kept out of the .qmd so tests/testthat/test-gradient-demo.R exercises the same
 ## code the documents do. No plotting here.
@@ -6,68 +6,25 @@
 ## Assumes `plant` is loaded (library(plant) or pkgload::load_all()).
 ##
 ## Two of these exist because a raw gradient column is not the number an
-## ecologist means, for two separate reasons, and every demo hits both:
+## ecologist means, for two separate reasons, and the study hits both:
 ##
 ##   gd_elasticity()        a partial derivative carries the units of its
 ##                          parameter, so d(mass)/d(omega) and d(mass)/d(lma) are
 ##                          not comparable and the larger one is usually just the
 ##                          one with the smaller units.
 ##   gd_hyperpar_jacobian() TF24_hyperpar derives k_l, r_l, nmass_l from lma;
-##                          d_I, g1_TF24, k_s, r_s, r_b from rho; a_f3 from
-##                          omega; and c, p_50, b, psi_crit from K_s. The
+##                          d_I, TF24_cost_scale, k_s, r_s, r_b from rho; a_f3
+##                          from omega; and stem_P50, stem_c from K_s. The
 ##                          gradient's `lma` column holds those fixed, so it is
 ##                          the partial and not the trait derivative.
 
-## The trait point the demos vary around. Five of the parameters TF24 carries,
+## The trait point the study varies around. Five of the parameters TF24 carries,
 ## chosen because trait_matrix + TF24_hyperpar drive them and a trait database
 ## reports them.
 gd_traits <- function(...) {
   utils::modifyList(
     list(lma = 0.0825, hmat = 5.13, k_I = 0.5, a_l1 = 5.44, a_l2 = 0.306),
     list(...))
-}
-
-## Seven south-eastern Australian woody species, spanning the wet sclerophyll to
-## cool-temperate-rainforest gradient and the dry sclerophyll end of it. They
-## co-occur across the Victorian Central Highlands, the Otways and Tasmanian wet
-## forests, so the set is an assemblage rather than a list of extremes.
-##
-## ⚠️ THESE ARE REPRESENTATIVE VALUES ASSEMBLED FOR A DEMONSTRATION, not measured
-## data. A study takes them from AusTraits, which is the curated Australian trait
-## database and reports exactly these four for these species. They are here so
-## the demo has recognisable rows; DO NOT cite them.
-##
-## Four traits, because four is what a trait database reports and three of them
-## drive further parameters through TF24_hyperpar:
-##   lma    leaf mass per area   [kg/m2]  -> k_l, r_l, nmass_l
-##   rho    wood density         [kg/m3]  -> d_I, g1_TF24, k_s, r_s, r_b
-##   hmat   height at MATURATION [m]      (not maximum height: a mountain ash
-##                                        first reproduces near 16 m, not 90)
-##   omega  seed mass            [kg]     -> a_f3
-gd_species <- function() {
-  data.frame(
-    species = c("Pomaderris aspera", "Acacia dealbata",
-                "Atherosperma moschatum", "Nothofagus cunninghamii",
-                "Eucalyptus regnans", "Banksia serrata",
-                "Allocasuarina littoralis"),
-    common = c("hazel pomaderris", "silver wattle", "southern sassafras",
-               "myrtle beech", "mountain ash", "old man banksia",
-               "black she-oak"),
-    niche = c("wet-forest understorey", "nitrogen-fixing pioneer",
-              "shade-tolerant subcanopy", "rainforest canopy",
-              "fire-killed obligate seeder", "serotinous sclerophyll",
-              "dry sclerophyll, dense wood"),
-    lma   = c(0.070, 0.090, 0.110, 0.145, 0.130, 0.230, 0.190),
-    rho   = c(450,   550,   500,   620,   480,   650,   800),
-    hmat  = c(4.0,   6.0,   8.0,   12.0,  16.0,  5.0,   5.0),
-    omega = c(3e-7,  1.1e-5, 5e-6, 2e-6,  1.5e-6, 6e-5, 4e-6),
-    stringsAsFactors = FALSE)
-}
-
-## One species' trait vector, ready for gd_point(). The traits the demo does not
-## vary keep their TF24 defaults.
-gd_species_traits <- function(row) {
-  c(lma = row$lma, rho = row$rho, hmat = row$hmat, omega = row$omega)
 }
 
 ## Parameters at a trait point. `traits` is a named numeric vector, or a matrix
@@ -96,7 +53,7 @@ gd_parameters <- function(traits, lifetime = 40, birth_rate = 1.10,
 ## `refine` costs about twice what the gradient does and is what makes the
 ## schedule this point's own. Passing `schedule` and refine = FALSE reuses
 ## another point's, which is cheaper and is a different function -- see the
-## note in the demos on which the workflow wants.
+## note in the study on which the workflow wants.
 gd_point <- function(traits, lifetime = 40, schedule = NULL, refine = TRUE,
                      ctrl = Control(node_density_in_birth_date = TRUE)) {
   p <- gd_parameters(traits, lifetime = lifetime, schedule = schedule)
@@ -208,26 +165,4 @@ gd_tradeoff <- function(elasticity, metric, tol = 1e-8) {
     }
   }
   out
-}
-
-## Which parameter is the largest lever on a metric here, and by how much over
-## the runner-up. The margin is what says whether a boundary in a phase diagram
-## is a real change of regime or two levers swapping inside the noise.
-gd_largest_lever <- function(elasticity, metric) {
-  e <- abs(elasticity[metric, ])
-  e <- e[is.finite(e)]
-  if (!length(e)) return(list(name = NA_character_, margin = NA_real_))
-  o <- order(e, decreasing = TRUE)
-  list(name = names(e)[o[1]],
-       margin = if (length(e) > 1) e[o[1]] / max(e[o[2]], 1e-30) else Inf)
-}
-
-## The angle between two gradients, in degrees, over shared columns. Taken on
-## elasticities: an angle between raw partials is an angle in a space whose axes
-## have different units, which is not a property of the model.
-gd_angle <- function(a, b) {
-  ok <- is.finite(a) & is.finite(b)
-  if (!any(ok)) return(NA_real_)
-  ca <- sum(a[ok] * b[ok]) / sqrt(sum(a[ok]^2) * sum(b[ok]^2))
-  as.numeric(acos(max(-1, min(1, ca))) * 180 / pi)
 }
