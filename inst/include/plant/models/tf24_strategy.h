@@ -296,9 +296,6 @@ struct TF24_Pars {
       PLANT_TF24_AD_PARAMETER(a_st3),
       PLANT_TF24_AD_PARAMETER(k_I),
       PLANT_TF24_AD_PARAMETER(vcmax_25),
-      // Read only by c's and b's default initialisers, so a value set after
-      // construction reaches nothing here; d/dp_50 belongs to whatever computes
-      // c and b, which for a run driven from traits is the R hyperparameters.
       PLANT_TF24_AD_PARAMETER(stem_P50),
       PLANT_TF24_AD_PARAMETER(K_s),
       PLANT_TF24_AD_PARAMETER(stem_c),
