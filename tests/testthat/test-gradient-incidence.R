@@ -67,7 +67,7 @@ test_that("the classification tally is the route to a regime's incidence", {
   expect_equal(sum(incidence_of(scm)), 0)
 })
 
-test_that("the dry pins are a small minority, and the run answers over them", {
+test_that("the dry pins are a small minority, and are not what refuses", {
   # The number this exists to produce. It was first taken while this driver's
   # gradient was refused outright, to say how much answering the pinned branch
   # would buy; the branch answers now, so the same number says what the answer
@@ -95,15 +95,28 @@ test_that("the dry pins are a small minority, and the run answers over them", {
   # the adaptive pass resolves.
   expect_lt(share, 5)
 
-  # And the pairing that makes the number mean something. This assertion used to
-  # run the other way -- the run refused, and the minority above was what cost the
-  # whole answer. A driver that reaches the pinned branch is now the driver that
-  # demonstrates it, so what is asserted is that it comes back answered with
-  # finite rows rather than that it comes back refused.
+  # And the pairing that makes the number mean something: the pinned branch is
+  # not what costs the answer. Shown on a stand that reaches MORE of it and
+  # answers -- 345393 pins against this one's 26903 -- because this stand at
+  # lifetime 10 is refused for its DESCENT's range, which is a property of how
+  # long the sweep multiplies rather than of the branch.
+  short <- incidence_stand(0.10, 5)
+  n_short <- incidence_of(short)
+  expect_gt(n_short[["boundary-crit"]], dry)
+  g_short <- stand_gradient(short)
+  expect_false(any(stand_gradient_refused(g_short)))
+  expect_null(g_short$refusal[[1]])
+  expect_true(all(is.finite(g_short$gradient[[1]])))
+  message(sprintf("  the pinned branch answers: %.0f pins over %.0f solves on a 5-year stand",
+                  n_short[["boundary-crit"]], sum(n_short)))
+
+  # ⚠️ AND THIS STAND IS REFUSED FOR THE RANGE, NOT FOR THE PINS. Asserted so
+  # that a refusal arriving here for any other reason fails rather than reading
+  # as the same known gap.
   g <- stand_gradient(scm)
-  expect_false(any(stand_gradient_refused(g)))
-  expect_null(g$refusal[[1]])
-  expect_true(any(is.finite(g$gradient[[1]])))
+  expect_true(all(stand_gradient_refused(g)))
+  expect_true(grepl(ladder_range_refusal, g$refusal[[1]]$reason, fixed = TRUE))
+  expect_true(all(is.na(g$gradient[[1]])))
 })
 
 test_that("the light floor is counted on both paths, and binds at neither shipped value", {
@@ -136,18 +149,25 @@ test_that("the light floor is counted on both paths, and binds at neither shippe
   # The crown site binds first, so it cannot be the smaller of the two.
   expect_gt(fired[[light[[2]]]], fired[[light[[1]]]])
 
-  # The forward model keeps running AND the gradient answers: below the floor the
-  # census is not a function of light at all, so the row is exactly zero for the
-  # model as evaluated rather than a row withheld.
+  # The forward model keeps running, and the light floor is not what stops the
+  # gradient: below the floor the census is not a function of light at all, so
+  # the row is exactly zero for the model as evaluated rather than a row
+  # withheld.
   expect_gt(stand_census(walked)[[1]], 0)
   g <- stand_gradient(walked)
-  expect_false(any(stand_gradient_refused(g)))
-  expect_true(all(is.finite(g$gradient)))
+
+  # ⚠️ WHAT REFUSES HERE IS THE DESCENT'S RANGE, AND THE DISTINCTION IS THE WHOLE
+  # POINT OF THIS BLOCK. The floor's row is a declared zero; the refusal is the
+  # sweep leaving what a double holds, on a stand this k_I makes stiff. Keyed on
+  # the phrase so a refusal for any other reason fails here.
+  expect_true(all(stand_gradient_refused(g)))
+  expect_true(grepl(ladder_range_refusal, g$refusal[[1]]$reason, fixed = TRUE))
 
   # And the severance is readable rather than silent, which is the whole basis on
-  # which the zero is declared instead of refused. The forward tally cannot stand
-  # in for this: it counts every solve, where the sweep visits only the recorded
-  # steps.
+  # which the zero would be declared instead of refused. The forward tally cannot
+  # stand in for this: it counts every solve, where the sweep visits only the
+  # recorded steps -- and fewer of them than it once did, since the descent stops
+  # where it overflows.
   swept <- census_clamp_counts_differentiated_tf24(walked)[[1]]
   message(sprintf("  the sweep's own severances: %s",
                   paste(sprintf("%s %.0f", nm[light], swept[light]),

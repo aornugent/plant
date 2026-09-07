@@ -1086,18 +1086,36 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_stops,
     // One range per width, highest first, narrowing across each introduction and
     // transposing the map that took it. The solver owns that walk: what is left
     // here is the census the sweep is seeded from.
-    const size_t ranges =
-        solver.solve_adjoint(lambda, trait_adjoint, extra_stops);
-    std::vector<std::vector<double>> at_first_state = lambda.to_rows();
-
-    // Polled again, because the sweep is where most refusals are raised. The two
-    // diagnostics cross to the answer only here, on the one path that has a sweep
-    // to describe -- so a refusal leaves them at their defaults rather than being
-    // cleared back to them.
-    why = recorded_refusal(live);
+    //
+    // ⚠️ CAUGHT BY TYPE, AND NOT BY `runtime_error`. A descent that leaves the
+    // range a double holds is not a bug in the sweep and not a state the model
+    // has no meaning for, and this is the one place that can say so: the numbers
+    // it would otherwise hand back are the overflow's, one per input, with
+    // nothing to distinguish them from an answer. A broader catch here would read
+    // a genuine length mismatch in the walk the same way.
+    //
+    // The refusal names NO SPECIES, and that is the honest grain: what overflowed
+    // is an intermediate of one recording spanning every cohort in every stage,
+    // so nothing finer has a component to attribute it to -- which is why it is
+    // built here rather than recorded on a strategy the way a leaf's is.
+    size_t ranges = 0;
+    try {
+      ranges = solver.solve_adjoint(lambda, trait_adjoint, extra_stops);
+    } catch (const odelia::util::AdjointRangeError& e) {
+      why = refusal{std::string("TF24 gradient: ") + e.what(), -1};
+    }
     if (!why.happened()) {
-      ret.ranges = ranges;
-      ret.at_first_state = std::move(at_first_state);
+      std::vector<std::vector<double>> at_first_state = lambda.to_rows();
+
+      // Polled again, because the sweep is where most refusals are raised. The
+      // two diagnostics cross to the answer only here, on the one path that has
+      // a sweep to describe -- so a refusal leaves them at their defaults rather
+      // than being cleared back to them.
+      why = recorded_refusal(live);
+      if (!why.happened()) {
+        ret.ranges = ranges;
+        ret.at_first_state = std::move(at_first_state);
+      }
     }
   }
 

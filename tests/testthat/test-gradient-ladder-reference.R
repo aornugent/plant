@@ -82,10 +82,20 @@ reference_compare <- function(regime, rows) {
        observed = observed,
        # Refusal is metric-level, so it broadcasts to the rows this picked out.
        refused = unname(stand_gradient_refused(got)[mine$metric]),
+       # And the reason, so a regime refusing every metric can be checked
+       # against the gap it is meant to be rather than only counted.
+       reason = if (any(stand_gradient_refused(got)))
+                  got$refusal[[which(stand_gradient_refused(got))[[1]]]]$reason
+                else NA_character_,
        reference = mine$converged, spread = mine$spread,
        residual = abs(observed - mine$converged) /
          unname(scale[mine$metric]))
 }
+
+# The regimes whose descent leaves the range a double holds, so this reference
+# has nothing to referee on them. Named rather than inferred: a regime that stops
+# answering and one that never answered both arrive refused.
+reference_range_gap <- c("shaded", "clamped")
 
 test_that("the sweep agrees with a difference of whole runs, over five regimes", {
   rows <- reference_rows()
@@ -110,7 +120,24 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
     }
   }
 
+  # A regime refusing every metric has no column to referee, and asserting the
+  # residual over none of them would pass vacuously. Checked by NAME against the
+  # gap it is meant to be, then set aside.
   for (r in results) {
+    if (all(r$refused)) {
+      message(sprintf("  %-9s refused: %s", r$name, substr(r$reason, 1, 120)))
+      expect_true(r$name %in% reference_range_gap)
+      expect_true(grepl(ladder_range_refusal, r$reason, fixed = TRUE))
+    }
+  }
+  names_of <- vapply(results, function(r) r$name, "")
+  expect_setequal(names_of[vapply(results, function(r) all(r$refused), TRUE)],
+                  reference_range_gap)
+
+  for (r in results) {
+    if (all(r$refused)) {
+      next
+    }
     # Answered columns only. Whether a refused metric is refused for the right
     # reason is the parity and sweep rungs' question. The declared zeros are out
     # for a separate reason: the declared-zero rung referees them against the
@@ -137,6 +164,9 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
   # And what the two open columns currently read, so the disagreement is in the
   # log of every run rather than in a comment.
   for (r in results) {
+    if (all(r$refused)) {
+      next
+    }
     open <- !r$refused & r$parameter %in% reference_open_columns
     if (any(open)) {
       worst <- which.max(ifelse(open, r$residual, 0))

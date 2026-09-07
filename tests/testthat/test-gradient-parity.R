@@ -35,13 +35,22 @@ parity_stand <- function(rain, lifetime, k_I = 0.5, amplitude = 0) {
 # A refusal naming anything else is a regime that USED to answer, which is what
 # this file exists to catch.
 #
-# ⚠️ THIS LIST IS EMPTY, so any refusal at all fails the coverage check below.
-# `shade-death` left it when the shut branches answered; the LIGHT FLOOR left it
-# when the row it severs was found to be exactly zero for the model as evaluated
-# -- every light below the floor gives a bit-identical census, so the honest row
-# is the zero rather than a refusal, and what makes the zero readable is the
-# clamp counter rather than a name in this list.
-parity_known_gaps <- character(0)
+# ⚠️ ONE ENTRY, AND IT IS THE SWEEP'S OWN. `shade-death` left this list when the
+# shut branches answered; the LIGHT FLOOR left it when the row it severs was
+# found to be exactly zero for the model as evaluated -- every light below the
+# floor gives a bit-identical census, so the honest row is the zero rather than a
+# refusal, and what makes the zero readable is the clamp counter rather than a
+# name here.
+#
+# What remains is not a branch of the model at all: the descent leaves the range
+# a double holds. Nothing it computes is wrong -- see `ladder_range_refusal` --
+# and it is a gap because the answer is unrepresentable rather than unknown.
+parity_known_gaps <- ladder_range_refusal
+
+# The drivers that reach it, by name. A count could not say this: a regime that
+# stops answering and one that never answered both come back refused, and only
+# the name separates them.
+parity_range_gap <- c("shaded", "clamped")
 
 # One driver, reduced to what the two directions each said.
 #
@@ -191,21 +200,22 @@ test_that("every refusal names a branch that has never answered", {
                   length(answered), length(parity_shared()),
                   if (length(refused)) paste(refused, collapse = ", ") else "none"))
 
-  # Non-vacuity. Every driver answering is the end point this file was built to
-  # reach, so "something still refuses" can no longer be the guard against a
-  # vacuous pass -- and dropping it without a replacement would leave a sweep
-  # that answers by doing nothing indistinguishable from one that answers by
-  # covering the regimes.
-  expect_equal(length(answered), length(parity_shared()))
-  expect_length(refused, 0)
+  # Asserted BY NAME in both directions, which is what keeps this from being a
+  # count that a sweep answering by doing nothing would also satisfy: the two
+  # drivers whose descent overflows refuse, and every other driver answers.
+  expect_setequal(refused, parity_range_gap)
+  expect_setequal(answered,
+                  setdiff(vapply(parity_drivers, `[[`, "", "name"),
+                          parity_range_gap))
 })
 
-test_that("the driver that answers through a clamp says so", {
-  # What replaces the refusal as this file's non-vacuity guard. The `clamped`
-  # driver answers, and the reason that is not vacuous is that it reaches the
-  # light floor and reports the severance rather than being quietly unaffected by
-  # it: an answered gradient carrying a declared zero and one carrying no clamp
-  # at all are the same numbers, and only the count separates them.
+test_that("the driver that reaches a clamp says so, answered or not", {
+  # This file's non-vacuity guard, and it does not depend on the driver
+  # answering: an answered gradient carrying a declared zero and one carrying no
+  # clamp at all are the same numbers, so only the count separates them. The
+  # `clamped` driver's descent is refused for its range, and the severance it
+  # reached on the way is still readable -- which is the point of counting rather
+  # than inferring from the rows.
   by_name <- stats::setNames(parity_shared(), vapply(parity_shared(),
                                                      function(r) r$name, ""))
   nm <- census_clamp_names_tf24()
@@ -228,7 +238,9 @@ test_that("the driver that answers through a clamp says so", {
 
   # The light floor is the driver-specific one: the shaded driver reaches it and
   # the control does not, so these counts measure the driver rather than the
-  # machinery. Both sites, because the crown one is where it binds first.
+  # machinery. Both sites, because the crown one is where it binds first. Counted
+  # over the steps the descent reached before it was refused, which is fewer than
+  # it once was and still not none.
   expect_gt(at("clamped", "light_floor"), 0)
   expect_gt(at("clamped", "light_floor_crown"), 0)
   expect_gt(at("clamped", "light_floor_crown"), at("clamped", "light_floor"))

@@ -1122,6 +1122,21 @@ ladder_block_scale <- function(x) {
 
 # ---- tolerance and margin ---------------------------------------------------
 
+# The phrase the SWEEP's own refusal carries, as distinct from every refusal the
+# leaf raises.
+#
+# A descent is a product of step Jacobians and has no error control, so it can
+# pass far outside the range of the answer it returns and come back: on the
+# drought stand it reaches 4.99978e+281 and contracts to 3.69e+46 one range
+# later, for a gradient of order 1e+03. A driver that answers does so with
+# margin, and one that overflows is refused rather than handed the overflow's
+# numbers.
+#
+# ⚠️ ONE STRING, because three files key on it -- the parity gate's known-gap
+# list, the incidence file's two regimes, and the reference's per-regime skip.
+# Three copies would let a change to the message pass two of them.
+ladder_range_refusal <- "left the representable range"
+
 # The fixture's own arithmetic floor: how far apart two evaluations of the same
 # forward quantity land when the shared solver has been driven elsewhere in
 # between. Every tolerance is a multiple of this rather than a literal, so a
