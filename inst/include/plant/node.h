@@ -203,7 +203,12 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
 
   const value_type pr_estab =
     individual.establishment_probability_of_newborn(environment);
-  individual.set_state("mortality", -log(pr_estab));
+  // Held at establishment_failure_hazard on the zero arm rather than at the
+  // -log(0) the equation gives; see the constant for what an infinite state
+  // costs the reverse pass.
+  individual.set_state("mortality",
+                       pr_estab > 0 ? -log(pr_estab)
+                                    : value_type(establishment_failure_hazard));
   // The birth-date axis of the node about to be introduced; Patch re-stamps
   // this with the exact introduction time as the node is pushed.
   node_introduction_time = environment.time;
@@ -230,14 +235,22 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   // node contributes to comes back non-finite. Only exp(log_density) is read
   // downstream, and it is continuous in both value and derivative here, so the
   // constructed constant is the same number carrying the zero the density has.
-  set_log_density(density_at_birth > 0 ? log(density_at_birth)
-                                       : value_type(log(0.0)));
+  //
+  // ⚠️ AND THAT CONSTANT IS FINITE, for the reason the hazard's is: -Inf is a
+  // STATE the patch carries for the rest of its life, and one no row can attach
+  // to. `exp(-establishment_failure_hazard)` is exactly zero, so the density this
+  // node contributes is the one log(0) gave it.
+  set_log_density(density_at_birth > 0
+                      ? log(density_at_birth)
+                      : value_type(-establishment_failure_hazard));
 
-  // Need to check that the rates are valid after setting the
-  // mortality value here (can go to -Inf and that requires squashing
-  // the rate to zero).
-  if (!util::is_finite(log_density)) {
-    // Can do this at the same time that we do set_log_density, I think.
+  // A node with no density has no rate to carry along the characteristic.
+  //
+  // ⚠️ TESTED ON THE DENSITY, NOT ON ITS LOG'S FINITENESS. Both say the same
+  // thing while log(0) is -Inf and only one still does once that constant is
+  // finite -- and compute_rates() above ran before the hazard was seated, so
+  // what it left in log_density_dt is a rate taken at the previous mortality.
+  if (!util::is_finite(log_density) || !(density > 0)) {
     log_density_dt = 0.0;
   }
   // NOTE: It's *possible* here that we need to set

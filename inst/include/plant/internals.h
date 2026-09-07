@@ -16,6 +16,30 @@ inline constexpr int HEIGHT_INDEX = 0;
 inline constexpr int MORTALITY_INDEX = 1;
 inline constexpr int FECUNDITY_INDEX = 2;
 
+// The cumulative hazard at which a cohort is held: dead with probability one,
+// its rate parked, and its state still a number.
+//
+// ⚠️ NEVER PUT A NON-FINITE NUMBER IN AN ODE STATE. `-log(pr_estab)` at an
+// establishment probability of exactly zero gives +Inf, and Patch's own
+// check_finite_ode_state does not look at this slot -- it tests the cohort
+// DENSITY, which is `exp(log_density)` and so a finite zero, and the
+// environment's states. Every reader of the hazard is guarded, so a run that
+// meets one is correct and silent, and the recorded trajectory it hands the
+// reverse sweep carries an entry no derivative can attach to: every census
+// metric comes back not-a-number with no refusal declared, which is the one
+// failure the gradient's contract forbids. Measured on a k_I = 20 stand: 9 of
+// 88 nodes, from t = 1.5, in 9545 of 11722 recorded steps.
+//
+// 750 rather than a rounder number because `exp(-x)` is exactly zero past
+// 745.14, so survival_individual() and mortality_probability() read the numbers
+// +Inf gave them.
+//
+// ⚠️ EVERY `mortality_dt` MUST TEST THIS BESIDE `is_finite`, and all three do.
+// That test is what stops a held cohort's state moving again; keyed on
+// finiteness alone a finite hazard passes it, the rate returns, and the run is
+// no longer the one +Inf produced.
+inline constexpr double establishment_failure_hazard = 750.0;
+
 // The scalar S carries the state, its rates, the auxiliary quantities derived
 // from them, and the consumption rates. The consumption rates are five of the
 // eleven rate outputs a reverse pass seeds an adjoint on, so storing them at

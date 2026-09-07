@@ -132,10 +132,15 @@ double K93_Strategy::fecundity_dt(double size,
 // [eqn 11] Mortality
 double K93_Strategy::mortality_dt(double cumulative_basal_area,
                                   double cumulative_mortality) const {
-  // If mortality probability is 1 (latency = Inf) then the rate
-  // calculations break.  Setting them to zero gives the correct
-  // behaviour.
-  if (util::is_finite(cumulative_mortality)) {
+  // Mortality probability is 1 past either test, so the rate calculations have
+  // nothing left to describe and the state does not move again.
+  //
+  // ⚠️ THE CEILING IS TESTED BESIDE FINITENESS, and the pair must not be reduced
+  // back to one test. compute_initial_conditions holds an unestablished
+  // recruit's hazard at establishment_failure_hazard rather than at the +Inf
+  // -log(0) gives, so this is the test that keeps such a cohort's rate parked.
+  if (util::is_finite(cumulative_mortality) &&
+      cumulative_mortality < establishment_failure_hazard) {
     double mu = -pars.c_0 + pars.c_1 * cumulative_basal_area;
     return (mu > 0)? mu:0.0;
  } else {

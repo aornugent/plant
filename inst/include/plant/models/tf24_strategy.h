@@ -2387,14 +2387,21 @@ S TF24_Strategy<S>::mortality_dt(const S& relative_reserves,
   // r = S/S_max (in [0,1]) rather than instantaneous productivity, so the rate
   // is bounded (see mortality_storage_dependent_dt): death becomes gradual as
   // reserves deplete instead of spiking to ~1e32 under carbon deficit (#550).
-  if (util::is_finite(cumulative_mortality)) {
+  // ⚠️ THE TEST IS THE CEILING, NOT FINITENESS, and the two must not be swapped
+  // back. A cohort held at establishment_failure_hazard has survival exactly
+  // zero, so parking its rate there is the same statement `!is_finite` used to
+  // make -- and keeping the rate parked is what makes a finite hazard
+  // bit-identical to the +Inf it replaces, in the state, in the rate and so in
+  // the step the controller chooses. Finiteness is still tested, because a
+  // hazard that arrives non-finite by any other route must park too.
+  if (util::is_finite(cumulative_mortality) &&
+      cumulative_mortality < establishment_failure_hazard) {
     return
       mortality_growth_independent_dt() +
       mortality_storage_dependent_dt(relative_reserves);
  } else {
-    // If mortality probability is 1 (latency = Inf) then the rate
-    // calculations break.  Setting them to zero gives the correct
-    // behaviour.
+    // Mortality probability is 1, so the rate calculations have nothing left to
+    // describe and the state does not move again.
     return 0.0;
   }
 }

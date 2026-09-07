@@ -463,14 +463,19 @@ double FF16_Strategy::mortality_dt(double productivity_area,
   // levels and the rate of change won't matter.  It is possible that
   // we will need to trim this to some large finite value, but for
   // now, just checking that the actual mortality rate is finite.
-  if (util::is_finite(cumulative_mortality)) {
+  // ⚠️ THE CEILING IS TESTED BESIDE FINITENESS, and the pair must not be
+  // reduced back to one test. compute_initial_conditions holds an unestablished
+  // recruit's hazard at establishment_failure_hazard rather than at the +Inf
+  // -log(0) gives, so this is the test that keeps such a cohort's rate parked --
+  // which is what makes the finite hazard bit-identical to the infinite one.
+  if (util::is_finite(cumulative_mortality) &&
+      cumulative_mortality < establishment_failure_hazard) {
     return
       mortality_growth_independent_dt() +
       mortality_growth_dependent_dt(productivity_area);
  } else {
-    // If mortality probability is 1 (latency = Inf) then the rate
-    // calculations break.  Setting them to zero gives the correct
-    // behaviour.
+    // Mortality probability is 1, so the rate calculations have nothing left to
+    // describe and the state does not move again.
     return 0.0;
   }
 }

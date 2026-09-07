@@ -44,11 +44,17 @@ parity_stand <- function(rain, lifetime, k_I = 0.5, amplitude = 0) {
 parity_known_gaps <- character(0)
 
 # One driver, reduced to what the two directions each said.
+#
+# The trajectory is read AFTER the sweep and costs nothing: stand_gradient's own
+# store_trajectory() has already kept it, where reading it first would run the
+# model twice. Counted rather than carried -- one driver's states are 67 MB.
 parity_of <- function(scm) {
   g <- stand_gradient(scm)
   refused_metric <- stand_gradient_refused(g)
   counts <- census_operating_point_counts_tf24(scm)[[1]]
   names(counts) <- census_operating_point_names_tf24()
+  rec <- scm$store_trajectory()
+  unrowed <- vapply(rec, function(r) sum(!is.finite(r$state)), 0)
   list(refused_metric = refused_metric, gradient = g,
        refused = any(refused_metric),
        reason = if (is.null(g$refusal[[1]])) NA_character_ else g$refusal[[1]]$reason,
@@ -57,7 +63,10 @@ parity_of <- function(scm) {
        # forward run's -- the two differ, and the forward one cannot say whether
        # a gradient carries a declared zero.
        clamp = census_clamp_counts_differentiated_tf24(scm)[[1]],
-       kinds = counts[counts > 0])
+       kinds = counts[counts > 0],
+       records = length(rec),
+       unrowed_records = sum(unrowed > 0),
+       unrowed_worst = max(unrowed))
 }
 
 parity_drivers <- list(
@@ -255,4 +264,27 @@ test_that("each driver reaches the branch it is here for", {
   # the gradient was first built for, which is what makes it the one fixture a
   # regression shows up against cleanly.
   expect_equal(unname(reach("wet", "interior")), unname(sum(by_name[["wet"]]$kinds)))
+})
+
+test_that("no state the sweep replays is one a row cannot attach to", {
+  # ⚠️ AN INFINITE STATE ENTRY IS NOT A FORWARD PROBLEM AND IS ALWAYS A REVERSE
+  # ONE. Every reader of the cumulative hazard either tests is_finite or reads
+  # exp(-mortality), so a run that parks one at +Inf completes with plausible
+  # numbers and records a trajectory the sweep then replays; the gradient comes
+  # back not-a-number for every metric with no refusal declared, which the gate
+  # above cannot see because there is nothing to name. The introduction condition
+  # was the source: -log(pr_estab) at an establishment probability of exactly
+  # zero, which the shaded and clamped drivers reach and the other three do not.
+  #
+  # Asserted over the recorded states rather than over the gradient, because the
+  # gradient is one number per column and says nothing about which state carried
+  # it.
+  for (r in parity_shared()) {
+    message(sprintf("  %-9s %d records, %d carrying a state no row attaches to",
+                    r$name, r$records, r$unrowed_records))
+    expect_equal(r$unrowed_records, 0,
+                 label = paste0(r$name, ": ", r$unrowed_records, " of ",
+                                r$records, " recorded states carry up to ",
+                                r$unrowed_worst, " non-finite entries"))
+  }
 })

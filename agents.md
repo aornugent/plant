@@ -641,6 +641,20 @@ repo's README for how it renders, freezes (`_freeze/`), and version-pins posts.
   The one deliberate asymmetry: `TF24_Pars` exposes `root_b` (the Weibull scale)
   where phylloptim takes `root_P50` (the quantile), so `prepare_strategy()`
   converts — those are different quantities, not a naming mismatch.
+- ⚠️ **NEVER PUT A NON-FINITE NUMBER IN AN ODE STATE, and do not read
+  `check_finite_ode_state` as protection against one.** It tests the cohort
+  DENSITY (`exp(log_density)`, so `-Inf` passes as a finite zero) and the
+  environment's own states; the six slots `Strategy::state_names()` declares and
+  the node's two extras are not looked at. A `+Inf` hazard from `-log(0)` at an
+  establishment probability of exactly zero therefore ran for years: every reader
+  is guarded (`is_finite` tests, or `exp(-mortality)`, which is zero either way),
+  so the forward model is right and silent, while the recorded trajectory the
+  reverse sweep replays carries an entry no row can attach to and **every census
+  metric comes back not-a-number with no refusal declared** — which the parity
+  gate cannot see, because there is nothing to name. Where a sentinel is wanted,
+  pick a finite one whose consumers read the same numbers: `establishment_failure_hazard`
+  is 750 because `exp(-x)` is exactly zero past 745.14. `test-gradient-parity.R`
+  asserts every recorded state is finite on all five drivers.
 - ⚠️ **`phylloptim` and `odelia` are pinned with `==` in `LinkingTo`, deliberately.**
   Both are compiled into plant and plant's baselines are bit-exact, so a `>=`
   bound lets a later upstream release change plant's arithmetic with no local
