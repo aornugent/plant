@@ -247,8 +247,8 @@ test_that("each driver reaches the branch it is here for", {
     k <- by_name[[nm]]$kinds
     if (is.na(k[kind])) 0 else k[[kind]]
   }
-  expect_gt(reach("drought", "pinned-dry-root-crit"), 0)
-  expect_gt(reach("seasonal", "pinned-dry-root-crit"), 0)
+  expect_gt(reach("drought", "boundary-crit"), 0)
+  expect_gt(reach("seasonal", "boundary-crit"), 0)
   expect_gt(reach("shaded", "shade-death"), 0)
   expect_gt(reach("clamped", "shade-death"), 0)
   # And the control has to be a control: the wet driver never leaves the branch

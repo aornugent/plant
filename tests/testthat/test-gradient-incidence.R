@@ -76,20 +76,21 @@ test_that("the dry pins are a small minority, and the run answers over them", {
   scm <- incidence_stand(0.25, 10)
   n <- incidence_of(scm)
   total <- sum(n)
-  dry <- n[["pinned-dry-root-crit"]] + n[["pinned-dry-root-psi-crit"]]
+  dry <- n[["boundary-crit"]] + n[["boundary-root-crit"]]
   expect_gt(dry, 0)
   expect_gt(n[["interior"]], dry)
 
   # Which arm bound is not a detail: the two are different functions of the
   # inputs, so the row a pinned point needs depends on it. At shipped defaults
   # the root's own critical potential never wins the min, which is why a fixture
-  # for that arm has to lower it deliberately rather than wait for one.
-  expect_equal(n[["pinned-dry-root-psi-crit"]], 0)
-  expect_gt(n[["pinned-dry-root-crit"]], 0)
+  # for that arm has to lower it deliberately rather than wait for one --
+  # phylloptim's `test_the_dry_end_reports_which_bound_closed_it` is that fixture.
+  expect_equal(n[["boundary-root-crit"]], 0)
+  expect_gt(n[["boundary-crit"]], 0)
 
   share <- 100 * dry / total
   message(sprintf("  dry pins: %.0f of %.0f solves (%.2f%%), all on the %s arm",
-                  dry, total, share, "root-crit"))
+                  dry, total, share, "continuity-root"))
   # Stated as a band rather than a value: the exact count moves with the schedule
   # the adaptive pass resolves.
   expect_lt(share, 5)
