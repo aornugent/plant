@@ -1408,9 +1408,12 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
   in[phylloptim::par_R_d_25] = pars.R_d_25;
   in[phylloptim::par_kmax] = conductance_max;
   in[phylloptim::par_TF24_floor_lambda_o] = pars.TF24_floor_lambda_o;
-  // Radiation reaches the leaf through set_physiology's PPFD, which the forward
-  // pass already seated; it is not one of the pack's slots.
-  (void)radiation;
+  // The light this cohort stands in, and the one route every other cohort's
+  // height and leaf area have into its carbon: the electron transport reads
+  // this slot. Its VALUE is already seated -- optimise_at strips the same
+  // number to passive for the leaf -- so what this line adds is the row, on
+  // exactly the footing `kmax` is on.
+  in[phylloptim::par_PPFD] = radiation;
 
   std::vector<S> r_R_H_min, r_R_V_sum;
   // Carbon becomes resistance HERE, at this scalar, because the architecture
@@ -2052,13 +2055,16 @@ S TF24_Strategy<S>::net_mass_production_dt(const TF24_Environment<S>& environmen
   // the radiation argument varies between calls; every other input is
   // depth-independent and already computed above.
   //
-  // Leaf carries double, so an active strategy hands it the values of its
-  // inputs and reads its outputs back as constants: d(rates)/d(leaf inputs) is
-  // exactly zero here, until the leaf's local Jacobian is injected across this
-  // same boundary. Each leaf output enters the active chain at one place -- the
-  // aux stores and leaf.profit_ in net_mass_production_dt, and
-  // leaf.soil_consumption_ in evapotranspiration_dt -- so a partial attaches to
-  // one expression per output.
+  // Leaf solves at double, so an active strategy hands it the VALUES of its
+  // inputs -- radiation, the soil potentials and the conductance are all
+  // stripped below -- and record_leaf_outputs puts the rows back on afterwards,
+  // by asking the leaf for its own derivatives at the point this solve placed.
+  // So the active input has to OUTLIVE the call, which is what `radiation_used`
+  // is for: the leaf is handed only its value and cannot give it back. Each leaf
+  // output enters the active chain at one place -- the aux stores and
+  // leaf.profit_ in net_mass_production_dt, and leaf.soil_consumption_ in
+  // evapotranspiration_dt -- so a partial attaches to one expression per
+  // output.
   S radiation_used = 0.0;
   auto optimise_at = [&](const S& radiation) -> void {
     radiation_used = radiation;
