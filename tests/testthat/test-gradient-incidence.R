@@ -309,13 +309,22 @@ test_that("phylloptim's root-vulnerability clamps stay out of reach, with a marg
     scm <- incidence_stand(d$rain, 5)
     e <- scm$patch$environment
     nlayer <- e$get_soil_number_of_depths()
+    # ⚠️ THE TRAILING SLOT COUNT IS ASKED FOR, NOT COUNTED. The environment's
+    # block is the soil layers followed by its cumulative-flux accumulators, and
+    # a window written as `n - 4` skipped four where there are five: at the FIRST
+    # recorded state, where the whole vector is the environment's ten entries, it
+    # read the first accumulator as the deepest layer's moisture. That slot is
+    # exactly 0, `psi_from_soil_moist(0)` returns the 1000 MPa dry cap, and both
+    # bounds below then fail on a number no layer ever held -- the worst real
+    # potential over these three drivers is 3.88 MPa.
+    n_aux <- length(e$get_soil_water_state_cumulative_flux())
     # Over the RECORDED steps, which is the set the sweep visits -- a terminal
     # reading misses a layer that dried and rewetted, and those are the states the
     # clamp would bind in.
     for (r in scm$store_trajectory()) {
       s <- r$state
       n <- length(s)
-      theta <- s[(n - 3 - nlayer):(n - 4)]
+      theta <- s[(n - nlayer - n_aux + 1):(n - n_aux)]
       if (length(theta) != nlayer || any(!is.finite(theta))) next
       psi <- vapply(theta, function(x) e$psi_from_soil_moist(x), numeric(1))
       if (any(!is.finite(psi))) next
