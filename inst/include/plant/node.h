@@ -180,6 +180,18 @@ void Node<T,E>::compute_rates(const environment_type& environment,
   // recording reaches through this same call, so the recording and this path
   // cannot disagree about which coordinate they are on.
   log_density_dt = individual.log_density_rate(environment);
+  // ⚠️ A COHORT WITH NO DENSITY HAS NO LOG-DENSITY TRAJECTORY, and this guard is
+  // what says so. compute_initial_conditions applies it once at birth; on the
+  // HEIGHT coordinate `log_density_rate` is `-d(growth)/d(height) - mortality`,
+  // which is non-zero for a dead cohort, so without it here the rate comes back
+  // on the next evaluation and the density DRIFTS OFF ITS FLOOR:
+  // exp(-establishment_failure_hazard) is exactly zero, but integrating a
+  // positive rate up to -700 reaches 1e-305, which is a cohort that does not
+  // exist acquiring a density. The -Inf this sentinel replaced could not drift,
+  // so a finite one needs saying explicitly.
+  if (!(density > 0.0)) {
+    log_density_dt = 0.0;
+  }
   offspring_produced_survival_weighted_dt =
     individual.rate(FECUNDITY_INDEX) * survival_individual() *
     pr_patch_survival / pr_patch_survival_at_birth;
