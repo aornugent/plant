@@ -1,9 +1,9 @@
-# Rung 4's column-by-column referee: the sweep against a forward tangent of the
+# The column-by-column referee: the sweep against a forward tangent of the
 # same trajectory, one column at a time.
 #
-# Split from the rest of rung 4 because it is the expensive half -- a tangent column
+# Split from the rest of the two-species checks because it is the expensive half -- a tangent column
 # is 4.8 s and this asks for twenty-two of them -- and because the claim is
-# different in kind. The rest of rung 4 asks whether accumulation across cohorts and
+# different in kind. Those ask whether accumulation across cohorts and
 # species is right; this asks whether each column agrees with an independent
 # derivative of the same run, which is the contraction the whole rung rests on.
 

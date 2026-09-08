@@ -1,11 +1,11 @@
-# Rung 4: two species, two cohorts each, over a trajectory.
+# Two species, two cohorts each, over a trajectory.
 #
 # Two species with one cohort each catch a reduction sum that collapses the
 # species and not per-species accumulation; two cohorts of one species catch the
 # accumulation and not the collapse. Four nodes catch both and are still small
 # enough to reason about by hand.
 #
-# New over rung 3: the stage recursion, step-size handling, accumulation across
+# New over the one-cohort fixture: the stage recursion, step-size handling, accumulation across
 # cohorts and species, and record-once-sweep-many.
 #
 # Here the Jacobian can no longer be formed, so the contraction returns -- with

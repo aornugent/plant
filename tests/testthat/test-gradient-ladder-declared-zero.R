@@ -111,7 +111,7 @@ test_that("the seed's geometry row is refereed against a rebuilt strategy", {
   # against the condition it claims to solve, by rebuilding the strategy at a
   # perturbed parameter and finding the root again.
   #
-  # rung 5 prices the same claim for two parameters through a whole rate
+  # The introductions file prices the same claim for two parameters through a whole rate
   # evaluation. This one has no patch, no environment and no rates on the path,
   # so a disagreement localises to the recording rather than to anything after it.
   patch <- ladder_patch_one()

@@ -930,9 +930,11 @@ ladder_field_borne_parameters <- function() c("k_I")
 # the difference comes back EXACTLY zero -- not small, zero -- whether the sweep's
 # row is right, wrong or absent. The same shape as a supplied row one level down.
 #
-# Their referee is the leaf's own algebra at one solved operating point, which is
-# rung 1 and is not built. Until it is, these columns are unrefereed by anything,
-# and that is a wider gap than the soil channel the tangent misses.
+# Their referee is the forward model rebuilt from its parameters, in
+# `test-gradient-ladder-factorisation.R`, which loops over exactly this set. A
+# rebuild runs preparation, so the leaf is CONSTRUCTED with the moved trait
+# rather than handed it afterwards, and it reaches these columns because the
+# reference used everywhere else is silent on them.
 ladder_leaf_own_traits <- function() {
   # ⚠️ Maintained, not derived, and nothing structural keeps it current: a trait
   # whose row becomes supplied joins the set this asserts and has to be added
@@ -1232,7 +1234,7 @@ ladder_sweep_blocked <- function(stand) {
 # A fixture the model REFUSES and a model that is broken are different events, and
 # these gates must not report both as a skip: a sweep that started throwing would
 # turn the trajectory tier quiet rather than red. Measured: a deliberately wrong
-# narrow() made rung 5 skip six times and fail none.
+# narrow() made the introductions checks skip six times and fail none.
 #
 # A refusal is something the model declares, in words it chose. Anything else is
 # the failure it is, and is re-raised.
@@ -1393,7 +1395,7 @@ ladder_reproductive_rates <- function() {
 # two levels carry different declared lists.
 #
 # The other half of the claim is asserted where it can be: the floor's census
-# classification puts all three in the live class, and rung 5's single-channel
+# classification puts all three in the live class, and the introductions file's single-channel
 # probes take a_st3 and recruitment_decay by name.
 ladder_zero_outside_the_cohort_block <- function() {
   c("a_d0", "a_st3", "recruitment_decay")

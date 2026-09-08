@@ -1,7 +1,7 @@
 # The inflow boundary measured rather than described: what a marginal recruit's
 # gradient does in the limit, and how many times the boundary's own row enters.
 #
-# Split from the rest of rung 5 because both drive their own fixtures. The recruit
+# Split from the introductions checks because both drive their own fixtures. The recruit
 # checks sweep one stand per establishment scale and the count check sweeps two run
 # lengths, so neither can take the shared sweep the other rung-5 checks read, and
 # keeping them here leaves that file free to share one.

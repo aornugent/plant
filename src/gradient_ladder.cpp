@@ -1,8 +1,35 @@
 #include <limits>
 #include <plant.h>
 
-// The ladder's references for the census gradient, and the instrumentation
+// The references the census gradient is checked against, and the instrumentation
 // that reports how a run was cut and what regimes it met.
+//
+// ⚠️ THIS COMPILES INTO THE SHIPPED LIBRARY, DELIBERATELY, AND THE ALTERNATIVE IS
+// NOT AVAILABLE. Nothing outside `tests/testthat/test-gradient-*.R` calls any of
+// it, so the obvious move is to put it behind a macro the test runner defines.
+// That does not work here: an `[[Rcpp::export]]` reaches R through the generated
+// `src/RcppExports.cpp`, which `Rcpp::compileAttributes()` rewrites whole and
+// unconditionally. A guard here without a matching guard there is an undefined
+// symbol at link time, and a guard there is lost on the next regeneration.
+//
+// What bounds the cost instead: these entry points are absent from `NAMESPACE`,
+// so they are not part of the package's R interface and are reachable only as
+// `plant:::`. They are twenty-three of the 1,171 exports the generated file
+// already carries. And `test_gradient_fd1`, `test_gradient_richardson` and
+// `test_uniroot` establish that a test-only export living here is this package's
+// existing convention rather than a new concession.
+//
+// ⚠️ THE PREFIX DOES NOT PARTITION THEM, AND IT SHOULD. Of the thirty-three
+// entry points here, twenty-three are prefixed `ladder_` and ten are prefixed
+// `census_` -- which is the prefix the shipped product uses, so nothing in the
+// name separates `census_curvature_margin_tf24`, which only a test calls, from
+// `census_trait_gradient_tf24`, which is the product. Verified: none of the ten
+// is called from anywhere under `R/` other than the generated bindings.
+//
+// They are not renamed because five of them are named in `NEWS.md` with
+// migration lines, so a rename would contradict a published note to fix a
+// naming inconsistency. Whoever next revises that section should rename them in
+// the same change.
 
 // The references the gradient is checked against, and the two objects they are
 // checked at. The two objects referee different claims, and reading them as one

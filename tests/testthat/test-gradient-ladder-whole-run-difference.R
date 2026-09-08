@@ -140,7 +140,7 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
     }
     # Answered columns only. Whether a refused metric is refused for the right
     # reason is the parity and sweep rungs' question. The declared zeros are out
-    # for a separate reason: the declared-zero rung referees them against the
+    # for a separate reason: the declared-zero file referees them against the
     # model's own claim, and a relative residual has nothing to say about a
     # column that is exactly zero against a difference that is merely small.
     live <- !r$refused &

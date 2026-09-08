@@ -1,4 +1,4 @@
-# Rung 3: one cohort, and the Jacobian formed entirely.
+# One cohort, and the Jacobian formed entirely.
 #
 # Use the strongest referee the size permits, and the size permits an exhaustive
 # one exactly once -- here, at the bottom. Nothing above this is small enough to
@@ -496,8 +496,8 @@ test_that("the trait rows a difference can reach agree with one", {
   # the strategy was prepared, and a rate evaluation does not push them back in.
   # So the difference is EXACTLY zero there whether the sweep's row is right,
   # wrong or absent -- the same shape as a recorded row one level down. Their
-  # referee is the leaf's own algebra at a solved operating point, which is rung 1
-  # and is not built, so those columns are unrefereed by anything.
+  # referee is the forward model rebuilt from its parameters, which
+  # `test-gradient-ladder-factorisation.R` applies to exactly this set of traits.
   patch <- ladder_patch_two_by_two(cross = FALSE)
   ladder_block_or_skip(patch)
 

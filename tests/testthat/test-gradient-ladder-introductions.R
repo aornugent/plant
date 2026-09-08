@@ -1,4 +1,4 @@
-# Rung 5: introductions, where the state changes dimension.
+# Introductions, where the state changes dimension.
 #
 # The minimum fixture is two species and three introductions in the order
 # species 1, species 2, species 1 -- four ranges, with the node stride
@@ -142,7 +142,7 @@ test_that("the boundary node's row carries the field its own cohorts build", {
 })
 
 test_that("the introduction map's whole Jacobian agrees entry by entry", {
-  # Rung 5's own unit, and the one object it had no reference for. The map is the
+  # This fixture's own unit, and the one object it had no reference for. The map is the
   # pre-introduction state and the traits in, the whole widened state out; the
   # forward side seeds one tangent per input column and the reverse side is the
   # transpose the sweep runs. Both go through introduce_over, so the reference

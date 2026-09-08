@@ -17,7 +17,7 @@
 test_that("the cohort block's route is a column of the rung-3 matrix", {
   # Switched off, the block's own columns go to zero and the entry-by-entry
   # comparison is what notices. Nothing further is needed here; what is needed is
-  # that the comparison exists, which is rung 3's first check.
+  # that the comparison exists, which is the one-cohort file's first check.
   patch <- ladder_patch_one()
   inputs <- ladder_block_input_names_tf24(patch, 1L)
   expect_true(any(!grepl("^light_|^psi_soil_", inputs)))
