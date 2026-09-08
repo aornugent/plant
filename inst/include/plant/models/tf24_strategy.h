@@ -1512,7 +1512,7 @@ void TF24_Strategy<S>::record_leaf_outputs(const S& radiation,
                util::format_double(leaf.opt_root_psi_) +
                ". An interior collar sits on a downward crossing, so a positive "
                "curvature here indicts this derivation rather than the point. See "
-               "docs/design/one-program.md");
+               "docs/design/leaf-derivatives.md");
       } else if (std::abs(slope) < curvature_floor()) {
         // format_double for the same reason: a curvature inside a floor of 1e-3 is
         // where to_string's six decimal places start losing the number.
