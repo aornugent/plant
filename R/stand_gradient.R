@@ -83,6 +83,21 @@ trait_without_species <- function(x) sub("^[0-9]+\\.", "", x)
 ##'   it never reaches a column. Two limits, \code{psi_crit} and
 ##'   \code{root_psi_crit}, are zero while the leaf's operating point is away
 ##'   from the bound they set and live the moment it sits on one.
+##'
+##' @section A single entry can dominate a second moment:
+##' A gradient taken where the run crosses an unresolved event — a cohort
+##' reaching \code{hmat} between two steps, say — is a derivative of the
+##' trajectory's step placement rather than of the model, and it can be two
+##' orders larger than its neighbours. One measured cell was 211 times the
+##' median of its grid.
+##'
+##' ⚠️ **Do not average such a grid, and do not form a covariance from one.** A
+##' single outlying cell dominates any second moment, which is the first thing an
+##' active-subspace or sensitivity workflow computes, so the reduction inherits
+##' the step placement instead of the ecology. Treat a gradient far outside its
+##' neighbourhood as a diagnostic: nudge the trait a fraction of a percent and
+##' take the answer that is stable, or resolve the event by forcing a step at the
+##' crossing.
 ##' @export
 stand_gradient <- function(scm, metrics = NULL, traits = NULL) {
   all_metrics <- census_metric_names_tf24()

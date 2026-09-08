@@ -11,17 +11,43 @@ stand_gradient(scm, metrics = NULL, traits = NULL)
 
 \item{metrics}{Census metric names to differentiate; defaults to all of them.}
 
-\item{traits}{Trait names to differentiate with respect to; defaults to every
-differentiable parameter the strategy declares.}
+\item{traits}{Column names to differentiate with respect to; defaults to
+every differentiable parameter every species declares. A column is named
+for its species and its parameter, as \code{"1.lma"}.}
 }
 \value{
 A list with \code{value}, the metrics at the end of the run;
-  \code{gradient}, a metrics-by-traits matrix; and \code{control}, the four
-  entries the gradient was taken at.
+\code{gradient}, a metrics-by-traits matrix; \code{refusal}, one entry per
+metric holding the reason and where it was found, or \code{NULL} where the
+metric answered; and \code{control}, the entries the gradient was taken at.
+
+A refused metric's whole row is \code{NaN}: a sum has no defined value with
+an undefined term, so refusal is metric-level and carries no localisation
+within a metric. Every other number is one the sweep computed, an exact
+zero included -- a parameter no gradient exists for cannot be asked for, so
+it never reaches a column. Two limits, \code{psi_crit} and
+\code{root_psi_crit}, are zero while the leaf's operating point is away
+from the bound they set and live the moment it sits on one.
 }
 \description{
 Doubles in and doubles out: the active scalar is created and destroyed inside
 one call and never crosses into R. The census functional is seeded on the
 states it reads at the end of the run, and the reverse pass runs back over
 the steps the adaptive pass resolved.
+}
+\section{A single entry can dominate a second moment}{
+
+A gradient taken where the run crosses an unresolved event -- a cohort
+reaching \code{hmat} between two steps, say -- is a derivative of the
+trajectory's step placement rather than of the model, and it can be two
+orders larger than its neighbours. One measured cell was 211 times the
+median of its grid.
+
+\strong{Do not average such a grid, and do not form a covariance from one.} A
+single outlying cell dominates any second moment, which is the first thing an
+active-subspace or sensitivity workflow computes, so the reduction inherits
+the step placement instead of the ecology. Treat a gradient far outside its
+neighbourhood as a diagnostic: nudge the trait a fraction of a percent and
+take the answer that is stable, or resolve the event by forcing a step at the
+crossing.
 }
