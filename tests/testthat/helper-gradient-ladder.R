@@ -1443,13 +1443,12 @@ ladder_trajectory_tangent <- function(stand, direction) {
 # is a near-cancellation of the two terms -- which it is for the allometric
 # constants -- the relative error against the total is an amplified view of the
 # error in the trajectory term, and the second number is the unamplified one.
+
 # The floor under the per-row scale, as a fraction of the column's own peak.
 #
-# Normalising each metric by itself is what keeps a stem-area row from hiding: it
-# runs four orders below leaf area, so a stem-area row wrong by three per cent reads
-# as 1e-06 of the column's peak and a column-wide measure loses it. Dividing a cell
-# by ITSELF all the way down does the opposite, and the two failure modes need
-# separating rather than trading.
+# Per-row normalisation is what keeps the small rows visible, and dividing a cell
+# by ITSELF all the way down does the opposite. The two failure modes need
+# separating rather than trading, which is what a floor does.
 #
 # Measured on the introductions fixture over the eighteen shortlisted columns: every
 # stem-area cell sits between 7e-07 and 1.1 of its column's peak except one, the
