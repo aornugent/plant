@@ -1,5 +1,5 @@
 # The fixtures the reverse-sweep checks run on, their regime assertions, and the
-# machinery every check reports its margin against.
+# references every check reports its margin against.
 #
 # Five things a check has to carry before it counts, and they are why this file
 # exists rather than each check holding its own literals:
@@ -25,8 +25,6 @@
 # state is whatever the trajectory reached and the constructed conditions are not
 # available. The block-level checks take a patch; only the checks that need a
 # trajectory take a stand.
-
-# ---- traits -----------------------------------------------------------------
 
 # Chosen so that no two of the per-species reduction parameters are equal or in a
 # small-integer ratio between the species. A reduction sum that collapses the
@@ -66,7 +64,7 @@ ladder_control <- function(...) {
   Control(node_density_in_birth_date = TRUE, ...)
 }
 
-# ---- the patch fixtures, whose state is written rather than reached ----------
+# The patch fixtures, whose state is written rather than reached.
 
 # One species, one cohort: the smallest stand that still carries endogenous
 # feedback, because it shades itself and draws on its own soil layers. Both
@@ -82,11 +80,12 @@ ladder_patch_one <- function(parameters = NULL) {
 
 # The one-cohort patch dried until its leaf stops having an interior optimum.
 #
-# No injection machinery: at half this fixture's moisture the operating point is a
-# genuine hydraulic shutdown, which is one of report 05's five kinds and one the
-# boundary refuses by name. That makes a refusal reachable from a constructed patch
-# in about a second, where a refusing RUN is not available at all -- the trajectory
-# rungs' stands stay interior by construction, which is what their regime asserts.
+# No injected fault: at half this fixture's moisture the operating point is a
+# genuine hydraulic shutdown, which is one of the five operating-point kinds and
+# one the boundary refuses by name. That makes a refusal reachable from a
+# constructed patch in about a second, where a refusing RUN is not available at
+# all -- the trajectory rungs' stands stay interior by construction, which is
+# what their regime asserts.
 #
 # `factor` is how far down; the default is the first value at which the refusal
 # fires, so a check on it is measuring the branch and not a deep extrapolation.
@@ -310,7 +309,7 @@ ladder_condition <- function(patch, heights, log_densities,
   patch
 }
 
-# ---- the stand fixtures, which need a trajectory -----------------------------
+# The stand fixtures, which need a trajectory.
 
 # Two species, two cohorts each, run rather than constructed. The trajectory
 # rungs need the steps the adaptive pass resolved, so this cannot be conditioned;
@@ -530,7 +529,7 @@ ladder_stand_scale <- function(lifetime = ladder_scale_lifetime()) {
           ladder_control(), refine_schedule = TRUE, collect = FALSE)
 }
 
-# ---- reading a stand --------------------------------------------------------
+# Reading a stand.
 
 # A stand hands out a snapshot of its patch; a patch is itself. Reading through
 # one accessor is what lets the references below serve both fixtures.
@@ -745,7 +744,7 @@ ladder_light_at_reads <- function(x) {
   out
 }
 
-# ---- the third reference: a plain-double difference of the rates -------------
+# The third reference: a plain-double difference of the rates.
 
 # The whole right-hand side differenced in each ODE state entry, in plain double.
 #
@@ -939,9 +938,9 @@ ladder_leaf_own_traits <- function() {
   # whose row becomes supplied joins the set this asserts and has to be added
   # here. That has now happened three times -- dark respiration, then the two
   # photosynthetic capacities -- and each time the failure was this assertion
-  # rather than anything about the gradient, which is the good case. Report 02
-  # §4 item 4 is the general form: a list read off a signature goes silently
-  # incomplete when the signature grows.
+  # rather than anything about the gradient, which is the good case. The general
+  # form: a list read off a signature goes silently incomplete when the
+  # signature grows.
   # Renamed with the (P50, c) reparameterisation: `c` and `b` are the STEM pair
   # and are `stem_c` and `stem_P50`; `root_b` is `root_P50`; `beta2` carries its
   # curve's name. `g1_TF24` is gone -- the leaf takes no Medlyn slope on this
@@ -951,7 +950,7 @@ ladder_leaf_own_traits <- function() {
     "R_d_25", "root_c", "root_P50")
 }
 
-# ---- the regime a fixture has to sit in --------------------------------------
+# The regime a fixture has to sit in.
 
 # Each row is one assertion, whether it holds, and its measured value. A violated
 # assertion invalidates a run rather than failing it, so the checks call
@@ -1090,8 +1089,6 @@ ladder_species_separated <- function(x) {
   all(abs(log(ratio)) > 0.2)
 }
 
-# ---- seeds ------------------------------------------------------------------
-
 # Block-normalised seeds from a fixed generator. Soil moisture is of order a
 # third and heartwood mass is in kilograms, so an unnormalised inner product is a
 # test of the largest block alone; and a seed of all ones makes a summation-order
@@ -1120,7 +1117,7 @@ ladder_block_scale <- function(x) {
   ifelse(abs(x) > 0 & is.finite(x), abs(x), m)
 }
 
-# ---- tolerance and margin ---------------------------------------------------
+# Tolerance and margin.
 
 # The phrase the SWEEP's own refusal carries, as distinct from every refusal the
 # leaf raises.
@@ -1216,7 +1213,7 @@ ladder_expect_moves <- function(with_channel, without_channel, label,
   invisible(moved)
 }
 
-# ---- what the sweep can currently be asked ----------------------------------
+# What the sweep can currently be asked.
 
 # The one place the sweep's own availability is decided. A rung blocked because
 # the sweep cannot run at all is one red line, named once, rather than the same
@@ -1232,10 +1229,10 @@ ladder_sweep_blocked <- function(stand) {
 # A rung blocked because the block cannot record at an active scalar is one red
 # line, named once. Shared by every file that forms the block or consumes its
 # rows, which is why it is here rather than in the first file that needed it.
-# A fixture the model REFUSES and a model that is broken are different events,
-# and these gates used to report both as a skip -- so a sweep that started
-# throwing would have turned the trajectory tier quiet rather than red. Measured:
-# a deliberately wrong narrow() made rung 5 skip six times and fail none.
+# A fixture the model REFUSES and a model that is broken are different events, and
+# these gates must not report both as a skip: a sweep that started throwing would
+# turn the trajectory tier quiet rather than red. Measured: a deliberately wrong
+# narrow() made rung 5 skip six times and fail none.
 #
 # A refusal is something the model declares, in words it chose. Anything else is
 # the failure it is, and is re-raised.
@@ -1311,7 +1308,7 @@ ladder_gradient_or_skip <- function(stand, ...) {
   result
 }
 
-# ---- fault injection --------------------------------------------------------
+# Fault injection.
 
 # Which deliberate break is in force. A check's sensitivity is established by
 # breaking the thing it watches, and this is what names the break so a margin can
@@ -1323,7 +1320,7 @@ ladder_injected <- function(name = NULL) {
   identical(current, name)
 }
 
-# ---- the declared zero lists ------------------------------------------------
+# The declared zero lists.
 
 # Every trait column resolves to exactly one of these, and the list is part of
 # the check. An exact zero is the signature of a missing accumulator and never of
@@ -1437,8 +1434,8 @@ ladder_trajectory_tangent <- function(stand, direction) {
 # Normalising a whole column by its largest row is what a single number invites and
 # it hides the small rows: leaf area and above-ground mass are of order one while
 # stem area is of order 1e-4, so a stem-area row wrong by three per cent reads as
-# 1e-6 of the column's peak. Report 08 §4 asks for residuals per block for exactly
-# this reason, and a column is a block here.
+# 1e-6 of the column's peak. Residuals go per block for exactly this reason, and a
+# column is a block here.
 #
 # `trajectory` is the column with the census's direct term removed. Where the total
 # is a near-cancellation of the two terms -- which it is for the allometric
@@ -1484,7 +1481,7 @@ ladder_column_residual <- function(got, reference, trajectory = NULL) {
   out
 }
 
-# ---- the reference a tangent cannot be -------------------------------------
+# The reference a tangent cannot be.
 
 # A differenced column moves one registered parameter and no other.
 #

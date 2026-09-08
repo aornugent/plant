@@ -82,7 +82,7 @@ test_that("a curvature the collar cannot stand on refuses instead of returning z
 test_that("a fold refuses every metric, and on this census nothing would be spared", {
   # ⚠️ MEASURED, AND IT IS NOT WHAT THE REQUIREMENT ASSUMES. Even a channel that
   # could refuse per metric would save nothing on TF24's census, and the reason is
-  # the census rather than the machinery: all three metrics are size moments, but
+  # the census rather than the sweep: all three metrics are size moments, but
   # growth reads water, so sweeping backwards gives every metric a non-zero soil
   # adjoint within a step or two of the census. There is no water-independent
   # metric here to be spared.
@@ -133,17 +133,14 @@ test_that("refusal is metric-level and not per-parameter", {
 })
 
 test_that("a shut point answers, and the branch it took is what decides", {
-  # This block used to assert the opposite. Dried to half its moisture the
-  # one-cohort patch reaches a genuine hydraulic shutdown, and the boundary
-  # declined to answer for it -- so the test recorded the refusal and the fact
-  # that its message named the kind.
+  # Dried to half its moisture the one-cohort patch reaches a genuine hydraulic
+  # shutdown, and the shut branches answer for it.
   #
-  # The shut branches answer now. What survives unchanged is the reason the old
-  # check gave for reading the KIND rather than a residual: the marginal profit
-  # returns a hard sentinel zero in a no-flow state, and no residual test can tell
-  # that from stationarity. The classification still has to come from the exit the
-  # solve took -- it is what routes this state away from an envelope step it has
-  # no stationary point for.
+  # The classification is read off the KIND rather than a residual: the marginal
+  # profit returns a hard sentinel zero in a no-flow state, and no residual test
+  # can tell that from stationarity. It has to come from the exit the solve took --
+  # that is what routes this state away from an envelope step it has no stationary
+  # point for.
   interior <- ladder_patch_one()
   shutdown <- ladder_patch_shutdown()
 
@@ -174,9 +171,9 @@ test_that("a shut point's rows are numbers, and every one of them is finite", {
 })
 
 test_that("both output kinds answer at a shut point, which they did not before", {
-  # Report 08 asks the two output kinds to refuse independently: the profit row
-  # survives every degeneracy except a jump of the argmax and an undefined
-  # objective, and the uptake row is the one that ceases to exist.
+  # The two output kinds refuse independently: the profit row survives every
+  # degeneracy except a jump of the argmax and an undefined objective, and the
+  # uptake row is the one that ceases to exist.
   #
   # At a shut point the question is now moot in the direction that matters --
   # BOTH answer. The rows are a substituted constant plus the bound's movement,

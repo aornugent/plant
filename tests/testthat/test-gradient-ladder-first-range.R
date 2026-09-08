@@ -42,9 +42,9 @@ test_that("the sweep runs the range below the first introduction", {
   n_widening <- sum(diff(widths) != 0)
   steps <- ladder_step_count(trajectory)
 
-  # One sweep, and both counts are its own return. They used to be one call and
-  # one read off the solver afterwards, which is a pair that can describe two
-  # different sweeps.
+  # One sweep, and both counts are its own return. DO NOT take one from a call and
+  # the other off the solver afterwards: that pair can describe two different
+  # sweeps.
   ladder_gradient_or_skip(stand)
   counts <- ladder_boundary_evaluations_tf24(stand)
   ranges <- counts$ranges

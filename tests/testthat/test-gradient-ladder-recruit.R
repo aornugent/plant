@@ -69,10 +69,10 @@ test_that("the boundary's own term enters once per stage of every step", {
   # in what it is multiplied by is a different failure from a wrong row, and neither
   # differentiated path can see it because both apply the same multiplier.
   #
-  # The distinction is the one report 04 draws between a channel that acts once per
-  # plant and a channel that acts once per step. The boundary node stands at the
-  # seed's height for a whole run, so its VALUE changes once per plant; its condition
-  # is re-evaluated at every stage of every step, so its ROW enters that many times.
+  # The distinction is between a channel that acts once per plant and a channel that
+  # acts once per step. The boundary node stands at the seed's height for a whole
+  # run, so its VALUE changes once per plant; its condition is re-evaluated at every
+  # stage of every step, so its ROW enters that many times.
   # Only the second is a count, and this is the count.
   stages <- 6L   # the Cash-Karp pair's stage count, two of whose output weights vanish
 

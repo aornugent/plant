@@ -37,3 +37,7 @@ build.log
 # Quarto leaves a figure directory beside each rendered document; the .html is
 # already ignored above and these are the same build output.
 *_files/
+
+# Agent worktrees. A worktree checked out here records as a gitlink with no
+# .gitmodules entry, which clones as an empty directory nothing can populate.
+.claude/worktrees/

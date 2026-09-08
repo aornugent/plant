@@ -109,8 +109,8 @@ public:
 // together and computes the environment once for the set. Actions at the same
 // instant are held sorted by event_type_rank and apply BEFORE the
 // introductions, so a newborn's initial conditions are computed against the
-// post-event environment -- the ordering #628 specifies, made a property of
-// this structure rather than re-established by the run loop at every stop.
+// post-event environment -- an ordering made a property of this structure
+// rather than re-established by the run loop at every stop.
 //
 // `times` keeps the [t_intro, ...extra ode times..., t_end] semantics events
 // carried before; ode_steps is what a replay reads, and program_within() serves it.

@@ -294,9 +294,9 @@ test_that("ode_times", {
   expect_identical(sched$ode_times, t_ode)
   expect_true(all(is.na(sched$ode_step_sizes)))
 
-  ## Installing a recording does not change what the introductions are, which is
-  ## what it used to do: the steps were copied into each interval on reset, and
-  ## the interval's own time list grew to match.
+  ## Installing a recording does not change what the introductions are: the steps
+  ## are not copied into each interval on reset, and an interval's own time list
+  ## does not grow to match.
   cmp <- drain_schedule(sched)
   expect_equal(drain_column(cmp, "time"), sort(unique(c(t1, t2))))
   expect_equal(dplyr::last(drain_column(cmp, "time_end")), max_t)

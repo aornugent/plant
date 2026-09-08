@@ -47,10 +47,10 @@ test_that("the marginal profit's factorisation is measured, not assumed", {
   # it is the production path, and every layer but the one it is solved from is
   # already a PREDICTION.
   #
-  # That is what makes it refereeable without any new machinery. The supplied
-  # uptake rows use the factorisation; a difference of the PLAIN-DOUBLE block
-  # re-solves the collar, so it carries the true dp*/dpsi_j with no factorisation
-  # in it. The two disagree only by the factorisation's own error.
+  # That is what makes it refereeable with nothing built for the purpose. The
+  # supplied uptake rows use the factorisation; a difference of the PLAIN-DOUBLE
+  # block re-solves the collar, so it carries the true dp*/dpsi_j with no
+  # factorisation in it. The two disagree only by the factorisation's own error.
   #
   # A difference is admissible here for the reason it is admissible at the soil
   # balance and not at the recorded step: it differences the double path, which
@@ -136,8 +136,8 @@ test_that("the marginal profit's factorisation is measured, not assumed", {
   # direction of its own. With the tabulation carrying exact slopes the residual is
   # at the differenced reference's error on every layer (the ratios above), so what
   # is left is the reference's own noise, and noise has no preferred direction: the
-  # ratio reads 4.3e-03 against the 1e-03 it used to hold, having got there by the
-  # dominant term shrinking rather than a second one growing.
+  # ratio reads 4.3e-03, and it is there because the dominant term is small rather
+  # than because a second one is large.
   #
   # So the two regimes assert different things, and which one holds is measured
   # rather than assumed -- the same rule the per-layer floor above follows. A
@@ -195,11 +195,11 @@ test_that("the water rows hold in the direction the ecology reads", {
   #
   # Water moves on DIFFERENCES of potential and tissue fails on ABSOLUTES, so
   # moving every layer together is close to a symmetry of the model: the true
-  # response is a small residue of the entries that make it. Report 05 prices the
-  # residue at a fifteenth to a twenty-sixth of an entry, and a per-entry bound
-  # normalised by the largest entry is therefore that many times weaker in the
-  # direction than it looks -- weaker again by the number of layers, because a
-  # systematic error adds coherently across them while the answer cancels.
+  # response is a small residue of the entries that make it. That residue is a
+  # fifteenth to a twenty-sixth of an entry, and a per-entry bound normalised by
+  # the largest entry is therefore that many times weaker in the direction than
+  # it looks -- weaker again by the number of layers, because a systematic error
+  # adds coherently across them while the answer cancels.
   #
   # A wrong split between the two scalars is exactly such a systematic error. So
   # this forms the direction and checks it there.
@@ -337,7 +337,7 @@ test_that("the leaf's supplied rows are refereed against its own algebra", {
   sweep_row <- ladder_rhs_adjoint_tf24(patch, seed)$trait
   names(sweep_row) <- columns
 
-  # Non-vacuity, and it is the whole point of the check: the reference that is
+  # Non-vacuity, and it is what the check rests on: the reference that is
   # normally used must be silent on these columns, or refereeing them here would
   # be redundant rather than necessary.
   prepared <- as.vector(crossprod(

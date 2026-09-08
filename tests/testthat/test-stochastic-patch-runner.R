@@ -182,15 +182,10 @@ test_that("collect output is reproducible and matches a seeded baseline (#482)",
   ## against trajectory-changing regressions in the stochastic tower; update
   ## them deliberately if the model/RNG use changes.
   ##
-  ## patch_area is 1 m^2, the default. It used to read 50, but that was inert:
-  ## stochastic_schedule() passed it into stochastic_arrival_times()'s delta_t
-  ## slot, so arrivals never scaled with area and the stand came out at ~105
-  ## individuals whatever the area. Now that area-scaling works, 50 m^2 would
-  ## mean ~5300 individuals, measured at ~670x the run time for FF16 alone;
-  ## 1 m^2 keeps the stand the size this baseline has always actually run at,
-  ## over the full default 105.32 yr lifetime. Every value below was regenerated
-  ## from a run after the fix -- the stand is the same size but 50x denser, so
-  ## establishment and mortality both differ from the old numbers.
+  ## patch_area is 1 m^2, the default, and DO NOT raise it: arrivals scale with
+  ## area, so 50 m^2 means ~5300 individuals, measured at ~670x the run time for
+  ## FF16 alone. 1 m^2 keeps the stand to ~105 individuals over the full default
+  ## 105.32 yr lifetime, which is what every value below was generated at.
   ##
   ## The seeded schedule holds 117 arrivals (mean 105.32 = lifetime x birth_rate
   ## x area). n_total is how many of those established: establishment is a
@@ -210,10 +205,10 @@ test_that("collect output is reproducible and matches a seeded baseline (#482)",
   ## longer what this test pins; it was established at the time (see the atm_kpa
   ## entry under Breaking changes in NEWS.md) and is not re-checked here.
   ## ⚠️ BOTH SIDES MOVED THIS BASELINE, for different reasons, so the merged
-  ## value is neither and has to be measured rather than merged. Upstream's is
-  ## below (#609 bounded the storage pool: TF24 81 -> 79, K93 3 -> 2). Ours
-  ## moved K93's survivor count 2 -> 3 by holding the light knot data once.
-  ## Re-bless from a run of the merged tree before trusting these.
+  ## value is neither and has to be measured rather than merged. Upstream's move
+  ## is the paragraph below; ours moved K93's survivor count 2 -> 3 by holding
+  ## the light knot data once. Re-bless from a run of the merged tree before
+  ## trusting these.
   ## Bounding the storage pool by the shape of its own flow (#609) moved TF24's
   ## established count from 81 to 79 and left its survivor count at 3. FF16 and
   ## K93 are untouched, which is the discriminator: the change is in TF24's

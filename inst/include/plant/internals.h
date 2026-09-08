@@ -27,7 +27,7 @@ inline constexpr int FECUNDITY_INDEX = 2;
 // meets one is correct and silent, and the recorded trajectory it hands the
 // reverse sweep carries an entry no derivative can attach to: every census
 // metric comes back not-a-number with no refusal declared, which is the one
-// failure the gradient's contract forbids. Measured on a k_I = 20 stand: 9 of
+// failure the gradient must never produce. Measured on a k_I = 20 stand: 9 of
 // 88 nodes, from t = 1.5, in 9545 of 11722 recorded steps.
 //
 // 750 rather than a rounder number because `exp(-x)` is exactly zero past

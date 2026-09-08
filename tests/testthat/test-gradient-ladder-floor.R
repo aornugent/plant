@@ -8,7 +8,7 @@
 # their whole assurance is the non-vacuity clause: prove the two paths computed
 # something before believing they agree.
 
-# ---- the objective itself ---------------------------------------------------
+# The objective itself.
 
 test_that("the fixtures sit in the regime their checks are declared for", {
   patch <- ladder_patch_two_by_two()
@@ -129,7 +129,7 @@ test_that("the reference computes the model's own rates", {
   }
 })
 
-# ---- the sweep computes the same thing however it is decomposed -------------
+# The sweep computes the same thing however it is decomposed.
 
 test_that("the regime holds at the states a trajectory passed through", {
   # A regime report taken at the terminal state says nothing about the states the
@@ -312,7 +312,7 @@ test_that("the reverse pass refuses the coordinate it cannot transpose", {
   expect_silent(stand_census(stand))
 })
 
-# ---- every zero is attributable to a named cause ----------------------------
+# Every zero is attributable to a named cause.
 
 test_that("every trait column resolves to one declared class", {
   # An exact zero is the signature of a missing accumulator and never of true

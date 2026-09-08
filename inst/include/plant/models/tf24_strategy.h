@@ -416,8 +416,8 @@ static_assert(sizeof(TF24_Pars<double>) ==
 //
 // Two values rather than a class, because that is all a recorded decision is --
 // the collar MOVES and is re-derived from, the arm SELECTS and is replayed. What
-// used to sit here held five fields and a predicate; four of them were rederivable
-// from the collar alone, which is what phylloptim's evaluate_root_collar_psi does.
+// else a pass might record is rederivable from the collar alone, which is what
+// phylloptim's evaluate_root_collar_psi does.
 struct leaf_solved_point {
   double collar = 0.0;
   Leaf::OperatingPointKind kind = Leaf::OperatingPointKind::Unsolved;
@@ -1830,10 +1830,10 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
   // charges storage; when it falls short (or net production is negative) storage
   // is drawn down. The net outflow is gated to vanish as S -> 0, flooring
   // storage at zero so relative reserves r stay in [0,1] and the storage-based
-  // mortality stays bounded (the structural fix for #550). At the S~0 starvation
-  // boundary the ungated part of the deficit is untracked (no worse than the
-  // original model, which retained structure under net<0); by then the plant is
-  // dying at the bounded maximum mortality anyway.
+  // mortality stays bounded. At the S~0 starvation boundary the ungated part of
+  // the deficit is untracked (no worse than the original model, which retained
+  // structure under net<0); by then the plant is dying at the bounded maximum
+  // mortality anyway.
   const S net_flux = P - growth_flux;
   const S gate_ref = 1e-3 * storage_max;           // ~0.1% of capacity
   const S floor_gate =
@@ -2586,7 +2586,7 @@ void TF24_Strategy<S>::prepare_strategy() {
   if constexpr (std::is_same_v<S, double>) {
     // (P50, c) per curve, and phylloptim derives b and psi_crit itself. Handing
     // over the derived pair instead would state the curve twice and let the two
-    // disagree silently, which is the reason #126 took them out of the trait set.
+    // disagree silently, which is why they are not in the trait set.
     leaf = Leaf(pars.vcmax_25, pars.stem_c, pars.stem_P50,
                 pars.root_c, pars.root_P50,
                 pars.TF24_beta2, pars.jmax_25, pars.a,

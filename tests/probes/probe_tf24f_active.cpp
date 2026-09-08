@@ -1,4 +1,4 @@
-// Report 07 §12's last falsifier, fired at compile time.
+// The last falsifier for this interface, fired at compile time.
 //
 // The tracked-collar variant needs no implicit solve, no stationarity condition
 // and no curvature: its collar is an ODE state whose derivative arrives from the

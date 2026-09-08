@@ -237,10 +237,10 @@ test_that("the driver that reaches a clamp says so, answered or not", {
   }
 
   # The light floor is the driver-specific one: the shaded driver reaches it and
-  # the control does not, so these counts measure the driver rather than the
-  # machinery. Both sites, because the crown one is where it binds first. Counted
-  # over the steps the descent reached before it was refused, which is fewer than
-  # it once was and still not none.
+  # the control does not, so these counts measure the driver rather than the clamp.
+  # Both sites, because the crown one is where it binds first. Counted over the
+  # steps the descent reached before it was refused, which is a subset of the run
+  # and not none.
   expect_gt(at("clamped", "light_floor"), 0)
   expect_gt(at("clamped", "light_floor_crown"), 0)
   expect_gt(at("clamped", "light_floor_crown"), at("clamped", "light_floor"))

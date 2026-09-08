@@ -368,7 +368,7 @@ test_that("TF24 patch aux goes back the way it came", {
   patch$set_ode_aux(aux)
   expect_identical(patch$ode_aux, aux)
 
-  # The width is the contract the solver checks, so a wrong one stops here.
+  # The width is what the solver checks, so a wrong one stops here.
   expect_error(patch$set_ode_aux(aux[-1]), "Incorrect length input")
 })
 

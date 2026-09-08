@@ -1,8 +1,8 @@
 # Whether the checks bite, established by breaking what they watch.
 #
-# A suite that defines the machinery for naming an injected fault and never invokes
-# it has switches on paper: every margin recorded elsewhere says how much room a
-# check had, and none of them says the check would have noticed. Counting the
+# A suite that names an injected fault and never invokes it has switches on
+# paper: every margin recorded elsewhere says how much room a check had, and none
+# of them says the check would have noticed. Counting the
 # injections is what separates a rung that has been climbed from one that has been
 # written down.
 #
@@ -37,8 +37,8 @@ test_that("the block Jacobian's comparison rejects each named corruption", {
   is_soil <- grepl("^psi_soil_", inputs)
   column <- function(name) which(inputs == name)
 
-  # Each entry is one row of report 08's fault table, expressed as the arithmetic
-  # the named defect would produce in the transpose it breaks.
+  # Each entry is one named defect, expressed as the arithmetic it would produce in
+  # the transpose it breaks.
   corruptions <- list(
     # The slope channel's own contribution, which an identity posed on values alone
     # never touches: the pair is not a convenience, because the height transpose of
@@ -127,10 +127,10 @@ test_that("the structural assertions reject a structure that does not hold", {
 })
 
 test_that("the gates skip a refusal and re-raise a fault", {
-  # These gates decide whether a ladder run reports anything at all, and they
-  # used to convert every error into a skip -- so a broken sweep left the
-  # trajectory tier green with nothing in it. Measured at the time: a
-  # deliberately wrong narrow() produced six skips and no failures.
+  # These gates decide whether a ladder run reports anything at all. DO NOT let
+  # them convert an error into a skip: a broken sweep then leaves the trajectory
+  # tier green with nothing in it, and a deliberately wrong narrow() produced six
+  # skips and no failures.
   #
   # A refusal is something the model declares. Anything else has to come back
   # out, and that is what this pins.

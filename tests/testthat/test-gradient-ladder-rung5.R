@@ -12,8 +12,8 @@
 # where it is available.
 
 test_that("the fixture actually widens, in both stride directions", {
-  # Non-vacuity before anything else: a probe of the introduction machinery on a
-  # stand that introduces nothing proves nothing.
+  # Non-vacuity before anything else: a probe of introductions on a stand that
+  # introduces nothing proves nothing.
   stand <- ladder_stand_introductions()
   trajectory <- stand$store_trajectory()
   widths <- vapply(trajectory, function(s) length(s$state), numeric(1))
@@ -54,9 +54,9 @@ test_that("a reloaded state carries the boundary node the run carries", {
   patch <- ladder_as_patch(stand)
   both <- ladder_boundary_evaluations(patch, patch$ode_state, patch$ode_time)
 
-  # Non-vacuity, and it is the whole point: if the two evaluations agreed there
-  # would be no convention to get wrong and this check would pass on a model that
-  # does not have the hazard.
+  # Non-vacuity, and it is what the check rests on: if the two evaluations agreed
+  # there would be no convention to get wrong and this check would pass on a
+  # model that does not have the hazard.
   gap <- max(abs(both$in_uptake - both$in_field) / abs(both$in_field))
   message(sprintf("\n  the two evaluations differ by %.3e relative", gap))
   expect_gt(gap, 1e-6)
@@ -148,9 +148,9 @@ test_that("the introduction map's whole Jacobian agrees entry by entry", {
   # transpose the sweep runs. Both go through introduce_over, so the reference
   # traverses the forward function and not the transpose.
   #
-  # Formed entirely rather than contracted, for report 08 §5.1's reason: a dot
-  # product returns one number, hides an error behind a small seed component, and
-  # localises to nothing when it fails. At this size the whole object fits.
+  # Formed entirely rather than contracted: a dot product returns one number, hides
+  # an error behind a small seed component, and localises to nothing when it fails.
+  # At this size the whole object fits.
   p <- ladder_parameters(c("fast", "slow"))
   p$node_schedule_times <- list(c(0, 0.29), c(0))
   stand <- ladder_run(p)

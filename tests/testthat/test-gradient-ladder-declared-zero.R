@@ -64,10 +64,10 @@ test_that("the whole-run difference is in its own domain on this fixture", {
 })
 
 test_that("the birth-size channel is priced rather than asserted", {
-  # Report 05 §10.1 imposes d(seed height)/d(trait) = 0 on both differentiated
-  # paths and calls it the one term no available instrument can referee. This is
-  # the instrument. What it reports is a ratio, not a pass: the declaration is a
-  # modelling choice, and what a suite owes it is a number.
+  # Both differentiated paths impose d(seed height)/d(trait) = 0, and it is the one
+  # term no other instrument in this suite can referee. This is that instrument.
+  # What it reports is a ratio, not a pass: the declaration is a modelling choice,
+  # and what a suite owes it is a number.
   #
   # The number moves with run length, so the run length is reported beside it --
   # a_l1 is a factor of two out at four tenths of a year and three parts in a
@@ -170,10 +170,10 @@ test_that("the seed's geometry row is refereed against a rebuilt strategy", {
 })
 
 # The claim these lists make is about NUMBERS -- that certain columns come back
-# exactly zero -- so that is what is checked. It used to be checked against a
-# label the C++ carried into every answer, which is a weaker subject: a label can
-# agree with this list while the number disagrees with both, and the label had to
-# be maintained beside the model that produces the number.
+# exactly zero -- so that is what is checked. DO NOT check it against a label the
+# C++ carries into every answer, which is a weaker subject: a label can agree with
+# this list while the number disagrees with both, and it would have to be
+# maintained beside the model that produces the number.
 test_that("the columns declared zero are exactly zero, and no others are", {
   stand <- ladder_stand_two_by_two()
   g <- stand_gradient(stand)

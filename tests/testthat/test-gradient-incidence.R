@@ -215,14 +215,13 @@ clamp_class <- list(
   soil_positivity        = "never",
   rainfall               = "never",
   infiltration           = "never",
-  # `supply_kink_step_off` WAS here, reported "never", and could not have reported
-  # anything else: its only note_clamp site went with record_leaf_outputs and the
-  # behaviour it named went with it. At a coincident collar the supply kernels
-  # still return not-a-number, but nothing steps four kink tolerances off it any
-  # more -- the marginal profit falls back to a central difference at the same
-  # collar, and a row built on a NaN supply derivative is differenced instead of
-  # read. Neither is a clamp, so neither is counted here. A site that cannot fire
-  # reporting "never" is the one reading this list must not produce.
+  # `supply_kink_step_off` is deliberately absent: there is no note_clamp site for
+  # it. At a coincident collar the supply kernels return not-a-number, and nothing
+  # steps four kink tolerances off it -- the marginal profit falls back to a
+  # central difference at the same collar, and a row built on a NaN supply
+  # derivative is differenced instead of read. Neither is a clamp, so neither is
+  # counted here. A site that cannot fire reporting "never" is the one reading
+  # this list must not produce.
   # The leaf model's four, which are a different facility: the leaf solves in
   # double on both paths, so these keep ONE tally and the forward share is the
   # total less the delta measured across record_leaf_outputs. Every one of them

@@ -1,6 +1,6 @@
 # Rung 3: one cohort, and the Jacobian formed entirely.
 #
-# Use the strongest oracle the size permits, and the size permits an exhaustive
+# Use the strongest referee the size permits, and the size permits an exhaustive
 # one exactly once -- here, at the bottom. Nothing above this is small enough to
 # form whole, so nothing above it is ever checked this well again.
 #
@@ -211,7 +211,7 @@ test_that("every trait the block reads has a column, or is refused by name", {
   }
 })
 
-# ---- the reduction transposes, where the reference shares no code ------------
+# The reduction transposes, where the reference shares no code.
 #
 # The checks below run on the uncrossed fixture, and that is a concession rather
 # than a choice: the crossed one refuses, and the test directly above owns that
@@ -249,9 +249,9 @@ test_that("the tangent carries the soil channel, and two references agree in it"
   # The environment holds its integrated soil state at the scalar the model
   # carries, so a tangent seeded anywhere propagates through the water balance and
   # back through the retention curve. Every soil column and every soil rate row of
-  # its Jacobian is live, where all of them used to be exactly zero -- and that is
-  # asserted rather than left to a residual, because a reference silent about a
-  # channel and a transpose wrong in it agree perfectly.
+  # its Jacobian is non-zero, and that is asserted rather than left to a
+  # residual, because a reference silent about a channel and a transpose wrong in
+  # it agree perfectly.
   patch <- ladder_patch_two_by_two(cross = FALSE)
   ladder_require_regime(patch, "patch")
   ladder_block_or_skip(patch)
@@ -575,9 +575,9 @@ test_that("the recording does not grow with the stand", {
     a$block_recording_size, b$block_recording_size, per_unit))
 
   # The stage is recorded whole, so peak holds every unit at once and the size is
-  # linear in the unit count. That is the commitment report 01 traded away: it
-  # asked for a recording flat in the cohort count, and the flat one was paid for
-  # by writing every transpose between the state and the rates by hand.
+  # linear in the unit count. That is the commitment traded away: a recording flat
+  # in the cohort count was paid for by writing every transpose between the state
+  # and the rates by hand.
   #
   # What replaces a flatness test is amortisation. Four units cost less than four
   # one-unit recordings, because the field is read into the tape once for the

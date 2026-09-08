@@ -685,7 +685,7 @@ Species<T,E>::compute_competition_and_slope_split(double height) const {
     return competition_split();
   }
   // Introduction times ascend by construction; -height ascends only while the
-  // heights fall, and TF24's reserve-gated growth lets two cohorts cross (#571).
+  // heights fall, and TF24's reserve-gated growth lets two cohorts cross.
   if (control().node_density_in_birth_date || scan.decreasing) {
     return reduce_competition(height, {});
   }
@@ -810,7 +810,7 @@ Species<T,E>::consumption_rate(int i) const {
 
   // Birth dates are strictly increasing by construction, so only the height
   // coordinate can arrive crossed -- and there neighbouring trapezia would cancel
-  // instead of accumulating (#571).
+  // instead of accumulating.
   if (!birth_date && !std::is_sorted(x.begin(), x.end())) {
     std::vector<size_t> order(x.size());
     for (size_t j = 0; j < order.size(); ++j) {

@@ -590,7 +590,7 @@ std::vector<size_t> SCM<T, E>::run_next() {
   node_schedule.pop();
 
   // Every action at this instant applies before the introductions, so a node
-  // introduced here sees the post-event environment (#628). The schedule holds
+  // introduced here sees the post-event environment. The schedule holds
   // them already ordered by event_type_rank, so this is a walk and not a sort --
   // and `intro` stays valid across the pop, which only moved the cursor.
   for (const auto& a : intro.actions) {

@@ -564,7 +564,7 @@ test_that("the crown's separable form is the same profile as its own kernel", {
 })
 
 # Defect: the reduction taken over the node list rather than over the abscissa
-# set. TF24's reserve-gated growth lets two cohorts cross in height (#571), and
+# set. TF24's reserve-gated growth lets two cohorts cross in height, and
 # in the height coordinate the abscissa is -height, so a crossing puts a negative
 # width in the trapezium. Nothing else here catches it: both the C++ and a by-hand
 # walk read the same defective grid.

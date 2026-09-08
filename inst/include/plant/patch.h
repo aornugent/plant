@@ -753,9 +753,10 @@ void Patch<T,E>::check_finite_ode_state() const {
   for (size_t i = 0; i < env_state.size(); ++i) {
     const double state_i = env_state[i];
     if (!util::is_finite(state_i)) {
-      // #608: explicit-integrator overshoot across a discrete change, not a
-      // defect in the balance -- hand it to the stepper to shrink and retry
-      // rather than failing the run. Mode (1) above stays fatal.
+      // A rejection, not a failure: measured, every observed TF24 soil
+      // excursion is explicit-integrator overshoot across a discrete change and
+      // not a defect in the balance -- hand it to the stepper to shrink and
+      // retry rather than failing the run. Mode (1) above stays fatal.
       odelia::util::stop_domain("Non-finite environment state (index " + util::to_string(i) +
                  " = " + util::to_string(state_i) + ") at time=" +
                  util::to_string(environment.time) +
@@ -1260,8 +1261,8 @@ EventRecord Patch<T,E>::apply_event(const NodeScheduleEvent& event) {
   if (event.type != EventType::ResourcePulse) {
     // No `rescale` argument: this branch's competition field is built on fixed
     // knot fractions of height_max, so there is nothing to rescale and the
-    // parameter upstream threads here does not exist. Upstream's event
-    // SEMANTICS, this branch's machinery.
+    // parameter upstream threads here does not exist. The event SEMANTICS are
+    // upstream's; the field they recompute is this branch's.
     compute_environment();
   }
   return rec;
