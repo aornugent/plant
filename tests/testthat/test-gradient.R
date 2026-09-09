@@ -32,3 +32,25 @@ test_that("Gradients agree", {
   method_args <- list(d=d, eps=d)
   expect_equal(test_gradient_richardson(f, x, d, r), numDeriv::grad(f, x, method.args=method_args))
 })
+
+test_that("the reverse pass refuses a coordinate it cannot transpose", {
+  # On the height coordinate the abscissa is state, so the reduction transposes
+  # would omit a weight derivative and the recorded step would omit the density
+  # rate's compression term. The sweep is then the transpose of a function the
+  # forward model is not evaluating, and nothing about the arithmetic complains.
+  # Both reverse-mode entry points must refuse, and refuse before the trait
+  # gradient re-runs the model to record its trajectory.
+  p <- scm_base_parameters("TF24")
+  p$max_patch_lifetime <- 2
+  p <- add_strategies(p, trait_matrix(c(0.0825, 5), c("lma", "hmat")),
+                      hyperpar = TF24_hyperpar, birth_rate = list(20))
+  ctrl <- Control(node_density_in_birth_date = FALSE)
+  scm <- run_scm(p, Environment("TF24"), ctrl, collect = FALSE)
+
+  expect_error(stand_census_state_adjoint(scm), "birth-date")
+  expect_error(stand_gradient(scm), "birth-date")
+
+  # The census value itself is not a gradient and is answerable on either
+  # coordinate, so refusing it too would refuse a defined answer.
+  expect_silent(stand_census(scm))
+})
