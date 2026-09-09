@@ -35,15 +35,10 @@ METRIC <- "mass_above_ground"
 ## What one reverse sweep buys
 
 A stand gradient is one number per parameter: how much the stand's above-ground
-mass moves when that parameter moves. There are 47 of them for a single species,
-and the sweep produces all 47 for about three times the cost of the forward run
-that produced the stand. Finite differences would want 47 more runs.
-
-The point of this document is what that vector *is*, geometrically. It is the
-normal to the iso-biomass surface. So one sweep does not just rank the
-parameters — it hands over the entire 46-dimensional space of parameter changes
-that leave the stand's biomass unchanged, and any interpretable pair can be read
-straight out of it.
+mass moves when that parameter moves. One reverse sweep produces every one of
+them, and what it costs is set by the length of the forward run rather than by
+how many parameters there are. Finite differences would want another forward run
+per parameter.
 
 ```{r one-point}
 tr0 <- unlist(gd_traits())
@@ -54,9 +49,19 @@ tibble::tibble(quantity = names(pt$value), value = as.numeric(pt$value)) |>
 ```
 
 ```{r shape}
+# Every count in the prose below reads from P rather than repeating a literal.
+# A literal disagrees with the sweep silently: nothing here would fail if TF24
+# gained a parameter.
+P <- ncol(pt$gradient)
 cat(sprintf("gradient: %d metrics x %d parameters, %d refused, %d ODE steps\n",
-            nrow(pt$gradient), ncol(pt$gradient), sum(pt$refused), pt$steps))
+            nrow(pt$gradient), P, sum(pt$refused), pt$steps))
 ```
+
+The point of this document is what that vector *is*, geometrically. It is the
+normal to the iso-biomass surface. So one sweep does not just rank the
+parameters — it hands over the entire `r P - 1`-dimensional space of parameter
+changes that leave the stand's biomass unchanged, and any interpretable pair can
+be read straight out of it.
 
 ## Raw partials are not comparable, and the reason is units
 
@@ -100,8 +105,8 @@ a trait-database correlation is quoted in.
 
 Holding the metric fixed, the elasticity ratio gives the percentage change in one
 parameter that offsets a one-percent rise in another. This is `-e_i / e_j`, and
-it is available for every one of the 46 × 46 ordered pairs from the single sweep
-above.
+it is available for every one of the `r P` × `r P` ordered pairs from the single
+sweep above.
 
 ```{r tradeoffs}
 tro <- gd_tradeoff(el, METRIC)
@@ -168,29 +173,32 @@ through the identity and must come out unchanged.
 ## What this costs, and why reverse mode is the reason it is possible
 
 ```{r cost, fig.height=4}
+# Counted, not timed. The axis is forward stand solves -- what each method has
+# to run -- because a seconds axis is a figure from whenever it was last taken.
+# Reverse mode replaces the extra solves with one reverse pass over the steps
+# the first solve already recorded.
 sp <- 1:3
-cols <- 47 * sp
-fwd <- c(9.1, 19.6, 31.9)
-grad <- c(27.8, 61.4, 99.7)
 tibble::tibble(species = rep(sp, 2),
-               cost = c(grad, cols * fwd),
+               solves = c(rep(1L, length(sp)), 1L + P * sp),
                method = rep(c("one reverse sweep", "finite differences"),
-                            each = 3)) |>
-  ggplot(aes(species, cost, colour = method)) +
+                            each = length(sp))) |>
+  ggplot(aes(species, solves, colour = method)) +
   geom_line(linewidth = 1) + geom_point(size = 2.5) +
   scale_y_continuous(trans = "log10", labels = scales::comma) +
   scale_x_continuous(breaks = sp) +
   scale_colour_manual(values = c("finite differences" = "#b2182b",
                                  "one reverse sweep" = "#2166ac")) +
   labs(title = "The whole gradient, against differencing for it",
-       subtitle = "47 parameters per species; measured on a 40-year stand",
-       x = "species in the stand", y = "seconds (log scale)", colour = NULL)
+       subtitle = sprintf("%d parameters per species, on a %d-year stand",
+                          P, LIFETIME),
+       x = "species in the stand", y = "forward stand solves (log scale)",
+       colour = NULL)
 ```
 
-The sweep's cost tracks the forward run, not the number of parameters: three
-species means 141 parameters and the sweep still costs about 3.1 forward runs,
-while differencing costs 141 of them. That is the whole argument, and it gets
-better as the community grows.
+The count does not move with the number of parameters: three species means
+`r 3 * P` of them and still one forward solve, while differencing wants a solve
+per parameter on top of it. That is the whole argument, and it gets better as the
+community grows.
 
 ## What to be careful of
 
