@@ -987,18 +987,14 @@ public:
     if constexpr (std::is_same_v<S, double>) {
       return {height_0, area_leaf_0};
     } else {
-      // The residual is five composed allometries, so its slope is not one term
-      // to write down. It is a tangent through the same expression instead --
-      // taken here, once, where the choice is visible, rather than by every
-      // caller of the theorem.
-      using tangent = odelia::ode::tangent_scalar<double>;
-      const TF24_Strategy<tangent> at_tangent = rebind_from<tangent>();
-      tangent probe = height_0;
-      odelia::ode::seed_direction(probe, 1.0);
-      const double dmass_dheight = odelia::ode::derivative_along(
-          at_tangent.mass_live_given_height(probe));
+      // ⚠️ THE SLOPE IS READ, NOT TAKEN HERE. Taking it needs the strategy at a
+      // tangent, and a rebind CONSTRUCTS one -- whose Leaf member builds two
+      // vulnerability curves from an incomplete gamma per knot, which
+      // assign_from then overwrites with a copy. This runs per rate evaluation,
+      // so those curves were built and discarded about a hundred thousand times
+      // a gradient. prepare_strategy takes the tangent once instead.
       const S h = odelia::implicit_value<S>(
-        height_0, dmass_dheight,
+        height_0, dmass_dheight_0,
         [this](const S& y) -> S {
           return mass_live_given_height(y) - pars.omega;
         });
@@ -1046,6 +1042,7 @@ public:
     eta_c = S(odelia::util::to_passive(src.eta_c));
     canopy_shape.initialise(pars.eta, shading_model_);
     height_0 = src.height_0;
+    dmass_dheight_0 = src.dmass_dheight_0;
     area_leaf_0 = S(odelia::util::to_passive(src.area_leaf_0));
     leaf = src.leaf;
     storage_gate_width = src.storage_gate_width;
@@ -1098,6 +1095,13 @@ public:
   CanopyShape<S> canopy_shape;
   // Height and leaf area of a (germinated) seed
   double height_0  = NA_REAL;
+  // dM/dh at the seed height above, which is what closes the implicit function
+  // theorem on it in seed_geometry. Derived here rather than there because the
+  // tangent that takes it needs a whole strategy rebound, and seed_geometry runs
+  // on the rate-evaluation path. NA_REAL until prepare_strategy runs, so a
+  // strategy that skipped it stops in implicit_value's own dF/dy guard rather
+  // than returning a number.
+  double dmass_dheight_0 = NA_REAL;
   S area_leaf_0;
 
   // Embedded leaf hydraulic/photosynthesis sub-model, built in prepare_strategy()
@@ -2577,6 +2581,17 @@ void TF24_Strategy<S>::prepare_strategy() {
   // NOTE: Also pre-computing, though less trivial
   height_0 = height_seed();
   area_leaf_0 = area_leaf(height_0);
+  // The residual seed_geometry closes is five composed allometries, so its slope
+  // is not one term to write down: it is a tangent through the same expression,
+  // taken here where the choice is visible and the scalar is already double.
+  {
+    using tangent = odelia::ode::tangent_scalar<double>;
+    const TF24_Strategy<tangent> at_tangent = rebind_from<tangent>();
+    tangent probe = height_0;
+    odelia::ode::seed_direction(probe, 1.0);
+    dmass_dheight_0 = odelia::ode::derivative_along(
+        at_tangent.mass_live_given_height(probe));
+  }
 
   if (this->is_variable_birth_rate) {
     this->extrinsic_drivers.set_variable("birth_rate", this->birth_rate_x, this->birth_rate_y);
