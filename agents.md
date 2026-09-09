@@ -837,14 +837,14 @@ auto anchor = [](double v, const S& x) -> S { return S(v) + (x - to_passive(x));
 The two differ only in `-> S` and taking `x` by reference. That is the whole
 lesson: the fix is the declared return type.
 
-**A grafted derivative cannot be checked against the value it is grafted onto.**
+**A supplied derivative cannot be checked against the value it is attached to.**
 Where a submodel hands back constants and its partials are attached by hand, the
-graft is `value + Σ partial_i * (x_i - to_passive(x_i))`: exact in the
-derivative and **identically zero in the value**, by construction. So a finite
-difference of the grafting function is zero on every grafted input whether the
+recorded expression is `value + Σ partial_i * (x_i - to_passive(x_i))`: exact in
+the derivative and **identically zero in the value**, by construction. So a finite
+difference of that function is zero on every supplied input whether the
 partials are there, wrong, or silently dropped — and dropping them gives a
 gradient column of exactly zero, which reads as an answer. Two rules follow.
-Build the graft's input vector from the submodel's own `inputs()`, name-driven,
+Build the input vector from the submodel's own `inputs()`, name-driven,
 with a hard stop on a name you cannot map, so a widened boundary is a compile or
 run failure rather than a shorter vector. And never `resize` a partials row to
 fit the inputs you happened to build: check the length and fail. This cost two
