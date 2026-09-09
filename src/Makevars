@@ -6,6 +6,19 @@ CXX_STD = CXX20
 ## Where to find headers
 PKG_CPPFLAGS = -isystem../inst/include/
 
+## XAD reaches its active tape through a __thread variable defined in odelia and
+## read from here; because R dlopens odelia that resolves through a call on every
+## active value's construction and destruction. Neither package contains a
+## thread. XAD_USE_STRONG_INLINE is client-side by design and forces the AReal
+## constructors inline, which they are not by default. Both must match odelia's
+## Makevars exactly: a mismatch on the first is a storage-class conflict on a
+## symbol whose mangled name does not change.
+PKG_CPPFLAGS += -DXAD_NO_THREADLOCAL -DXAD_USE_STRONG_INLINE
+
+## xad::DerivInfo holds raw C arrays, so the default -fstack-protector-strong
+## puts a canary on nearly every active assignment.
+PKG_CXXFLAGS = -fno-stack-protector
+
 ## Link to gperftools profiler
 ## Uncomment next line if you want to use the profiler.
 ## PKG_LIBS = -lprofiler
