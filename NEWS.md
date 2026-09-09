@@ -1,5 +1,11 @@
 ## Plant (development version)
 
+While the reverse-mode gradient work is in progress this file carries **breaking
+changes only**, and they are kept current because the `plant-update-interface`
+skill reads them as its spec. Everything else that was here -- what has been
+measured, what each defect excludes, and what is open -- was a development record
+rather than release notes, and is in the git history rather than the tree.
+
 ### Breaking changes
 
 These change the R-facing interface and require updating downstream code. Each
@@ -153,6 +159,48 @@ products using plant.
   so archived TF24 results from before this change carry the same `TF24@v8` tag
   despite differing by ~0.36%.
 
+* **A finite-difference arm that crosses the feasible boundary now refuses.**
+  Requires the matching phylloptim. The leaf's environment rows are taken at a
+  frozen collar, and the entry point they went through clamped that collar into
+  whatever interval the PERTURBED state had -- so at a pinned operating point,
+  where the collar sits about a millionth of the interval's width off the wet
+  bound and a 1e-3 trait step moves that bound two orders further, one arm
+  answered about a different collar. No migration: the affected metrics were
+  returning a number and now report `refused` with the collar named. Measured at
+  psi_soil 5.0, `dprofit/droot_b` came back as 184.699 where the same difference
+  well inside the interval reads 0.0056.
+
+* **The dry pin is reported by its arm, and the inverted interval by its own
+  name.** Requires the matching phylloptim. Migration for anyone matching on the
+  kind a refusal message names:
+  * `"pinned-dry"`         -> `"pinned-dry-root-crit"` or `"pinned-dry-root-psi-crit"`
+  * `"hydraulic-shutdown"` -> unchanged, except the inverted-interval exit, which
+    is now `"infeasible-bracket"`
+
+  The two dry arms are different functions of the inputs -- the stem's continuity
+  root is a search result, the root's own critical potential is a registered
+  constant -- so a consumer forming the bound's row needs to know which bound.
+  Measured: at shipped defaults every dry pin is on the root-crit arm.
+
+* **The census trait gradient says why a metric has no numbers, instead of
+  raising.** A refusal used to escape to the R prompt as an error, with nothing a
+  caller could inspect and no way to keep the metrics that did answer.
+  Migration:
+  * `census_trait_gradient_tf24(scm, m)` (a list of numeric rows)
+    -> `census_trait_gradient_tf24(scm, m)$gradient` for the same rows
+  * `census_trait_gradient_split_tf24(scm, splits)`
+    -> `census_trait_gradient_split_tf24(scm, splits)$gradient`
+  * `stand_gradient(scm)` gains `$refusal`; `$gradient` is unchanged in shape and
+    meaning
+
+  Both C++ entry points now return `list(gradient, refusal)`. `refusal` carries
+  one entry per metric -- the reason, and the species it was found on -- or `NULL`
+  where the metric answered.
+
+  **A refused metric's whole gradient row is `NaN`.** Refusal is metric-level: a
+  sum has no defined value with an undefined term, so no localisation within a
+  metric is available. Metrics are independent of one another.
+
 * **`Leaf$set_physiology()` takes `root_network`, not `root_carbon_per_leaf_area`,
   and `Leaf()` no longer takes `beta_R_H` or `beta_R_V`.** Requires
   phylloptim >= 0.2.0 (phylloptim #33). Migration:
@@ -176,6 +224,37 @@ products using plant.
   (6 heights x 3 soil-moisture profiles) x 26 states, rates and auxiliaries,
   against `develop`; phylloptim's own 288-point golden file is bit-identical too.
   `scientific_version` is therefore unchanged.
+
+* **A census gradient's trait columns are named per species: `"lma"` -> `"1.lma"`.**
+  Migration:
+  * `colnames(stand_gradient(scm)$gradient)`  -> same, now `"<species>.<parameter>"`
+  * `stand_gradient(scm, traits = "lma")`     -> `stand_gradient(scm, traits = "1.lma")`
+  * `census_trait_names_tf24(scm)`            -> same, now prefixed
+  * `g$gradient[, "lma"]`                     -> `g$gradient[, "1.lma"]`, or
+    `g$gradient[, sub("^[0-9]+\\.", "", colnames(g$gradient)) == "lma"]` for every
+    species' column
+
+  Concatenating each species' parameter names with no prefix gave `S * P` columns
+  with every name repeated `S` times. Character indexing resolves a name to its
+  *first* match, so a multi-species gradient silently returned **species one's
+  column** for every named parameter, and the unknown-parameter check could not
+  see it because the name was present. A bare name now refuses, naming the
+  convention. The prefix is applied at every species count, including one, so a
+  single-species caller is not written against a shape that changes when a second
+  species arrives. Found by asserting the columns are unique; it was live in three
+  of this suite's own checks, one of which was comparing a quantity summed over
+  both species against species one's column.
+
+* **`stand_gradient_unanswered()` is now empty, so no trait is refused by name.**
+  Migration: none mechanical, but the *behaviour* changed and a caller relying on
+  the refusal will now get an answer. It listed thirteen traits the leaf supplied
+  no derivative for; the leaf now supplies rows for all of them, and eleven come
+  back live. The remaining two, `psi_crit` and `root_psi_crit`, are exactly zero
+  at an interior operating point by complementary slackness -- they set the dry
+  bound of a feasible interval the point is inside -- so they are declared zeros
+  rather than refusals, and they carry the whole row at a pin. The refusal
+  mechanism is kept, and matches on the parameter rather than the column, so a
+  trait that loses its row is refused rather than reported as zero.
 
 * **`run_stochastic_collect()`'s environment field is `env`, not `light_env`.**
   Migration: `out$light_env -> out$env`. The old name was never produced by
@@ -438,7 +517,6 @@ were not previously recorded here:
     now a full right-hand-side evaluation. `StochasticPatch$compute_rates()` is
     unchanged.
 
-### New features
 
 * **The NSC storage pool is bounded by the shape of its own flow (`TF24@v9`,
   `TF24f@v9.1`).** `dS/dt` was `net_flux > 0 ? net_flux : floor_gate * net_flux`
@@ -602,14 +680,17 @@ were not previously recorded here:
 * **`Control$node_density_in_birth_date`** (default `FALSE`) carries the SCM's
   size distribution as a density in birth date instead of in height.
 
-  The transport equation's compression term is the total derivative of the growth
-  rate along a cohort's own trajectory, which equals `∂g/∂h` only when growth is
-  a function of size. TF24's reserve gate breaks that: the finite-difference
-  probe in `Node::growth_rate_gradient` moves height while holding *absolute*
-  carbon fixed, so it shifts the reserve fraction `r = S/S_max`, whereas a cohort
-  actually grows with `r` roughly constant. The probe is accurate about a
-  quantity the plant never experiences, so this is a different derivative rather
-  than a worse approximation of the right one.
+### Added
+
+* **The gradient's incidence counters.** The leaf classifies its operating point
+  by the branch taken and the next plant overwrites it, and a clamp that severs a
+  row leaves a number indistinguishable from a true zero -- so neither was
+  recoverable after a run. Additions only:
+  * `census_operating_point_counts_tf24(scm)` -> per-species counts by kind
+  * `census_operating_point_names_tf24()`     -> the kinds, in that order
+  * `census_clamp_counts_tf24(scm)`           -> per-species counts by clamp site
+  * `census_clamp_names_tf24()`               -> the sites, in that order
+  * `census_clear_operating_point_counts_tf24(scm)` -> reset both, per run
 
   In birth-date coordinates the density rate is mortality alone (nothing moves an
   individual along the birth-date axis), the birth density is
@@ -1250,6 +1331,10 @@ were not previously recorded here:
 * Upgraded the minimum C++ standard from C++14 — currently C++20 (#442).
 * Expanded the K93 (#421) and self-thinning (#369) vignettes; added a draft
   `extrinsic_drivers` vignette (#340).
+
+  Read off the live system, so take them from the object you ran. Measured on a
+  drought run that refuses: 99.71% interior, 0.29% pinned-dry -- and that 0.29%
+  is what makes every metric's gradient undefined.
 
 ## Plant 2.0.0 release notes
 
