@@ -48,6 +48,7 @@ test_that("Defaults", {
     TF24_cost_scale = 7.5,
     TF24_floor_lambda_o = 0,
     jmax_25 = 157.44,
+    R_d_25 = 1.44,
     a = 0.3,
     curv_fact_elec_trans = 0.7,
     curv_fact_colim = 0.99,
@@ -293,16 +294,13 @@ test_that("offspring arrival", {
   expect_equal(out$offspring_production, 30.22207354, tolerance = 2e-2)
 
   # two species: the second strategy has a moderately higher lma (0.10 vs
-  # 0.0825), so it grows more slowly and is more heavily shaded. In the height
-  # coordinate the slower species is excluded -- its offspring production is
-  # several orders of magnitude below the faster species. We pin the dominant
-  # species (loosely, for the cross-platform reasons above) and assert the
-  # excluded species stays negligible, rather than pinning its tiny value, which
-  # is too platform-fragile to compare at a fixed relative tolerance.
+  # 0.0825), so it grows more slowly and is more heavily shaded. We pin the
+  # dominant species (loosely, for the cross-platform reasons above) and assert
+  # the second stays negligible, rather than pinning its tiny value, which is
+  # too platform-fragile to compare at a fixed relative tolerance.
   #
-  # This exclusion is a property of the *coordinate*, not of reserve-gated
-  # growth. See the birth-date case below: an earlier version of this comment
-  # recorded it as a finding about #517, which it is not.
+  # The exclusion this pins is a property of the *height* coordinate, which the
+  # ctrl above selects; the birth-date run below names its own.
   p2 <- add_strategies(p0, trait_matrix(c(0.0825, 0.10, 5, 5), c("lma", "hmat")),
                        hyperpar = TF24_hyperpar, birth_rate = list(20, 20))
 

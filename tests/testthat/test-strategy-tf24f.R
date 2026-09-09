@@ -49,6 +49,7 @@ test_that("Defaults", {
     TF24_cost_scale = 7.5,
     TF24_floor_lambda_o = 0,
     jmax_25 = 157.44,
+    R_d_25 = 1.44,
     a = 0.3,
     curv_fact_elec_trans = 0.7,
     curv_fact_colim = 0.99,
