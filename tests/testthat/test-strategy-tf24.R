@@ -61,9 +61,15 @@ test_that("Defaults", {
     nmass_r = 0.00335,
     dmass_dN = 0,
     root_depth_shape_eta = 0.2,
+    # (root_P50, root_c) is the pair the model carries; root_b and root_psi_crit
+    # are derived from it here the way TF24_Pars derives them, rather than pinned
+    # as literals. phylloptim takes the same pair and derives both itself, so a
+    # literal here would be a third spelling free to disagree with both.
+    root_P50 = 3.4,
     root_c = 2.680147,
-    root_b = 3.898245,
-    root_psi_crit = 3.898245 * log(1 / 0.05)^(1 / 2.680147),
+    root_b = 3.4 / (-log(1 - 50.0 / 100.0))^(1 / 2.680147),
+    root_psi_crit = (3.4 / (-log(1 - 50.0 / 100.0))^(1 / 2.680147)) *
+                      log(1 / 0.05)^(1 / 2.680147),
     rooting_depth_max = 1.5,
     # Stem hydraulic path. theta_c stays 0, so `theta` keeps its whole-plant
     # meaning. See plant/stem_hydraulics.h.
