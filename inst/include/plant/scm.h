@@ -198,8 +198,10 @@ public:
   // Returns the numbers AND what each of them is. The two travel together
   // because a row of doubles cannot say whether it is an answer: a refusal
   // anywhere in a metric's sweep makes that metric's whole gradient undefined,
-  // and an exact zero is more often a slot nothing reached than a sensitivity
-  // the model means.
+  // and not-a-number is the only mark a bare matrix carries. Within a metric
+  // that answered, every column is a number the sweep computed -- an exact zero
+  // included, which is why a parameter no gradient exists for is refused by name
+  // rather than given a column.
   census_gradient
   // `which_metrics` names the rows to sweep, empty meaning every one. A metric
   // not asked for is not seeded and not swept, so asking for one costs one --

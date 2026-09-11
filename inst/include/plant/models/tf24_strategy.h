@@ -361,9 +361,6 @@ struct TF24_Pars {
       PLANT_TF24_AD_PARAMETER(K_s),
       PLANT_TF24_AD_PARAMETER(stem_c),
       PLANT_TF24_AD_PARAMETER(stem_b),
-      // A limit: it sets the dry end of the interval the operating point moves
-      // in. Its column is zero while the point is away from that end and
-      // non-zero the moment the point sits on it.
       PLANT_TF24_AD_PARAMETER(psi_crit),
       PLANT_TF24_AD_PARAMETER(beta1),
       PLANT_TF24_AD_PARAMETER(TF24_beta2),
@@ -2853,6 +2850,16 @@ void TF24_Strategy<S>::prepare_strategy() {
     // Not a constructor argument, and written before any physiology is set, so
     // the temperature block derives R_d_ from it on the first call.
     leaf.R_d_25 = pars.R_d_25;
+    // Penman-Monteith leaf energy balance (#523): enable per pars (default off,
+    // backward-compatible) and pass the leaf-dimension trait. Wind speed is a
+    // per-timestep driver, set from the environment before each set_physiology.
+    //
+    // ⚠️ BOTH ARE SETTABLE AND REACH NOTHING IF THIS IS DROPPED. Moving the model
+    // body out of src/tf24_strategy.cpp and into this header lost the pair, and
+    // the symptom was Tleaf reporting the air temperature exactly on every run
+    // with the balance switched on -- an answer, not an error.
+    leaf.use_energy_balance_ = (odelia::util::to_passive(pars.use_energy_balance) != 0.0);
+    leaf.d_ = odelia::util::to_passive(pars.d);
     // ⚠️ SEATED ON TF24_floor, WHICH IS TF24 AT lambda_o = 0 -- and exactly, not
     // approximately: each term is TF24's own expression, so zeroing the price
     // adds an exact zero to TF24's exact value. The default price IS zero, so no

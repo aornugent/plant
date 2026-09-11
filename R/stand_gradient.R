@@ -80,9 +80,10 @@ trait_without_species <- function(x) sub("^[0-9]+\\.", "", x)
 ##'   an undefined term, so refusal is metric-level and carries no localisation
 ##'   within a metric. Every other number is one the sweep computed, an exact
 ##'   zero included — a parameter no gradient exists for cannot be asked for, so
-##'   it never reaches a column. Two limits, \code{psi_crit} and
-##'   \code{root_psi_crit}, are zero while the leaf's operating point is away
-##'   from the bound they set and live the moment it sits on one.
+##'   it never reaches a column. \code{psi_crit} and \code{root_psi_crit} are
+##'   two such: each is derived from its curve's \code{(P50, c)} pair, which
+##'   \code{phylloptim} derives for itself, so setting one reaches no equation
+##'   and asking for its gradient errors rather than returning a zero.
 ##'
 ##' @section A single entry can dominate a second moment:
 ##' A gradient taken where the run crosses an unresolved event — a cohort
@@ -171,8 +172,10 @@ stand_gradient_refused <- function(g) {
 ##' Compare two stand gradients.
 ##'
 ##' Two gradients are comparable only if they were taken at the same
-##' \code{Control}: each of the four entries changes the trajectory and so
-##' changes the function being differentiated.
+##' \code{Control}: four of the five entries change the trajectory and so change
+##' the function being differentiated, and the fifth,
+##' \code{gradient_curvature_floor}, decides which rows exist. See
+##' \code{\link{gradient_control}}.
 ##'
 ##' @param a,b Results of \code{stand_gradient}.
 ##' @return The element-wise difference \code{a$gradient - b$gradient}, over the

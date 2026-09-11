@@ -17,8 +17,10 @@ namespace plant {
 // nothing below the species has a component to attribute it to.
 struct refusal {
   std::string reason;
-  // 1-based. A refusal is recorded on the species whose strategy holds it, so one
-  // that happened always names one.
+  // 1-based where a species' own strategy recorded the refusal, and -1 where
+  // what failed spans every cohort in every stage and belongs to no species --
+  // the reverse walk's own range refusal is of that kind. A CALLER MUST HANDLE
+  // -1 RATHER THAN INDEXING WITH IT.
   int species = -1;
 
   bool happened() const { return !reason.empty(); }
