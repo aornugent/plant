@@ -49,6 +49,38 @@ reference_stand <- function(regime) {
                                       else regime$amplitude))
 }
 
+# Columns the captured reference carries no row for, so this rung does not
+# referee them.
+#
+# ⚠️ THIS LIST IS A GAP, NOT A PROPERTY, AND RE-CAPTURING THE REFERENCE EMPTIES
+# IT. It is declared because the alternative is what was here before: the rung
+# passing at 13 while refereeing 40 of 48 columns. `reference_compare` drops a
+# reference row whose column the sweep does not carry -- which is right, names
+# change -- and it had no way to notice a column the REFERENCE does not carry.
+# The capture predates this branch's (P50, c) reparameterisation and develop's
+# stem path integral, so eight columns went unlooked-at and nothing said so.
+#
+# All eight were differenced by hand, by this reference's own method, on the wet
+# regime. Worst relative disagreement against the sweep, over the three metrics:
+#
+#     D_c              1.6e-04        stem_c            3.6e-04
+#     L_tip            5.4e-04        root_P50          1.5e-03
+#     stem_P50         1.0e-05        TF24_beta2        4.6e-05
+#     TF24_cost_scale  1.4e-04
+#
+# all at the difference's own truncation floor at steps of 1e-4 to 1e-3. So the
+# columns are right today; what is missing is a check that keeps saying so.
+#
+# Two stay here after a re-capture, and for a reason a re-capture cannot fix:
+# TF24_floor_lambda_o and recruitment_decay both default to 0, so a RELATIVE step
+# `abs(value) * rel` is 0 and the difference moves no parameter at all. The
+# capture already recorded recruitment_decay that way -- its rows carry no metric,
+# which reference_rows() drops -- so it reads as uncovered here either way.
+reference_uncaptured_columns <- function() {
+  c("D_c", "L_tip", "stem_P50", "stem_c", "root_P50", "TF24_beta2",
+    "TF24_cost_scale", "TF24_floor_lambda_o", "recruitment_decay")
+}
+
 # The two columns whose disagreement with this reference is open, and what is
 # known about it. Both reach the census through channels the leaf boundary
 # carries -- `theta` is the Huber value, which arrives at the leaf as its maximum
@@ -101,6 +133,14 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
   rows <- reference_rows()
   regimes <- ladder_reference_regimes()
   expect_setequal(unique(rows$regime), vapply(regimes, `[[`, "", "name"))
+
+  # The reference covers every column the sweep carries, bar the declared one.
+  # Asserted before any comparison, because a missing row is not a disagreement
+  # -- it is a column nothing looked at, and the rung passes either way.
+  carried <- setdiff(names(TF24_Strategy()$pars),
+                     names(census_undifferentiable_tf24()))
+  expect_setequal(setdiff(carried, unique(rows$parameter)),
+                  reference_uncaptured_columns())
 
   # A regime is one run and one sweep and the five are independent, so they go to
   # separate processes -- but a forked worker that fails reports only that all
