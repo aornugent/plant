@@ -1093,6 +1093,20 @@ were not previously recorded here:
 
 ### Known issues
 
+* **`run_mutant()` is a `stop()` on this branch, and it works on `develop`.**
+  This is a REGRESSION against #643, not a gap that was always there. An invader
+  integrates against a field it does not move, so it needs a run that replays a
+  resident's field rather than rebuilding it; the recorder that supplied one was
+  reached through solver hooks this branch's rewrite stopped calling, so it
+  filled nothing. It is deleted rather than left standing to fill nothing
+  quietly. `test-mutant.R` keeps every case and skips it: the numbers are the
+  specification for the replay pass that has to restore this, and
+  `scm$run_mutant()` errors with the reason until then.
+
+  Note this is a different failure from the one #643 fixed. That one was the
+  pinned stepper refusing a domain error, and odelia 0.4.0's subdivision -- which
+  0.5.0 carries -- fixes it here too. What is missing is the recording.
+
 * **A dense TF24 stochastic run throws at the default ODE step cap** (#599). The
   soil water balance is stiff — the conductivity curve's exponent is
   `2*n_psi+3 ≈ 16`, so `K_sat/dz` is ~543/yr at the defaults — and at
