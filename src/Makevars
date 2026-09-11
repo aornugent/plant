@@ -15,9 +15,13 @@ PKG_CPPFLAGS = -isystem../inst/include/
 ## symbol whose mangled name does not change.
 PKG_CPPFLAGS += -DXAD_NO_THREADLOCAL -DXAD_USE_STRONG_INLINE
 
-## xad::DerivInfo holds raw C arrays, so the default -fstack-protector-strong
-## puts a canary on nearly every active assignment.
-PKG_CXXFLAGS = -fno-stack-protector
+## ⚠️ NO -fno-stack-protector HERE, however tempting xad::DerivInfo's raw C
+## arrays make it. R CMD check raises *Non-portable flags in variable
+## 'PKG_CXXFLAGS'* on it, and it does not even do what it says: R places
+## PKG_CXXFLAGS BEFORE the distro CXXFLAGS, so on Linux the later
+## -fstack-protector-strong wins and this is inert. Where it does take effect is
+## macOS/clang, which adds no hardening of its own -- so the one platform it
+## reaches is the one platform it leaves unprotected.
 
 ## Link to gperftools profiler
 ## Uncomment next line if you want to use the profiler.

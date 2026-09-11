@@ -13,8 +13,9 @@ stand_census(scm)
 A named numeric vector, one entry per census metric.
 }
 \description{
-The trapezium integral of \eqn{n_k \psi(\mathrm{state}_k)} over the cohort
-heights, for each metric \eqn{\psi}. The quadrature grid starts at the inflow
-boundary node, so the interval between it and the smallest cohort is in the
-sum.
+The trapezium integral of \eqn{n_k \psi(\mathrm{state}_k)} over the size
+distribution, for each metric \eqn{\psi}. The grid is the coordinate the
+density is carried in -- the birth date, or the height -- and the inflow
+boundary node closes it, so the interval between it and the smallest cohort
+is in the sum.
 }

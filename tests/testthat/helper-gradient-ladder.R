@@ -7,10 +7,11 @@
 #   path disjointness  every reference written here is in R, over quantities the
 #                      forward model publishes. It traverses the forward
 #                      reduction, which it must, and no transpose.
-#   fault injection    ladder_injected() names which deliberate break is in
-#                      force, and ladder_report_margin() records how much room
-#                      the check had. A fault detected at three times the
-#                      tolerance is a check about to stop working.
+#   fault injection    test-gradient-ladder-injection.R corrupts one side of a
+#                      comparison the suite already makes and requires the
+#                      comparison to reject it, and ladder_report_margin()
+#                      records how much room the check had. A fault detected at
+#                      three times the tolerance is a check about to stop working.
 #   non-vacuity        ladder_expect_moves() zeroes the channel a check exists
 #                      for and requires the answer to change.
 #   adversariality     the fixtures keep every distinguishing quantity distinct:
@@ -1311,16 +1312,6 @@ ladder_gradient_or_skip <- function(stand, ...) {
 }
 
 # Fault injection.
-
-# Which deliberate break is in force. A check's sensitivity is established by
-# breaking the thing it watches, and this is what names the break so a margin can
-# be recorded against it. The fault-injection runs are the deliverable, not a
-# by-product: a rung whose faults have not been injected has not been climbed.
-ladder_injected <- function(name = NULL) {
-  current <- Sys.getenv("PLANT_LADDER_INJECT", unset = "")
-  if (is.null(name)) return(current)
-  identical(current, name)
-}
 
 # The declared zero lists.
 

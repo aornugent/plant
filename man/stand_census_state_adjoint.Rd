@@ -15,6 +15,7 @@ A numeric matrix, metrics by ODE state entries.
 \description{
 One row per metric and one column per ODE state entry, in the order
 \code{scm$patch$ode_state} writes. This is what the reverse pass is seeded
-with, and the cohort-height columns carry the trapezium weights as well as
-the integrand.
+with. The cohort-height columns carry the trapezium weights as well as the
+integrand only where the height is the coordinate integrated over; on the
+birth-date coordinate the weights are constants.
 }

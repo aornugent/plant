@@ -2,7 +2,7 @@
 % Please edit documentation in R/stand_gradient.R
 \name{gradient_control}
 \alias{gradient_control}
-\title{The four \code{Control} entries a census gradient depends on.}
+\title{The \code{Control} entries a census gradient depends on.}
 \usage{
 gradient_control(scm)
 }
@@ -10,11 +10,14 @@ gradient_control(scm)
 \item{scm}{A run \code{SCM} object for the TF24 strategy.}
 }
 \value{
-A named numeric vector of length four.
+A named numeric vector of length five.
 }
 \description{
-Each of these moves the trajectory the gradient is taken along, so two
+The first four move the trajectory the gradient is taken along, so two
 gradients taken at different values of any of them are gradients of
-different functions. \code{stand_gradient} records them and
+different functions. \code{gradient_curvature_floor} is here for a second
+reason: it moves no forward number at all and still decides which rows
+exist, by refusing a collar response the profit curvature is too small to
+support. \code{stand_gradient} records them and
 \code{stand_gradient_compare} refuses a pair that disagrees.
 }
