@@ -245,16 +245,17 @@ products using plant.
   of this suite's own checks, one of which was comparing a quantity summed over
   both species against species one's column.
 
-* **`stand_gradient_unanswered()` is now empty, so no trait is refused by name.**
-  Migration: none mechanical, but the *behaviour* changed and a caller relying on
-  the refusal will now get an answer. It listed thirteen traits the leaf supplied
-  no derivative for; the leaf now supplies rows for all of them, and eleven come
-  back live. The remaining two, `psi_crit` and `root_psi_crit`, are exactly zero
-  at an interior operating point by complementary slackness -- they set the dry
-  bound of a feasible interval the point is inside -- so they are declared zeros
-  rather than refusals, and they carry the whole row at a pin. The refusal
-  mechanism is kept, and matches on the parameter rather than the column, so a
-  trait that loses its row is refused rather than reported as zero.
+* **No trait is refused by name any more.** Migration: none mechanical, but the
+  *behaviour* changed and a caller relying on a by-name refusal will now get an
+  answer. Thirteen traits the leaf supplied no derivative for are now supplied,
+  and eleven of them come back live. `psi_crit` and `root_psi_crit` are the other
+  two, and they are not columns at all: each is derived from its curve's
+  `(P50, c)` pair, which `phylloptim` derives for itself, so setting one reaches
+  no equation. Both are listed in `TF24_Pars::undifferentiable`, which means
+  asking for one errors rather than returning a zero --
+  `census_undifferentiable_tf24()` reports the list and the reason beside each
+  name. What remains of the refusal mechanism is metric-level, reported through
+  `stand_gradient()`'s `refusal` and reduced by `stand_gradient_refused()`.
 
 * **`run_stochastic_collect()`'s environment field is `env`, not `light_env`.**
   Migration: `out$light_env -> out$env`. The old name was never produced by
@@ -410,8 +411,16 @@ products using plant.
   * `run_scm_collect(p, …)` -> `run_scm(p, …, collect = TRUE)`
   * `run_scm_error(p, …)` -> set `scm$collect_errors <- TRUE` then read
     `scm$combined_node_errors`
-* The argument order of `run_scm()` changed; `use_ode_times` is now the last
-  argument (after the new `refine_schedule` and `collect`).
+* **`run_scm()`'s fifth positional argument changed meaning**, which a
+  positional call cannot notice. The signature is
+  `run_scm(p, env, ctrl, refine_schedule, collect, record_trajectory, events)`;
+  where `use_ode_times` used to sit, `record_trajectory` now does. They are not
+  the same request -- `use_ode_times` REPLAYED a recorded schedule, while
+  `record_trajectory` asks the run to KEEP its state at every accepted step, which
+  is what `stand_gradient()` sweeps. Migration:
+  * `run_scm(p, env, ctrl, use_ode_times = TRUE)` -> record on the run that
+    produced the times and replay through `run_mutant()`
+  * a positional fifth argument -> name it, and check which of the two you meant
 * Numeric `Control` defaults are now set in the C++ `Control()` constructor
   (the pragmatic "fast" settings), and the two R preset helpers were removed
   (#463). Raw `Control()` now means **fast**, not accurate. Migration:
@@ -777,20 +786,32 @@ were not previously recorded here:
   A runaway cohort density stays fatal, because that divergence is in the
   equations rather than the stepper and shrinking cannot recover it.
 
+* **Three `Control` defaults moved, and two of them move every TF24 number.**
+  Nothing in a caller's code changes; the answers do.
+  * `GSS_tol_abs` `1e-3` -> `1e-1`. The golden-section search that places the
+    leaf's operating point runs to a looser bracket.
+  * `vulnerability_curve_ncontrol` `100` -> `400`. The pre-integrated
+    vulnerability tables are built on four times the knots, which is what the
+    supplied leaf rows are read off. `phylloptim`'s `leaf_control()` carries the
+    same number, and nothing checks the two against each other.
+  * `gradient_curvature_floor`, new at `1e-3`. It moves NO forward number: it
+    decides which gradient rows exist, by refusing a collar response whose profit
+    curvature is too small to invert. It is in `gradient_control()` for that
+    reason -- two gradients are comparable only when taken at the same value.
+
+  Migration: none mechanical. A result pinned against an older TF24 run needs
+  re-blessing, and a caller who wants the previous leaf resolution sets both of
+  the first two back explicitly.
+
+* **FF16 and K93 `scientific_version` 1 -> 2.** Neither model's own equations
+  changed. Both read their trapezium widths from the coordinate the density is
+  carried in, and that is what `node_density_in_birth_date` moves -- so a run
+  with the flag set is a different quadrature of the same model and says so.
+  TF24 and TF24f are at `v10` / `v10.1`; the stem path integral that took them
+  there is `develop`'s, not this branch's.
+
 * **`Control$node_density_in_birth_date`** (default `FALSE`) carries the SCM's
   size distribution as a density in birth date instead of in height.
-
-### Added
-
-* **The gradient's incidence counters.** The leaf classifies its operating point
-  by the branch taken and the next plant overwrites it, and a clamp that severs a
-  row leaves a number indistinguishable from a true zero -- so neither was
-  recoverable after a run. Additions only:
-  * `census_operating_point_counts_tf24(scm)` -> per-species counts by kind
-  * `census_operating_point_names_tf24()`     -> the kinds, in that order
-  * `census_clamp_counts_tf24(scm)`           -> per-species counts by clamp site
-  * `census_clamp_names_tf24()`               -> the sites, in that order
-  * `census_clear_operating_point_counts_tf24(scm)` -> reset both, per run
 
   In birth-date coordinates the density rate is mortality alone (nothing moves an
   individual along the birth-date axis), the birth density is
@@ -898,6 +919,19 @@ were not previously recorded here:
   abscissa cannot invert (introduction times are fixed at birth), but the
   *height* early exit is skipped when the height ordering has broken, since a
   node below the query height can then be followed by a taller one.
+
+### Added
+
+* **The gradient's incidence counters.** The leaf classifies its operating point
+  by the branch taken and the next plant overwrites it, and a clamp that severs a
+  row leaves a number indistinguishable from a true zero -- so neither was
+  recoverable after a run. Additions only:
+  * `census_operating_point_counts_tf24(scm)` -> per-species counts by kind
+  * `census_operating_point_names_tf24()`     -> the kinds, in that order
+  * `census_clamp_counts_tf24(scm)`           -> per-species counts by clamp site
+  * `census_clamp_names_tf24()`               -> the sites, in that order
+  * `census_clear_diagnostics_tf24(scm)`       -> reset both, per run
+
 * **A dry TF24f patch no longer aborts the whole run on the ci root-find.**
   `Leaf::dprofit_droot_collar_psi` — TF24f's exact AD/IFT gradient — called
   `psi_stem_to_ci()` before testing for hydraulic shut-down. In shut-down,
