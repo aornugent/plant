@@ -163,6 +163,13 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
 
   # And what the two open columns currently read, so the disagreement is in the
   # log of every run rather than in a comment.
+  #
+  # ⚠️ NO skip() HERE. The expectations above already say the whole of what this
+  # rung claims -- every answered column outside the two declared open ones
+  # agrees with a reference that shares no arithmetic with the sweep -- and
+  # ending on a bare skip() threw that verdict away, so the file reported as
+  # not-run whether it held or not.
+  still_open <- character(0)
   for (r in results) {
     if (all(r$refused)) {
       next
@@ -175,7 +182,11 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
                       r$observed[[worst]], r$reference[[worst]],
                       r$residual[[worst]]))
     }
+    over <- open & r$residual > pmax(3 * r$spread, 2e-3)
+    still_open <- union(still_open, r$parameter[over])
   }
-  skip(paste("theta and omega disagree with this reference in sign on drought",
-             "and seasonal stands; every other answered column holds"))
+  # Both directions, for the reason the declared zeros are asserted both ways: a
+  # column named open that has started agreeing is a declaration to delete, and
+  # leaving it in hides the next column that opens.
+  expect_setequal(still_open, reference_open_columns)
 })
