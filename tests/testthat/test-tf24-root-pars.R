@@ -39,17 +39,6 @@ test_that("root hydraulic parameters are settable", {
   expect_equal(s$pars$rooting_depth_max, 4.0)
 })
 
-# Shared probe: one compute_rates call, returning the named aux vector.
-tf24_root_probe <- function(strategy, theta) {
-  ind <- TF24_Individual(strategy)
-  ind$set_state("height", 5)
-  env <- TF24_Environment()
-  env$set_soil_number_of_depths(length(theta))
-  env$set_soil_water_state(theta)
-  ind$compute_rates(env)
-  stats::setNames(ind$internals$auxs, ind$aux_names)
-}
-
 test_that("root_b reaches the root vulnerability curve", {
   # Lowering root_b makes roots lose conductivity at less negative potentials,
   # so the same soil supports less carbon gain. If the parameter were not wired
@@ -64,8 +53,8 @@ test_that("root_b reaches the root vulnerability curve", {
   # SILENTLY, which is why this drives the knob that reaches the model.
   fragile$pars$root_P50 <- 0.5 * log(2)^(1 / fragile$pars$root_c)
 
-  a_base <- tf24_root_probe(base, wet)[["assimilation"]]
-  a_fragile <- tf24_root_probe(fragile, wet)[["assimilation"]]
+  a_base <- tf24_probe(base, wet)[["assimilation"]]
+  a_fragile <- tf24_probe(fragile, wet)[["assimilation"]]
 
   expect_true(is.finite(a_base) && is.finite(a_fragile))
   expect_lt(a_fragile, a_base)
@@ -80,8 +69,8 @@ test_that("rooting_depth_max reaches the root network", {
   shallow <- TF24_Strategy(); shallow$pars$rooting_depth_max <- 0.2
   deep    <- TF24_Strategy(); deep$pars$rooting_depth_max    <- 1.5
 
-  psi_shallow <- tf24_root_probe(shallow, stratified)[["opt_root_psi"]]
-  psi_deep    <- tf24_root_probe(deep, stratified)[["opt_root_psi"]]
+  psi_shallow <- tf24_probe(shallow, stratified)[["opt_root_psi"]]
+  psi_deep    <- tf24_probe(deep, stratified)[["opt_root_psi"]]
 
   expect_true(is.finite(psi_shallow) && is.finite(psi_deep))
   # The opt_root_psi aux is a positive magnitude (phylloptim #25), so the
