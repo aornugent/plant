@@ -420,13 +420,15 @@ public:
   void r_set_node_schedule(NodeSchedule x);
   void r_set_node_schedule_times(std::vector<std::vector<double>> x);
 
-  // ODE times: the step times the solver actually used on the last run.
-  // (Whether to *pin* integration to a fixed set of times is controlled on the
-  // NodeSchedule via its own use_ode_times flag.)
+  // ODE times: the step times the solver actually used on the last run. Carried
+  // back on the parameters (`p$ode_times`) they make the next run a replay --
+  // holding them is what says so, and no flag says it separately.
   std::vector<double> r_ode_times() const;
 
-  // The size of the step that reached each of r_ode_times(), NaN first. Pin
-  // these on the NodeSchedule alongside the times to replay a run faithfully.
+  // The size of the step that reached each of r_ode_times(), NaN first. Carried
+  // BESIDE the times the next run repeats this one exactly; with the times
+  // alone it steps TO each of them and chooses its own sub-steps, which is what
+  // a difference of two runs wants -- one grid, each side free to reach it.
   std::vector<double> r_ode_step_sizes() const;
 
   // The trajectory as a list of records, each a time, the step size that reached it,
