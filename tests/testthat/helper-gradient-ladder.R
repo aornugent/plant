@@ -1572,6 +1572,24 @@ ladder_run_difference_pair <- function(name, species = 2L,
     ladder_environment(regime$rain, if (is.null(regime$amplitude)) 0
                                    else regime$amplitude)
   }
+  # ⚠️ BOTH SIDES CENSUS ON ONE TIME GRID, AND WITHOUT IT THIS MEASURES THE
+  # SOLVER RATHER THAN THE MODEL. Moving a parameter by one part in a million
+  # changes which steps the error estimator accepts, and the census then lands a
+  # fixed distance away however small the move was -- so the quotient grows as
+  # 1/h and every reading under that floor carries a derivative's units and none
+  # of its content. DO NOT drop the pin to save the base run: unpinned, 1.theta's
+  # leaf_area on drought reads 1.9e+05, -3.4e+04, -1196, -1043 over the four
+  # steps, against -815.2, -815.7, -816.6, -744.4 pinned and -815.7 from the
+  # sweep -- and no column on that stand did better, the census difference
+  # tracking the step at a slope of 0.65 at best over its 86 readable ones where
+  # a resolved difference gives 1.
+  #
+  # The TIMES only, not the step sizes with them. Pinning both makes each side
+  # replay a step the other's state cannot take, which refuses outright on the
+  # shaded and clamped stands; the grid is what the census accumulates on and is
+  # all that has to agree.
+  base <- ladder_run(build(), env = env_of())
+  ode_times <- base$ode_times
   census_at <- function(value) {
     p <- build()
     strategies <- p$strategies
@@ -1581,6 +1599,7 @@ ladder_run_difference_pair <- function(name, species = 2L,
     strategies[[species]]$pars <- pars
     p$strategies <- strategies
     ladder_assert_one_parameter(before, unlist(p$strategies[[species]]$pars), name)
+    p$ode_times <- ode_times
     stand_census(ladder_run(p, env = env_of()))
   }
   value <- unlist(build()$strategies[[species]]$pars)[[name]]
@@ -1596,21 +1615,24 @@ ladder_run_difference_pair <- function(name, species = 2L,
   # on the slow species' root allometry: 0.275, 0.131, 0.122, 0.126 across four
   # steps, so a single reading at 1e-05 is off by a factor of two from the
   # converged one.
-  g <- vapply(steps, at, numeric(length(at(steps[[1]]))))
-  scale <- max(abs(g))
-  adjacent <- if (scale > 0) {
-    vapply(seq_len(length(steps) - 1L),
-           function(i) max(abs(g[, i] - g[, i + 1L])) / scale, numeric(1))
-  } else rep(0, length(steps) - 1L)
+  g <- vapply(steps, at, numeric(length(stand_census(base))))
   # The most-agreeing adjacent pair brackets where truncation crosses round-off;
-  # its coarser member carries the less round-off of the two.
-  best <- which.min(adjacent)
+  # its coarser member carries the less round-off of the two. One step for the
+  # whole column, so a metric is not read at a different place from its neighbour.
+  gaps <- abs(g[, -1L, drop = FALSE] - g[, -ncol(g), drop = FALSE])
+  best <- which.min(apply(gaps, 2, max))
+  # ⚠️ THE SPREAD IS ABSOLUTE, IN THE METRIC'S OWN UNITS, AND THE ONE CONSUMER
+  # DIVIDES IT BY THE SAME SCALE IT DIVIDES ITS RESIDUAL BY. Normalising here too
+  # is the second of two divisions and each hides the other: against the column's
+  # own value a row at the difference's floor reads infinitely unconverged, and
+  # against the largest of the four readings -- which on a series falling like
+  # 1/h is its noisiest -- 79 of drought's 86 columns kept a reading further from
+  # its neighbour than from zero and reported 0.03% to 34% for it.
   list(gradient = g[, best + 1L],
        column = paste0(species, ".", name),
        step = steps[[best + 1L]],
        values = g,
-       adjacent = adjacent,
-       spread = adjacent[[best]])
+       spread = gaps[, best])
 }
 
 ladder_shortlist <- function() {

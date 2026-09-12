@@ -9,10 +9,12 @@
 # two species compete, and it is what a change from a differenced row to a
 # closed-form one has to answer to.
 #
-# ⚠️ THE REFERENCE IS DATA AND IS NEVER REWRITTEN BY A TEST. It cost hours to
-# capture and it lives in reference/reference-gradient.tsv. A reference
-# regenerated from the model it referees is not a reference, so a disagreement
-# here is a finding and not a file to refresh.
+# ⚠️ THE REFERENCE IS DATA AND IS NEVER REWRITTEN BY A TEST. It lives in
+# reference/reference-gradient.tsv and `scripts/capture-reference-gradient.R`
+# writes it, which is a thing to run when the INSTRUMENT moves -- the step
+# ladder, the pinned grid, the parameter set -- and never to make a run green. A
+# reference regenerated from the model it referees is not a reference, so a
+# disagreement here is a finding.
 #
 # A residual is normalised per metric, over the columns the reference carries for
 # it, which is the convention `ladder_matrix_residual` uses. Normalising per
@@ -49,52 +51,19 @@ reference_stand <- function(regime) {
                                       else regime$amplitude))
 }
 
-# Columns the captured reference carries no row for, so this rung does not
-# referee them.
+# The two columns this reference carries no row for, and the reason is not that
+# nobody captured them: both default to 0, so the capture's RELATIVE step
+# `abs(value) * rel` is 0 and the difference moves no parameter at all. Their
+# rows record that refusal and carry no metric, which reference_rows() drops.
 #
-# ⚠️ THIS LIST IS A GAP, NOT A PROPERTY, AND RE-CAPTURING THE REFERENCE EMPTIES
-# IT. It is declared because the alternative is what was here before: the rung
-# passing at 13 while refereeing 40 of 48 columns. `reference_compare` drops a
-# reference row whose column the sweep does not carry -- which is right, names
-# change -- and it had no way to notice a column the REFERENCE does not carry.
-# The capture predates this branch's (P50, c) reparameterisation and develop's
-# stem path integral, so eight columns went unlooked-at and nothing said so.
-#
-# All eight were differenced by hand, by this reference's own method, on the wet
-# regime. Worst relative disagreement against the sweep, over the three metrics:
-#
-#     D_c              1.6e-04        stem_c            3.6e-04
-#     L_tip            5.4e-04        root_P50          1.5e-03
-#     stem_P50         1.0e-05        TF24_beta2        4.6e-05
-#     TF24_cost_scale  1.4e-04
-#
-# all at the difference's own truncation floor at steps of 1e-4 to 1e-3. So the
-# columns are right today; what is missing is a check that keeps saying so.
-#
-# Two stay here after a re-capture, and for a reason a re-capture cannot fix:
-# TF24_floor_lambda_o and recruitment_decay both default to 0, so a RELATIVE step
-# `abs(value) * rel` is 0 and the difference moves no parameter at all. The
-# capture already recorded recruitment_decay that way -- its rows carry no metric,
-# which reference_rows() drops -- so it reads as uncovered here either way.
+# ⚠️ ASSERTED BOTH WAYS, because the alternative is what this rung did while
+# passing at 13: `reference_compare` drops a reference row whose column the sweep
+# does not carry -- which is right, names change -- and has no way to notice a
+# column the REFERENCE does not carry. Forty of forty-eight were refereed and
+# nothing said so.
 reference_uncaptured_columns <- function() {
-  c("D_c", "L_tip", "stem_P50", "stem_c", "root_P50", "TF24_beta2",
-    "TF24_cost_scale", "TF24_floor_lambda_o", "recruitment_decay")
+  c("TF24_floor_lambda_o", "recruitment_decay")
 }
-
-# The two columns whose disagreement with this reference is open, and what is
-# known about it. Both reach the census through channels the leaf boundary
-# carries -- `theta` is the Huber value, which arrives at the leaf as its maximum
-# conductance, and `omega` is the seed mass, which arrives through birth size.
-#
-# On a wet stand both agree to 2.5e-04. On drought and seasonal stands they
-# disagree IN SIGN and at the metric's own scale: mass_above_ground reads 3407
-# against the reference's -1074 for `theta`, and -1466 against +1487 for `omega`.
-# The reference resolved itself to between 0.7% and 10% there, so this is far
-# outside its own error.
-#
-# Named here rather than tolerated, because a tolerance wide enough to admit a
-# sign reversal admits everything.
-reference_open_columns <- c("theta", "omega")
 
 reference_compare <- function(regime, rows) {
   got <- ladder_gradient_or_skip(reference_stand(regime))
@@ -119,7 +88,12 @@ reference_compare <- function(regime, rows) {
        reason = if (any(stand_gradient_refused(got)))
                   got$refusal[[which(stand_gradient_refused(got))[[1]]]]$reason
                 else NA_character_,
-       reference = mine$converged, spread = mine$spread,
+       reference = mine$converged,
+       # The capture's own resolution and this rung's disagreement, divided by
+       # one scale in one place: the capture reports the gap between the two
+       # readings it chose between in the metric's own units, and normalising it
+       # anywhere but here would be a second division that hides this one.
+       spread = mine$spread / unname(scale[mine$metric]),
        residual = abs(observed - mine$converged) /
          unname(scale[mine$metric]))
 }
@@ -183,14 +157,14 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
     # for a separate reason: the declared-zero file referees them against the
     # model's own claim, and a relative residual has nothing to say about a
     # column that is exactly zero against a difference that is merely small.
-    live <- !r$refused &
-      !(r$parameter %in% ladder_zero_by_construction()) &
-      !(r$parameter %in% reference_open_columns)
+    live <- !r$refused & !(r$parameter %in% ladder_zero_by_construction())
     expect_gt(sum(live), 200)
     # The reference's own resolution, with a floor: where its four steps agreed
     # to round-off, the sweep is still only asked to agree to the truncation the
-    # coarsest of them carries. Measured over the five regimes, the worst
-    # answered column sits at 1.5e-02 on drought and at 5.9e-07 on wet.
+    # coarsest of them carries. Over 270 answered columns a regime, the worst
+    # reads 1.1e-03 on drought, 7.6e-04 on seasonal and 6.3e-05 on wet -- and all
+    # three are `theta` or `omega`, which reach the census through the channels
+    # the leaf boundary carries and are the last columns to resolve.
     tolerance <- pmax(3 * r$spread, 2e-3)
     over <- live & r$residual > tolerance
     expect_equal(sum(over), 0,
@@ -201,32 +175,4 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
                                 signif(max(r$residual[live]), 3)))
   }
 
-  # And what the two open columns currently read, so the disagreement is in the
-  # log of every run rather than in a comment.
-  #
-  # ⚠️ NO skip() HERE. The expectations above already say the whole of what this
-  # rung claims -- every answered column outside the two declared open ones
-  # agrees with a reference that shares no arithmetic with the sweep -- and
-  # ending on a bare skip() threw that verdict away, so the file reported as
-  # not-run whether it held or not.
-  still_open <- character(0)
-  for (r in results) {
-    if (all(r$refused)) {
-      next
-    }
-    open <- !r$refused & r$parameter %in% reference_open_columns
-    if (any(open)) {
-      worst <- which.max(ifelse(open, r$residual, 0))
-      message(sprintf("  %-9s open: %s %s reads %.4g against %.4g (residual %.3g)",
-                      r$name, r$column[[worst]], r$metric[[worst]],
-                      r$observed[[worst]], r$reference[[worst]],
-                      r$residual[[worst]]))
-    }
-    over <- open & r$residual > pmax(3 * r$spread, 2e-3)
-    still_open <- union(still_open, r$parameter[over])
-  }
-  # Both directions, for the reason the declared zeros are asserted both ways: a
-  # column named open that has started agreeing is a declaration to delete, and
-  # leaving it in hides the next column that opens.
-  expect_setequal(still_open, reference_open_columns)
 })
