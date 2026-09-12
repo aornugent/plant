@@ -138,6 +138,15 @@ public:
   }
 
 private:
+  // The node's own two rates, from the individual's. Apart from compute_rates()
+  // because compute_initial_conditions() has to seat the node's state between
+  // the individual's rates and these, and BOTH OF THESE READ STATE THAT SEEDING
+  // WRITES: the density rate through the guard below, the offspring rate through
+  // survival_individual(). Taken before it, they describe the state the node
+  // held a step ago.
+  void compute_node_rates(const environment_type& environment,
+                          double pr_patch_survival);
+
   // This is the gradient of growth rate with respect to height:
   value_type growth_rate_gradient(const environment_type& environment) const;
 
@@ -169,32 +178,37 @@ Node<T,E>::Node(strategy_type_ptr s)
 }
 
 template <typename T, typename E>
-void Node<T,E>::compute_rates(const environment_type& environment,
-                                double pr_patch_survival) {
-  individual.compute_rates(environment);
-
-  // NOTE: This must be called *after* compute_rates, but given we
-  // need mortality_dt() that's always going to be the case.
-  //
+void Node<T,E>::compute_node_rates(const environment_type& environment,
+                                   double pr_patch_survival) {
   // The coordinate branch lives in Individual::log_density_rate, which the step
   // recording reaches through this same call, so the recording and this path
   // cannot disagree about which coordinate they are on.
-  log_density_dt = individual.log_density_rate(environment);
+  //
   // ⚠️ A COHORT WITH NO DENSITY HAS NO LOG-DENSITY TRAJECTORY, and this guard is
-  // what says so. compute_initial_conditions applies it once at birth; on the
-  // HEIGHT coordinate `log_density_rate` is `-d(growth)/d(height) - mortality`,
-  // which is non-zero for a dead cohort, so without it here the rate comes back
-  // on the next evaluation and the density DRIFTS OFF ITS FLOOR:
-  // exp(-establishment_failure_hazard) is exactly zero, but integrating a
-  // positive rate up to -700 reaches 1e-305, which is a cohort that does not
-  // exist acquiring a density. The -Inf this sentinel replaced could not drift,
-  // so a finite one needs saying explicitly.
-  if (!(density > 0.0)) {
-    log_density_dt = 0.0;
-  }
+  // what says so. On the HEIGHT coordinate `log_density_rate` is
+  // `-d(growth)/d(height) - mortality`, which is non-zero for a dead cohort, so
+  // without it the density DRIFTS OFF ITS FLOOR: exp(-establishment_failure_hazard)
+  // is exactly zero, but integrating a positive rate up to -700 reaches 1e-305,
+  // which is a cohort that does not exist acquiring a density. The -Inf this
+  // sentinel replaced could not drift, so a finite one needs saying explicitly.
+  //
+  // ⚠️ A POSITIVE FINITE DENSITY, AND BOTH HALVES ARE LOAD-BEARING. `density > 0`
+  // is what the floor needs once log(0)'s -Inf was replaced by a finite
+  // sentinel; `is_finite(log_density)` is what an overflow to +Inf needs, which
+  // passes `> 0` and is not a density anything can be carried along.
+  log_density_dt = (util::is_finite(log_density) && density > 0.0)
+                     ? individual.log_density_rate(environment)
+                     : value_type(0.0);
   offspring_produced_survival_weighted_dt =
-    individual.rate(FECUNDITY_INDEX) * survival_individual() *
-    pr_patch_survival / pr_patch_survival_at_birth;
+    individual.rate(FECUNDITY_INDEX) *
+    offspring_dt_dfecundity_rate(pr_patch_survival);
+}
+
+template <typename T, typename E>
+void Node<T,E>::compute_rates(const environment_type& environment,
+                                double pr_patch_survival) {
+  individual.compute_rates(environment);
+  compute_node_rates(environment, pr_patch_survival);
 }
 
 // NOTE: There will be a discussion of why the mortality rate initial
@@ -211,7 +225,12 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   // optimum) before the first rates evaluation, so the birth growth rate uses
   // the initialised operating point rather than a default.
   individual.set_initial_states(environment);
-  compute_rates(environment, pr_patch_survival);
+  // ⚠️ THE INDIVIDUAL'S RATES ONLY. The node's own two come after the seeding
+  // below, because both read state it writes -- taken here, the density rate is
+  // guarded against the density this node held BEFORE birth, which on one being
+  // born for the first time is zero, and the rate it reports is that zero for
+  // the whole of the node's first evaluation.
+  individual.compute_rates(environment);
 
   const value_type pr_estab =
     individual.establishment_probability_of_newborn(environment);
@@ -256,15 +275,8 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
                       ? log(density_at_birth)
                       : value_type(-establishment_failure_hazard));
 
-  // A node with no density has no rate to carry along the characteristic.
-  //
-  // ⚠️ TESTED ON THE DENSITY, NOT ON ITS LOG'S FINITENESS. Both say the same
-  // thing while log(0) is -Inf and only one still does once that constant is
-  // finite -- and compute_rates() above ran before the hazard was seated, so
-  // what it left in log_density_dt is a rate taken at the previous mortality.
-  if (!util::is_finite(log_density) || !(density > 0)) {
-    log_density_dt = 0.0;
-  }
+  // Now that the density and the hazard are seated, the node's own rates.
+  compute_node_rates(environment, pr_patch_survival);
   // NOTE: It's *possible* here that we need to set
   // individual.vars.mortality_dt to zero here, but I don't see that's
   // likely.
