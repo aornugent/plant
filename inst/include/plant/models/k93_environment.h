@@ -35,6 +35,9 @@ public:
   {
     light_availability.r_init_interpolators(state);
   }
+  virtual std::vector<double> get_interpolators_state() const {
+    return light_availability.interpolators_state();
+  }
 
   virtual Rcpp::List r_get_state() const
   {

@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <utility> // std::pair
 
@@ -54,6 +55,37 @@ using odelia::ode::seed_direction;
 using odelia::ode::derivative_along;
 
 // One accepted step. The state widens at an introduction, so the record is ragged.
+// ⚠️ DOUBLES, NOT AN ENVIRONMENT. A recording is taken at `double` and handed to
+// whatever scalar a later pass runs at -- the sweep lifts the system and replays
+// the same rows -- so a recorded number that carried the working scalar could not
+// be handed over at all. It is the same reason `leaf_solved_point` is a collar
+// and an arm rather than a Leaf. And it is the cheap form besides: what an
+// environment costs is its interpolant's adaptive builder and band-solve
+// workspace, which no replay reads.
+struct recorded_field {
+  // What Environment::r_init_interpolators() reads: knots, values, slopes.
+  std::vector<double> interpolators;
+  // The environment's own ODE state -- for TF24 the soil water, which is half of
+  // what a competitor competes for.
+  std::vector<double> state;
+  double time = 0.0;
+  // Said rather than inferred from the two being empty: an environment with no
+  // interpolant and no state of its own is a thing that exists.
+  bool kept = false;
+};
+
+// One rate evaluation's record: what each species solved for, and the field it
+// was taken in. Templated on the strategy's own recorded type rather than nested
+// in Patch, so that a patch and the same patch lifted to an active scalar name
+// ONE type -- see the alias in Patch for why that is load-bearing.
+template <typename StrategySolved>
+struct patch_solved_values {
+  // Empty for a strategy that solves for nothing, which is what keeps this
+  // well-formed for a patch whose state determines everything it does.
+  std::vector<StrategySolved> strategies;
+  recorded_field field;
+};
+
 template <typename T, typename E>
 class Patch {
 public:
@@ -197,51 +229,6 @@ public:
   // Patch disturbance
   std::shared_ptr<Disturbance_Regime> survival_weighting;
 
-  // * The field an invader stands in ---------------------------------------
-  //
-  // An invader is vanishingly rare by definition, so it integrates against the
-  // field the RESIDENT builds and contributes nothing to it. The field is a
-  // function of the resident's state, and a rate evaluation happens at a
-  // Runge-Kutta stage whose state no step boundary carries -- so the resident
-  // run that stood in the field is what records it, one entry per rate
-  // evaluation, and a later run takes them back in the order they were kept.
-  //
-  // ⚠️ KEYED BY THE EVALUATION TIME, AND THE KEY IS CHECKED. A replay that
-  // subdivides a step -- which is what odelia does when a model refuses a state
-  // (plant#642) -- makes evaluations the recording has none of. Read
-  // positionally, every reading after such a step is the field from a different
-  // instant, and the run finishes with every number finite and the invader
-  // integrated against nothing that happened. So the time is asserted at every
-  // read, and a divergence stops the run instead of colouring the answer.
-  struct recorded_field {
-    double time;
-    environment_type environment;
-  };
-
-  // Which of the three things a rate evaluation does about the field. One value
-  // rather than a pair of booleans, because "record" and "replay" are exclusive
-  // and two flags can say otherwise.
-  enum class field_mode { computed, recorded, replayed };
-
-  // Keep the field this run stands in, from here on. Clears what an earlier run
-  // kept: a record is one run's, and appending a second run's evaluations to it
-  // makes a sequence no run ever walked.
-  void record_field() {
-    field = field_mode::recorded;
-    field_record.clear();
-  }
-
-  // Stand in the recorded field rather than building one. The record outlives
-  // reset(), which is what lets a mutant run be set up and then started.
-  void replay_field() {
-    if (field_record.empty()) {
-      util::stop("replay_field: nothing has recorded a field to stand in");
-    }
-    field = field_mode::replayed;
-  }
-
-  bool has_recorded_field() const { return !field_record.empty(); }
-
   // * ODE interface
   // Caluclate size of ode system (number of equations). Is constantly changing as 
   // new nodes are introduced into size-density distreibution 
@@ -318,37 +305,75 @@ public:
   // what the run chose here. Opened by the walk around the whole evaluation, which
   // is what puts it before the field build below -- the inflow condition's own leaf
   // solves happen in there -- and closes it however the evaluation leaves.
-  // What one of this patch's rate evaluations solves for: one list per species, in
-  // species order. Declared only where a strategy solves for anything, so a patch
-  // whose state determines everything it does does not answer for an extent it has
-  // no use for -- and the walk then hands it none.
-  // Empty for a strategy that solves for nothing, which is what makes the concept
-  // below false for it rather than making this ill-formed.
+  // What one of this patch's rate evaluations solves for, in the order the run
+  // made them: each species' own inner solves, and -- where a run was asked to
+  // keep it -- the field the evaluation was taken in.
+  //
+  // ⚠️ THE FIELD IS KEPT ONLY WHEN A RUN ASKS, AND A GRADIENT RECORDING MUST NOT
+  // ASK. A resident's field is recomputable from its own state, so loading one
+  // back as a recorded double would sever the tape there and the sweep would come
+  // back wrong with every number finite. An INVADER's is not recomputable: it is
+  // exogenous, its derivative is zero rather than severed, and that is the one
+  // case that asks. `keep_field` is therefore set by the invasion pass and by
+  // nothing else.
+  // ⚠️ AN ALIAS AND NOT A NESTED STRUCT, because a nested struct of a class
+  // template is a DISTINCT TYPE per instantiation -- so the sweep, which hands a
+  // recording taken on the double patch to the patch lifted to an active scalar,
+  // could not hand it over at all. The alias makes both name one type, which is
+  // also what says a recorded value carries no scalar.
   using solved_values =
-      std::vector<odelia::ode::solved_values_t<strategy_type>>;
+      patch_solved_values<odelia::ode::solved_values_t<strategy_type>>;
 
-  void store_solved(solved_values& into)
-    requires KeepsSolvedChoices<strategy_type> {
-    into.resize(species.size());
-    for (size_t i = 0; i < species.size(); ++i) {
-      species[i].strategy_ptr()->store_solved(into[i]);
+  void store_solved(solved_values& into) {
+    if constexpr (KeepsSolvedChoices<strategy_type>) {
+      into.strategies.resize(species.size());
+      for (size_t i = 0; i < species.size(); ++i) {
+        species[i].strategy_ptr()->store_solved(into.strategies[i]);
+      }
     }
+    // ⚠️ A DESTINATION, NOT A VALUE. The walk opens this extent BEFORE the state
+    // is loaded -- a System's inner solves can happen inside the load -- so the
+    // field does not exist yet and anything captured here would be the PREVIOUS
+    // evaluation's. `leaf_solved_points` hands over a cursor for the same reason.
+    // compute_environment() fills it, which is where the field comes to exist.
+    field_slot = keep_field ? &into.field : nullptr;
   }
   // ⚠️ THE SPECIES COUNT IS CHECKED, because it is the one thing a recorded list can
   // disagree with the patch about that would otherwise read as a species solving
   // nothing.
-  void load_solved(const solved_values& from)
-    requires KeepsSolvedChoices<strategy_type> {
-    util::check_length(from.size(), species.size());
-    for (size_t i = 0; i < species.size(); ++i) {
-      species[i].strategy_ptr()->load_solved(from[i]);
+  //
+  // The field is not installed here but POINTED AT, because the walk opens this
+  // extent before the state is loaded and `set_ode_state` rebuilds the field on
+  // its way past. compute_environment() is where the two meet, and the pointer is
+  // live only for this evaluation: end_solved() clears it.
+  void load_solved(const solved_values& from) {
+    if constexpr (KeepsSolvedChoices<strategy_type>) {
+      util::check_length(from.strategies.size(), species.size());
+      for (size_t i = 0; i < species.size(); ++i) {
+        species[i].strategy_ptr()->load_solved(from.strategies[i]);
+      }
     }
+    loaded_field = from.field.kept ? &from.field : nullptr;
   }
-  void end_solved() requires KeepsSolvedChoices<strategy_type> {
-    for (species_type& s : species) {
-      s.strategy_ptr()->end_solved();
+  void end_solved() {
+    if constexpr (KeepsSolvedChoices<strategy_type>) {
+      for (species_type& s : species) {
+        s.strategy_ptr()->end_solved();
+      }
     }
+    field_slot = nullptr;
+    // ⚠️ `loaded_field` IS NOT CLEARED HERE, and that is the point. A field is a
+    // state of the world the patch stands in, not a loan for one evaluation: an
+    // INSERTION happens between two rows, at the instant the row below it ended,
+    // and it evaluates the inflow condition for every node it introduces. Cleared
+    // here, that evaluation would build the invader's own field and every cohort
+    // it introduces would enter at a density taken in the wrong light. It is
+    // replaced by the next row that carries one, and cleared by reset().
   }
+
+  // Keep the field this run stands in, so a later run can stand in it. Off
+  // everywhere but the invasion pass -- see `solved_values`.
+  void set_keep_field(bool keep) { keep_field = keep; }
 
   // A recorded state loaded as the run itself carries it. set_ode_state evaluates
   // the inflow condition in the field that leaves the boundary interval off, then
@@ -438,17 +463,20 @@ private:
   void compute_environment();
   void compute_rates();
 
-  // The field this run stands in, and where in it. `field_record` survives
-  // reset(); the cursor does not, because a run starts at the first evaluation
-  // whichever run it is.
-  std::vector<recorded_field> field_record;
-  size_t field_cursor = 0;
-  field_mode field = field_mode::computed;
-
-  // Stand in the next recorded field, and refuse if it is not the one for this
-  // instant. See `recorded_field` for why the time is checked rather than
-  // trusted.
-  void take_recorded_field(double time);
+  // Set by the invasion pass, read by store_solved(). See `solved_values`.
+  bool keep_field = false;
+  // The field the patch is standing in, or null where it builds its own; and where
+  // THIS rate evaluation's field is to be written, or null where it is not kept.
+  // At most one is ever set, because a walk hands a row over to be read or to be
+  // written and the constness says which.
+  //
+  // They have different lifetimes on purpose. The SLOT is one evaluation's, so a
+  // recording writes each row once. The FIELD outlives its row, because what
+  // happens between rows -- an insertion -- happens in the field too; see
+  // end_solved(). It points into a recording the SCM holds for as long as it can
+  // replay one, and reset() clears it.
+  const recorded_field* loaded_field = nullptr;
+  recorded_field* field_slot = nullptr;
 
   // Seed the patch from parameters.initial_state (nodes + birth bookkeeping)
   // when present; called from reset(). Sets environment.time = initial_time.
@@ -622,9 +650,9 @@ void Patch<T,E>::add_strategies(std::vector<strategy_type> strategies) {
 
 template <typename T, typename E>
 void Patch<T,E>::reset() {
-  // Back to the first recorded evaluation. The record itself is NOT cleared:
-  // run_mutant() sets a replay up and then starts it, and starting it resets.
-  field_cursor = 0;
+  // A fresh run stands in no recorded field until a row hands it one.
+  loaded_field = nullptr;
+  field_slot = nullptr;
    for (auto& s : species) {
     s.clear();
     // allocate variables for tracking resource consumption
@@ -1030,9 +1058,47 @@ void Patch<T,E>::compute_environment() {
   for (auto& s : species) {
     s.set_new_node_birth_date(environment.time);
   }
+
+  // Standing in a field this evaluation did not build, which is what an invader
+  // does: it is vanishingly rare, so the field is exogenous to it and it puts
+  // nothing into the reduction below. Only the inflow condition is still its own
+  // -- that is what a species does IN a field rather than to it -- and the
+  // resident's own closing trapezium is already in what it is handed.
+  //
+  // ⚠️ THE INSTANT IS CHECKED. The field and the state reach here by different
+  // routes, and a recording paired one step out would hand every evaluation its
+  // neighbour's field with every number finite.
+  if (loaded_field != nullptr) {
+    if (!util::identical(loaded_field->time, environment.time)) {
+      // ⚠️ EVERY DIGIT, because the two instants a mispaired recording hands over
+      // are usually the same to six places and different in the bits -- which is
+      // the whole reason this is checked rather than assumed.
+      std::ostringstream m;
+      m.precision(17);
+      m << "The recorded field is for t=" << loaded_field->time
+        << " and this evaluation is at t=" << environment.time
+        << ": the recording and the run it is replayed through disagree about "
+           "which rate evaluation this is";
+      util::stop(m.str());
+    }
+    environment.r_init_interpolators(loaded_field->interpolators);
+    environment.set_ode_state(loaded_field->state.begin());
+    compute_boundary_nodes();
+    return;
+  }
+
   compute_environment_excl_capturing();
   compute_boundary_nodes();
   compute_environment_closing();
+
+  // Kept here and nowhere else, because this is where the field comes to exist.
+  if (field_slot != nullptr) {
+    field_slot->interpolators = environment.get_interpolators_state();
+    field_slot->state.assign(environment.ode_size(), 0.0);
+    environment.ode_state(field_slot->state.begin());
+    field_slot->time = environment.time;
+    field_slot->kept = true;
+  }
 }
 
 // The field without the boundary interval, keeping each species' reduction at
@@ -1389,22 +1455,6 @@ It Patch<T,E>::set_ode_state(It it, double time) {
   // update time
   environment.time = time;
 
-  // An invader takes the resident's field whole, before anything reads it. Its
-  // own soil state came off the vector above and evolves under its own uptake;
-  // overwriting it here is the point, because an invader does not draw down the
-  // water the resident stood in. The birth dates and the inflow condition are
-  // still its own -- they are what it does IN the field, not what it does TO it,
-  // and the field's own closing trapezium already carries the resident's.
-  if (field == field_mode::replayed) {
-    take_recorded_field(time);
-    check_finite_ode_state();
-    for (auto& s : species) {
-      s.set_new_node_birth_date(environment.time);
-    }
-    compute_boundary_nodes();
-    return it;
-  }
-
   // Catch a runaway size-density equation (non-finite cohort density or
   // environment state) before it feeds into competition, resource uptake, or
   // physiology below and surfaces as an opaque downstream error (issue #550).
@@ -1413,37 +1463,9 @@ It Patch<T,E>::set_ode_state(It it, double time) {
   // Build the field the rates will be taken in.
   compute_environment();
 
-  if (field == field_mode::recorded) {
-    field_record.push_back({time, environment});
-  }
-
   return it;
 }
 
-// The field the resident stood in at this evaluation, in the order it stood in
-// them. ⚠️ THE TIME IS THE CHECK AND NOT A LABEL: see `recorded_field`. Both
-// failures are one message, because both mean the same thing -- this run made an
-// evaluation the recorded run did not.
-template <typename T, typename E>
-void Patch<T,E>::take_recorded_field(double time) {
-  if (field_cursor >= field_record.size() ||
-      !util::identical(field_record[field_cursor].time, time)) {
-    util::stop("The replay has diverged from the run whose field it stands in: "
-               "evaluation " + util::to_string(field_cursor + 1) + " is at t=" +
-               util::to_string(time) + ", where the record " +
-               (field_cursor >= field_record.size()
-                  ? std::string("ends after ") +
-                    util::to_string(field_record.size()) + " evaluations"
-                  : std::string("has t=") +
-                    util::to_string(field_record[field_cursor].time)) +
-               ". A replay steps where the recorded run stepped, so this is a "
-               "step one of them subdivided and the other did not.");
-  }
-  environment = field_record[field_cursor++].environment;
-}
-
-// The second evaluation of the inflow condition, in the field the first one was
-// folded into. See the declaration for why a reloaded state needs it.
 template <typename T, typename E>
 template <typename It>
 It Patch<T,E>::set_state_and_boundary(It it, double time) {

@@ -107,6 +107,27 @@ public:
     spline.init(state_x, state_y, state_m);
   }
 
+  // The inverse of r_init_interpolators(): heights, then values, then slopes, end
+  // to end. Passive, because this is what a REPLAY evaluates -- a recording is
+  // taken at double and handed to whatever scalar a later pass runs at, so a
+  // recorded number that carried a scalar could not be handed over at all.
+  //
+  // ⚠️ THE FIELD AND NOT THE BUILDER. What an interpolant costs is dominated by
+  // the adaptive builder and band-solve workspace it drags, which no replay
+  // reads: copying those whole is what put a mutant run at 6.8 GB and OOM past
+  // ~10 yr.
+  std::vector<double> interpolators_state() const {
+    const std::vector<double>& x = spline.knots();
+    const std::vector<S>& y = spline.values();
+    const std::vector<S>& m = spline.slopes();
+    std::vector<double> ret;
+    ret.reserve(3 * x.size());
+    ret.insert(ret.end(), x.begin(), x.end());
+    for (const S& v : y) { ret.push_back(odelia::util::to_passive(v)); }
+    for (const S& v : m) { ret.push_back(odelia::util::to_passive(v)); }
+    return ret;
+  }
+
   // Knots the run places, fixed by the fractions and not by any build.
   size_t knot_count() const { return knot_fractions_.size(); }
 

@@ -1,24 +1,13 @@
 ## What an invasion run has to reproduce. Every number here was measured on
-## develop, against a recorder reached through solver hooks; this branch's
-## rewrite stopped calling them, and the pass replacing it keeps the field on the
-## patch instead. The numbers are kept and skipped rather than deleted: they are
-## the specification the replacement is written to, not a re-pin taken from it.
-##
-## ⚠️ THE REPLACEMENT IS NOT FINISHED, and the way it fails is the thing to know.
-## A single-species identity replays bit for bit (relative difference 0), and so
-## does two residents against two invaders. One resident against two invaders
-## does not: the invaders are independent given a fixed field, so N of them
-## together must equal N of them run separately, and they do not. The replay
-## holds exact lockstep with the recording -- same evaluation times, same
-## per-species node counts, same field -- so the field and the schedule are right
-## and something else is written per evaluation. That independence is the
-## acceptance test for the feature and is what has to be made to hold.
-skip_invasion <- function() {
-  skip("run_mutant's field replay does not yet satisfy invader independence")
-}
+## develop, against a recorder reached through three hooks the ODE solver called
+## into the patch. odelia's rewrite deleted those hooks; what replaces them is
+## odelia's own store/load channel -- the run keeps the field in the same
+## per-(step, stage) row it already keeps what a rate evaluation solved for, and
+## the invasion pass loads it. The numbers did not move, which is the point of
+## keeping them: they were the specification the replacement was written to, not
+## a re-pin taken from it.
 
 test_that("mutant method works", {
-  skip_invasion()
   # basic setup
   p0 <- scm_base_parameters("FF16")
   p0$max_patch_lifetime <- 50
@@ -108,7 +97,6 @@ test_that("mutant method works", {
 })
 
 test_that("mutant method densities", {
-  skip_invasion()
   # For a mutant strategy identical to the resident, the mutant method must
   # reproduce exactly the fitness that strategy attains when run as a resident.
   # This is an identity of the machinery rather than a near-equilibrium
@@ -163,7 +151,6 @@ test_that("mutant method densities", {
 })
 
 test_that("mutant method densities, TF24", {
-  skip_invasion()
   # The same resident-vs-mutant identity as the block above, for a model whose
   # rates refuse a state. TF24's storage pool reports an overshoot below empty by
   # throwing a domain error, which the adaptive stepper answers by shrinking and

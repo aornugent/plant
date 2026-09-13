@@ -101,6 +101,9 @@ public:
   virtual void clear_state() {}
 
   virtual void r_init_interpolators(const std::vector<double>& state) {}
+  // What r_init_interpolators() reads back. An environment with no interpolant
+  // has none, which is what makes this a no-op pair rather than a special case.
+  virtual std::vector<double> get_interpolators_state() const { return {}; }
 
   double get_environment_at_height(double height) const { return 0.0; };
 

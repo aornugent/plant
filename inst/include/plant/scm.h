@@ -120,9 +120,12 @@ public:
   // Return patch, schedule and solver to their t = 0 state; clear history.
   void reset();
 
-  // The program the resident ran, kept beside the field recorded on it. A replay
-  // of that field has to step where the resident stepped, so the two are set
-  // together and only ever read together.
+  // The resident run an invasion stands in: one row per accepted step, carrying
+  // the field each of its stages was taken in. Kept whole rather than re-derived,
+  // because the point of an invasion sweep is many invaders against ONE resident.
+  // `resident_times`/`resident_step_sizes` are the same run's program, held apart
+  // only because NodeSchedule takes the two vectors.
+  std::vector<odelia::ode::step_record<patch_type>> resident_recording;
   std::vector<double> resident_times;
   std::vector<double> resident_step_sizes;
   void pin_to_resident_program();
@@ -666,22 +669,27 @@ std::vector<size_t> SCM<T, E>::run_next() {
 //
 // Two passes, because the field lives at the Runge-Kutta stages and no recorded
 // step boundary carries one. The first replays the resident over its own recorded
-// program and keeps the field at each rate evaluation; the second runs `p` over
-// the same program, standing in what the first kept.
+// program, keeping the field at each rate evaluation; the second walks that
+// recording with `p`'s strategies in the patch, and each evaluation LOADS the
+// field the resident stood in rather than building its own. Which of the two a
+// pass is doing is the constness of what the walk hands over, so there is no mode
+// here and none to go stale.
 //
-// ⚠️ THE RECORDING PASS IS PINNED AND NOT ADAPTIVE, and this is the whole reason
-// it is a second pass rather than the resident run itself. An adaptive run
-// evaluates inside attempts it then rejects, at times it never returns to, and a
-// record keyed by time cannot tell those from the ones the run kept. Pinned to
-// its own program it rejects nothing, so what it records is exactly the sequence
-// a replay of that program makes.
+// ⚠️ THE RECORDING PASS IS PINNED AND NOT ADAPTIVE. An adaptive run evaluates
+// inside attempts it then rejects; pinned to its own program it rejects nothing,
+// so what it keeps is exactly the sequence a replay of that program makes.
+//
+// The replay needs no schedule of its own: the recording carries its own
+// insertions, and the patch answers each one from ITS introduction times, so `p`'s
+// species are introduced where the resident's were. That is the same map the sweep
+// transposes rather than a second spelling of it.
 //
 // The record outlives the call, so a second invasion against the same resident
 // pays for one pass and not two -- and, as on develop, it is still the FIRST
 // resident's field, because this call has overwritten `parameters` with `p`.
 template <typename T, typename E>
 void SCM<T, E>::run_mutant(parameters_type p) {
-  if (!patch.has_recorded_field()) {
+  if (resident_recording.empty()) {
     resident_times = r_ode_times();
     resident_step_sizes = r_ode_step_sizes();
     // Two, not one: a run that never stepped still reports the instant it
@@ -690,9 +698,14 @@ void SCM<T, E>::run_mutant(parameters_type p) {
       util::stop("Run a resident first to generate a competitive landscape");
     }
     pin_to_resident_program();
-    patch.record_field();
-    reset();
+    patch.set_keep_field(true);
+    const bool kept = record_trajectory;
+    record_trajectory = true;
     run();
+    record_trajectory = kept;
+    patch.set_keep_field(false);
+    const trajectory rec = solver.recording();
+    resident_recording.assign(rec.begin(), rec.end());
   }
 
   // Destructive, as it has always been: the mutants become this SCM's community,
@@ -700,14 +713,14 @@ void SCM<T, E>::run_mutant(parameters_type p) {
   parameters = p;
   patch.overwrite_strategies(parameters.strategies);
   node_schedule = make_node_schedule(parameters);
-  pin_to_resident_program();
-  patch.replay_field();
+  node_schedule.reset();
   reset();
-  run();
+  solver.advance_recorded(resident_recording);
+  patch = solver.get_system_ref();
 }
 
 // The resident's program, on whatever schedule is currently installed. Held apart
-// from the field it goes with only because NodeSchedule takes the two vectors.
+// from the recording it goes with only because NodeSchedule takes the two vectors.
 template <typename T, typename E>
 void SCM<T, E>::pin_to_resident_program() {
   node_schedule.r_set_ode_steps(resident_times, resident_step_sizes);
