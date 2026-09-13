@@ -1,10 +1,20 @@
-## What an invasion run has to reproduce. The recorder these were written against
-## was reached through solver hooks that stopped being called, so it filled
-## nothing and every case below has been erroring rather than comparing since.
-## The numbers are the specification for the replay pass that replaces it, so
-## they are kept and skipped rather than deleted.
+## What an invasion run has to reproduce. Every number here was measured on
+## develop, against a recorder reached through solver hooks; this branch's
+## rewrite stopped calling them, and the pass replacing it keeps the field on the
+## patch instead. The numbers are kept and skipped rather than deleted: they are
+## the specification the replacement is written to, not a re-pin taken from it.
+##
+## ⚠️ THE REPLACEMENT IS NOT FINISHED, and the way it fails is the thing to know.
+## A single-species identity replays bit for bit (relative difference 0), and so
+## does two residents against two invaders. One resident against two invaders
+## does not: the invaders are independent given a fixed field, so N of them
+## together must equal N of them run separately, and they do not. The replay
+## holds exact lockstep with the recording -- same evaluation times, same
+## per-species node counts, same field -- so the field and the schedule are right
+## and something else is written per evaluation. That independence is the
+## acceptance test for the feature and is what has to be made to hold.
 skip_invasion <- function() {
-  skip("run_mutant needs a pass that replays a recorded field, and nothing records one")
+  skip("run_mutant's field replay does not yet satisfy invader independence")
 }
 
 test_that("mutant method works", {
@@ -37,7 +47,7 @@ test_that("mutant method works", {
   types <- extract_RcppR6_template_types(pr1, "Parameters")
   scm <- do.call("SCM", types)(pr1, e, empty_events(), ctrl)
 
-  expect_error(scm$run_mutant(p0), "nothing records one")
+  expect_error(scm$run_mutant(p0), "Run a resident first")
 
   # check mutant fitness against resindet and expected values
   scm <- run_scm(pr1, e, ctrl)
@@ -153,13 +163,6 @@ test_that("mutant method densities", {
 })
 
 test_that("mutant method densities, TF24", {
-  # ⚠️ SKIPPED ON THIS BRANCH, AND IT PASSES ON develop. This case arrived with
-  # #643, which restored run_mutant() for TF24 by fixing the pinned-step
-  # rejection in the solver. This branch's rewrite replaced the recorder that
-  # supplied the resident field with nothing, so run_mutant() is a stop() --
-  # see SCM::run_mutant in scm.h. The capability is regressed relative to
-  # develop, not merely untested, and the number below is the specification for
-  # the replay pass that has to restore it.
   skip_invasion()
   # The same resident-vs-mutant identity as the block above, for a model whose
   # rates refuse a state. TF24's storage pool reports an overshoot below empty by
@@ -180,7 +183,6 @@ test_that("mutant method densities, TF24", {
   # A resident that never trips the guard would make this test vacuous, so the
   # first expectation checks the run is long enough to be a real test.
   ctrl <- Control()
-  ctrl$save_RK45_cache <- TRUE
   tol <- 1e-3
 
   p0 <- scm_base_parameters("TF24")

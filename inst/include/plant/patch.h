@@ -197,6 +197,51 @@ public:
   // Patch disturbance
   std::shared_ptr<Disturbance_Regime> survival_weighting;
 
+  // * The field an invader stands in ---------------------------------------
+  //
+  // An invader is vanishingly rare by definition, so it integrates against the
+  // field the RESIDENT builds and contributes nothing to it. The field is a
+  // function of the resident's state, and a rate evaluation happens at a
+  // Runge-Kutta stage whose state no step boundary carries -- so the resident
+  // run that stood in the field is what records it, one entry per rate
+  // evaluation, and a later run takes them back in the order they were kept.
+  //
+  // ⚠️ KEYED BY THE EVALUATION TIME, AND THE KEY IS CHECKED. A replay that
+  // subdivides a step -- which is what odelia does when a model refuses a state
+  // (plant#642) -- makes evaluations the recording has none of. Read
+  // positionally, every reading after such a step is the field from a different
+  // instant, and the run finishes with every number finite and the invader
+  // integrated against nothing that happened. So the time is asserted at every
+  // read, and a divergence stops the run instead of colouring the answer.
+  struct recorded_field {
+    double time;
+    environment_type environment;
+  };
+
+  // Which of the three things a rate evaluation does about the field. One value
+  // rather than a pair of booleans, because "record" and "replay" are exclusive
+  // and two flags can say otherwise.
+  enum class field_mode { computed, recorded, replayed };
+
+  // Keep the field this run stands in, from here on. Clears what an earlier run
+  // kept: a record is one run's, and appending a second run's evaluations to it
+  // makes a sequence no run ever walked.
+  void record_field() {
+    field = field_mode::recorded;
+    field_record.clear();
+  }
+
+  // Stand in the recorded field rather than building one. The record outlives
+  // reset(), which is what lets a mutant run be set up and then started.
+  void replay_field() {
+    if (field_record.empty()) {
+      util::stop("replay_field: nothing has recorded a field to stand in");
+    }
+    field = field_mode::replayed;
+  }
+
+  bool has_recorded_field() const { return !field_record.empty(); }
+
   // * ODE interface
   // Caluclate size of ode system (number of equations). Is constantly changing as 
   // new nodes are introduced into size-density distreibution 
@@ -393,6 +438,18 @@ private:
   void compute_environment();
   void compute_rates();
 
+  // The field this run stands in, and where in it. `field_record` survives
+  // reset(); the cursor does not, because a run starts at the first evaluation
+  // whichever run it is.
+  std::vector<recorded_field> field_record;
+  size_t field_cursor = 0;
+  field_mode field = field_mode::computed;
+
+  // Stand in the next recorded field, and refuse if it is not the one for this
+  // instant. See `recorded_field` for why the time is checked rather than
+  // trusted.
+  void take_recorded_field(double time);
+
   // Seed the patch from parameters.initial_state (nodes + birth bookkeeping)
   // when present; called from reset(). Sets environment.time = initial_time.
   void set_initial_state();
@@ -565,6 +622,9 @@ void Patch<T,E>::add_strategies(std::vector<strategy_type> strategies) {
 
 template <typename T, typename E>
 void Patch<T,E>::reset() {
+  // Back to the first recorded evaluation. The record itself is NOT cleared:
+  // run_mutant() sets a replay up and then starts it, and starting it resets.
+  field_cursor = 0;
    for (auto& s : species) {
     s.clear();
     // allocate variables for tracking resource consumption
@@ -924,8 +984,9 @@ std::vector<std::vector<double>> Patch<T,E>::refinement_error_by_node() const {
 // stands. Owned by the field build rather than by compute_rates(), so that the
 // field reads a boundary density derived from this state instead of one carried
 // from the previous evaluation.
-// A mutant experiences a recorded environment rather than shaping one, and this
-// reads the patch's own, so it is not the mutant's condition to evaluate.
+// An invader replaying a recorded field reaches this with that field already
+// installed, which is what makes its own inflow condition right to evaluate
+// here: the condition is what a species does IN the field, not to it.
 template <typename T, typename E>
 void Patch<T,E>::compute_boundary_nodes() {
   const double time_ = environment.time;
@@ -1328,6 +1389,22 @@ It Patch<T,E>::set_ode_state(It it, double time) {
   // update time
   environment.time = time;
 
+  // An invader takes the resident's field whole, before anything reads it. Its
+  // own soil state came off the vector above and evolves under its own uptake;
+  // overwriting it here is the point, because an invader does not draw down the
+  // water the resident stood in. The birth dates and the inflow condition are
+  // still its own -- they are what it does IN the field, not what it does TO it,
+  // and the field's own closing trapezium already carries the resident's.
+  if (field == field_mode::replayed) {
+    take_recorded_field(time);
+    check_finite_ode_state();
+    for (auto& s : species) {
+      s.set_new_node_birth_date(environment.time);
+    }
+    compute_boundary_nodes();
+    return it;
+  }
+
   // Catch a runaway size-density equation (non-finite cohort density or
   // environment state) before it feeds into competition, resource uptake, or
   // physiology below and surfaces as an opaque downstream error (issue #550).
@@ -1336,7 +1413,33 @@ It Patch<T,E>::set_ode_state(It it, double time) {
   // Build the field the rates will be taken in.
   compute_environment();
 
+  if (field == field_mode::recorded) {
+    field_record.push_back({time, environment});
+  }
+
   return it;
+}
+
+// The field the resident stood in at this evaluation, in the order it stood in
+// them. ⚠️ THE TIME IS THE CHECK AND NOT A LABEL: see `recorded_field`. Both
+// failures are one message, because both mean the same thing -- this run made an
+// evaluation the recorded run did not.
+template <typename T, typename E>
+void Patch<T,E>::take_recorded_field(double time) {
+  if (field_cursor >= field_record.size() ||
+      !util::identical(field_record[field_cursor].time, time)) {
+    util::stop("The replay has diverged from the run whose field it stands in: "
+               "evaluation " + util::to_string(field_cursor + 1) + " is at t=" +
+               util::to_string(time) + ", where the record " +
+               (field_cursor >= field_record.size()
+                  ? std::string("ends after ") +
+                    util::to_string(field_record.size()) + " evaluations"
+                  : std::string("has t=") +
+                    util::to_string(field_record[field_cursor].time)) +
+               ". A replay steps where the recorded run stepped, so this is a "
+               "step one of them subdivided and the other did not.");
+  }
+  environment = field_record[field_cursor++].environment;
 }
 
 // The second evaluation of the inflow condition, in the field the first one was

@@ -13,6 +13,20 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **`Control$save_RK45_cache` is gone.** Migration: delete the setting. It was
+  the opt-in for the invasion-fitness recorder, set on the RESIDENT run one call
+  before the one that needed it -- so a resident that had not set it recorded
+  nothing, and the `run_mutant()` after it failed with a message about the
+  competitive landscape rather than about the flag. The recorder it gated was
+  reached through three hooks the ODE solver called into the patch, and odelia's
+  rewrite stopped calling them; the field then filled nothing, which is why
+  `run_mutant()` is currently a regression against #643 (see Known issues).
+
+  ⚠️ **`SCM$environment_history` and `SCM$patch_step_history` were never on the
+  R interface**, whatever the #362/#379 note below says: neither is in
+  `RcppR6_classes.yml` on `develop`. `save_RK45_cache` is the one published name
+  this removes, and its removal had gone unrecorded here until now.
+
 * **An unknown trait name is now an error (#636).** `generate_strategy()` (and
   `add_strategies()` / `add_mutant()`, which route through it) refuse a trait
   whose name is not a parameter of the model, naming the offenders and their
@@ -418,8 +432,13 @@ products using plant.
   the same request -- `use_ode_times` REPLAYED a recorded schedule, while
   `record_trajectory` asks the run to KEEP its state at every accepted step, which
   is what `stand_gradient()` sweeps. Migration:
-  * `run_scm(p, env, ctrl, use_ode_times = TRUE)` -> record on the run that
-    produced the times and replay through `run_mutant()`
+  * `run_scm(p, env, ctrl, use_ode_times = TRUE)` -> take `scm$ode_times` and
+    `scm$ode_step_sizes` off the run that produced them onto `p`, and run again.
+    A schedule carrying both repeats the run exactly; times alone step TO each
+    time and leave the sub-steps to the controller. ⚠️ **Not `run_mutant()`**,
+    which this migration used to name: that replays a resident's FIELD for an
+    invader, where `use_ode_times` replayed a resident's own SCHEDULE for
+    itself.
   * a positional fifth argument -> name it, and check which of the two you meant
 * Numeric `Control` defaults are now set in the C++ `Control()` constructor
   (the pragmatic "fast" settings), and the two R preset helpers were removed
@@ -1093,19 +1112,26 @@ were not previously recorded here:
 
 ### Known issues
 
-* **`run_mutant()` is a `stop()` on this branch, and it works on `develop`.**
-  This is a REGRESSION against #643, not a gap that was always there. An invader
-  integrates against a field it does not move, so it needs a run that replays a
-  resident's field rather than rebuilding it; the recorder that supplied one was
-  reached through solver hooks this branch's rewrite stopped calling, so it
-  filled nothing. It is deleted rather than left standing to fill nothing
-  quietly. `test-mutant.R` keeps every case and skips it: the numbers are the
-  specification for the replay pass that has to restore this, and
-  `scm$run_mutant()` errors with the reason until then.
+* **`run_mutant()` is regressed against `develop` (#643), and the replacement is
+  in progress.** An invader integrates against a field it does not move, so it
+  needs a run that stands in a resident's field rather than rebuilding one. The
+  recorder that supplied it was reached through three hooks the ODE solver called
+  into the patch; odelia's rewrite stopped calling them, so it filled nothing.
+  The patch now keeps the field itself, in `Patch::set_ode_state` -- the one place
+  the field is built -- and a two-pass `SCM::run_mutant` records it on a pinned
+  replay of the resident and then stands `p`'s strategies in it.
 
-  Note this is a different failure from the one #643 fixed. That one was the
-  pinned stepper refusing a domain error, and odelia 0.4.0's subdivision -- which
-  0.5.0 carries -- fixes it here too. What is missing is the recording.
+  What works: a single-species identity replays bit for bit (relative difference
+  0), and two residents against two invaders likewise. What does not: one
+  resident against two invaders. Invaders are independent given a fixed field, so
+  N run together must equal N run separately -- and that is the acceptance test
+  this has to pass before `test-mutant.R` comes off its skips. The replay holds
+  exact lockstep with the recording (same evaluation times, same per-species node
+  counts, same field), so the field and the schedule are right and something else
+  is written per rate evaluation. One candidate, unproven: `SCM::run_next` ends
+  every introduction interval with `advance_fixed`, whose `step_to` is error
+  controlled over the WHOLE state vector, so the sub-steps it chooses there
+  depend on every invader present.
 
 * **A dense TF24 stochastic run throws at the default ODE step cap** (#599). The
   soil water balance is stiff — the conductivity curve's exponent is

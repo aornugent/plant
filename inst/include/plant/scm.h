@@ -84,8 +84,10 @@ public:
   // Run the whole schedule from t = 0 to completion.
   void run();
 
-  // Replay the resident's saved environment for a mutant strategy: swap in
-  // mutant parameters, reuse the cached environment/ode times, and run.
+  // Integrate `p`'s strategies as invaders against the field the resident run
+  // stood in: every one of them, the resident's own included, sees a field it
+  // does not move. Destructive -- `p` becomes this SCM's parameters, and its
+  // outputs are `p`'s. Needs a finished resident run to take a program from.
   void run_mutant(parameters_type p);
 
   // Run, keeping the state at each accepted step, and return one record per step.
@@ -117,6 +119,13 @@ public:
 
   // Return patch, schedule and solver to their t = 0 state; clear history.
   void reset();
+
+  // The program the resident ran, kept beside the field recorded on it. A replay
+  // of that field has to step where the resident stepped, so the two are set
+  // together and only ever read together.
+  std::vector<double> resident_times;
+  std::vector<double> resident_step_sizes;
+  void pin_to_resident_program();
 
   // True once every scheduled node introduction has been consumed.
   bool complete() const;
@@ -616,8 +625,9 @@ std::vector<size_t> SCM<T, E>::run_next() {
   //  - otherwise: adaptive, error-controlled RKCK to the next introduction.
   if (node_schedule.using_ode_steps()) {
     if (control.fixed_time_step > 0.0) {
-      // The replay relies on the RK sub-step environment cache, which forward
-      // Euler does not populate. Refuse rather than mis-integrate.
+      // A recorded field is kept per rate evaluation, and forward Euler makes
+      // one per step where RKCK makes six -- so a program recorded under one
+      // cannot be replayed under the other. Refuse rather than mis-integrate.
       util::stop("fixed_time_step (forward Euler) is not supported for a pinned "
                  "ODE schedule");
     }
@@ -650,16 +660,58 @@ std::vector<size_t> SCM<T, E>::run_next() {
   return ret;
 }
 
-// An invader integrates against a field it does not move, so the run it needs is
-// one that replays a resident's field rather than rebuilding it. The recorder
-// that would supply it never ran: it was reached through hooks the solver stopped
-// calling, so the field it filled stayed empty and every call arrived here and
-// stopped. It is deleted rather than left standing, and what replaces it is
-// odelia's ReplaysField, against which this is to be written.
+// An invader integrates against a field it does not move: every strategy in `p`
+// is an invader, the resident's own among them, and that one coming back with the
+// resident's fitness is what says the machinery is sound.
+//
+// Two passes, because the field lives at the Runge-Kutta stages and no recorded
+// step boundary carries one. The first replays the resident over its own recorded
+// program and keeps the field at each rate evaluation; the second runs `p` over
+// the same program, standing in what the first kept.
+//
+// ⚠️ THE RECORDING PASS IS PINNED AND NOT ADAPTIVE, and this is the whole reason
+// it is a second pass rather than the resident run itself. An adaptive run
+// evaluates inside attempts it then rejects, at times it never returns to, and a
+// record keyed by time cannot tell those from the ones the run kept. Pinned to
+// its own program it rejects nothing, so what it records is exactly the sequence
+// a replay of that program makes.
+//
+// The record outlives the call, so a second invasion against the same resident
+// pays for one pass and not two -- and, as on develop, it is still the FIRST
+// resident's field, because this call has overwritten `parameters` with `p`.
 template <typename T, typename E>
-void SCM<T, E>::run_mutant(parameters_type /* p */) {
-  util::stop("run_mutant needs a recorded resident field to integrate against, "
-             "and nothing records one");
+void SCM<T, E>::run_mutant(parameters_type p) {
+  if (!patch.has_recorded_field()) {
+    resident_times = r_ode_times();
+    resident_step_sizes = r_ode_step_sizes();
+    // Two, not one: a run that never stepped still reports the instant it
+    // started at, and a program of one entry is a start with nothing after it.
+    if (resident_times.size() < 2) {
+      util::stop("Run a resident first to generate a competitive landscape");
+    }
+    pin_to_resident_program();
+    patch.record_field();
+    reset();
+    run();
+  }
+
+  // Destructive, as it has always been: the mutants become this SCM's community,
+  // and its outputs are theirs.
+  parameters = p;
+  patch.overwrite_strategies(parameters.strategies);
+  node_schedule = make_node_schedule(parameters);
+  pin_to_resident_program();
+  patch.replay_field();
+  reset();
+  run();
+}
+
+// The resident's program, on whatever schedule is currently installed. Held apart
+// from the field it goes with only because NodeSchedule takes the two vectors.
+template <typename T, typename E>
+void SCM<T, E>::pin_to_resident_program() {
+  node_schedule.r_set_ode_steps(resident_times, resident_step_sizes);
+  node_schedule.reset();
 }
 
 template <typename T, typename E>
