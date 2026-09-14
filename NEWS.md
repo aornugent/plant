@@ -13,14 +13,23 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
-* **`Control$save_RK45_cache` is gone.** Migration: delete the setting. It was
-  the opt-in for the invasion-fitness recorder, set on the RESIDENT run one call
-  before the one that needed it -- so a resident that had not set it recorded
-  nothing, and the `run_mutant()` after it failed with a message about the
-  competitive landscape rather than about the flag. The recorder it gated was
-  reached through three hooks the ODE solver called into the patch, and odelia's
-  rewrite stopped calling them; the field then filled nothing, which is why
-  `run_mutant()` is currently a regression against #643 (see Known issues).
+* **`Control$save_RK45_cache` is gone, and `run_mutant()` no longer needs it.**
+  Migration: delete the setting. It was the opt-in for the invasion-fitness
+  recorder, set on the RESIDENT run one call before the one that needed it -- so a
+  resident that had not set it recorded nothing, and the `run_mutant()` after it
+  failed with a message about the competitive landscape rather than about the
+  flag. `run_mutant()` now keeps what it needs when it is called, so there is
+  nothing to arrange beforehand and no way to ask for an invasion run and not get
+  one.
+
+  What it keeps is the same field, at the same address -- per (step, stage) -- but
+  in odelia's own store/load channel rather than three solver hooks that odelia's
+  rewrite deleted. And it keeps the NUMBERS a replay evaluates rather than the
+  environment holding them: the light interpolant's knots, values and slopes, and
+  the environment's own ODE state. That is what makes an invasion sweep affordable
+  -- a replay costs less than the resident run it stands in (0.06 s against 0.07 s
+  on a lifetime-30 FF16 stand), where copying whole environments per sub-step put
+  the old cache at 6.8 GB and out of memory past ~10 years.
 
   ⚠️ **`SCM$environment_history` and `SCM$patch_step_history` were never on the
   R interface**, whatever the #362/#379 note below says: neither is in
@@ -1112,26 +1121,21 @@ were not previously recorded here:
 
 ### Known issues
 
-* **`run_mutant()` is regressed against `develop` (#643), and the replacement is
-  in progress.** An invader integrates against a field it does not move, so it
-  needs a run that stands in a resident's field rather than rebuilding one. The
-  recorder that supplied it was reached through three hooks the ODE solver called
-  into the patch; odelia's rewrite stopped calling them, so it filled nothing.
-  The patch now keeps the field itself, in `Patch::set_ode_state` -- the one place
-  the field is built -- and a two-pass `SCM::run_mutant` records it on a pinned
-  replay of the resident and then stands `p`'s strategies in it.
+* **`test-mutant.R`'s two ten-mutant panels are pinned to `develop`'s model, and
+  this branch's has moved.** `run_mutant()` itself is restored and exact: a
+  strategy replayed as an invader of itself returns the resident's own fitness to
+  **1e-15**, and it does so with two, three, five or nine invaders in the patch --
+  which is the statement that nothing in the replay builds an invader's own field,
+  since nine identical invaders would otherwise stand in a ninefold canopy.
 
-  What works: a single-species identity replays bit for bit (relative difference
-  0), and two residents against two invaders likewise. What does not: one
-  resident against two invaders. Invaders are independent given a fixed field, so
-  N run together must equal N run separately -- and that is the acceptance test
-  this has to pass before `test-mutant.R` comes off its skips. The replay holds
-  exact lockstep with the recording (same evaluation times, same per-species node
-  counts, same field), so the field and the schedule are right and something else
-  is written per rate evaluation. One candidate, unproven: `SCM::run_next` ends
-  every introduction interval with `advance_fixed`, whose `step_to` is error
-  controlled over the WHOLE state vector, so the sub-steps it chooses there
-  depend on every invader present.
+  What has moved is underneath. This branch's FF16 residents already differ from
+  the same file's resident pins: **2.7731596 against 2.77322 (-2.2e-5)** for one
+  resident, and **+4.7e-5** on the three-resident stand. Those sit inside the
+  1e-4 the resident assertions allow, so they pass; the mutant panels amplify the
+  same drift to 4e-4 and do not. The replay reproduces THIS branch's resident
+  exactly, so re-pinning the panels would accept a change to the model's science
+  -- which is the `scientific_version` decision, not this one. They are left
+  failing and named here rather than re-pinned.
 
 * **A dense TF24 stochastic run throws at the default ODE step cap** (#599). The
   soil water balance is stiff — the conductivity curve's exponent is

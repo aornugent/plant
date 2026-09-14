@@ -123,12 +123,9 @@ public:
   // The resident run an invasion stands in: one row per accepted step, carrying
   // the field each of its stages was taken in. Kept whole rather than re-derived,
   // because the point of an invasion sweep is many invaders against ONE resident.
-  // `resident_times`/`resident_step_sizes` are the same run's program, held apart
-  // only because NodeSchedule takes the two vectors.
+  // Its program is not held beside it: a recording IS a program, row by row, and
+  // two containers that have to agree can be made to disagree.
   std::vector<odelia::ode::step_record<patch_type>> resident_recording;
-  std::vector<double> resident_times;
-  std::vector<double> resident_step_sizes;
-  void pin_to_resident_program();
 
   // True once every scheduled node introduction has been consumed.
   bool complete() const;
@@ -690,14 +687,17 @@ std::vector<size_t> SCM<T, E>::run_next() {
 template <typename T, typename E>
 void SCM<T, E>::run_mutant(parameters_type p) {
   if (resident_recording.empty()) {
-    resident_times = r_ode_times();
-    resident_step_sizes = r_ode_step_sizes();
+    const std::vector<double> times = r_ode_times();
+    const std::vector<double> sizes = r_ode_step_sizes();
     // Two, not one: a run that never stepped still reports the instant it
     // started at, and a program of one entry is a start with nothing after it.
-    if (resident_times.size() < 2) {
+    if (times.size() < 2) {
       util::stop("Run a resident first to generate a competitive landscape");
     }
-    pin_to_resident_program();
+    // Pinned to its own program, so it rejects nothing and what it keeps is
+    // exactly the sequence a replay of that program makes.
+    node_schedule.r_set_ode_steps(times, sizes);
+    node_schedule.reset();
     patch.set_keep_field(true);
     const bool kept = record_trajectory;
     record_trajectory = true;
@@ -713,18 +713,13 @@ void SCM<T, E>::run_mutant(parameters_type p) {
   parameters = p;
   patch.overwrite_strategies(parameters.strategies);
   node_schedule = make_node_schedule(parameters);
-  node_schedule.reset();
   reset();
+  // ⚠️ A REPLAY KEEPS NOTHING. It is the recording's consumer, not another one of
+  // them, and a recording of a replay is a copy of its own input that nobody
+  // reads -- a state vector and six rows per step, for every invader in a sweep.
+  solver.set_keep_states(false);
   solver.advance_recorded(resident_recording);
   patch = solver.get_system_ref();
-}
-
-// The resident's program, on whatever schedule is currently installed. Held apart
-// from the recording it goes with only because NodeSchedule takes the two vectors.
-template <typename T, typename E>
-void SCM<T, E>::pin_to_resident_program() {
-  node_schedule.r_set_ode_steps(resident_times, resident_step_sizes);
-  node_schedule.reset();
 }
 
 template <typename T, typename E>
