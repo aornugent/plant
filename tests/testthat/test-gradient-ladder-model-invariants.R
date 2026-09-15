@@ -210,7 +210,10 @@ test_that("a cohort's rates are reproducible from its own boundary", {
                     "four nodes" = ladder_patch_two_by_two(),
                     "three of one species" = ladder_patch_permutable())
     table <- ladder_node_rate_table(patch)
-    expect_equal(length(table), ladder_node_count_tf24(patch))
+    # The walk above reads `sp$nodes`; `sp$size` is the count the patch keeps.
+    # Comparing them is what says the walk saw every node rather than most of them.
+    expect_equal(length(table),
+                 sum(vapply(patch$species, function(s) as.numeric(s$size), 0)))
     # A hundred times the fixture's own floor, not ten. The block evaluates on the
     # active scalar and the patch on the double one, so the two differ by however
     # the compiler contracts each; measured worst is ten machine units on the

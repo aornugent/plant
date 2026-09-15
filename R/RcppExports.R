@@ -4533,10 +4533,6 @@ ladder_trait_names_tf24 <- function(obj_) {
     .Call('_plant_ladder_trait_names_tf24', PACKAGE = 'plant', obj_)
 }
 
-ladder_node_count_tf24 <- function(obj_) {
-    .Call('_plant_ladder_node_count_tf24', PACKAGE = 'plant', obj_)
-}
-
 ladder_field_knots_tf24 <- function(obj_) {
     .Call('_plant_ladder_field_knots_tf24', PACKAGE = 'plant', obj_)
 }

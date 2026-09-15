@@ -18,8 +18,8 @@
 // `test_uniroot` establish that a test-only export living here is this package's
 // existing convention rather than a new concession.
 //
-// THE PREFIX PARTITIONS THEM, and that is worth keeping true. Of the thirty-one
-// entry points here, twenty-five are prefixed `ladder_` and are called from
+// THE PREFIX PARTITIONS THEM, and that is worth keeping true. Of the thirty
+// entry points here, twenty-four are prefixed `ladder_` and are called from
 // `tests/testthat/` and nowhere else. The six spelled `census_` are the ones
 // `NEWS.md` publishes with migration lines -- the five incidence counters and
 // `census_trait_gradient_split_tf24` -- so the prefix says which of them a
@@ -682,16 +682,6 @@ std::vector<std::string> ladder_trait_names_tf24(plant::RcppR6::RcppR6<plant::Pa
   return obj_->trait_adjoint_names();
 }
 
-// How many nodes the block loop visits, which is what a node index runs over.
-// [[Rcpp::export]]
-int ladder_node_count_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  const patch_type& patch = *obj_;
-  size_t n = 0;
-  for (size_t i = 0; i < patch.size(); ++i) {
-    n += patch.at_species(i).size();
-  }
-  return static_cast<int>(n);
-}
 
 // The field's knot data, which is what the recorded step reads. The reduction
 // that builds it has no transpose of its own any more -- it is an intermediate
