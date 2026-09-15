@@ -1121,6 +1121,22 @@ were not previously recorded here:
 
 ### Known issues
 
+* **An invasion replay cannot subdivide, so an invader that refuses a state fails
+  rather than shrinking.** The replay walks `step_by` with the resident's recorded
+  sizes, and that path has no domain handling — no `try`, no sub-step. This is
+  deliberate where it can be: it is what makes the replay exact and what makes the
+  answer independent of how many invaders share the call (traitecoevo/plant#646),
+  since no error norm is consulted.
+
+  It has not been seen to fire. TF24's identity case replays 28,813 steps at
+  `max_patch_lifetime = 14` — the fixture chosen because TF24's storage pool
+  refuses routinely, ~480 times in a resident run — and never refuses, which is
+  what an identity invader on the resident's own grid should do. **A genuinely
+  different TF24 invader is the untested case.** If it fires it will say so
+  loudly rather than quietly approximating, which is the choice made here:
+  `develop` subdivided instead, and its field then rewound once per sub-step,
+  which is the whole of its unexplained ~1e-6 on TF24 against ~1e-13 on FF16.
+
 * **`test-mutant.R`'s two ten-mutant panels are pinned to `develop`'s model, and
   this branch's has moved.** `run_mutant()` itself is restored and exact: a
   strategy replayed as an invader of itself returns the resident's own fitness to
