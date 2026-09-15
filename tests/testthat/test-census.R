@@ -63,22 +63,54 @@ census_r <- function(species, pars, eta, include_boundary = TRUE,
 # A solved stand on the birth-date coordinate, named rather than defaulted: the
 # reverse sweep transposes only that one, and it is the grid census_r's reference
 # reduction is written on.
-solved_stand <- function(lifetime = 5, schedule = NULL) {
+# A distribution WRITTEN into the initial state rather than grown into.
+#
+# Three cohorts are seeded with distinct, mutually non-commensurate birth dates
+# and the default schedule fills the rest, so the patch carries 78 nodes with
+# live density at every one of them after a lifetime of 1 -- in 0.77 s.
+#
+# ⚠️ THE LIVE BOTTOM IS THE POINT, and it is what growing a distribution is
+# expensive to reach. Where the boundary node's density has underflowed to zero
+# so has its neighbour's, the closing trapezium contributes exactly nothing, and
+# both the reduction check and the seed check below go quiet rather than failing.
+# Measured: seeded gives the bottom two densities at 9.99e-01 and 9.97e-01 where
+# a grown lifetime of 8 gives 7.81e-01 and 5.41e-01 and a grown 5 gives zero.
+#
+# What it does not carry is the claim that a real trajectory REACHES such a
+# state. Nothing here claimed that; the premise is a guard on vacuity.
+seeded_stand <- function() {
+  p <- scm_base_parameters("TF24")
+  p$max_patch_lifetime <- 1
+  p <- add_strategies(p, trait_matrix(0.0825, "lma"))
+  state <- make_initial_state(
+    p, heights = list(c(6.2, 3.1, 1.37)),
+    log_densities = list(c(-1.3, -0.7, -0.21)),
+    env = Environment("TF24"),
+    ctrl = Control(node_density_in_birth_date = TRUE))
+  state$node_times <- list(c(-0.41, -0.23, -0.07))
+  scm <- SCM("TF24", "TF24_Env")(set_initial_state(p, state), Environment("TF24"),
+                                 empty_events(),
+                                 Control(node_density_in_birth_date = TRUE))
+  scm$run()
+  scm
+}
+
+# A distribution GROWN to, for the one check that needs one.
+#
+# ⚠️ ONLY G3 USES THIS, and it is not a preference: measured, G3's seed agrees
+# with its own finite difference to 8.62e-05 at a lifetime of 12 and to 2.09e-04
+# at 5, against a tolerance of 1e-4. The seeded fixture above does not serve it.
+# ⚠️ AND ITS MARGIN IS THIN -- 86% of budget at 12. A check passing at
+# three-quarters of budget is a check about to stop working; this one is past
+# that, and what would settle it is a bound derived from the difference's own
+# truncation rather than the round number it has.
+#
+# The cost is 251 s, and this file runs in every `R CMD check` leg on three
+# operating systems, so a second caller wants a reason.
+solved_stand <- function(lifetime, schedule = NULL) {
   p <- scm_base_parameters("TF24")
   p$max_patch_lifetime <- lifetime
   p <- add_strategies(p, trait_matrix(0.0825, "lma"))
-  # A reverse sweep costs one recording and one sweep per cohort per stage per
-  # step, so ITS cost is set by the node count. The FORWARD run's is not: measured
-  # on this fixture, the default schedule gives 88 nodes in 124 s at a lifetime of
-  # 5 and 98 nodes in 274 s at 20 -- ten more nodes for 2.2 times the time, because
-  # the node count saturates while the step count does not.
-  #
-  # So the default is 5, and a lifetime above it has to say what it buys: G2 and
-  # G3 take 12 because the bottom of the distribution has to be alive, and their
-  # comments say so. A test that only needs an entry point to answer passes a
-  # short schedule and gets the same code paths in 0.8 s.
-  #
-  # ⚠️ THIS FILE RUNS IN EVERY `R CMD check` LEG, on three operating systems.
   if (!is.null(schedule)) {
     p$node_schedule_times <- schedule
   }
@@ -89,7 +121,7 @@ solved_stand <- function(lifetime = 5, schedule = NULL) {
 }
 
 test_that("G1: the census value matches an independent R reduction", {
-  scm <- solved_stand()
+  scm <- seeded_stand()
   species <- scm$patch$species[[1]]
   strategy <- scm$parameters$strategies[[1]]
   expected <- census_r(species, strategy$pars, strategy$pars$eta)
@@ -99,11 +131,12 @@ test_that("G1: the census value matches an independent R reduction", {
 })
 
 test_that("G2: the boundary node is in the reduction", {
-  # At a lifetime where the bottom of the size distribution is alive. Where the
-  # boundary node's own density has underflowed to zero, so has its neighbour's,
-  # the closing trapezium contributes exactly nothing and this comparison is
-  # vacuous -- which is the case at t = 5 and t = 20.
-  scm <- solved_stand(12)
+  # The written distribution, for its live bottom. Where the boundary node's own
+  # density has underflowed to zero, so has its neighbour's, the closing
+  # trapezium contributes exactly nothing and this comparison is vacuous --
+  # which is the case at a GROWN t = 5 and t = 20. Seeded, the boundary gap is
+  # 2.23e-05 against the 1e-6 this asserts, and the reduction agrees to 4e-16.
+  scm <- seeded_stand()
   species <- scm$patch$species[[1]]
   strategy <- scm$parameters$strategies[[1]]
   st <- species_state_r(species)
@@ -126,6 +159,9 @@ test_that("G3: on the birth-date coordinate the weights carry no derivative", {
   # are the same number: the weight term the height grid would carry is larger
   # than the whole derivative and of the opposite sign, so a seed built on the
   # wrong grid is not a small error.
+  # The one grown fixture left in this file, and measured rather than assumed:
+  # the seed agrees with the difference below to 8.62e-05 here and to 2.09e-04 on
+  # the seeded distribution, against the 1e-4 asserted at the end.
   scm <- solved_stand(12)
   species <- scm$patch$species[[1]]
   strategy <- scm$parameters$strategies[[1]]
@@ -184,10 +220,10 @@ test_that("G4: the seed reaches every state a metric reads", {
   # with no allometry in between, which is what makes this checkable by hand.
   # G1 shows the census VALUE carries them, so the reduction is right and it is
   # the recording of it that is not.
-  # A lifetime where the bottom of the distribution is still alive: where a
+  # The written distribution, where the bottom is alive at every node: where a
   # density has underflowed to zero its seed is legitimately zero and the
-  # comparison below says nothing.
-  scm <- solved_stand(5)
+  # comparison below says nothing. Measured, 78 of 78 nodes are live here.
+  scm <- seeded_stand()
   seed <- stand_census_state_adjoint(scm)
   species <- scm$patch$species[[1]]
   names_i <- species$nodes[[1]]$ode_names
@@ -235,7 +271,7 @@ test_that("G6: no census metric has an all-zero state sensitivity", {
   # A short schedule: this asks whether every metric's seed reaches both state
   # families, which is a structural claim about the seed and not about the shape
   # of the distribution. Two nodes exercise the same code for 0.8 s.
-  scm <- solved_stand(schedule = list(c(0, 0.63)))
+  scm <- solved_stand(5, schedule = list(c(0, 0.63)))
   # NOT gated on a refusal. This fixture is written rather than reached, so the
   # seed being refused here is the model having moved under a fixture that did
   # not -- which is the finding, and a skip would report it as green.
@@ -261,7 +297,7 @@ test_that("the Control a gradient is taken at is the entries that move it", {
   # collar response the profit curvature is too small to support -- so two
   # gradients taken at different floors are gradients of different functions for a
   # different reason, and both reasons belong in the same comparison.
-  scm <- solved_stand(schedule = list(c(0, 0.63)))
+  scm <- solved_stand(5, schedule = list(c(0, 0.63)))
   expect_equal(names(gradient_control(scm)),
                c("GSS_tol_abs", "ci_abs_tol", "node_gradient_eps",
                  "schedule_eps", "gradient_curvature_floor"))

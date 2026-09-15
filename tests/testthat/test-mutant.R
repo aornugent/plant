@@ -160,20 +160,32 @@ test_that("mutant method densities, TF24", {
   # run_mutant() pins the stepper to the resident's recorded step times, and that
   # path used to call the stepper with no domain handling at all, so the first of
   # those refusals killed the replay (#642). It failed for every TF24 strategy
-  # tried, this identity case included, and left invasion-fitness analysis with no
-  # equivalent workaround. Fixed in odelia 0.4.0 by subdividing a refused pinned
-  # step to the same endpoint.
+  # tried, this identity case included.
   #
-  # The patch lifetime is load-bearing and is the cheapest one that covers the
-  # bug: the refusals only begin partway into a run, so at 10 the replay never
-  # meets one and the test passes with or without the fix. 14 fails without it.
-  # A resident that never trips the guard would make this test vacuous, so the
-  # first expectation checks the run is long enough to be a real test.
+  # ⚠️ THE FIX IS NOT THE ONE THIS COMMENT USED TO NAME. odelia 0.4.0 subdivided a
+  # refused pinned step; this replay does not subdivide at all, deliberately --
+  # see NEWS.md under Known issues, where the reason is that subdividing is what
+  # made the answer depend on how many invaders shared the call. A replay that met
+  # a refusal would now FAIL rather than shrink, and `expect_no_error` below
+  # passing is the statement that it meets none.
+  #
+  # So the patch lifetime no longer buys refusal coverage; it buys REPLAY LENGTH,
+  # and the length is asserted below rather than left to the constant. Measured,
+  # against the 1e-3 this compares at:
+  #
+  #   lifetime    6     8     10      14
+  #   steps   12714 17544  22597   28813
+  #   log gap 8e-13 2e-13  3e-14   2e-14
+  #   seconds   642   881   1151    1542
+  #
+  # Six, because ten orders of margin over twelve thousand replayed steps is the
+  # claim, and this file runs in every `R CMD check` leg on three operating
+  # systems.
   ctrl <- Control()
   tol <- 1e-3
 
   p0 <- scm_base_parameters("TF24")
-  p0$max_patch_lifetime <- 14
+  p0$max_patch_lifetime <- 6
   p1 <- add_strategies(p0, trait_matrix(0, "TF24_floor_lambda_o"),
                        hyperpar = TF24_hyperpar, birth_rate = 1)
 
@@ -184,9 +196,12 @@ test_that("mutant method densities, TF24", {
   scm <- run_scm(p1, env = env, ctrl = ctrl)
   resident_rr <- scm$net_reproduction_ratios
 
-  # Not an assertion about the model, just a guard that the replay below has
-  # something to replay: a resident that died out would make the identity trivial.
+  # Not assertions about the model, just guards that the replay below has
+  # something to replay: a resident that died out would make the identity
+  # trivial, and a short recording would make it cheap in the wrong way. The
+  # step count carries what the lifetime constant used to carry on trust.
   expect_true(all(is.finite(resident_rr)) && all(resident_rr > 0))
+  expect_gt(length(scm$ode_times), 10000)
 
   # Identical mutant, replaying the resident's own recorded environment, must
   # recover the resident's own fitness.
