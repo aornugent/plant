@@ -63,16 +63,22 @@ census_r <- function(species, pars, eta, include_boundary = TRUE,
 # A solved stand on the birth-date coordinate, named rather than defaulted: the
 # reverse sweep transposes only that one, and it is the grid census_r's reference
 # reduction is written on.
-solved_stand <- function(lifetime = 20, schedule = NULL) {
+solved_stand <- function(lifetime = 5, schedule = NULL) {
   p <- scm_base_parameters("TF24")
   p$max_patch_lifetime <- lifetime
   p <- add_strategies(p, trait_matrix(0.0825, "lma"))
   # A reverse sweep costs one recording and one sweep per cohort per stage per
-  # step, so its cost is set by the NODE COUNT and not by the lifetime. The
-  # default schedule gives 81 nodes at a lifetime of 2, where the forward run
-  # takes 6 seconds and the sweep takes 1006. A test that needs a realistic size
-  # distribution takes the default; one that only needs an entry point to answer
-  # passes a short schedule and gets the same code paths for seconds.
+  # step, so ITS cost is set by the node count. The FORWARD run's is not: measured
+  # on this fixture, the default schedule gives 88 nodes in 124 s at a lifetime of
+  # 5 and 98 nodes in 274 s at 20 -- ten more nodes for 2.2 times the time, because
+  # the node count saturates while the step count does not.
+  #
+  # So the default is 5, and a lifetime above it has to say what it buys: G2 and
+  # G3 take 12 because the bottom of the distribution has to be alive, and their
+  # comments say so. A test that only needs an entry point to answer passes a
+  # short schedule and gets the same code paths in 0.8 s.
+  #
+  # ⚠️ THIS FILE RUNS IN EVERY `R CMD check` LEG, on three operating systems.
   if (!is.null(schedule)) {
     p$node_schedule_times <- schedule
   }
@@ -226,7 +232,10 @@ test_that("G5: the entry point refuses to compare across two Controls", {
 })
 
 test_that("G6: no census metric has an all-zero state sensitivity", {
-  scm <- solved_stand()
+  # A short schedule: this asks whether every metric's seed reaches both state
+  # families, which is a structural claim about the seed and not about the shape
+  # of the distribution. Two nodes exercise the same code for 0.8 s.
+  scm <- solved_stand(schedule = list(c(0, 0.63)))
   # NOT gated on a refusal. This fixture is written rather than reached, so the
   # seed being refused here is the model having moved under a fixture that did
   # not -- which is the finding, and a skip would report it as green.
@@ -245,12 +254,14 @@ test_that("G6: no census metric has an all-zero state sensitivity", {
 })
 
 test_that("the Control a gradient is taken at is the entries that move it", {
+  # A short schedule, for the same reason: this reads five settings back off a
+  # solved stand and never looks at a number the trajectory produced.
   # Four move the TRAJECTORY the gradient is taken along. The fifth moves no
   # forward number at all and still decides which rows exist, by refusing a
   # collar response the profit curvature is too small to support -- so two
   # gradients taken at different floors are gradients of different functions for a
   # different reason, and both reasons belong in the same comparison.
-  scm <- solved_stand()
+  scm <- solved_stand(schedule = list(c(0, 0.63)))
   expect_equal(names(gradient_control(scm)),
                c("GSS_tol_abs", "ci_abs_tol", "node_gradient_eps",
                  "schedule_eps", "gradient_curvature_floor"))
@@ -261,14 +272,16 @@ test_that("the Control a gradient is taken at is the entries that move it", {
 })
 
 test_that("the trait gradient entry point is reachable", {
-  # The symbol exists and stand_gradient reaches it. It cannot return a gradient
-  # on a run whose ODE state widens at a node introduction: the reverse sweep
-  # carries one lambda of one width and nothing narrows the system to meet an
-  # earlier record, so such a run is refused by name rather than swept at a
-  # width its records do not have.
-  # Two nodes, because this test asks whether the entry point answers and with
-  # what names -- not what the numbers are. On the default schedule the same
-  # assertions cost a sweep over eighty-one cohorts.
+  # The symbol exists and stand_gradient reaches it. Two nodes, because this test
+  # asks whether the entry point answers and with what names -- not what the
+  # numbers are.
+  #
+  # ⚠️ THIS USED TO SAY THE SWEEP CANNOT ANSWER ON A RUN WHOSE STATE WIDENS, and
+  # that a widening run is refused by name. It is not: `solve_adjoint` transposes
+  # the widening map and narrows the adjoint across it, which is what
+  # `test-gradient-ladder-introductions.R` asserts over a hundred and ten times.
+  # The reason for the short schedule is cost, which is the reason the line below
+  # it already gave.
   scm <- solved_stand(5, schedule = list(c(0, 0.63)))
   expect_true(is.function(census_trait_gradient_tf24))
   # A column is named for its species as well as its parameter: a bare name would
