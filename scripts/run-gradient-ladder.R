@@ -59,8 +59,10 @@
 # notice a defect at all, which is what the fault injections establish: two of the
 # first three injections tried here failed to fail.
 #
-# ⚠️ A SKIP IS NOT A PASS EITHER. A skip is these checks naming something they
-# cannot yet ask. Read the skip count beside the failures every time.
+# ⚠️ A SKIP IS NOT A PASS EITHER, and this suite has none. Every gate that could
+# produce one has been removed, so a skip appearing here is a check that has
+# stopped asking its question rather than a condition it declined to meet. Read
+# the skip count beside the failures every time.
 
 suppressMessages({
   library(odelia)
@@ -95,8 +97,7 @@ claims <- c(
 
   # What the checks do when the model declines to answer, and whether they bite.
   "sweep"               = "whether the sweep runs at all, and on which channels",
-  "injection"           = "whether these checks bite, established by breaking what they watch",
-  "production-scale"    = "what a production-length stand violates, recorded not enforced")
+  "injection"           = "whether these checks bite, established by breaking what they watch")
 
 # ⚠️ Four more gradient files sit outside this progression and outside this
 # script, because they check the surface rather than the sweep:

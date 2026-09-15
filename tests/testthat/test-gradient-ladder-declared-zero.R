@@ -42,8 +42,7 @@ test_that("a differenced column moves one registered parameter", {
 
 test_that("the whole-run difference is in its own domain on this fixture", {
   # The check on the check. A re-run difference is unusable at production, so its
-  # validity is established per fixture rather than assumed, and a fixture it
-  # cannot resolve invalidates the run rather than failing it.
+  # validity is established on this fixture rather than assumed.
   traits <- ladder_traits()$fast
   for (name in ladder_birth_size_parameters()) {
     got <- ladder_run_difference_stable(traits, name)
@@ -51,11 +50,9 @@ test_that("the whole-run difference is in its own domain on this fixture", {
       "\n  %-5s plateau at %s (step %.0e), spread %.2e over the pair and %.2e over all four; seed-height slope %+.4e",
       name, got$plateau_at, got$step, got$spread, got$spread_all,
       got$seed_height_slope))
-    if (got$spread > 1e-3) {
-      skip(paste("the whole-run difference does not hold its figures on this",
-                 "fixture, so it is out of its domain here rather than failing:",
-                 name))
-    }
+    # ASSERTED, not skipped on. The fixture is written and the step ladder is
+    # fixed, so the reference resolving here is a property of the pair -- and it
+    # ceasing to is the model having moved under a fixture that did not.
     expect_lt(got$spread, 1e-3)
     # Non-vacuity: the channel this reference exists to price has to be live, or
     # agreeing with the sweep would prove nothing about the declaration.
@@ -75,7 +72,7 @@ test_that("the birth-size channel is priced rather than asserted", {
   # nothing.
   traits <- ladder_traits()$fast
   stand <- ladder_stand_allometric_probe(TRUE)
-  gradient <- ladder_gradient_or_skip(stand)
+  gradient <- stand_gradient(stand)
   cols <- colnames(gradient$gradient)
 
   message("\n  sweep against a whole-run difference, leaf area, 0.4 yr:")
@@ -91,17 +88,18 @@ test_that("the birth-size channel is priced rather than asserted", {
     ratio <- sweep / got$gradient[[1]]
     message(sprintf("    %-5s difference %+.6e  sweep %+.6e  ratio %6.3f",
                     name, got$gradient[[1]], sweep, ratio))
-    # The declaration is not zero-cost, and that is the finding rather than a
-    # failure: this asserts only that the price is finite and reported.
     expect_true(is.finite(ratio))
-    expect_gt(abs(ratio), 0)
+    # ⚠️ DELIBERATELY THREE ORDERS LOOSER THAN THE READING, and the looseness is
+    # what makes it assertable. Every ratio reads 1.000 and 1e-04 would hold with
+    # an order of margin, but the reference differences the same bisected
+    # root-find the row check below bounds, and its floor is measured as a gap
+    # between steps -- which reads the opposite of an error that rises as the
+    # step falls. So a bound taken off that ladder would be a claim about a
+    # convergence order this reference does not have. A bound of 1e-02 makes no
+    # such claim and still rejects what could go wrong here: a dropped channel
+    # (0 or infinite), a sign flip (-1), a row at a fixed fraction (0.5).
+    expect_lt(abs(ratio - 1), 1e-2)
   }
-  skip(paste("the birth-size channel is priced, not bounded: every ratio reads",
-             "1.000 and a bound of 1e-04 would hold each with an order of margin,",
-             "but the reference is a whole-run difference of the same bisected",
-             "root-find the row check below bounds, and its own floor is measured",
-             "as a gap between steps -- which reads the opposite of an error that",
-             "rises as the step falls"))
 })
 
 test_that("the seed's geometry row is refereed against a rebuilt strategy", {
@@ -158,14 +156,18 @@ test_that("the seed's geometry row is refereed against a rebuilt strategy", {
         ref$row[["height"]]))
   }
 
-  # And the structural half: the residual reads those parameters and no others,
-  # so anything outside the list is exactly zero rather than small.
-  for (name in c("k_I", "a_l1")) {
+  # And the structural half, over EVERY other column rather than a written pair.
+  # The residual reads the birth-size parameters and no others, so the claim is
+  # about the complement -- and a written pair is a claim about two names that
+  # goes stale when the set moves. It went stale once already: the pair was
+  # c("k_I", "a_l1") and `a_l1` is a birth-size parameter, so the loop asserted on
+  # one name and said two.
+  others <- setdiff(ladder_bare_traits(columns), ladder_birth_size_parameters())
+  expect_gt(length(others), length(ladder_birth_size_parameters()))
+  for (name in others) {
     at <- match(paste0("1.", name), columns)
-    if (is.na(at) || name %in% ladder_birth_size_parameters()) {
-      next
-    }
-    expect_identical(ladder_seed_geometry_tangent_tf24(patch, at)$dheight, 0)
+    expect_identical(ladder_seed_geometry_tangent_tf24(patch, at)$dheight, 0,
+                     info = paste("reaches the seed-height residual:", name))
   }
 })
 

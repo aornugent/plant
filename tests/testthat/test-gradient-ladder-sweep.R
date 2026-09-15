@@ -1,33 +1,17 @@
 # Whether the sweep runs at all, and on which channels.
 #
-# This is the ladder's one gate. Everything that needs a trajectory sweep skips
-# with the message this test fails with, so a sweep that cannot run is one red
-# line naming its cause rather than the same cause repeated down every file.
+# The first block is the ladder's canary: it drives the sweep on the fixture every
+# trajectory rung uses, so a sweep that cannot run reports here as well as
+# wherever else it is reached.
 
 test_that("the sweep runs on a stand in the declared regime", {
   stand <- ladder_stand_two_by_two()
   ladder_require_regime(stand, "stand")
-  blocked <- ladder_sweep_blocked(stand)
-  if (!is.null(blocked)) {
-    message("\n  the sweep is blocked: ", blocked)
-  }
-  expect_null(blocked)
-})
-
-test_that("the two output kinds of the leaf refuse independently", {
-  # The profit row survives every degeneracy except a jump of the argmax and an
-  # undefined objective; the uptake row is the one that ceases to exist. So a
-  # metric seeded only on size states survives what kills a water-coupled one,
-  # and refusing them as a pair throws away the surviving metric for nothing.
-  #
-  # A boundary that refuses the whole sweep because one output kind has no rows
-  # has made exactly that trade.
-  stand <- ladder_stand_two_by_two()
-  blocked <- ladder_sweep_blocked(stand)
-  skip_if(is.null(blocked), "the sweep is not blocked, so there is nothing to scope")
-  expect_false(grepl("per-layer uptake", blocked, fixed = TRUE),
-               label = paste("the water channel's absence blocks every metric,",
-                             "including ones it cannot reach:", blocked))
+  g <- stand_gradient(stand)
+  # Non-vacuity: a sweep that ran and answered nothing is not a sweep that ran,
+  # and every metric refusing is a different event from the sweep failing.
+  expect_false(any(stand_gradient_refused(g)))
+  expect_gt(sum(is.finite(g$gradient)), 0)
 })
 
 test_that("a curvature the collar cannot stand on refuses instead of returning zeros", {
@@ -124,7 +108,7 @@ test_that("refusal is metric-level and not per-parameter", {
   #
   # A partly-populated gradient vector is the shape that reads as an answer.
   stand <- ladder_stand_two_by_two()
-  result <- ladder_gradient_or_skip(stand)
+  result <- stand_gradient(stand)
   for (m in rownames(result$gradient)) {
     row <- result$gradient[m, ]
     expect_false(any(is.na(row)) && !all(is.na(row)),

@@ -16,8 +16,9 @@
 
 test_that("the recorded block has the shape the design is costed on", {
   patch <- ladder_patch_one()
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
-  outputs <- ladder_block_output_names_tf24(patch)
+  block <- ladder_block_jacobian_forward_tf24(patch, 1L)
+  inputs <- colnames(block)
+  outputs <- rownames(block)
 
   # Six own states, the field's knot values and slopes, the soil potentials and
   # the traits in; six rates, the density rate and one draw per layer out. Both
@@ -43,13 +44,11 @@ test_that("the recorded block has the shape the design is costed on", {
 test_that("the block's forward and reverse Jacobians agree entry by entry", {
   patch <- ladder_patch_one()
   ladder_require_regime(patch, "patch")
-  ladder_block_or_skip(patch)
 
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
-  outputs <- ladder_block_output_names_tf24(patch)
   forward <- ladder_block_jacobian_forward_tf24(patch, 1L)
   reverse <- ladder_block_jacobian_reverse_tf24(patch, 1L)
-  dimnames(forward) <- dimnames(reverse) <- list(outputs, inputs)
+  inputs <- colnames(forward)
+  outputs <- rownames(forward)
 
   # Non-vacuity: a Jacobian of a block that returned nothing is not evidence.
   expect_true(all(is.finite(forward)))
@@ -83,11 +82,9 @@ test_that("the block's structure is what every cost argument assumes", {
   # already exists, and this is the one place the structure is checked rather
   # than read.
   patch <- ladder_patch_one()
-  ladder_block_or_skip(patch)
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
-  outputs <- ladder_block_output_names_tf24(patch)
   j <- ladder_block_jacobian_forward_tf24(patch, 1L)
-  dimnames(j) <- list(outputs, inputs)
+  inputs <- colnames(j)
+  outputs <- rownames(j)
 
   is_light <- grepl("^light_", inputs)
   is_value <- grepl("^light_value_", inputs)
@@ -180,9 +177,8 @@ test_that("every trait the block reads has a column, or is refused by name", {
   # is where a trait's row either exists or does not, so this is where the
   # classification is cheapest to make.
   patch <- ladder_patch_one()
-  ladder_block_or_skip(patch)
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
   j <- ladder_block_jacobian_forward_tf24(patch, 1L)
+  inputs <- colnames(j)
   traits <- inputs[!grepl("^light_|^psi_soil_", inputs)][-(1:6)]
   columns <- j[, match(traits, inputs), drop = FALSE]
   peak <- apply(abs(columns), 2, max)
@@ -254,7 +250,6 @@ test_that("the tangent carries the soil channel, and two references agree in it"
   # it agree perfectly.
   patch <- ladder_patch_two_by_two(cross = FALSE)
   ladder_require_regime(patch, "patch")
-  ladder_block_or_skip(patch)
 
   n <- patch$ode_size
   n_env <- patch$environment$ode_size
@@ -317,7 +312,6 @@ test_that("one right-hand-side evaluation transposes to a difference of itself",
   # cascade's own derivative get a referee for the first time.
   patch <- ladder_patch_two_by_two(cross = FALSE)
   ladder_require_regime(patch, "patch")
-  ladder_block_or_skip(patch)
 
   n <- patch$ode_size
   rates <- patch$ode_rates
@@ -441,7 +435,6 @@ test_that("the trait rows that arise inside a reduction arrive", {
   # accumulator however correct its arithmetic, and those rows then read exactly
   # zero.
   patch <- ladder_patch_two_by_two(cross = FALSE)
-  ladder_block_or_skip(patch)
 
   n <- patch$ode_size
   n_env <- patch$environment$ode_size
@@ -499,7 +492,6 @@ test_that("the trait rows a difference can reach agree with one", {
   # referee is the forward model rebuilt from its parameters, which
   # `test-gradient-ladder-factorisation.R` applies to exactly this set of traits.
   patch <- ladder_patch_two_by_two(cross = FALSE)
-  ladder_block_or_skip(patch)
 
   n <- patch$ode_size
   columns <- ladder_trait_names_tf24(patch)
@@ -563,7 +555,6 @@ test_that("the recording does not grow with the stand", {
   # count is the tape leaking.
   one <- ladder_patch_one()
   four <- ladder_patch_two_by_two()
-  ladder_block_or_skip(one)
 
   seed_one <- rep(1, one$ode_size)
   seed_four <- rep(1, four$ode_size)

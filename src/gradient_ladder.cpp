@@ -14,22 +14,16 @@
 //
 // What bounds the cost instead: these entry points are absent from `NAMESPACE`,
 // so they are not part of the package's R interface and are reachable only as
-// `plant:::`. They are twenty-three of the 1,171 exports the generated file
-// already carries. And `test_gradient_fd1`, `test_gradient_richardson` and
+// `plant:::`. And `test_gradient_fd1`, `test_gradient_richardson` and
 // `test_uniroot` establish that a test-only export living here is this package's
 // existing convention rather than a new concession.
 //
-// ⚠️ THE PREFIX DOES NOT PARTITION THEM, AND IT SHOULD. Of the thirty-three
-// entry points here, twenty-three are prefixed `ladder_` and ten are prefixed
-// `census_` -- which is the prefix the shipped product uses, so nothing in the
-// name separates `census_curvature_margin_tf24`, which only a test calls, from
-// `census_trait_gradient_tf24`, which is the product. Verified: none of the ten
-// is called from anywhere under `R/` other than the generated bindings.
-//
-// They are not renamed because five of them are named in `NEWS.md` with
-// migration lines, so a rename would contradict a published note to fix a
-// naming inconsistency. Whoever next revises that section should rename them in
-// the same change.
+// THE PREFIX PARTITIONS THEM, and that is worth keeping true. Of the thirty-one
+// entry points here, twenty-five are prefixed `ladder_` and are called from
+// `tests/testthat/` and nowhere else. The six spelled `census_` are the ones
+// `NEWS.md` publishes with migration lines -- the five incidence counters and
+// `census_trait_gradient_split_tf24` -- so the prefix says which of them a
+// rename would contradict a published note about.
 
 // The references the gradient is checked against, and the two objects they are
 // checked at. The two objects referee different claims, and reading them as one
@@ -210,16 +204,12 @@ Rcpp::NumericMatrix to_matrix(const std::vector<std::vector<double>>& rows,
   return out;
 }
 
-} // namespace
-
 // The block's inputs, in the order block_inputs writes them: the individual's
 // own states, the field's knot values then its knot slopes, the soil potentials,
-// and the strategy's differentiable parameters.
-// [[Rcpp::export]]
-std::vector<std::string> ladder_block_input_names_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
-                                                       int node) {
-  const patch_type& patch = *obj_;
-  const node_address at = locate(patch, static_cast<size_t>(node - 1));
+// and the strategy's differentiable parameters. Read from the node, because the
+// trait names are that node's species'.
+std::vector<std::string> block_input_names(const patch_type& patch,
+                                           const node_address& at) {
   std::vector<std::string> out = strategy_type::state_names();
   const size_t n_knot =
     patch.r_environment().light_availability.spline.knots().size();
@@ -242,9 +232,7 @@ std::vector<std::string> ladder_block_input_names_tf24(plant::RcppR6::RcppR6<pla
 
 // The block's outputs: the strategy's rates, the density rate, then one
 // consumption rate per resource.
-// [[Rcpp::export]]
-std::vector<std::string> ladder_block_output_names_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  const patch_type& patch = *obj_;
+std::vector<std::string> block_output_names(const patch_type& patch) {
   std::vector<std::string> out;
   for (const std::string& n : strategy_type::state_names()) {
     out.push_back(n + "_dt");
@@ -257,12 +245,25 @@ std::vector<std::string> ladder_block_output_names_tf24(plant::RcppR6::RcppR6<pl
   return out;
 }
 
+// Every block matrix carries its own names. DO NOT hand the names out separately:
+// the inputs depend on WHICH NODE the block was formed at, so a caller holding a
+// name list and a matrix holds two things that can disagree about the node while
+// both are the right length.
+void name_block(Rcpp::NumericMatrix& m, const patch_type& patch,
+                const node_address& at) {
+  m.attr("dimnames") = Rcpp::List::create(
+    Rcpp::wrap(block_output_names(patch)), Rcpp::wrap(block_input_names(patch, at)));
+}
+
+} // namespace
+
 // The whole block Jacobian, one exact column per input, by forward tangent.
 // [[Rcpp::export]]
 Rcpp::NumericMatrix ladder_block_jacobian_forward_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                                                        int node) {
   const patch_type& patch = *obj_;
-  tangent_block block(patch, locate(patch, static_cast<size_t>(node - 1)));
+  const node_address at = locate(patch, static_cast<size_t>(node - 1));
+  tangent_block block(patch, at);
   const size_t n_in = block.in.size();
   Rcpp::NumericMatrix out(static_cast<int>(block.n_out),
                           static_cast<int>(n_in));
@@ -272,6 +273,7 @@ Rcpp::NumericMatrix ladder_block_jacobian_forward_tf24(plant::RcppR6::RcppR6<pla
       out(static_cast<int>(r), static_cast<int>(c)) = column[r];
     }
   }
+  name_block(out, patch, at);
   return out;
 }
 
@@ -340,7 +342,9 @@ Rcpp::NumericMatrix ladder_block_jacobian_reverse_tf24(plant::RcppR6::RcppR6<pla
     odelia::ode::vector_jacobian_product(tape, in, seed, block, row);
     rows.emplace_back(row[0].begin(), row[0].end());
   }
-  return to_matrix(rows, n_in);
+  Rcpp::NumericMatrix out = to_matrix(rows, n_in);
+  name_block(out, patch, at);
+  return out;
 }
 
 // The rates the reference itself computes, at the state the patch holds. A
@@ -749,6 +753,7 @@ Rcpp::NumericMatrix ladder_block_difference_tf24(plant::RcppR6::RcppR6<plant::Pa
       out(static_cast<int>(r), static_cast<int>(c)) = (up[r] - dn[r]) / (2.0 * h);
     }
   }
+  name_block(out, patch, at);
   return out;
 }
 
@@ -953,14 +958,14 @@ Rcpp::List census_gradient_to_r(const plant::census_gradient& g);
 // easy to omit because it is a one-line calculation at the final state.
 // [[Rcpp::export]]
 std::vector<std::vector<double>>
-census_trait_direct_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+ladder_census_trait_direct_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   return obj_->census_state_and_trait_rows().trait.to_rows();
 }
 
 // The same quantity differenced in plain double, which is what referees it.
 // [[Rcpp::export]]
 std::vector<std::vector<double>>
-census_trait_difference_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
+ladder_census_trait_difference_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
                              double rel) {
   return obj_->census_trait_difference(rel);
 }
@@ -1038,7 +1043,7 @@ census_clamp_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<d
 // a severance -- the forward one says only that the guard is reachable.
 // [[Rcpp::export]]
 std::vector<std::vector<double>>
-census_clamp_counts_differentiated_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+ladder_clamp_counts_differentiated_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   const std::vector<std::vector<size_t>> counts = obj_->clamp_counts_differentiated();
   std::vector<std::vector<double>> ret;
   ret.reserve(counts.size());
@@ -1066,6 +1071,6 @@ std::vector<std::string> census_clamp_names_tf24() {
 // reached -- so the distance to the floor is reported rather than assumed.
 // [[Rcpp::export]]
 std::vector<double>
-census_curvature_margin_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+ladder_curvature_margin_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   return obj_->curvature_margins();
 }

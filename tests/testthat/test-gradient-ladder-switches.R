@@ -19,7 +19,7 @@ test_that("the cohort block's route is a column of the rung-3 matrix", {
   # comparison is what notices. Nothing further is needed here; what is needed is
   # that the comparison exists, which is the one-cohort file's first check.
   patch <- ladder_patch_one()
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
+  inputs <- colnames(ladder_block_jacobian_forward_tf24(patch, 1L))
   expect_true(any(!grepl("^light_|^psi_soil_", inputs)))
 })
 
@@ -32,7 +32,7 @@ test_that("the light reduction needs two switches, not one", {
   # The switch is a zeroed channel in the recorded step's field inputs, and rung
   # 3's structural check is where each is required to move the answer.
   patch <- ladder_patch_one()
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
+  inputs <- colnames(ladder_block_jacobian_forward_tf24(patch, 1L))
   expect_gt(sum(grepl("^light_value_", inputs)), 0L)
   expect_equal(sum(grepl("^light_value_", inputs)),
                sum(grepl("^light_slope_", inputs)))
@@ -44,8 +44,9 @@ test_that("the water reduction is the light one's analogue and has its own switc
   # individual's own maximisation. A reverse pass handling only the upstream one
   # is incomplete rather than approximate.
   patch <- ladder_patch_one()
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
-  outputs <- ladder_block_output_names_tf24(patch)
+  block <- ladder_block_jacobian_forward_tf24(patch, 1L)
+  inputs <- colnames(block)
+  outputs <- rownames(block)
   expect_gt(sum(grepl("^psi_soil_", inputs)), 0L)
   expect_equal(sum(grepl("^uptake_", outputs)), sum(grepl("^psi_soil_", inputs)))
 })
@@ -87,7 +88,7 @@ test_that("the census's direct term has no other home", {
   # allometric constants set leaf area from height, so they are in the leaf-area
   # metric's own formula.
   stand <- ladder_stand_two_by_two()
-  result <- ladder_gradient_or_skip(stand)
+  result <- stand_gradient(stand)
   seeds <- stand_census_state_adjoint(stand)
 
   # The state adjoint is the seed and carries no direct term, so a gradient that
@@ -114,7 +115,7 @@ test_that("the census's direct term has no other home", {
   # row contains this term rather than merely being the same size. The term is
   # reported on its own, so throwing it away is a subtraction: what is left must
   # differ from the reported row by exactly the term.
-  own <- do.call(rbind, census_trait_direct_tf24(stand))
+  own <- do.call(rbind, ladder_census_trait_direct_tf24(stand))
   dimnames(own) <- list(rownames(result$gradient), colnames(result$gradient))
   suppressed <- result$gradient - own
   ladder_expect_moves(result$gradient, suppressed,
@@ -129,8 +130,8 @@ test_that("the census's direct term has no other home", {
   # Normalised per column rather than per entry, because the columns span orders
   # of magnitude and a per-entry quotient on a near-zero entry reports its own
   # denominator.
-  fine <- do.call(rbind, census_trait_difference_tf24(stand, 1e-6))
-  coarse <- do.call(rbind, census_trait_difference_tf24(stand, 1e-5))
+  fine <- do.call(rbind, ladder_census_trait_difference_tf24(stand, 1e-6))
+  coarse <- do.call(rbind, ladder_census_trait_difference_tf24(stand, 1e-5))
   floor <- ladder_difference_floor(coarse, fine)
   # This reference is complete for every column but the eight that reach birth
   # size. It moves a prepared strategy in place, and on the double path the seed's
@@ -172,7 +173,7 @@ test_that("the boundary's three channels are three switches", {
   # ends in an accumulator no metric here reads. So a zero column is the channel
   # gone, with nothing else to supply the number.
   expect_true("omega" %in% columns)
-  result <- ladder_gradient_or_skip(stand)
+  result <- stand_gradient(stand)
   at <- which(ladder_bare_traits(colnames(result$gradient)) == "omega")
   expect_length(at, length(stand$patch$species))
   expect_gt(max(abs(result$gradient[, at, drop = FALSE])), 0)

@@ -389,7 +389,7 @@ test_that("a newcomer's leaf area reaches the census through a field built witho
   # The census's own reading of the traits, so the trajectory term can be separated
   # from it. For the allometric constants the two very nearly cancel, and the
   # column's relative error is then an amplified view of the trajectory term's.
-  own <- do.call(rbind, census_trait_direct_tf24(stand))
+  own <- do.call(rbind, ladder_census_trait_direct_tf24(stand))
   dimnames(own) <- list(rownames(result$gradient), columns)
 
   # The field-borne pair, and every parameter reaching the census through the seed's

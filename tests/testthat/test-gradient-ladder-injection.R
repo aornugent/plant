@@ -19,12 +19,10 @@
 
 test_that("the block Jacobian's comparison rejects each named corruption", {
   patch <- ladder_patch_one()
-  ladder_block_or_skip(patch)
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
-  outputs <- ladder_block_output_names_tf24(patch)
   forward <- ladder_block_jacobian_forward_tf24(patch, 1L)
   reverse <- ladder_block_jacobian_reverse_tf24(patch, 1L)
-  dimnames(forward) <- dimnames(reverse) <- list(outputs, inputs)
+  inputs <- colnames(forward)
+  outputs <- rownames(forward)
   bound <- 10 * ladder_forward_floor(patch)
 
   # The check as the rung makes it, so the injections below are measured against a
@@ -91,11 +89,9 @@ test_that("the structural assertions reject a structure that does not hold", {
   # same claims broken on purpose: a rank test that passes on a matrix of any rank
   # is not a rank test.
   patch <- ladder_patch_one()
-  ladder_block_or_skip(patch)
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
-  outputs <- ladder_block_output_names_tf24(patch)
   j <- ladder_block_jacobian_forward_tf24(patch, 1L)
-  dimnames(j) <- list(outputs, inputs)
+  inputs <- colnames(j)
+  outputs <- rownames(j)
 
   numerical_rank <- function(m, tol = 1e-9) {
     if (all(m == 0)) return(0L)
@@ -124,31 +120,4 @@ test_that("the structural assertions reject a structure that does not hold", {
   # Density enters no cohort rate, and the strongest form of that claim is that it
   # is not among the block's inputs at all.
   expect_false(any(grepl("log_density", inputs)))
-})
-
-test_that("the gates skip a refusal and re-raise a fault", {
-  # These gates decide whether a ladder run reports anything at all. DO NOT let
-  # them convert an error into a skip: a broken sweep then leaves the trajectory
-  # tier green with nothing in it, and a deliberately wrong narrow() produced six
-  # skips and no failures.
-  #
-  # A refusal is something the model declares. Anything else has to come back
-  # out, and that is what this pins.
-  refusal <- simpleError(paste("census_trait_gradient: the reverse-mode gradient",
-                               "runs on the birth-date size-density coordinate",
-                               "only. Set control$node_density_in_birth_date"))
-  expect_condition(ladder_skip_if_refused(refusal, "the sweep refuses this stand:"),
-                   class = "skip")
-
-  # A fault wearing the same shape is not a refusal, whatever it says.
-  fault <- simpleError("solve_adjoint_over_widenings: narrow returned a different state")
-  expect_error(ladder_skip_if_refused(fault, "the sweep refuses this stand:"),
-               "narrow returned a different state")
-
-  # And non-vacuity for the list itself: an empty one would skip nothing, a
-  # catch-all would skip everything.
-  expect_gt(length(ladder_declared_refusals()), 0L)
-  expect_false(any(vapply(ladder_declared_refusals(),
-                          function(p) grepl(p, conditionMessage(fault), fixed = TRUE),
-                          logical(1))))
 })

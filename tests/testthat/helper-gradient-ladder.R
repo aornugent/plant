@@ -359,6 +359,42 @@ ladder_stand_introductions_short <- function() {
   ladder_run(p)
 }
 
+# Many ranges, and a short run. The sweep opens a range at every introduction, so
+# the range count is what the range machinery and the insertion transpose are
+# exercised at -- and in the DEFAULT schedule that count is derived from the patch
+# lifetime, which is why the two read as one thing. They are separable: written
+# introduction times put 61 ranges in a run of less than half a year.
+#
+# Measured on this fixture: 62 introductions, 62 ranges, 68 accepted steps, and a
+# sweep in 1.7 s. The four-node stand every other trajectory rung uses has six.
+#
+# ⚠️ WHAT THIS DOES NOT REACH IS THE STEP COUNT. Sixty-eight against the ~3,400 a
+# century fixture accepts, so nothing here says the recording's footprint or the
+# step loop behaves at production length. That gap is recorded in NEWS.md under
+# Known issues and is not closed by this fixture.
+#
+# It is outside the declared regime on one assertion and DELIBERATELY SO: at this
+# cohort count the heights pile up and stop being non-commensurate. That
+# separation is what makes a swapped scatter target visible to a localisation
+# reference, and a bit-identity consults no reference at all -- so what the
+# fixture gives up is exactly what the check it carries does not use. Do not call
+# ladder_require_regime() on it, and do not use it for anything that reads a
+# margin.
+#
+# The dates are a golden-ratio sequence rather than an even spread: consecutive
+# terms of one are never in a small-integer ratio, which is the separation
+# `ladder_non_commensurate` asks for, and the sequence is deterministic so the
+# fixture is the same on every machine.
+ladder_stand_many_ranges <- function(n = 61L, lifetime = 0.45) {
+  phi <- (sqrt(5) - 1) / 2
+  times <- sort(round(((seq_len(n) * phi) %% 1) * lifetime, 5))
+  p <- ladder_parameters(c("fast", "slow"), lifetime = lifetime)
+  # The second species takes every other date, so the two never widen together and
+  # the node stride is exercised in both directions at every width.
+  p$node_schedule_times <- list(c(0, times), c(0, times[c(TRUE, FALSE)]))
+  ladder_run(p)
+}
+
 # A run that starts from a patch already carrying cohorts, so the recording holds
 # seventeen steps before the state first widens.
 #
@@ -510,24 +546,6 @@ ladder_reference_regimes <- function() {
     list(name = "shaded",   rain = 2.00, amplitude = 0, k_I = 20),
     list(name = "clamped",  rain = 2.00, amplitude = 0, k_I = 40)
   )
-}
-
-# The lifetime a scale fixture runs, in years, or NA for none. Off unless asked
-# for: one costs minutes to build and hours to differentiate, so it belongs in a
-# job rather than in the loop.
-ladder_scale_lifetime <- function() {
-  set <- Sys.getenv("PLANT_LADDER_SCALE", unset = "")
-  if (!nzchar(set)) NA_real_ else as.numeric(set)
-}
-
-# One species at the length a user runs, on the schedule the refiner chooses.
-# This is the only fixture that refines: every other one writes its introduction
-# times, and a gradient is taken on a fixed schedule in both cases.
-ladder_stand_scale <- function(lifetime = ladder_scale_lifetime()) {
-  testthat::skip_if(is.na(lifetime),
-                    "no scale fixture: set PLANT_LADDER_SCALE to a lifetime")
-  run_scm(ladder_parameters("fast", lifetime = lifetime), Environment("TF24"),
-          ladder_control(), refine_schedule = TRUE, collect = FALSE)
 }
 
 # Reading a stand.
@@ -955,22 +973,16 @@ ladder_leaf_own_traits <- function() {
 
 # The regime a fixture has to sit in.
 
-# Each row is one assertion, whether it holds, and its measured value. A violated
-# assertion invalidates a run rather than failing it, so the checks call
-# ladder_require_regime() and the fixture's own test asserts the whole table.
+# Each row is one assertion, whether it holds, and its measured value. The
+# fixtures are written rather than reached, so a violated assertion is the model
+# having moved under a fixture that did not: ladder_require_regime() fails on it.
 #
 # `level` is which set applies. A constructed patch can be put anywhere, so it
 # carries the whole set. A run trajectory cannot be crossed by hand and cannot
-# have its reserves placed, so those two are not asked of it -- and that gap is
-# itself worth knowing, because it is the part of the regime the trajectory rungs
-# do not exercise.
-#
-# At `scale` nothing is enforced. A production-length stand sits where its own
-# dynamics put it -- heights pile up at the canopy and reserves saturate -- so
-# every assertion here is a reading rather than a condition, and a violated one
-# is what the next regime has to cover. Enforcing them would skip the run, which
-# turns scaling into a suite that passes by not testing.
-ladder_regime_report <- function(x, level = c("patch", "stand", "scale")) {
+# have its reserves placed, so those two are reported rather than enforced on one
+# -- and that gap is itself worth knowing, because it is the part of the regime
+# the trajectory rungs do not exercise.
+ladder_regime_report <- function(x, level = c("patch", "stand")) {
   level <- match.arg(level)
   patch <- ladder_as_patch(x)
   env <- patch$environment
@@ -1021,7 +1033,7 @@ ladder_regime_report <- function(x, level = c("patch", "stand", "scale")) {
           range(reserve)),
     entry("reserve gate slope above its floor",
           length(gate) > 0 && all(gate > 0.4), min(gate)))
-  report$enforced <- level != "scale"
+  report$enforced <- TRUE
   if (level == "stand") {
     at <- report$assertion %in%
       c("relative reserve inside the gate's transition band",
@@ -1033,7 +1045,7 @@ ladder_regime_report <- function(x, level = c("patch", "stand", "scale")) {
   report
 }
 
-ladder_require_regime <- function(x, level = c("patch", "stand", "scale")) {
+ladder_require_regime <- function(x, level = c("patch", "stand")) {
   report <- ladder_regime_report(x, level)
   unmet <- report[!report$ok & !report$enforced, , drop = FALSE]
   if (nrow(unmet) > 0L) {
@@ -1042,11 +1054,13 @@ ladder_require_regime <- function(x, level = c("patch", "stand", "scale")) {
                   collapse = "; "))
   }
   bad <- report[!report$ok & report$enforced, , drop = FALSE]
-  if (nrow(bad) > 0L) {
-    testthat::skip(paste0(
-      "fixture outside its declared regime, so this run is invalid rather than ",
-      "failing: ", paste(bad$assertion, collapse = "; ")))
-  }
+  # FAILS rather than skips. The fixtures are written, not reached, so leaving a
+  # regime is the model moving under a fixture that did not -- which is the one
+  # event this suite exists to report. A skip here reads as green.
+  testthat::expect_equal(
+    nrow(bad), 0L,
+    label = paste0("fixture outside its declared regime: ",
+                   paste(bad$assertion, collapse = "; ")))
   invisible(report)
 }
 
@@ -1216,53 +1230,6 @@ ladder_expect_moves <- function(with_channel, without_channel, label,
   invisible(moved)
 }
 
-# What the sweep can currently be asked.
-
-# The one place the sweep's own availability is decided. A rung blocked because
-# the sweep cannot run at all is one red line, named once, rather than the same
-# cause repeated down the file -- and `test-gradient-ladder-sweep.R` is where
-# that single line lives.
-ladder_sweep_blocked <- function(stand) {
-  tryCatch({
-    stand_gradient(stand)
-    NULL
-  }, error = function(e) conditionMessage(e))
-}
-
-# A rung blocked because the block cannot record at an active scalar is one red
-# line, named once. Shared by every file that forms the block or consumes its
-# rows, which is why it is here rather than in the first file that needed it.
-# A fixture the model REFUSES and a model that is broken are different events, and
-# these gates must not report both as a skip: a sweep that started throwing would
-# turn the trajectory tier quiet rather than red. Measured: a deliberately wrong
-# narrow() made the introductions checks skip six times and fail none.
-#
-# A refusal is something the model declares, in words it chose. Anything else is
-# the failure it is, and is re-raised.
-ladder_declared_refusals <- function() {
-  c("size-density coordinate only",
-    "does not record at an active scalar")
-}
-
-ladder_skip_if_refused <- function(err, what) {
-  msg <- conditionMessage(err)
-  refused <- vapply(ladder_declared_refusals(),
-                    function(p) grepl(p, msg, fixed = TRUE), logical(1))
-  if (any(refused)) {
-    testthat::skip(paste(what, msg))
-  }
-  stop(err)
-}
-
-ladder_block_or_skip <- function(patch, node = 1L) {
-  out <- tryCatch(list(value = ladder_block_value_tf24(patch, node)),
-                  error = function(e) e)
-  if (inherits(out, "error")) {
-    ladder_skip_if_refused(out, "the cohort block:")
-  }
-  out
-}
-
 # One sweep per fixture, for the checks that only read the gradient back.
 #
 # A sweep of the four-node stand is 43.6 s and building the stand is 0.13 s, so the
@@ -1279,6 +1246,11 @@ ladder_block_or_skip <- function(patch, node = 1L) {
 # constructor return two objects carrying the same trajectory. Under testthat's
 # parallel runner every file is its own process, so the cache never spans files and
 # a stand cannot arrive at a check carrying another file's history.
+#
+# A sweep that raises is a failure of the file that asked for it. DO NOT catch it
+# here and skip: a refusal the fixtures cannot reach is not a condition to carry
+# machinery for, and a sweep that started raising would turn the trajectory tier
+# quiet rather than red.
 ladder_shared_cache <- new.env(parent = emptyenv())
 
 ladder_shared <- function(key) {
@@ -1290,25 +1262,10 @@ ladder_shared <- function(key) {
       marginal_recruit = ladder_stand_marginal_recruit(),
       allometric_probe = ladder_stand_allometric_probe(TRUE),
       stop("ladder_shared: no such fixture: ", key, call. = FALSE))
-    assign(key,
-           list(stand = stand,
-                gradient = tryCatch(stand_gradient(stand),
-                                    error = function(e) e)),
+    assign(key, list(stand = stand, gradient = stand_gradient(stand)),
            envir = ladder_shared_cache)
   }
-  got <- get(key, envir = ladder_shared_cache, inherits = FALSE)
-  if (inherits(got$gradient, "error")) {
-    ladder_skip_if_refused(got$gradient, "the sweep refuses this stand:")
-  }
-  got
-}
-
-ladder_gradient_or_skip <- function(stand, ...) {
-  result <- tryCatch(stand_gradient(stand, ...), error = function(e) e)
-  if (inherits(result, "error")) {
-    ladder_skip_if_refused(result, "the sweep refuses this stand:")
-  }
-  result
+  get(key, envir = ladder_shared_cache, inherits = FALSE)
 }
 
 # Fault injection.

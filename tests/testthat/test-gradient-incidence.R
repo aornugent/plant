@@ -168,7 +168,7 @@ test_that("the light floor is counted on both paths, and binds at neither shippe
   # stand in for this: it counts every solve, where the sweep visits only the
   # recorded steps -- and fewer of them than it once did, since the descent stops
   # where it overflows.
-  swept <- census_clamp_counts_differentiated_tf24(walked)[[1]]
+  swept <- ladder_clamp_counts_differentiated_tf24(walked)[[1]]
   message(sprintf("  the sweep's own severances: %s",
                   paste(sprintf("%s %.0f", nm[light], swept[light]),
                         collapse = "  ")))
@@ -250,7 +250,7 @@ test_that("every clamp site is classified, and by a measured incidence", {
   expect_setequal(nm, names(clamp_class))
 
   swept_of <- function(scm) {
-    stats::setNames(census_clamp_counts_differentiated_tf24(scm)[[1]], nm)
+    stats::setNames(ladder_clamp_counts_differentiated_tf24(scm)[[1]], nm)
   }
   fwd_of <- function(scm) {
     stats::setNames(census_clamp_counts_tf24(scm)[[1]], nm)
@@ -367,7 +367,7 @@ test_that("the curvature guard reports how close it came, not only that it held"
   # Control entry for the same reason: it changes which rows exist, so two
   # gradients taken at different values are gradients of different functions.
   wet <- incidence_stand(2.0, 5, swept = TRUE)
-  margin <- census_curvature_margin_tf24(wet)[[1]]
+  margin <- ladder_curvature_margin_tf24(wet)[[1]]
   floor <- gradient_control(wet)[["gradient_curvature_floor"]]
   message(sprintf("  smallest curvature met: %.4g, against a floor of %.4g (%.0fx)",
                   margin, floor, margin / floor))

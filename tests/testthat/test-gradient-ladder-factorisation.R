@@ -58,14 +58,13 @@ test_that("the marginal profit's factorisation is measured, not assumed", {
   # not depend on a recorded input at all.
   patch <- ladder_patch_one()
   ladder_require_regime(patch, "patch")
-  ladder_block_or_skip(patch)
 
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
-  outputs <- ladder_block_output_names_tf24(patch)
+  block <- ladder_block_jacobian_forward_tf24(patch, 1L)
+  inputs <- colnames(block)
+  outputs <- rownames(block)
   is_soil <- grepl("^psi_soil_", inputs)
   uptake <- grepl("^uptake_", outputs)
-  supplied <- ladder_block_jacobian_forward_tf24(patch, 1L)[uptake, is_soil,
-                                                            drop = FALSE]
+  supplied <- block[uptake, is_soil, drop = FALSE]
 
   # Two steps, so the reference's own error is measured rather than assumed. A
   # step of 1e-3 is NOT usable here: it drives the wettest layer's potential below
@@ -214,13 +213,12 @@ test_that("the water rows hold in the direction the ecology reads", {
                     "two by two" = ladder_patch_two_by_two(),
                     "uniform drying" = ladder_patch_uniform_drying())
     ladder_require_regime(patch, "patch")
-    ladder_block_or_skip(patch)
 
-    inputs <- ladder_block_input_names_tf24(patch, 1L)
-    outputs <- ladder_block_output_names_tf24(patch)
+    supplied <- ladder_block_jacobian_forward_tf24(patch, 1L)
+    inputs <- colnames(supplied)
+    outputs <- rownames(supplied)
     is_soil <- grepl("^psi_soil_", inputs)
     uptake <- grepl("^uptake_", outputs)
-    supplied <- ladder_block_jacobian_forward_tf24(patch, 1L)
 
     # The tangent is linear in its direction, so the sum of the soil columns IS
     # the directional derivative and needs no second evaluation.
@@ -274,15 +272,15 @@ test_that("the water rows hold in the family the pair was anchored in", {
   # root profile, where height also moves leaf area and absorbed light.
   patch <- ladder_patch_one()
   ladder_require_regime(patch, "patch")
-  ladder_block_or_skip(patch)
 
-  inputs <- ladder_block_input_names_tf24(patch, 1L)
-  outputs <- ladder_block_output_names_tf24(patch)
+  block <- ladder_block_jacobian_forward_tf24(patch, 1L)
+  inputs <- colnames(block)
+  outputs <- rownames(block)
   uptake <- grepl("^uptake_", outputs)
   carbon <- match("a_r1", inputs)
   expect_false(is.na(carbon))
 
-  supplied <- ladder_block_jacobian_forward_tf24(patch, 1L)[uptake, carbon]
+  supplied <- block[uptake, carbon]
   differenced <- function(rel) {
     ladder_block_difference_tf24(patch, 1L, rel)[uptake, carbon]
   }
@@ -329,7 +327,6 @@ test_that("the leaf's supplied rows are refereed against its own algebra", {
   # right, wrong or absent.
   patch <- ladder_patch_two_by_two(cross = FALSE)
   ladder_require_regime(patch, "patch")
-  ladder_block_or_skip(patch)
 
   n <- patch$ode_size
   seed <- ladder_seeds(n, scale = ladder_block_scale(patch$ode_rates))

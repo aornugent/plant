@@ -71,7 +71,7 @@ parity_of <- function(scm) {
        # Read after the sweep, so it is the sweep's own severances and not the
        # forward run's -- the two differ, and the forward one cannot say whether
        # a gradient carries a declared zero.
-       clamp = census_clamp_counts_differentiated_tf24(scm)[[1]],
+       clamp = ladder_clamp_counts_differentiated_tf24(scm)[[1]],
        kinds = counts[counts > 0],
        records = length(rec),
        unrowed_records = sum(unrowed > 0),

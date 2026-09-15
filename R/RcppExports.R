@@ -4473,14 +4473,6 @@ test_gradient_richardson <- function(f, x, d, r) {
     .Call('_plant_test_gradient_richardson', PACKAGE = 'plant', f, x, d, r)
 }
 
-ladder_block_input_names_tf24 <- function(obj_, node) {
-    .Call('_plant_ladder_block_input_names_tf24', PACKAGE = 'plant', obj_, node)
-}
-
-ladder_block_output_names_tf24 <- function(obj_) {
-    .Call('_plant_ladder_block_output_names_tf24', PACKAGE = 'plant', obj_)
-}
-
 ladder_block_jacobian_forward_tf24 <- function(obj_, node) {
     .Call('_plant_ladder_block_jacobian_forward_tf24', PACKAGE = 'plant', obj_, node)
 }
@@ -4565,12 +4557,12 @@ ladder_rhs_trait_difference_tf24 <- function(obj_, rel) {
     .Call('_plant_ladder_rhs_trait_difference_tf24', PACKAGE = 'plant', obj_, rel)
 }
 
-census_trait_direct_tf24 <- function(obj_) {
-    .Call('_plant_census_trait_direct_tf24', PACKAGE = 'plant', obj_)
+ladder_census_trait_direct_tf24 <- function(obj_) {
+    .Call('_plant_ladder_census_trait_direct_tf24', PACKAGE = 'plant', obj_)
 }
 
-census_trait_difference_tf24 <- function(obj_, rel) {
-    .Call('_plant_census_trait_difference_tf24', PACKAGE = 'plant', obj_, rel)
+ladder_census_trait_difference_tf24 <- function(obj_, rel) {
+    .Call('_plant_ladder_census_trait_difference_tf24', PACKAGE = 'plant', obj_, rel)
 }
 
 census_trait_gradient_split_tf24 <- function(obj_, splits) {
@@ -4593,16 +4585,16 @@ census_clamp_counts_tf24 <- function(obj_) {
     .Call('_plant_census_clamp_counts_tf24', PACKAGE = 'plant', obj_)
 }
 
-census_clamp_counts_differentiated_tf24 <- function(obj_) {
-    .Call('_plant_census_clamp_counts_differentiated_tf24', PACKAGE = 'plant', obj_)
+ladder_clamp_counts_differentiated_tf24 <- function(obj_) {
+    .Call('_plant_ladder_clamp_counts_differentiated_tf24', PACKAGE = 'plant', obj_)
 }
 
 census_clamp_names_tf24 <- function() {
     .Call('_plant_census_clamp_names_tf24', PACKAGE = 'plant')
 }
 
-census_curvature_margin_tf24 <- function(obj_) {
-    .Call('_plant_census_curvature_margin_tf24', PACKAGE = 'plant', obj_)
+ladder_curvature_margin_tf24 <- function(obj_) {
+    .Call('_plant_ladder_curvature_margin_tf24', PACKAGE = 'plant', obj_)
 }
 
 FF16_oderunner_individual_internals <- function(obj) {

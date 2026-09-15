@@ -1121,6 +1121,21 @@ were not previously recorded here:
 
 ### Known issues
 
+* **No correctness check reaches a production step count.** The gradient ladder's
+  longest stand accepts 68 steps; a century fixture accepts about 3,400. Range
+  count is covered -- `ladder_stand_many_ranges()` puts 62 ranges in a run of
+  under half a year, and the split identity holds there bit for bit, which
+  exercises the range loop, the narrowing across a widening and the re-entry a cut
+  forces at ten times the count every other rung runs at. What it does not cover
+  is the step loop and the recording's own footprint, both of which grow with run
+  length rather than with introductions.
+
+  The two were separated deliberately: they are confounded in the default
+  schedule, because that schedule derives its introduction count from the patch
+  lifetime. Written introduction times separate them, and range count is the half
+  that is cheap. The remaining half is not: one stand at the length a user runs
+  costs minutes to build and is dominated by regimes that refuse.
+
 * **An invasion replay cannot subdivide, so an invader that refuses a state fails
   rather than shrinking.** The replay walks `step_by` with the resident's recorded
   sizes, and that path has no domain handling — no `try`, no sub-step. This is
