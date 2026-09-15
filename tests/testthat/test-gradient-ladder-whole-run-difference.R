@@ -119,7 +119,7 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
   # A regime is one run and one sweep and the five are independent, so they go to
   # separate processes -- but a forked worker that fails reports only that all
   # cores encountered errors, so each carries its own condition back.
-  n <- min(length(regimes), max(1L, parallel::detectCores() - 1L))
+  n <- plant_test_cores(length(regimes))
   guarded <- function(regime) {
     tryCatch(reference_compare(regime, rows), condition = function(e) e)
   }

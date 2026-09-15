@@ -113,7 +113,7 @@ parity_compute <- function() {
                         amplitude = if (is.null(d$amplitude)) 0 else d$amplitude)
     c(list(name = d$name, census = stand_census(scm)), parity_of(scm))
   }
-  n <- min(length(parity_drivers), max(1L, parallel::detectCores() - 1L))
+  n <- plant_test_cores(length(parity_drivers))
   if (.Platform$OS.type == "unix" && n > 1L) {
     parallel::mclapply(parity_drivers, one, mc.cores = n)
   } else {

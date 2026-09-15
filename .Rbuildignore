@@ -35,4 +35,3 @@
 ^LICENSE\.md$
 ^CLA\.md$
 ^tests/testthat/test-gradient-demo\.R$
-^tests/testthat/test-gradient-ladder-production-scale\.R$

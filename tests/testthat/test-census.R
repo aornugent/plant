@@ -157,9 +157,10 @@ test_that("G3: on the birth-date coordinate the weights carry no derivative", {
 
   # The seed the reverse pass is given is the derivative on the coordinate the
   # density is carried in.
-  seed <- try(stand_census_state_adjoint(scm), silent = TRUE)
-  skip_if(inherits(seed, "try-error"),
-          "the census seed is refused at the leaf boundary")
+  # NOT gated on a refusal. This fixture is written rather than reached, so the
+  # seed being refused here is the model having moved under a fixture that did
+  # not -- which is the finding, and a skip would report it as green.
+  seed <- stand_census_state_adjoint(scm)
   stride <- length(scm$patch$species[[1]]$new_node$ode_names)
   col <- (k - 1) * stride + 1
   expect_equal(unname(seed["leaf_area", col]), over_birth_date,
@@ -226,9 +227,10 @@ test_that("G5: the entry point refuses to compare across two Controls", {
 
 test_that("G6: no census metric has an all-zero state sensitivity", {
   scm <- solved_stand()
-  seed <- try(stand_census_state_adjoint(scm), silent = TRUE)
-  skip_if(inherits(seed, "try-error"),
-          "the census seed is refused at the leaf boundary")
+  # NOT gated on a refusal. This fixture is written rather than reached, so the
+  # seed being refused here is the model having moved under a fixture that did
+  # not -- which is the finding, and a skip would report it as green.
+  seed <- stand_census_state_adjoint(scm)
   expect_equal(nrow(seed), 3L)
   # Every metric is built from height, and every cohort's log density multiplies
   # it, so both state families must move all three metrics.
