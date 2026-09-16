@@ -1959,22 +1959,31 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
   // relative reserves rather than instantaneous net production -- so a trough
   // draws reserves down and death is gradual, instead of the growth cutoff and
   // ~1e32 mortality spike that caused the #550 blow-up.
-  // Counted: below zero the pool stops being a function of its own state, so
-  // every rate the gate scales loses its route to the reserve.
-  if (vars.state(state_idx_storage) < S(0.0)) {
-    note_clamp(CLAMP_STORAGE_FLOOR);
-  }
-  const S storage     = std::max(vars.state(state_idx_storage), S(0.0));
+  // The storage state is read as it stands, and neither end of its range is
+  // clamped: the rate below holds the flow inside [0, storage_max] by its own
+  // form, so a value outside is a step that overshot rather than a state the
+  // model has. Where a stage does land outside, both limiters go negative and
+  // push back, so the arithmetic is finite and restoring; what a committed value
+  // outside would corrupt is the meaning of the state, because mortality reads
+  // the ratio and grows without bound below zero. So the pool is refused there
+  // rather than floored, and the stepper shrinks and retries (#609, #610).
+  const S storage     = vars.state(state_idx_storage);
   const S storage_max = storage_capacity(area_leaf_, height);
   using std::exp;
-  using std::min;
   using std::sqrt;
-  // And at capacity the gate's argument stops reading the pool, which is the
-  // same severance at the other end.
-  if (storage_max > 0.0 && storage > storage_max) {
-    note_clamp(CLAMP_RESERVE_CEILING);
+  // Refused only where the pool is negative by more than round-off on its own
+  // scale. The tolerance is not slack: at r = 0 the rate is the charge alone and
+  // so non-negative, so a draining cohort approaches the boundary and its last
+  // bits are round-off on a state near zero. Comparing against an exact zero
+  // refuses nearly every attempt there, which rejects nothing real.
+  if (storage < -storage_domain_tol * storage_max) {
+    odelia::util::stop_domain(
+        "TF24 storage is negative (" +
+        util::format_double(odelia::util::to_passive(storage)) +
+        " kg): the pool's flow does not leave [0, capacity], so this is a step "
+        "that overshot the empty boundary");
   }
-  const S r           = storage_max > 0.0 ? min(storage / storage_max, S(1.0)) : S(0.0);
+  const S r           = storage_max > 0.0 ? storage / storage_max : S(0.0);
   // Reserve-gated growth (#517), following Daniel's intuition that a plant
   // should not grow unless it has ample carbon in storage. Growth and
   // reproduction proceed at the *production* rate, but scaled by a smooth gate
@@ -2014,21 +2023,32 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
     vars.set_aux(aux_idx_area_sapwood, area_sapwood_);
   }
 
-  // Storage dynamics: dS/dt = net production - carbon spent on growth. When
-  // production exceeds what the reserve gate lets through to growth, the surplus
-  // charges storage; when it falls short (or net production is negative) storage
-  // is drawn down. The net outflow is gated to vanish as S -> 0, flooring
-  // storage at zero so relative reserves r stay in [0,1] and the storage-based
-  // mortality stays bounded. At the S~0 starvation boundary the ungated part of
-  // the deficit is untracked (no worse than the original model, which retained
-  // structure under net<0); by then the plant is dying at the bounded maximum
-  // mortality anyway.
-  const S net_flux = P - growth_flux;
-  const S gate_ref = 1e-3 * storage_max;           // ~0.1% of capacity
-  const S floor_gate =
-    (storage + gate_ref) > 0.0 ? storage / (storage + gate_ref) : S(0.0);
-  vars.set_rate(state_idx_storage,
-                net_flux > 0.0 ? net_flux : floor_gate * net_flux);
+  // Storage dynamics, as a charge and a drain that are each non-negative
+  // without a test: sqrt(P^2 + eps^2) >= |P| makes Ppos and the drain both >= 0,
+  // and G is a logistic so 1 - G >= 0. Their difference is the net flux exactly,
+  // Ppos(1 - G) - (Ppos - P) = P - growth_flux, so the split itself moves
+  // nothing; what it buys is somewhere to limit each direction on its own
+  // (#609).
+  const S charge = Ppos * (1.0 - G);      // surplus the gate withheld
+  const S drain  = Ppos - P;              // shortfall met from reserves
+  // Each direction is limited by the room the other has: the charge fills
+  // headroom, the drain spends contents. So dS/dt = charge - (charge + drain) r,
+  // the pool is a first-order filter on production, and both bounds follow from
+  // the form with no scale left to choose -- at r = 0 the rate is charge >= 0,
+  // at r = 1 it is -drain <= 0. It is also smooth where the net flux changes
+  // sign, where the old branch stepped the slope by (r + drain_ref)/r, unbounded
+  // as the reserves empty.
+  //
+  // Narrowing the drain to r/(r + D) is the shape this replaced and the one a
+  // reader is most likely to restore, since it looks like the more faithful
+  // limiter. It puts an attracting fixed point at r ~ D whose relaxation time is
+  // storage_max D / drain -- under an hour for a seedling at D = 1e-3, against a
+  // solver stepping in days, and measured at 26 times the accepted steps.
+  //
+  // The pool is capped by withholding the surplus rather than by spending it,
+  // so production and the two flows no longer balance: at capacity the charge
+  // the gate withheld, Ppos(1 - G) ~ 1.2e-4 of production, leaves the budget.
+  vars.set_rate(state_idx_storage, charge * (1.0 - r) - drain * r);
 
   // [eqn 21] - Instantaneous mortality rate, now driven by relative reserves r.
   vars.set_rate(MORTALITY_INDEX,
