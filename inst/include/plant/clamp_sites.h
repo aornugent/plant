@@ -34,9 +34,6 @@ enum clamp_site {
   // The two water inputs, each a positive part over a spline that can undershoot.
   CLAMP_RAINFALL,
   CLAMP_INFILTRATION,
-  // The reserve pool floored at zero and the gate's argument ceilinged at one.
-  CLAMP_STORAGE_FLOOR,
-  CLAMP_RESERVE_CEILING,
   // Rooting depth capped: where it binds, the root profile stops responding to
   // height, which is a state row rather than a numeric guard.
   CLAMP_ROOTING_DEPTH,
@@ -63,8 +60,6 @@ inline const char* clamp_site_name(int site) {
   case CLAMP_SOIL_CONDUCTIVITY:      return "soil_conductivity";
   case CLAMP_RAINFALL:               return "rainfall";
   case CLAMP_INFILTRATION:           return "infiltration";
-  case CLAMP_STORAGE_FLOOR:          return "storage_floor";
-  case CLAMP_RESERVE_CEILING:        return "reserve_ceiling";
   case CLAMP_ROOTING_DEPTH:          return "rooting_depth";
   }
   // The leaf block's names are the leaf model's, taken by offset. Spelling them

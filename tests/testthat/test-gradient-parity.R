@@ -33,7 +33,12 @@ parity_known_gaps <- ladder_range_refusal
 # The drivers that reach it, by name. A count could not say this: a regime that
 # stops answering and one that never answered both come back refused, and only
 # the name separates them.
-parity_range_gap <- c("shaded", "clamped")
+#
+# Empty since the storage pool's charge and drain form came back: `shaded` and
+# `clamped` sat here while the pool integrated past its own ceiling, and both
+# answer now. Kept rather than deleted, because what it asserts now is that every
+# driver answers, which is the reading a later refusal has to fail against.
+parity_range_gap <- character(0)
 
 # One driver, reduced to what the two directions each said.
 #
@@ -210,8 +215,8 @@ test_that("every refusal names a branch that has never answered", {
                   if (length(refused)) paste(refused, collapse = ", ") else "none"))
 
   # Asserted BY NAME in both directions, which is what keeps this from being a
-  # count that a sweep answering by doing nothing would also satisfy: the two
-  # drivers whose descent overflows refuse, and every other driver answers.
+  # count that a sweep answering by doing nothing would also satisfy: every
+  # driver answers, and any that stops is named where it fails.
   expect_setequal(refused, parity_range_gap)
   expect_setequal(answered,
                   setdiff(vapply(parity_drivers, `[[`, "", "name"),
@@ -221,10 +226,9 @@ test_that("every refusal names a branch that has never answered", {
 test_that("the driver that reaches a clamp says so, answered or not", {
   # This file's non-vacuity guard, and it does not depend on the driver
   # answering: an answered gradient carrying a declared zero and one carrying no
-  # clamp at all are the same numbers, so only the count separates them. The
-  # `clamped` driver's descent is refused for its range, and the severance it
-  # reached on the way is still readable -- which is the point of counting rather
-  # than inferring from the rows.
+  # clamp at all are the same numbers, so only the count separates them. Written
+  # to hold whether or not a driver answers, because what it reads is the count a
+  # descent left behind rather than the rows it returned.
   by_name <- stats::setNames(parity_shared(), vapply(parity_shared(),
                                                      function(r) r$name, ""))
   nm <- census_clamp_names_tf24()

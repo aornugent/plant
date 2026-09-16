@@ -183,12 +183,17 @@ test_that("the light floor is counted on both paths, and binds at neither shippe
   expect_gt(stand_census(walked)[[1]], 0)
   g <- incidence_swept(2.0, 5, k_I = 40, introductions = 20L)$gradient
 
-  # ⚠️ WHAT REFUSES HERE IS THE DESCENT'S RANGE, AND THE DISTINCTION IS THE WHOLE
-  # POINT OF THIS BLOCK. The floor's row is a declared zero; the refusal is the
-  # sweep leaving what a double holds, on a stand this k_I makes stiff. Keyed on
-  # the phrase so a refusal for any other reason fails here.
-  expect_true(all(stand_gradient_refused(g)))
-  expect_true(grepl(ladder_range_refusal, g$refusal[[1]]$reason, fixed = TRUE))
+  # ⚠️ THE FLOOR'S ROW IS A DECLARED ZERO AND NOT A REFUSAL, WHICH IS THE
+  # WHOLE POINT OF THIS BLOCK. Below the floor the census is not a function of
+  # light at all, so the honest row is the zero -- and this stand answers, so
+  # that zero is what the gradient carries rather than what a refusal covered.
+  # The sweep left what a double holds on this k_I until the storage pool's
+  # charge and drain form came back. Counted before it is read, because
+  # all(is.finite(x)) is TRUE of an empty vector.
+  expect_false(any(stand_gradient_refused(g)))
+  expect_null(g$refusal[[1]])
+  expect_gt(length(g$gradient[[1]]), 0)
+  expect_true(all(is.finite(g$gradient[[1]])))
 
   # And the severance is readable rather than silent, which is the whole basis on
   # which the zero would be declared instead of refused. The forward tally cannot
@@ -234,8 +239,6 @@ clamp_class <- list(
   rooting_depth          = "model",
   light_floor            = "guard",
   light_floor_crown      = "guard",
-  storage_floor          = "guard",
-  reserve_ceiling        = "guard",
   soil_moisture_floor    = "forward-only",
   soil_potential_ceiling = "forward-only",
   soil_conductivity      = "forward-only",
@@ -309,10 +312,9 @@ test_that("every clamp site is classified, and by a measured incidence", {
   expect_gt(wet_s[["rooting_depth"]], 0)
   expect_gt(dry_s[["rooting_depth"]], 0)
 
-  # And a guard's zero binds where its own regime is reached and not on the
-  # control, which is what makes it a guard rather than the model.
-  expect_gt(dry_s[["storage_floor"]], 0)
-  expect_equal(wet_s[["storage_floor"]], 0)
+  # And a guard's zero does not bind on the control, which is what makes it a
+  # guard rather than the model. Which driver DOES reach the light floor is the
+  # light-floor block below, on the k_I the site needs rather than on this one.
   expect_equal(wet_s[["light_floor"]], 0)
   expect_equal(wet_s[["light_floor_crown"]], 0)
 

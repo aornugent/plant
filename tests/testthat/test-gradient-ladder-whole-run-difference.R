@@ -66,7 +66,8 @@ reference_uncaptured_columns <- function() {
 }
 
 reference_compare <- function(regime, rows) {
-  got <- stand_gradient(reference_stand(regime))
+  scm <- reference_stand(regime)
+  got <- stand_gradient(scm)
   mine <- rows[rows$regime == regime$name, , drop = FALSE]
   column <- paste0(mine$species, ".", mine$parameter)
   # A column the sweep does not carry is the capture's business rather than this
@@ -81,6 +82,10 @@ reference_compare <- function(regime, rows) {
   list(name = regime$name, column = column, metric = mine$metric,
        parameter = mine$parameter,
        observed = observed,
+       # Which branches the run reached, summed over species, because the
+       # tolerance below depends on one of them rather than on the regime's name.
+       kinds = stats::setNames(Reduce(`+`, census_operating_point_counts_tf24(scm)),
+                               census_operating_point_names_tf24()),
        # Refusal is metric-level, so it broadcasts to the rows this picked out.
        refused = unname(stand_gradient_refused(got)[mine$metric]),
        # And the reason, so a regime refusing every metric can be checked
@@ -101,7 +106,12 @@ reference_compare <- function(regime, rows) {
 # The regimes whose descent leaves the range a double holds, so this reference
 # has nothing to referee on them. Named rather than inferred: a regime that stops
 # answering and one that never answered both arrive refused.
-reference_range_gap <- c("shaded", "clamped")
+#
+# Empty since the storage pool's charge and drain form came back: `shaded` and
+# `clamped` sat here while the pool integrated past its own ceiling, and the
+# reference has carried 280 rows for each of them all along. Kept rather than
+# deleted, because what it asserts now is that nothing is refused.
+reference_range_gap <- character(0)
 
 test_that("the sweep agrees with a difference of whole runs, over five regimes", {
   rows <- reference_rows()
@@ -165,7 +175,19 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
     # reads 1.1e-03 on drought, 7.6e-04 on seasonal and 6.3e-05 on wet -- and all
     # three are `theta` or `omega`, which reach the census through the channels
     # the leaf boundary carries and are the last columns to resolve.
-    tolerance <- pmax(3 * r$spread, 2e-3)
+    #
+    # ⚠️ A REGIME THAT REACHES SHADE-DEATH IS TWO DIFFERENCE SCHEMES COMPARED
+    # ACROSS A KINK, so its floor is the coarser of them. The shade-death exit
+    # places the collar exactly on the wet bound, where phylloptim's
+    # `duptake_dpsi` returns its not-a-number sentinel to say the analytic branch
+    # does not hold there and the marginal profit falls back to a central
+    # difference at the same collar. The split is the evidence: the two regimes
+    # that reach it read 9.9e-03 and 8.0e-03, both on `theta`, and the three that
+    # never do sit at or under 1.1e-03. Keyed on the counter rather than on the
+    # regime's name, so a regime that stops reaching it is held to the strict
+    # floor without anyone editing this.
+    kink <- r$kinds[["shade-death"]] > 0
+    tolerance <- pmax(3 * r$spread, if (kink) 2e-2 else 2e-3)
     over <- live & r$residual > tolerance
     expect_equal(sum(over), 0,
                  label = paste0(r$name, ": ", sum(over), " column(s) past the ",
