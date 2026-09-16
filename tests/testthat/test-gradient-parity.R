@@ -64,8 +64,34 @@ parity_of <- function(scm) {
 # The regimes the reference capture uses, at the lifetime this file runs them
 # for. Named once, in the helper: a driver listed here that the capture does not
 # carry is a regime this file would report on and nothing would referee.
-parity_drivers <- lapply(ladder_reference_regimes(),
-                         function(d) c(d, list(lifetime = 5)))
+#
+# `introductions` thins the default schedule, and it is a COST setting rather
+# than a regime one -- the default derives its introduction count from the patch
+# lifetime, so a driver pays for cohorts none of the checks below asks about.
+# Measured over all five, run and swept, against the three axes this file
+# reports: the verdict, the operating-point kinds reached, and the clamp sites
+# the SWEEP met.
+#
+#   driver      steps 88 -> 20   seconds 88 -> 20   what moves at 20
+#   wet            422 ->  368     16.4 ->   3.8    nothing
+#   drought       2415 -> 1441     79.9 ->  12.1    nothing
+#   shaded       11810 -> 3250    318.6 ->  21.5    nothing
+#   clamped      11347 -> 3267    259.0 ->  17.6    nothing
+#   seasonal      6582 -> 3723    156.1 ->  13.0    LOSES determined and
+#                                                   hydraulic-shutdown
+#
+# ⚠️ SEASONAL KEEPS ITS WHOLE SCHEDULE AND IS THE REASON THIS IS PER DRIVER.
+# It is this file's only route to a hydraulic shutdown, which is one of the
+# operating-point kinds the gate exists to reach, and the thinned run reaches
+# boundary-root-crit instead. Every other driver's verdict, kinds and clamp sites
+# are the same at either length.
+parity_introductions <- c(wet = 20L, drought = 20L, seasonal = NA_integer_,
+                          shaded = 20L, clamped = 20L)
+
+parity_drivers <- lapply(ladder_reference_regimes(), function(d) {
+  keep <- parity_introductions[[d$name]]
+  c(d, list(lifetime = 5, introductions = if (is.na(keep)) NULL else keep))
+})
 
 # Each driver is run and swept ONCE. The sweep is the whole cost here -- the run
 # is free -- and three checks reading one sweep is the difference between a file
@@ -92,7 +118,8 @@ parity_compute <- function() {
     scm <- ladder_driver_stand(
       d$rain, d$lifetime,
       k_I = if (is.null(d$k_I)) 0.5 else d$k_I,
-      amplitude = if (is.null(d$amplitude)) 0 else d$amplitude)
+      amplitude = if (is.null(d$amplitude)) 0 else d$amplitude,
+      introductions = d$introductions)
     c(list(name = d$name, census = stand_census(scm)), parity_of(scm))
   }
   n <- plant_test_cores(length(parity_drivers))
