@@ -169,23 +169,26 @@ test_that("mutant method densities, TF24", {
   # a refusal would now FAIL rather than shrink, and `expect_no_error` below
   # passing is the statement that it meets none.
   #
-  # ⚠️ THE LIFETIME BUYS THE STIFF REGIME AND THE COHORT COUNT IS WHAT COSTS, and
-  # the default schedule confounds them by deriving its introduction count from
-  # the lifetime. At the full schedule a lifetime of 3 records 206 steps and one
-  # of 6 records 12714, so the regime wants 6. Held there and varying only how
-  # many of that schedule's 89 introductions are kept, against the 1e-3 this
-  # compares at:
+  # ⚠️ THE LIFETIME BUYS THE REGIME AND THE COHORT COUNT IS WHAT COSTS, and the
+  # default schedule confounds them by deriving its introduction count from the
+  # lifetime. Held at 6 and varying only how many of that schedule's 89
+  # introductions are kept, against the 1e-3 this compares at:
   #
   #   introductions     20     40     60     89
-  #   steps           6071   9110   9934  12714
-  #   log gap        2e-13  7e-15  5e-14  8e-13
-  #   seconds           71    203    328    623
+  #   steps            311    363    452    497
+  #   log gap        4e-15  4e-13  1e-14  4e-15
+  #   seconds          2.7    6.0   11.2     18
   #
   # The gap does not fall with either count, because this is an identity rather
-  # than an approximation. So what a longer recording buys is a replay that meets
-  # more of the regime, and twenty introductions put six thousand steps over
-  # twenty ranges in a ninth of the time. Both counts are asserted below rather
-  # than left to the constants.
+  # than an approximation. So a longer recording buys only more of the regime,
+  # and twenty introductions are enough to hold the identity at 4e-15.
+  #
+  # ⚠️ THOSE STEP COUNTS ARE A TWENTIETH OF WHAT THEY WERE, and the pool is why.
+  # This table read 6071 to 12714 steps and 71 to 623 seconds while compute_rates
+  # ran the clamped pre-v9 pool the templating commit transcribed; restoring the
+  # charge and drain form took the same four fixtures to 311 to 497. The stiffness
+  # the schedule was thinned to avoid was mostly the pool integrating past its own
+  # ceiling. Both counts are asserted below rather than left to the constants.
   ctrl <- Control()
   tol <- 1e-3
 
@@ -208,7 +211,7 @@ test_that("mutant method densities, TF24", {
   # something to replay: a resident that died out would make the identity
   # trivial, and a short recording would make it cheap in the wrong way.
   expect_true(all(is.finite(resident_rr)) && all(resident_rr > 0))
-  expect_gt(length(scm$ode_times), 5000)
+  expect_gt(length(scm$ode_times), 250)
   expect_equal(scm$patch$species[[1]]$size, 20L)
 
   # Identical mutant, replaying the resident's own recorded environment, must
