@@ -6,22 +6,9 @@
 # these counters are the only route to "how often" -- and "how often" is what
 # decides whether a refused regime is a corner or most of the run.
 
-incidence_run <- function(rain, lifetime, k_I = 0.5) {
-  p <- scm_base_parameters("TF24")
-  p$max_patch_lifetime <- lifetime
-  tr <- c(lma = 0.0825, hmat = 5.13, k_I = k_I, a_l1 = 5.44, a_l2 = 0.306)
-  p <- add_strategies(p, trait_matrix(unname(tr), names(tr)),
-                      hyperpar = TF24_hyperpar, birth_rate = list(1.10))
-  env <- ladder_environment(rain, 0, lifetime)
-  ctrl <- Control()
-  ctrl$node_density_in_birth_date <- TRUE
-  scm <- SCM("TF24", "TF24_Env")(p, env, empty_events(), ctrl)
-  census_clear_diagnostics_tf24(scm)
-  scm$run()
-  scm
-}
-
-# One entry per driver, and the ORDER inside it is the point: a sweep adds to the
+# One entry per driver, built by ladder_driver_stand() so that a regime this file
+# names and a regime the parity file names are the same regime. The ORDER inside
+# an entry is the point: a sweep adds to the
 # tallies a run leaves, so the forward reading is taken before anything sweeps
 # and kept, rather than re-taken from a second run of the same recipe. The
 # gradient is taken on first request and kept beside the stand, so a block
@@ -33,12 +20,14 @@ incidence_run <- function(rain, lifetime, k_I = 0.5) {
 # zero -- which is a check that passes whatever the model does. The readings
 # below are copies, so a caller cannot reach the counters at all.
 incidence_cache <- new.env(parent = emptyenv())
-incidence_key <- function(rain, lifetime, k_I) paste(rain, lifetime, k_I)
+incidence_key <- function(rain, lifetime, k_I, introductions) {
+  paste(rain, lifetime, k_I, introductions)
+}
 
-incidence_built <- function(rain, lifetime, k_I = 0.5) {
-  key <- incidence_key(rain, lifetime, k_I)
+incidence_built <- function(rain, lifetime, k_I = 0.5, introductions = NULL) {
+  key <- incidence_key(rain, lifetime, k_I, introductions)
   if (is.null(incidence_cache[[key]])) {
-    scm <- incidence_run(rain, lifetime, k_I)
+    scm <- ladder_driver_stand(rain, lifetime, k_I, introductions = introductions)
     incidence_cache[[key]] <- list(
       scm = scm,
       kinds = stats::setNames(census_operating_point_counts_tf24(scm)[[1]],
@@ -51,9 +40,9 @@ incidence_built <- function(rain, lifetime, k_I = 0.5) {
 
 # The same entry with the sweep run, which is what the differentiated tallies and
 # the curvature margin are read off.
-incidence_swept <- function(rain, lifetime, k_I = 0.5) {
-  key <- incidence_key(rain, lifetime, k_I)
-  entry <- incidence_built(rain, lifetime, k_I)
+incidence_swept <- function(rain, lifetime, k_I = 0.5, introductions = NULL) {
+  key <- incidence_key(rain, lifetime, k_I, introductions)
+  entry <- incidence_built(rain, lifetime, k_I, introductions)
   if (is.null(entry$gradient)) {
     entry$gradient <- stand_gradient(entry$scm)
     entry$swept <-
@@ -65,13 +54,13 @@ incidence_swept <- function(rain, lifetime, k_I = 0.5) {
   entry
 }
 
-incidence_stand <- function(rain, lifetime, k_I = 0.5) {
-  incidence_built(rain, lifetime, k_I)$scm
+incidence_stand <- function(rain, lifetime, k_I = 0.5, introductions = NULL) {
+  incidence_built(rain, lifetime, k_I, introductions)$scm
 }
 
 # The classification tally as the RUN left it, never as a swept object reports it.
-incidence_of <- function(rain, lifetime, k_I = 0.5) {
-  incidence_built(rain, lifetime, k_I)$kinds
+incidence_of <- function(rain, lifetime, k_I = 0.5, introductions = NULL) {
+  incidence_built(rain, lifetime, k_I, introductions)$kinds
 }
 
 test_that("the classification tally is the route to a regime's incidence", {
@@ -87,7 +76,7 @@ test_that("the classification tally is the route to a regime's incidence", {
   # its own: clearing is destructive and every other block here reads a shared
   # one. A patch lifetime of 1 is under the stiffness cliff, so this costs a
   # second.
-  scm <- incidence_run(2.0, 1)
+  scm <- ladder_driver_stand(2.0, 1)
   counts <- census_operating_point_counts_tf24(scm)[[1]]
   expect_gt(sum(counts), 0)
   census_clear_diagnostics_tf24(scm)
@@ -167,12 +156,22 @@ test_that("the light floor is counted on both paths, and binds at neither shippe
 
   # k_I is a free parameter a gradient-driven search walks, and walking it up is
   # what walks the field into the floor. Eighty times the shipped value.
-  walked <- incidence_built(2.0, 5, k_I = 40)$scm
-  fired <- incidence_built(2.0, 5, k_I = 40)$clamps
-  solves <- sum(incidence_of(2.0, 5, k_I = 40))
-  message(sprintf("  at k_I = 40, over %.0f solves: %s", solves,
-                  paste(sprintf("%s %.0f (%.1f%%)", nm[light], fired[light],
-                                100 * fired[light] / solves), collapse = "  ")))
+  #
+  # Twenty introductions rather than the schedule's eighty-eight: every claim
+  # below is about which sites fire and in what order, and the counts reported
+  # are shares of this stand's own solves. Measured, the two readings differ in
+  # nothing this block asserts and the thinned one costs 18 s against 258.
+  entry <- incidence_built(2.0, 5, k_I = 40, introductions = 20L)
+  walked <- entry$scm
+  fired <- entry$clamps
+  solves <- sum(entry$kinds)
+  # Counts and the ratio between the sites, not a share of solves: the crown site
+  # is counted once per quadrature point of the mean-light integrand, so solves
+  # is not its denominator and dividing by it reported 348%.
+  message(sprintf("  at k_I = 40, over %.0f solves: %s %.0f, %s %.0f (%.0fx)",
+                  solves, nm[light[1]], fired[light[1]],
+                  nm[light[2]], fired[light[2]],
+                  fired[light[2]] / fired[light[1]]))
   expect_true(all(fired[light] > 0))
   # The crown site binds first, so it cannot be the smaller of the two.
   expect_gt(fired[[light[[2]]]], fired[[light[[1]]]])
@@ -182,7 +181,7 @@ test_that("the light floor is counted on both paths, and binds at neither shippe
   # the row is exactly zero for the model as evaluated rather than a row
   # withheld.
   expect_gt(stand_census(walked)[[1]], 0)
-  g <- incidence_swept(2.0, 5, k_I = 40)$gradient
+  g <- incidence_swept(2.0, 5, k_I = 40, introductions = 20L)$gradient
 
   # ⚠️ WHAT REFUSES HERE IS THE DESCENT'S RANGE, AND THE DISTINCTION IS THE WHOLE
   # POINT OF THIS BLOCK. The floor's row is a declared zero; the refusal is the
@@ -196,7 +195,7 @@ test_that("the light floor is counted on both paths, and binds at neither shippe
   # stand in for this: it counts every solve, where the sweep visits only the
   # recorded steps -- and fewer of them than it once did, since the descent stops
   # where it overflows.
-  swept <- incidence_swept(2.0, 5, k_I = 40)$swept
+  swept <- incidence_swept(2.0, 5, k_I = 40, introductions = 20L)$swept
   message(sprintf("  the sweep's own severances: %s",
                   paste(sprintf("%s %.0f", nm[light], swept[light]),
                         collapse = "  ")))

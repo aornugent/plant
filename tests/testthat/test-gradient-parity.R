@@ -14,23 +14,6 @@
 # below by name, so the difference between the two is a line of code rather than
 # a reading of the output.
 
-parity_stand <- function(rain, lifetime, k_I = 0.5, amplitude = 0) {
-  p <- scm_base_parameters("TF24")
-  p$max_patch_lifetime <- lifetime
-  tr <- c(lma = 0.0825, hmat = 5.13, k_I = k_I, a_l1 = 5.44, a_l2 = 0.306)
-  p <- add_strategies(p, trait_matrix(unname(tr), names(tr)),
-                      hyperpar = TF24_hyperpar, birth_rate = list(1.10))
-  # One recipe for the drivers, shared with the reference capture, so a regime
-  # named in both places is the same regime.
-  env <- ladder_environment(rain, amplitude, lifetime)
-  ctrl <- Control()
-  ctrl$node_density_in_birth_date <- TRUE
-  scm <- SCM("TF24", "TF24_Env")(p, env, empty_events(), ctrl)
-  census_clear_diagnostics_tf24(scm)
-  scm$run()
-  scm
-}
-
 # The branches that have never returned a row, by the name the refusal carries.
 # A refusal naming anything else is a regime that USED to answer, which is what
 # this file exists to catch.
@@ -78,13 +61,11 @@ parity_of <- function(scm) {
        unrowed_worst = max(unrowed))
 }
 
-parity_drivers <- list(
-  list(name = "wet",      rain = 2.00, lifetime = 5),
-  list(name = "drought",  rain = 0.10, lifetime = 5),
-  list(name = "seasonal", rain = 1.00, lifetime = 5, amplitude = 1.0),
-  list(name = "shaded",   rain = 2.00, lifetime = 5, k_I = 20),
-  list(name = "clamped",  rain = 2.00, lifetime = 5, k_I = 40)
-)
+# The regimes the reference capture uses, at the lifetime this file runs them
+# for. Named once, in the helper: a driver listed here that the capture does not
+# carry is a regime this file would report on and nothing would referee.
+parity_drivers <- lapply(ladder_reference_regimes(),
+                         function(d) c(d, list(lifetime = 5)))
 
 # Each driver is run and swept ONCE. The sweep is the whole cost here -- the run
 # is free -- and three checks reading one sweep is the difference between a file
@@ -108,9 +89,10 @@ parity_key <- function() {
 # regime rather than their sum. Serial where forking is unavailable.
 parity_compute <- function() {
   one <- function(d) {
-    scm <- parity_stand(d$rain, d$lifetime,
-                        k_I = if (is.null(d$k_I)) 0.5 else d$k_I,
-                        amplitude = if (is.null(d$amplitude)) 0 else d$amplitude)
+    scm <- ladder_driver_stand(
+      d$rain, d$lifetime,
+      k_I = if (is.null(d$k_I)) 0.5 else d$k_I,
+      amplitude = if (is.null(d$amplitude)) 0 else d$amplitude)
     c(list(name = d$name, census = stand_census(scm)), parity_of(scm))
   }
   n <- plant_test_cores(length(parity_drivers))

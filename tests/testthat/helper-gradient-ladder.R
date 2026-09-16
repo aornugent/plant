@@ -532,6 +532,42 @@ ladder_environment <- function(rain = NULL, amplitude = 0, lifetime = 2) {
   env
 }
 
+# A stand driven by one of the regimes below, on the birth-date coordinate the
+# reverse sweep transposes. One builder, because the incidence file and the
+# parity file ask different questions of the SAME five drivers, and two copies of
+# a recipe are two regimes as soon as one of them is edited.
+#
+# `introductions` thins the default schedule to that many, spread over it. The
+# regime is the water and the light; the schedule is the caller's, and what it
+# decides is COST rather than regime: the default schedule derives its
+# introduction count from the lifetime, so a stand that wants the stiff regime
+# pays for cohorts it is not asking about. Measured on the clamped driver at a
+# lifetime of 5: twenty introductions record 3267 steps and run and sweep in
+# 17.8 s where its eighty-eight record far more and take 258, with both light
+# sites firing on both paths and the same range refusal either way.
+ladder_driver_stand <- function(rain, lifetime, k_I = 0.5, amplitude = 0,
+                                introductions = NULL) {
+  p <- scm_base_parameters("TF24")
+  p$max_patch_lifetime <- lifetime
+  tr <- c(lma = 0.0825, hmat = 5.13, k_I = k_I, a_l1 = 5.44, a_l2 = 0.306)
+  p <- add_strategies(p, trait_matrix(unname(tr), names(tr)),
+                      hyperpar = TF24_hyperpar, birth_rate = list(1.10))
+  if (!is.null(introductions)) {
+    full <- p$node_schedule_times[[1]]
+    p$node_schedule_times <-
+      list(full[round(seq(1, length(full), length.out = introductions))])
+  }
+  ctrl <- Control()
+  ctrl$node_density_in_birth_date <- TRUE
+  scm <- SCM("TF24", "TF24_Env")(p, ladder_environment(rain, amplitude, lifetime),
+                                 empty_events(), ctrl)
+  # The tallies accumulate, so a stand starts its own count rather than the
+  # count of whatever ran before it in this process.
+  census_clear_diagnostics_tf24(scm)
+  scm$run()
+  scm
+}
+
 # The regimes a reference is captured over, and the reason each is here rather
 # than a sweep over rainfall: each one is chosen to reach a different kind of
 # operating point, and which kinds a regime actually reached is recorded beside
