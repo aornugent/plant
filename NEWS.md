@@ -960,6 +960,15 @@ were not previously recorded here:
   * `census_clamp_names_tf24()`               -> the sites, in that order
   * `census_clear_diagnostics_tf24(scm)`       -> reset both, per run
 
+* **The two readings a published counter does not give.** `census_clamp_counts_tf24`
+  counts every solve the forward run made, and a caller asking whether a
+  *gradient* carries a severance reads it and gets the wrong answer: the sweep
+  visits the recorded steps, and fewer of them. `gradient_control` publishes the
+  curvature floor and `stand_gradient_compare` refuses two gradients taken at
+  different ones, and nothing said how close a run came. Additions only:
+  * `census_clamp_counts_differentiated_tf24(scm)` -> per-species counts where the sweep ran
+  * `census_curvature_margin_tf24(scm)`            -> the smallest profit curvature met, or -1 for none
+
 * **A dry TF24f patch no longer aborts the whole run on the ci root-find.**
   `Leaf::dprofit_droot_collar_psi` — TF24f's exact AD/IFT gradient — called
   `psi_stem_to_ci()` before testing for hydraulic shut-down. In shut-down,

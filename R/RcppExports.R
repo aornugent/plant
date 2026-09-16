@@ -4573,16 +4573,16 @@ census_clamp_counts_tf24 <- function(obj_) {
     .Call('_plant_census_clamp_counts_tf24', PACKAGE = 'plant', obj_)
 }
 
-ladder_clamp_counts_differentiated_tf24 <- function(obj_) {
-    .Call('_plant_ladder_clamp_counts_differentiated_tf24', PACKAGE = 'plant', obj_)
+census_clamp_counts_differentiated_tf24 <- function(obj_) {
+    .Call('_plant_census_clamp_counts_differentiated_tf24', PACKAGE = 'plant', obj_)
 }
 
 census_clamp_names_tf24 <- function() {
     .Call('_plant_census_clamp_names_tf24', PACKAGE = 'plant')
 }
 
-ladder_curvature_margin_tf24 <- function(obj_) {
-    .Call('_plant_ladder_curvature_margin_tf24', PACKAGE = 'plant', obj_)
+census_curvature_margin_tf24 <- function(obj_) {
+    .Call('_plant_census_curvature_margin_tf24', PACKAGE = 'plant', obj_)
 }
 
 FF16_oderunner_individual_internals <- function(obj) {

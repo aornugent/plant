@@ -19,11 +19,19 @@
 // existing convention rather than a new concession.
 //
 // THE PREFIX PARTITIONS THEM, and that is worth keeping true. Of the twenty-eight
-// entry points here, twenty-two are prefixed `ladder_` and are called from
-// `tests/testthat/` and nowhere else. The six spelled `census_` are the ones
-// `NEWS.md` publishes with migration lines -- the five incidence counters and
-// `census_trait_gradient_split_tf24` -- so the prefix says which of them a
+// entry points here, twenty are prefixed `ladder_` and are called from
+// `tests/testthat/` and nowhere else. The eight spelled `census_` are the ones
+// `NEWS.md` publishes with migration lines, so the prefix says which of them a
 // rename would contradict a published note about.
+//
+// TWO OF THE EIGHT ARE HERE BECAUSE THE PUBLISHED HALF MISLEADS WITHOUT THEM.
+// `census_clamp_counts_tf24` counts every solve the forward run made, and a
+// caller asking whether a GRADIENT carries a severance reads it and gets the
+// wrong answer -- the sweep visits the recorded steps and fewer of them, which
+// is what `census_clamp_counts_differentiated_tf24` reports. `gradient_control`
+// publishes the curvature floor and `stand_gradient_compare` refuses two
+// gradients taken at different ones, and `census_curvature_margin_tf24` is the
+// only thing that says how close a run came to it.
 //
 // WHAT EARNS A PLACE HERE is a map read at a point, which the shipped answer
 // cannot report: `stand_gradient` returns one number per (metric, trait) over a
@@ -676,6 +684,11 @@ Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<pla
 // The trait columns' names, species-major and each carrying its species index,
 // so a gradient's columns can be told apart when two species carry the same
 // parameter.
+//
+// The same one line as `census_trait_names_tf24` at the other concrete type, and
+// the duplication is RcppR6's: a generated wrapper is per type, so a function
+// cannot take both a Patch and an SCM. That one is the shipped path's; this one
+// is what a patch fixture has.
 // [[Rcpp::export]]
 std::vector<std::string> ladder_trait_names_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   return obj_->trait_adjoint_names();
@@ -928,6 +941,10 @@ Rcpp::List census_gradient_to_r(const plant::census_gradient& g);
 // The census's own reading of the traits at the state held. No sweep produces it,
 // so it is the one route to the census a transpose check cannot touch, and it is
 // easy to omit because it is a one-line calculation at the final state.
+//
+// Test-only on purpose: `stand_census_state_adjoint` ships the state half of this
+// same recording and is complete for what it claims, and a caller wanting trait
+// sensitivities has `stand_gradient`. What is left here is a reference half.
 // [[Rcpp::export]]
 std::vector<std::vector<double>>
 ladder_census_trait_direct_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
@@ -1015,7 +1032,7 @@ census_clamp_counts_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<d
 // a severance -- the forward one says only that the guard is reachable.
 // [[Rcpp::export]]
 std::vector<std::vector<double>>
-ladder_clamp_counts_differentiated_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+census_clamp_counts_differentiated_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   const std::vector<std::vector<size_t>> counts = obj_->clamp_counts_differentiated();
   std::vector<std::vector<double>> ret;
   ret.reserve(counts.size());
@@ -1043,6 +1060,6 @@ std::vector<std::string> census_clamp_names_tf24() {
 // reached -- so the distance to the floor is reported rather than assumed.
 // [[Rcpp::export]]
 std::vector<double>
-ladder_curvature_margin_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+census_curvature_margin_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   return obj_->curvature_margins();
 }

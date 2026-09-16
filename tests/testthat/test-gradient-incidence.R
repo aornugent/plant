@@ -46,9 +46,9 @@ incidence_swept <- function(rain, lifetime, k_I = 0.5, introductions = NULL) {
   if (is.null(entry$gradient)) {
     entry$gradient <- stand_gradient(entry$scm)
     entry$swept <-
-      stats::setNames(ladder_clamp_counts_differentiated_tf24(entry$scm)[[1]],
+      stats::setNames(census_clamp_counts_differentiated_tf24(entry$scm)[[1]],
                       census_clamp_names_tf24())
-    entry$curvature <- ladder_curvature_margin_tf24(entry$scm)[[1]]
+    entry$curvature <- census_curvature_margin_tf24(entry$scm)[[1]]
     incidence_cache[[key]] <- entry
   }
   entry
