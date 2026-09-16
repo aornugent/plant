@@ -181,7 +181,9 @@ struct TF24_Pars {
   S root_c = 2.680147;
   // THE SCALE PARAMETER IS P50, matching the stem side and phylloptim, which
   // takes (root_c, root_P50) and derives the other two itself by these same
-  // formulas. 3.4 reproduces the old root_b = 3.898245 exactly.
+  // formulas. 3.4 reproduces the old root_b = 3.898245 to ten significant
+  // figures: derived it is 3.8982451221145307, +3.1e-10 relative, and
+  // root_psi_crit moves with it by the same fraction.
   S root_P50 = 3.4;
   S root_b = root_P50 / power(-log(1 - 50.0 / 100.0), 1 / root_c);
   // Potential at 5% remaining root conductivity [MPa]. Derived, exactly as
@@ -729,7 +731,24 @@ public:
   // the vulnerability curve from K_s, so B_Hv1 was re-anchored 0.4607063 ->
   // 0.36591565341924093 to stop the reparameterisation from also moving it.
   // Left alone it would have gone to 3.5933 MPa.
-  static constexpr int scientific_version = 10;
+  // v11: three changes that move output at identical inputs.
+  //   * R_d_25 = 1.44, leaf dark respiration at 25 C, is a NEW parameter; it did
+  //     not exist on develop and it reaches phylloptim as par_R_d_25.
+  //   * The root vulnerability curve is reparameterised to (P50, c), matching
+  //     the stem side and phylloptim, so root_P50 = 3.4 is the free parameter
+  //     and root_b is derived from it. root_b 3.898245 -> 3.8982451221145307
+  //     and root_psi_crit 5.8702825428827037 -> 5.8702827267723245, both
+  //     +3.1e-10 relative.
+  //   * vulnerability_curve_ncontrol 100 -> 400, tracking phylloptim's
+  //     Leaf::ncontrol_default, so the pre-tabulated curve the root-finds run
+  //     on is four times finer.
+  //
+  // FF16 and K93 are NOT bumped. Their snapshots move on the same
+  // vulnerability_curve_ncontrol and on the new gradient_curvature_floor, and
+  // neither model reads either: the curve count is read at one site, building
+  // the Leaf, and the floor only by the sweep. Both suites are green on their
+  // pinned outputs.
+  static constexpr int scientific_version = 11;
 
   S compute_average_light_environment(const S& z, const S& height,
                                       const TF24_Environment<S> &environment);
