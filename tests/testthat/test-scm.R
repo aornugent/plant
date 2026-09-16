@@ -378,9 +378,8 @@ test_that("A second run on one SCM reproduces the first", {
   ## began. Without it a second run continues out of the state the first left.
   ##
   ## A lifetime of 2, because the cost is the trajectory and the guarantee is
-  ## not: TF24 crosses a stiffness cliff a little past a lifetime of 3, and the
-  ## environment moves off its starting state within the first introductions, so
-  ## a longer run buys price and no signal. The schedule is NOT thinned with it
+  ## not: the environment moves off its starting state within the first
+  ## introductions, so a longer run buys price and no signal. The schedule is NOT thinned with it
   ## -- its 81 introductions are what the reproducibility check below compares,
   ## and they are the cheap half.
   p0 <- scm_base_parameters("TF24", "TF24_Env")

@@ -74,8 +74,8 @@ test_that("the classification tally is the route to a regime's incidence", {
   # The tally is cleared and re-accumulated per run rather than carried, or a
   # second measurement would read the first one's states as well. On a stand of
   # its own: clearing is destructive and every other block here reads a shared
-  # one. A patch lifetime of 1 is under the stiffness cliff, so this costs a
-  # second.
+  # one. A patch lifetime of 1 is the shortest stand that carries cohorts, so
+  # this costs a second.
   scm <- ladder_driver_stand(2.0, 1)
   counts <- census_operating_point_counts_tf24(scm)[[1]]
   expect_gt(sum(counts), 0)

@@ -339,9 +339,8 @@ test_that("TF24 shading models agree under uniform light", {
 # different questions of the same state, and growing it three times was the whole
 # cost of this file.
 #
-# Lifetime 2 rather than 8: TF24 crosses a stiffness cliff a little past 3, and
-# what these blocks need is a canopy of distinct cohort heights, which the first
-# introductions supply. `collect` is on because the first block reads the history.
+# Lifetime 2 rather than 8: what these blocks need is a canopy of distinct cohort
+# heights, which the first introductions supply. `collect` is on because the first block reads the history.
 #
 # Safe to share because `scm$patch` hands back a COPY -- the blocks below set an
 # ODE state on it and rebuild its environment, and neither reaches this stand.
