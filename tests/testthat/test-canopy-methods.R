@@ -335,16 +335,45 @@ test_that("TF24 shading models agree under uniform light", {
   }
 })
 
+# One grown TF24 stand, built once and read by the three blocks below. They ask
+# different questions of the same state, and growing it three times was the whole
+# cost of this file.
+#
+# Lifetime 2 rather than 8: TF24 crosses a stiffness cliff a little past 3, and
+# what these blocks need is a canopy of distinct cohort heights, which the first
+# introductions supply. `collect` is on because the first block reads the history.
+#
+# Safe to share because `scm$patch` hands back a COPY -- the blocks below set an
+# ODE state on it and rebuild its environment, and neither reaches this stand.
+tf24_light_stand <- local({
+  built <- NULL
+  function() {
+    if (is.null(built)) {
+      p0 <- scm_base_parameters("TF24", "TF24_Env")
+      p0$max_patch_lifetime <- 2
+      p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+      scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(),
+                                     Control())
+      scm$collect <- TRUE
+      scm$run()
+      # All three blocks read a light field, and a stand that cast no shade would
+      # satisfy them trivially -- Beer's law at every knot is exp(0) against 1.
+      # Measured here: 82 history entries, height_max 4.47 m, 65 distinct knot
+      # values, shade reaching 0.78.
+      shade <- scm$patch$environment$light_availability$state[, "light_availability"]
+      stopifnot(length(scm$history) > 20, min(shade) < 0.9,
+                length(unique(shade)) == 65L)
+      built <<- list(scm = scm, p = p)
+    }
+    built
+  }
+})
+
 test_that("the light interpolant's knot positions are run-constant", {
   # The field is held on u = z / height_max at uniform fractions fixed for the
   # run, so every build places its knots at u_k * height_max: the count is the
   # same at every stage and the positions are a function of height_max alone.
-  p0 <- scm_base_parameters("TF24", "TF24_Env")
-  p0$max_patch_lifetime <- 8
-  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
-  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(), Control())
-  scm$collect <- TRUE
-  scm$run()
+  scm <- tf24_light_stand()$scm
 
   u <- seq(0, 1, length.out = 65)
   expect_gt(length(scm$history), 20)
@@ -357,11 +386,9 @@ test_that("the light interpolant's knot positions are run-constant", {
 test_that("the light interpolant is a function of the state, not of the build before it", {
   # Reaching a state by running to it and by setting it directly must give the
   # same field, bitwise: nothing carries over from the previous build.
-  p0 <- scm_base_parameters("TF24", "TF24_Env")
-  p0$max_patch_lifetime <- 8
-  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
-  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(), Control())
-  scm$run()
+  stand <- tf24_light_stand()
+  scm <- stand$scm
+  p <- stand$p
 
   ran <- scm$patch
   n <- vapply(ran$species, function(s) s$size, 0.0)
@@ -381,11 +408,7 @@ test_that("the light field carries Beer's law and its derivative at every knot",
   # E = exp(-A) and dE/dz = -A' exp(-A), with A and A' the competition profile
   # and its vertical derivative, so the slope a consumer reads at a knot is the
   # derivative of the value it reads there.
-  p0 <- scm_base_parameters("TF24", "TF24_Env")
-  p0$max_patch_lifetime <- 8
-  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
-  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(), Control())
-  scm$run()
+  scm <- tf24_light_stand()$scm
   patch <- scm$patch
   # Rebuilt at the clock it is read at. On the birth-date coordinate the closing
   # interval runs from the youngest cohort's birth date to now, so the field is a
