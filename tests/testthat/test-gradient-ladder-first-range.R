@@ -79,7 +79,7 @@ test_that("the adjoint the walk ends holding is the census's sensitivity to the 
   lambda <- do.call(rbind, census_trait_gradient_tf24(stand)$at_first_state)
   rownames(lambda) <- metrics
 
-  base <- ladder_range_base_state_tf24(stand, 0L)
+  base <- ladder_range_base_state(stand, 0L)
   expect_equal(ncol(lambda), length(base))
 
   reference <- do.call(cbind, lapply(seq_along(base), function(i) {

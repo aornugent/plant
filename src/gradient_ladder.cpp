@@ -18,12 +18,20 @@
 // `test_uniroot` establish that a test-only export living here is this package's
 // existing convention rather than a new concession.
 //
-// THE PREFIX PARTITIONS THEM, and that is worth keeping true. Of the thirty
-// entry points here, twenty-four are prefixed `ladder_` and are called from
+// THE PREFIX PARTITIONS THEM, and that is worth keeping true. Of the twenty-eight
+// entry points here, twenty-two are prefixed `ladder_` and are called from
 // `tests/testthat/` and nowhere else. The six spelled `census_` are the ones
 // `NEWS.md` publishes with migration lines -- the five incidence counters and
 // `census_trait_gradient_split_tf24` -- so the prefix says which of them a
 // rename would contradict a published note about.
+//
+// WHAT EARNS A PLACE HERE is a map read at a point, which the shipped answer
+// cannot report: `stand_gradient` returns one number per (metric, trait) over a
+// whole run, so a Jacobian, an adjoint or a reference evaluated at one state has
+// no route to R through it. Two entry points failed that test and are gone --
+// the field's knots are on the published `ResourceSpline`, and a range's base
+// state is the first record `store_trajectory()` keeps, or the introduction
+// record that widened into it.
 
 // The references the gradient is checked against, and the two objects they are
 // checked at. The two objects referee different claims, and reading them as one
@@ -612,15 +620,6 @@ Rcpp::List ladder_census_initial_state_tangent_tf24(plant::RcppR6::RcppR6<plant:
                             Rcpp::_["tangent"] = tangent);
 }
 
-// The state a range's first step ran from, which is what `direction` and
-// `state0` are indexed against. A widened state is not what any record holds, so
-// a caller cannot read it off the trajectory.
-// [[Rcpp::export]]
-std::vector<double> ladder_range_base_state_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_,
-                                                   int range) {
-  return obj_->range_base_state(static_cast<size_t>(range));
-}
-
 // The census a plain-double replay of the recorded steps reaches from `state0`.
 // Differencing this is what referees the tangent above: the same steps, the same
 // introductions, one perturbed state.
@@ -680,23 +679,6 @@ Rcpp::List ladder_boundary_evaluations_tf24(plant::RcppR6::RcppR6<plant::SCM<pla
 // [[Rcpp::export]]
 std::vector<std::string> ladder_trait_names_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
   return obj_->trait_adjoint_names();
-}
-
-
-// The field's knot data, which is what the recorded step reads. The reduction
-// that builds it has no transpose of its own any more -- it is an intermediate
-// of the stage recording -- so what this serves is the forward check that a
-// permutation of the nodes leaves the knots alone.
-// [[Rcpp::export]]
-Rcpp::List ladder_field_knots_tf24(plant::RcppR6::RcppR6<plant::Patch<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  const patch_type& patch = *obj_;
-  const environment_type& environment = patch.r_environment();
-  const std::vector<double>& value = environment.light_availability.knot_values();
-  const std::vector<double>& slope = environment.light_availability.knot_slopes();
-  return Rcpp::List::create(Rcpp::_["value"] = value,
-                            Rcpp::_["slope"] = slope,
-                            Rcpp::_["height"] =
-                              environment.light_availability.spline.knots());
 }
 
 

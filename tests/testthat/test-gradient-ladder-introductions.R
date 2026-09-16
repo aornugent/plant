@@ -432,7 +432,7 @@ test_that("the census's sensitivity to a range's starting state is refereed", {
   # adjoint it holds after the last introduction is d(census)/d(this state). None
   # of the reverse pass is on this path, so the two share no code.
   stand <- ladder_stand_introductions_short()
-  base <- ladder_range_base_state_tf24(stand, 0L)
+  base <- ladder_range_base_state(stand, 0L)
 
   # Segment 0 is the state no step reached, which on this coordinate holds the
   # environment and no cohort -- so its width is the soil column's.

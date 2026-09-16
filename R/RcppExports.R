@@ -4517,10 +4517,6 @@ ladder_census_initial_state_tangent_tf24 <- function(obj_, direction, range) {
     .Call('_plant_ladder_census_initial_state_tangent_tf24', PACKAGE = 'plant', obj_, direction, range)
 }
 
-ladder_range_base_state_tf24 <- function(obj_, range) {
-    .Call('_plant_ladder_range_base_state_tf24', PACKAGE = 'plant', obj_, range)
-}
-
 ladder_census_initial_state_replay_tf24 <- function(obj_, state0, range) {
     .Call('_plant_ladder_census_initial_state_replay_tf24', PACKAGE = 'plant', obj_, state0, range)
 }
@@ -4531,10 +4527,6 @@ ladder_boundary_evaluations_tf24 <- function(obj_) {
 
 ladder_trait_names_tf24 <- function(obj_) {
     .Call('_plant_ladder_trait_names_tf24', PACKAGE = 'plant', obj_)
-}
-
-ladder_field_knots_tf24 <- function(obj_) {
-    .Call('_plant_ladder_field_knots_tf24', PACKAGE = 'plant', obj_)
 }
 
 ladder_block_difference_tf24 <- function(obj_, node, rel) {

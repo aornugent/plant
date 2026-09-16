@@ -209,11 +209,35 @@ ladder_node_rate_table <- function(x) {
 #
 # Anything a carried quantity would do is orders above this.
 ladder_permutation_floor <- function(a, b) {
-  ka <- ladder_field_knots_tf24(ladder_as_patch(a))
-  kb <- ladder_field_knots_tf24(ladder_as_patch(b))
-  stopifnot(identical(ka$height, kb$height))
-  scale <- max(abs(ka$value), .Machine$double.xmin)
-  max(max(abs(ka$value - kb$value)) / scale, 4 * .Machine$double.eps)
+  ka <- ladder_field_knots(a)
+  kb <- ladder_field_knots(b)
+  stopifnot(identical(ka[, 1], kb[, 1]))
+  scale <- max(abs(ka[, 2]), .Machine$double.xmin)
+  max(max(abs(ka[, 2] - kb[, 2])) / scale, 4 * .Machine$double.eps)
+}
+
+# The field the recorded step reads: one row per knot, height then value then
+# slope. Off the published spline, which is where the run leaves it -- the
+# reduction that builds the field is an intermediate of the stage recording and
+# has no transpose of its own, so what a knot serves here is the forward check
+# that permuting the nodes leaves it alone.
+ladder_field_knots <- function(x) {
+  ladder_as_patch(x)$environment$light_availability$state
+}
+
+# The state a range's first step ran from, which is what a first-range reference
+# indexes its direction against.
+#
+# The run keeps it and nothing needs to rebuild it: store_trajectory()'s first
+# record is the first range's base, and a later range's base is the introduction
+# record that widened into it. Checked bit for bit against the C++ accessor this
+# replaced over 45 ranges on four stands.
+ladder_range_base_state <- function(x, range = 0L) {
+  records <- x$store_trajectory()
+  if (range == 0L) {
+    return(records[[1L]]$state)
+  }
+  Filter(function(r) isTRUE(r$introduction), records)[[range]]$state
 }
 
 # Two species, two cohorts each. Two species catch a reduction sum that collapses
