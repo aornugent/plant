@@ -21,50 +21,77 @@ incidence_run <- function(rain, lifetime, k_I = 0.5) {
   scm
 }
 
-# The stands are shared between blocks, and the sharing has a direction: a sweep
-# adds to the tallies a run leaves, so an object that has been swept cannot answer
-# for the run. `swept` is part of the key rather than something a caller does
-# afterwards, and the gradient is kept beside the stand it was taken on, so a
-# block needing both pays for one.
+# One entry per driver, and the ORDER inside it is the point: a sweep adds to the
+# tallies a run leaves, so the forward reading is taken before anything sweeps
+# and kept, rather than re-taken from a second run of the same recipe. The
+# gradient is taken on first request and kept beside the stand, so a block
+# needing both pays for one.
+#
+# ⚠️ NOTHING MAY CLEAR A SHARED STAND'S DIAGNOSTICS. clear_diagnostics() resets
+# every counter, the clamps and the curvature margin together, so a block that
+# cleared one to check the clearing left every later reader asserting against
+# zero -- which is a check that passes whatever the model does. The readings
+# below are copies, so a caller cannot reach the counters at all.
 incidence_cache <- new.env(parent = emptyenv())
-incidence_built <- function(rain, lifetime, k_I = 0.5, swept = FALSE) {
-  key <- paste(rain, lifetime, k_I, swept)
+incidence_key <- function(rain, lifetime, k_I) paste(rain, lifetime, k_I)
+
+incidence_built <- function(rain, lifetime, k_I = 0.5) {
+  key <- incidence_key(rain, lifetime, k_I)
   if (is.null(incidence_cache[[key]])) {
     scm <- incidence_run(rain, lifetime, k_I)
-    incidence_cache[[key]] <-
-      list(scm = scm, gradient = if (swept) stand_gradient(scm) else NULL)
+    incidence_cache[[key]] <- list(
+      scm = scm,
+      kinds = stats::setNames(census_operating_point_counts_tf24(scm)[[1]],
+                              census_operating_point_names_tf24()),
+      clamps = stats::setNames(census_clamp_counts_tf24(scm)[[1]],
+                               census_clamp_names_tf24()))
   }
   incidence_cache[[key]]
 }
 
-incidence_stand <- function(rain, lifetime, k_I = 0.5, swept = FALSE) {
-  incidence_built(rain, lifetime, k_I, swept)$scm
+# The same entry with the sweep run, which is what the differentiated tallies and
+# the curvature margin are read off.
+incidence_swept <- function(rain, lifetime, k_I = 0.5) {
+  key <- incidence_key(rain, lifetime, k_I)
+  entry <- incidence_built(rain, lifetime, k_I)
+  if (is.null(entry$gradient)) {
+    entry$gradient <- stand_gradient(entry$scm)
+    entry$swept <-
+      stats::setNames(ladder_clamp_counts_differentiated_tf24(entry$scm)[[1]],
+                      census_clamp_names_tf24())
+    entry$curvature <- ladder_curvature_margin_tf24(entry$scm)[[1]]
+    incidence_cache[[key]] <- entry
+  }
+  entry
 }
 
-# The gradient of the swept stand for these drivers, and the stand it was taken
-# on is the one `incidence_stand(..., swept = TRUE)` returns.
-incidence_gradient <- function(rain, lifetime, k_I = 0.5) {
-  incidence_built(rain, lifetime, k_I, swept = TRUE)$gradient
+incidence_stand <- function(rain, lifetime, k_I = 0.5) {
+  incidence_built(rain, lifetime, k_I)$scm
 }
 
-incidence_of <- function(scm) {
-  counts <- census_operating_point_counts_tf24(scm)[[1]]
-  stats::setNames(counts, census_operating_point_names_tf24())
+# The classification tally as the RUN left it, never as a swept object reports it.
+incidence_of <- function(rain, lifetime, k_I = 0.5) {
+  incidence_built(rain, lifetime, k_I)$kinds
 }
 
 test_that("the classification tally is the route to a regime's incidence", {
   # A wet stand never leaves the branch the gradient answers for, which is what
   # makes it the fixture every other rung uses -- and is why incidence measured
   # on one says nothing about a dry one.
-  wet <- incidence_of(incidence_stand(2.0, 5))
+  wet <- incidence_of(2.0, 5)
   expect_gt(wet[["interior"]], 0)
   expect_equal(sum(wet[names(wet) != "interior"]), 0)
 
   # The tally is cleared and re-accumulated per run rather than carried, or a
-  # second measurement would read the first one's states as well.
-  scm <- incidence_stand(2.0, 5)
+  # second measurement would read the first one's states as well. On a stand of
+  # its own: clearing is destructive and every other block here reads a shared
+  # one. A patch lifetime of 1 is under the stiffness cliff, so this costs a
+  # second.
+  scm <- incidence_run(2.0, 1)
+  counts <- census_operating_point_counts_tf24(scm)[[1]]
+  expect_gt(sum(counts), 0)
   census_clear_diagnostics_tf24(scm)
-  expect_equal(sum(incidence_of(scm)), 0)
+  expect_equal(sum(census_operating_point_counts_tf24(scm)[[1]]), 0)
 })
 
 test_that("the dry pins are a small minority, and are not what refuses", {
@@ -73,8 +100,7 @@ test_that("the dry pins are a small minority, and are not what refuses", {
   # would buy; the branch answers now, so the same number says what the answer
   # rests on. It is not recoverable from a run afterwards either way -- the
   # classification is overwritten by the next individual.
-  scm <- incidence_stand(0.25, 10)
-  n <- incidence_of(scm)
+  n <- incidence_of(0.25, 10)
   total <- sum(n)
   dry <- n[["boundary-crit"]] + n[["boundary-root-crit"]]
   expect_gt(dry, 0)
@@ -100,10 +126,9 @@ test_that("the dry pins are a small minority, and are not what refuses", {
   # answers -- 345393 pins against this one's 26903 -- because this stand at
   # lifetime 10 is refused for its DESCENT's range, which is a property of how
   # long the sweep multiplies rather than of the branch.
-  short <- incidence_stand(0.10, 5)
-  n_short <- incidence_of(short)
+  n_short <- incidence_of(0.10, 5)
   expect_gt(n_short[["boundary-crit"]], dry)
-  g_short <- stand_gradient(short)
+  g_short <- incidence_swept(0.10, 5)$gradient
   expect_false(any(stand_gradient_refused(g_short)))
   expect_null(g_short$refusal[[1]])
   expect_true(all(is.finite(g_short$gradient[[1]])))
@@ -113,7 +138,7 @@ test_that("the dry pins are a small minority, and are not what refuses", {
   # ⚠️ AND THIS STAND IS REFUSED FOR THE RANGE, NOT FOR THE PINS. Asserted so
   # that a refusal arriving here for any other reason fails rather than reading
   # as the same known gap.
-  g <- stand_gradient(scm)
+  g <- incidence_swept(0.25, 10)$gradient
   expect_true(all(stand_gradient_refused(g)))
   expect_true(grepl(ladder_range_refusal, g$refusal[[1]]$reason, fixed = TRUE))
   expect_true(all(is.na(g$gradient[[1]])))
@@ -134,14 +159,17 @@ test_that("the light floor is counted on both paths, and binds at neither shippe
   # their own block below, and several of them do bind at shipped values.
   nm <- census_clamp_names_tf24()
   light <- match(c("light_floor", "light_floor_crown"), nm)
-  shipped <- census_clamp_counts_tf24(incidence_stand(2.0, 5, k_I = 0.5))[[1]]
+  shipped <- incidence_built(2.0, 5, k_I = 0.5)$clamps
   expect_true(all(shipped[light] == 0))
+  # Non-vacuity, and it is not decorative: this tally is shared and clearing it
+  # anywhere would make the line above pass whatever the light field did.
+  expect_gt(shipped[["rooting_depth"]], 0)
 
   # k_I is a free parameter a gradient-driven search walks, and walking it up is
   # what walks the field into the floor. Eighty times the shipped value.
-  walked <- incidence_stand(2.0, 5, k_I = 40)
-  fired <- census_clamp_counts_tf24(walked)[[1]]
-  solves <- sum(incidence_of(walked))
+  walked <- incidence_built(2.0, 5, k_I = 40)$scm
+  fired <- incidence_built(2.0, 5, k_I = 40)$clamps
+  solves <- sum(incidence_of(2.0, 5, k_I = 40))
   message(sprintf("  at k_I = 40, over %.0f solves: %s", solves,
                   paste(sprintf("%s %.0f (%.1f%%)", nm[light], fired[light],
                                 100 * fired[light] / solves), collapse = "  ")))
@@ -154,7 +182,7 @@ test_that("the light floor is counted on both paths, and binds at neither shippe
   # the row is exactly zero for the model as evaluated rather than a row
   # withheld.
   expect_gt(stand_census(walked)[[1]], 0)
-  g <- stand_gradient(walked)
+  g <- incidence_swept(2.0, 5, k_I = 40)$gradient
 
   # ⚠️ WHAT REFUSES HERE IS THE DESCENT'S RANGE, AND THE DISTINCTION IS THE WHOLE
   # POINT OF THIS BLOCK. The floor's row is a declared zero; the refusal is the
@@ -168,7 +196,7 @@ test_that("the light floor is counted on both paths, and binds at neither shippe
   # stand in for this: it counts every solve, where the sweep visits only the
   # recorded steps -- and fewer of them than it once did, since the descent stops
   # where it overflows.
-  swept <- ladder_clamp_counts_differentiated_tf24(walked)[[1]]
+  swept <- incidence_swept(2.0, 5, k_I = 40)$swept
   message(sprintf("  the sweep's own severances: %s",
                   paste(sprintf("%s %.0f", nm[light], swept[light]),
                         collapse = "  ")))
@@ -249,18 +277,9 @@ test_that("every clamp site is classified, and by a measured incidence", {
   # A site with no classification is the drift this list exists to prevent.
   expect_setequal(nm, names(clamp_class))
 
-  swept_of <- function(scm) {
-    stats::setNames(ladder_clamp_counts_differentiated_tf24(scm)[[1]], nm)
-  }
-  fwd_of <- function(scm) {
-    stats::setNames(census_clamp_counts_tf24(scm)[[1]], nm)
-  }
-
-  wet <- incidence_stand(2.0, 5, swept = TRUE)
-  wet_s <- swept_of(wet)
-  dry <- incidence_stand(0.10, 5, swept = TRUE)
-  dry_s <- swept_of(dry)
-  dry_f <- fwd_of(dry)
+  wet_s <- incidence_swept(2.0, 5)$swept
+  dry_s <- incidence_swept(0.10, 5)$swept
+  dry_f <- incidence_built(0.10, 5)$clamps
 
   message(sprintf("  %-24s %10s %10s", "site", "wet", "drought"))
   for (s in nm) {
@@ -301,8 +320,8 @@ test_that("every clamp site is classified, and by a measured incidence", {
   # Both drivers still answer, carrying those declared zeros. A severance that
   # made the gradient wrong would have to show up as a refusal or as a
   # disagreement with a rebuilt difference, and neither is here.
-  expect_false(any(stand_gradient_refused(incidence_gradient(2.0, 5))))
-  expect_false(any(stand_gradient_refused(incidence_gradient(0.10, 5))))
+  expect_false(any(stand_gradient_refused(incidence_swept(2.0, 5)$gradient)))
+  expect_false(any(stand_gradient_refused(incidence_swept(0.10, 5)$gradient)))
 })
 
 test_that("phylloptim's root-vulnerability clamps stay out of reach, with a margin", {
@@ -336,11 +355,13 @@ test_that("phylloptim's root-vulnerability clamps stay out of reach, with a marg
     # read the first accumulator as the deepest layer's moisture. That slot is
     # exactly 0, `psi_from_soil_moist(0)` returns the 1000 MPa dry cap, and both
     # bounds below then fail on a number no layer ever held -- the worst real
-    # potential over these three drivers is 3.88 MPa.
+    # potential over these three drivers is 4.34 MPa, on the drought one.
     n_aux <- length(e$get_soil_water_state_cumulative_flux())
     # Over the RECORDED steps, which is the set the sweep visits -- a terminal
     # reading misses a layer that dried and rewetted, and those are the states the
-    # clamp would bind in.
+    # clamp would bind in. The forward run keeps them, so this costs no sweep:
+    # measured, the three drivers contribute 510, 2503 and 3715 records whether
+    # or not a gradient has been taken on them.
     for (r in scm$store_trajectory()) {
       s <- r$state
       n <- length(s)
@@ -366,9 +387,9 @@ test_that("the curvature guard reports how close it came, not only that it held"
   # distance to the floor is carried out of the run. The floor is a declared
   # Control entry for the same reason: it changes which rows exist, so two
   # gradients taken at different values are gradients of different functions.
-  wet <- incidence_stand(2.0, 5, swept = TRUE)
-  margin <- ladder_curvature_margin_tf24(wet)[[1]]
-  floor <- gradient_control(wet)[["gradient_curvature_floor"]]
+  wet <- incidence_swept(2.0, 5)
+  margin <- wet$curvature
+  floor <- gradient_control(wet$scm)[["gradient_curvature_floor"]]
   message(sprintf("  smallest curvature met: %.4g, against a floor of %.4g (%.0fx)",
                   margin, floor, margin / floor))
   # Non-vacuity both ways: a margin of -1 means the interior branch was never
@@ -377,5 +398,6 @@ test_that("the curvature guard reports how close it came, not only that it held"
   expect_gt(margin, floor)
   # And the floor is in the set stand_gradient compares, or two gradients taken
   # at different floors would read as comparable.
-  expect_true("gradient_curvature_floor" %in% names(gradient_control(wet)))
+  expect_true("gradient_curvature_floor" %in%
+                names(gradient_control(wet$scm)))
 })
