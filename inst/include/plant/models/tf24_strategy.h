@@ -694,7 +694,7 @@ public:
   // progressively less. Setting D_c, theta_c and L_tip to zero and K_s to 1
   // recovers the previous model exactly, end-to-end through the SCM -- see the
   // "height-linear parameters" test in tests/testthat/test-strategy-tf24.R,
-  // which reproduces this file's pre-v9 pinned values unmodified.
+  // which reproduces the pinned values from before this change, unmodified.
   //
   // THE SIGN OF THE EFFECT DEPENDS ON DENSITY, which is the most important
   // thing to know about this change. Individually, plants are better off
@@ -2726,8 +2726,8 @@ S TF24_Strategy<S>::compute_competition(const S& z, const S& area_leaf_,
 //          shape exponent 'eta_x', above coordinate 'z' of a total 'height'.
 //          Serves the root mass distribution over soil depth.
 template <typename S>
-S TF24_Strategy<S>::Q(const S& z, const S& height, const S& eta_x) const {
-  if (z > height) {
+S TF24_Strategy<S>::Q(const S& z, const S& rooting_depth, const S& eta_x) const {
+  if (z > rooting_depth) {
     return S(0.0);
   }
   // u^eta_x. On double the plain pow; on an active scalar the recorded eta_x
@@ -2735,9 +2735,9 @@ S TF24_Strategy<S>::Q(const S& z, const S& height, const S& eta_x) const {
   // cumulative fraction is 1, so the guard supplies that value outright.
   S u_eta;
   if constexpr (std::is_same_v<S, double>) {
-    u_eta = pow(z / height, eta_x);
+    u_eta = pow(z / rooting_depth, eta_x);
   } else {
-    const S u = z / height;
+    const S u = z / rooting_depth;
     u_eta = odelia::util::to_passive(u) <= 0.0 ? S(0.0) : pow(u, eta_x);
   }
   const S tmp = 1.0 - u_eta;
