@@ -60,68 +60,81 @@ census_r <- function(species, pars, eta, include_boundary = TRUE,
   vapply(psi, function(p) trapezium_r(x, density * p), numeric(1))
 }
 
-# A solved stand on the birth-date coordinate, named rather than defaulted: the
-# reverse sweep transposes only that one, and it is the grid census_r's reference
-# reduction is written on.
-# A distribution WRITTEN into the initial state rather than grown into.
+# One stand for every block below, on the birth-date coordinate the reverse
+# sweep transposes, and WRITTEN into the initial state rather than grown into.
+# Three cohorts at mutually non-commensurate birth dates, three scheduled
+# introductions and a patch lifetime of 2: six nodes and a live boundary node,
+# in 0.15 s.
 #
-# Three cohorts are seeded with distinct, mutually non-commensurate birth dates
-# and the default schedule fills the rest, so the patch carries 78 nodes with
-# live density at every one of them after a lifetime of 1 -- in 0.77 s.
+# ⚠️ THE LIVE BOTTOM IS THE PREMISE EVERY CHECK HERE RESTS ON, and it is what a
+# grown distribution is expensive to reach. Where the boundary node's density has
+# underflowed to zero so has its neighbour's, the closing trapezium contributes
+# exactly nothing, and the reduction gate and the seed gates below go quiet
+# rather than failing. Measured: the bottom two densities are 9.96e-01 and
+# 9.92e-01, where the same recipe at a lifetime of 3 gives zero and a distribution
+# grown to a lifetime of 5 gives zero.
 #
-# ⚠️ THE LIVE BOTTOM IS THE POINT, and it is what growing a distribution is
-# expensive to reach. Where the boundary node's density has underflowed to zero
-# so has its neighbour's, the closing trapezium contributes exactly nothing, and
-# both the reduction check and the seed check below go quiet rather than failing.
-# Measured: seeded gives the bottom two densities at 9.99e-01 and 9.97e-01 where
-# a grown lifetime of 8 gives 7.81e-01 and 5.41e-01 and a grown 5 gives zero.
+# ⚠️ SIX NODES RATHER THAN THE SEVENTY-EIGHT A DEFAULT SCHEDULE FILLS IN IS WHAT
+# MAKES THE BOUNDARY NODE READABLE. It is the reduction's closing grid point and
+# the one part of the seed no state column reports, so G3 reads it as the gap
+# between two references -- and that gap is 2.5e-07 of the main term here against
+# 6.1e-09 under a default schedule, where the reference's own floor is 9.5e-11.
 #
 # What it does not carry is the claim that a real trajectory REACHES such a
-# state. Nothing here claimed that; the premise is a guard on vacuity.
-seeded_stand <- function() {
-  p <- scm_base_parameters("TF24")
-  p$max_patch_lifetime <- 1
-  p <- add_strategies(p, trait_matrix(0.0825, "lma"))
-  state <- make_initial_state(
-    p, heights = list(c(6.2, 3.1, 1.37)),
-    log_densities = list(c(-1.3, -0.7, -0.21)),
-    env = Environment("TF24"),
-    ctrl = Control(node_density_in_birth_date = TRUE))
-  state$node_times <- list(c(-0.41, -0.23, -0.07))
-  scm <- SCM("TF24", "TF24_Env")(set_initial_state(p, state), Environment("TF24"),
-                                 empty_events(),
-                                 Control(node_density_in_birth_date = TRUE))
-  scm$run()
-  scm
-}
-
-# A distribution GROWN to, for the one check that needs one.
-#
-# ⚠️ ONLY G3 USES THIS, and it is not a preference: measured, G3's seed agrees
-# with its own finite difference to 8.62e-05 at a lifetime of 12 and to 2.09e-04
-# at 5, against a tolerance of 1e-4. The seeded fixture above does not serve it.
-# ⚠️ AND ITS MARGIN IS THIN -- 86% of budget at 12. A check passing at
-# three-quarters of budget is a check about to stop working; this one is past
-# that, and what would settle it is a bound derived from the difference's own
-# truncation rather than the round number it has.
-#
-# The cost is 251 s, and this file runs in every `R CMD check` leg on three
-# operating systems, so a second caller wants a reason.
-solved_stand <- function(lifetime, schedule = NULL) {
-  p <- scm_base_parameters("TF24")
-  p$max_patch_lifetime <- lifetime
-  p <- add_strategies(p, trait_matrix(0.0825, "lma"))
-  if (!is.null(schedule)) {
-    p$node_schedule_times <- schedule
+# state. Nothing here claims that; the premise is a guard on vacuity.
+census_stand <- local({
+  built <- NULL
+  function() {
+    if (is.null(built)) {
+      ctrl <- Control(node_density_in_birth_date = TRUE)
+      p <- scm_base_parameters("TF24")
+      p$max_patch_lifetime <- 2
+      p <- add_strategies(p, trait_matrix(0.0825, "lma"))
+      state <- make_initial_state(
+        p, heights = list(c(6.2, 3.1, 1.37)),
+        log_densities = list(c(-1.3, -0.7, -0.21)),
+        env = Environment("TF24"), ctrl = ctrl)
+      state$node_times <- list(c(-0.41, -0.23, -0.07))
+      p <- set_initial_state(p, state)
+      p$node_schedule_times <- list(c(0, 0.73, 1.41))
+      scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(),
+                                     ctrl)
+      scm$run()
+      built <<- scm
+    }
+    built
   }
-  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(),
-                                 Control(node_density_in_birth_date = TRUE))
-  scm$run()
-  scm
+})
+
+# The leaf-area census as a function of one entry of the ODE state, for
+# differencing against the seed. `scm$patch` is a copy, so the perturbation
+# cannot reach the stand every other block shares.
+#
+# ⚠️ THE BOUNDARY NODE HAS TO MOVE WITH THE STATE, and a reference that holds it
+# fixed differentiates a different function. It is not ODE state:
+# census_state_and_trait_rows rebuilds it through set_state_and_boundary, from a
+# light field every cohort's height and density enters by the same product the
+# census integrates. Holding it fixed leaves a gap that grows with the stand --
+# 2.5e-07 here, 8.6e-05 on one grown to a lifetime of 12 -- and G3 below
+# measures it rather than absorbing it in a tolerance.
+census_of_state <- function(scm, column, birth_date = TRUE) {
+  strategy <- scm$parameters$strategies[[1]]
+  patch <- scm$patch
+  y <- patch$ode_state
+  time <- patch$time
+  function(value) {
+    y[[column]] <- value
+    patch$set_ode_state(y, time)
+    # A rate evaluation owns the field build and the inflow condition, so this
+    # leaves the boundary node where set_state_and_boundary would.
+    invisible(patch$ode_rates)
+    census_r(patch$species[[1]], strategy$pars,
+             strategy$pars$eta, birth_date = birth_date)[["leaf_area"]]
+  }
 }
 
 test_that("G1: the census value matches an independent R reduction", {
-  scm <- seeded_stand()
+  scm <- census_stand()
   species <- scm$patch$species[[1]]
   strategy <- scm$parameters$strategies[[1]]
   expected <- census_r(species, strategy$pars, strategy$pars$eta)
@@ -131,99 +144,116 @@ test_that("G1: the census value matches an independent R reduction", {
 })
 
 test_that("G2: the boundary node is in the reduction", {
-  # The written distribution, for its live bottom. Where the boundary node's own
-  # density has underflowed to zero, so has its neighbour's, the closing
-  # trapezium contributes exactly nothing and this comparison is vacuous --
-  # which is the case at a GROWN t = 5 and t = 20. Seeded, the boundary gap is
-  # 2.23e-05 against the 1e-6 this asserts, and the reduction agrees to 4e-16.
-  scm <- seeded_stand()
+  scm <- census_stand()
   species <- scm$patch$species[[1]]
   strategy <- scm$parameters$strategies[[1]]
   st <- species_state_r(species)
   # The premise: the closing interval has live density at both ends.
-  expect_true(exp(st$log_density[nrow(st)]) > 0)
-  expect_true(exp(st$log_density[nrow(st) - 1]) > 0)
+  expect_gt(exp(st$log_density[nrow(st)]), 0)
+  expect_gt(exp(st$log_density[nrow(st) - 1]), 0)
   with_boundary <- census_r(species, strategy$pars, strategy$pars$eta, TRUE)
   without <- census_r(species, strategy$pars, strategy$pars$eta, FALSE)
   # A reduction that starts at the smallest cohort drops the interval down to
-  # the boundary node.
-  expect_true(all(abs(with_boundary - without) / abs(with_boundary) > 1e-6))
+  # the boundary node. Measured, the closing interval is 3.5e-04 of the answer.
+  expect_gt(min(abs(with_boundary - without) / abs(with_boundary)), 1e-6)
   expect_equal(unname(stand_census(scm)), unname(with_boundary),
                tolerance = 1e-12)
 })
 
-test_that("G3: on the birth-date coordinate the weights carry no derivative", {
+test_that("G3: the seed is the census's derivative on the birth-date grid", {
   # A height is state and a birth date is not, so which one the grid is built
   # from decides whether a cohort's height moves the quadrature as well as the
-  # integrand. On this coordinate it does not, and the two differences below
-  # are the same number: the weight term the height grid would carry is larger
-  # than the whole derivative and of the opposite sign, so a seed built on the
-  # wrong grid is not a small error.
-  # The one grown fixture left in this file, and measured rather than assumed:
-  # the seed agrees with the difference below to 8.62e-05 here and to 2.09e-04 on
-  # the seeded distribution, against the 1e-4 asserted at the end.
-  scm <- solved_stand(12)
-  species <- scm$patch$species[[1]]
-  strategy <- scm$parameters$strategies[[1]]
-  st <- species_state_r(species)
-  psi_at <- tf24_allometry_r(strategy$pars, strategy$pars$eta)
-
-  k <- floor(nrow(st) / 4)
-  eps <- 1e-6
-  # Rows run in storage order with the boundary node last, which ascends in
-  # birth date and descends in height; negating the height integral is what
-  # takes it up its own axis instead.
-  leaf_area_at <- function(h, coordinate) {
-    hh <- st$height
-    hh[k] <- h
-    p <- psi_at(hh, st$area_heartwood, st$mass_heartwood)
-    y <- exp(st$log_density) * p$leaf_area
-    if (coordinate == "birth_date") {
-      trapezium_r(st$birth_date, y)
-    } else {
-      -trapezium_r(hh, y)
-    }
-  }
-  d_dh <- function(coordinate) {
-    (leaf_area_at(st$height[k] + eps, coordinate) -
-       leaf_area_at(st$height[k] - eps, coordinate)) / (2 * eps)
-  }
-  over_birth_date <- d_dh("birth_date")
-  over_height <- d_dh("height")
-
-  # Non-vacuity: the two grids must disagree, or this proves nothing. Measured
-  # here they disagree by a factor of about 16, so a seed built on the wrong one
-  # is not a small error.
-  expect_true(abs(over_height - over_birth_date) >
-                2 * min(abs(over_height), abs(over_birth_date)))
-
-  # The seed the reverse pass is given is the derivative on the coordinate the
-  # density is carried in.
+  # integrand. On this coordinate it does not.
+  #
+  # Every node and both state families, against a Richardson difference of the
+  # census itself rather than of a reduction written out here: the grid claim is
+  # about the abscissa, and a reference that re-derives the integrand as well is
+  # answering two questions with one number.
+  #
   # NOT gated on a refusal. This fixture is written rather than reached, so the
   # seed being refused here is the model having moved under a fixture that did
   # not -- which is the finding, and a skip would report it as green.
+  scm <- census_stand()
+  species <- scm$patch$species[[1]]
+  strategy <- scm$parameters$strategies[[1]]
+  st <- species_state_r(species)
   seed <- stand_census_state_adjoint(scm)
-  stride <- length(scm$patch$species[[1]]$new_node$ode_names)
-  col <- (k - 1) * stride + 1
-  expect_equal(unname(seed["leaf_area", col]), over_birth_date,
-               tolerance = 1e-4)
+  names_i <- species$nodes[[1]]$ode_names
+  stride <- length(names_i)
+  n_node <- length(species$nodes)
+
+  # The reference is taken on a copy of the patch, so the copy must start where
+  # the stand is: a round trip through the state setter that moved anything
+  # would put every difference below at a different point from the seed.
+  expect_equal(census_of_state(scm, 1L)(scm$patch$ode_state[[1]]),
+               unname(stand_census(scm)[["leaf_area"]]), tolerance = 1e-14)
+
+  psi_at <- tf24_allometry_r(strategy$pars, strategy$pars$eta)
+  b <- st$birth_date
+  w <- vapply(seq_along(b), function(i) {
+    lo <- if (i > 1) (b[i] - b[i - 1]) / 2 else 0
+    hi <- if (i < length(b)) (b[i + 1] - b[i]) / 2 else 0
+    lo + hi
+  }, 0)
+  density <- exp(st$log_density)
+  area_leaf <- psi_at(st$height, st$area_heartwood, st$mass_heartwood)$leaf_area
+  d_area_leaf <- (1 / strategy$pars$a_l2) *
+    (st$height / strategy$pars$a_l1)^(1 / strategy$pars$a_l2 - 1) /
+    strategy$pars$a_l1
+
+  got <- boundary_held <- over_birth_date <- over_height <- numeric(0)
+  for (slot in c("height", "log_density")) {
+    for (k in seq_len(n_node)) {
+      col <- (k - 1) * stride + match(slot, names_i)
+      at <- scm$patch$ode_state[[col]]
+      step <- 1e-2 * max(abs(at), 1)
+      over_birth_date <- c(over_birth_date,
+        test_gradient_richardson(census_of_state(scm, col), at, step, 4))
+      # Rows run in storage order with the boundary node last, which ascends in
+      # birth date and descends in height; negating the height integral is what
+      # takes it up its own axis instead.
+      over_height <- c(over_height,
+        -test_gradient_richardson(census_of_state(scm, col, FALSE), at, step, 4))
+      got <- c(got, seed["leaf_area", col])
+      # The same derivative with the boundary node pinned, which is what a
+      # reduction written over a fixed state table gives.
+      boundary_held <- c(boundary_held, w[k] * density[k] *
+        if (slot == "height") d_area_leaf[k] else area_leaf[k])
+    }
+  }
+
+  # The seed is the derivative on the coordinate the density is carried in.
+  # Measured, the worst node reads 9.5e-11 and most read below 1e-13.
+  expect_lt(max(abs(got - over_birth_date) / abs(over_birth_date)), 1e-8)
+  # And it is not the derivative on the other grid. Stated per node rather than
+  # as one non-vacuity check: the two grids are 1.4x apart at the closest node
+  # and 54x at the furthest, so a seed built on the wrong one is nowhere a small
+  # error.
+  expect_gt(min(abs(got - over_height) / abs(over_birth_date)), 0.25)
+  # The boundary node's own response is in the seed. It is the one part of the
+  # answer no state column reports, and dropping it leaves every number finite:
+  # scm.h says the contribution goes to exactly zero with nothing thrown. What
+  # separates the two references is 2.5e-07, against the 9.5e-11 above.
+  expect_gt(min(abs(got - boundary_held) / abs(got)), 1e-8)
 })
 
 test_that("G4: the seed reaches every state a metric reads", {
   # An exact zero in this design is the signature of a missing accumulator and
   # never of true insensitivity, so a state a metric demonstrably reads must have
-  # a seed. Two of them do not.
+  # a seed.
   #
   # `area_stem` sums bark, sapwood and heartwood AREA, and `mass_above_ground`
   # sums the three masses and heartwood MASS, so both read a heartwood state
   # directly and linearly: the seed is the quadrature weight times the density,
   # with no allometry in between, which is what makes this checkable by hand.
   # G1 shows the census VALUE carries them, so the reduction is right and it is
-  # the recording of it that is not.
-  # The written distribution, where the bottom is alive at every node: where a
-  # density has underflowed to zero its seed is legitimately zero and the
-  # comparison below says nothing. Measured, 78 of 78 nodes are live here.
-  scm <- seeded_stand()
+  # the recording of it that would not be.
+  #
+  # Exact rather than approximate, and the reason is the finding G3 rests on: a
+  # heartwood state is not in the light field, so these two columns carry no
+  # boundary-node channel and nothing else stands between the weight and the
+  # answer.
+  scm <- census_stand()
   seed <- stand_census_state_adjoint(scm)
   species <- scm$patch$species[[1]]
   names_i <- species$nodes[[1]]$ode_names
@@ -241,13 +271,12 @@ test_that("G4: the seed reaches every state a metric reads", {
   }, 0)
   expected <- (w * dens)[seq_along(species$nodes)]
 
-  live <- expected > 0
-  expect_true(any(live))
+  expect_true(all(expected > 0))
   for (pair in list(c("area_stem", "area_heartwood"),
                     c("mass_above_ground", "mass_heartwood"))) {
     cols <- (seq_along(species$nodes) - 1) * stride + match(pair[2], names_i)
-    expect_equal(unname(seed[pair[1], cols][live]), expected[live],
-                 tolerance = 1e-8, info = paste(pair[1], "reads", pair[2]))
+    expect_equal(unname(seed[pair[1], cols]), expected,
+                 tolerance = 1e-12, info = paste(pair[1], "reads", pair[2]))
   }
 
   # Non-vacuity: the states that DO have a seed, so a wholesale failure of the
@@ -268,13 +297,9 @@ test_that("G5: the entry point refuses to compare across two Controls", {
 })
 
 test_that("G6: no census metric has an all-zero state sensitivity", {
-  # A short schedule: this asks whether every metric's seed reaches both state
-  # families, which is a structural claim about the seed and not about the shape
-  # of the distribution. Two nodes exercise the same code for 0.8 s.
-  scm <- solved_stand(5, schedule = list(c(0, 0.63)))
-  # NOT gated on a refusal. This fixture is written rather than reached, so the
-  # seed being refused here is the model having moved under a fixture that did
-  # not -- which is the finding, and a skip would report it as green.
+  # A structural claim about the seed rather than one about the shape of the
+  # distribution, so it reads the stand every other block uses.
+  scm <- census_stand()
   seed <- stand_census_state_adjoint(scm)
   expect_equal(nrow(seed), 3L)
   # Every metric is built from height, and every cohort's log density multiplies
@@ -290,14 +315,12 @@ test_that("G6: no census metric has an all-zero state sensitivity", {
 })
 
 test_that("the Control a gradient is taken at is the entries that move it", {
-  # A short schedule, for the same reason: this reads five settings back off a
-  # solved stand and never looks at a number the trajectory produced.
   # Four move the TRAJECTORY the gradient is taken along. The fifth moves no
   # forward number at all and still decides which rows exist, by refusing a
   # collar response the profit curvature is too small to support -- so two
   # gradients taken at different floors are gradients of different functions for a
   # different reason, and both reasons belong in the same comparison.
-  scm <- solved_stand(5, schedule = list(c(0, 0.63)))
+  scm <- census_stand()
   expect_equal(names(gradient_control(scm)),
                c("GSS_tol_abs", "ci_abs_tol", "node_gradient_eps",
                  "schedule_eps", "gradient_curvature_floor"))
@@ -308,30 +331,18 @@ test_that("the Control a gradient is taken at is the entries that move it", {
 })
 
 test_that("the trait gradient entry point is reachable", {
-  # The symbol exists and stand_gradient reaches it. Two nodes, because this test
-  # asks whether the entry point answers and with what names -- not what the
-  # numbers are.
-  #
-  # ⚠️ THIS USED TO SAY THE SWEEP CANNOT ANSWER ON A RUN WHOSE STATE WIDENS, and
-  # that a widening run is refused by name. It is not: `solve_adjoint` transposes
-  # the widening map and narrows the adjoint across it, which is what
-  # `test-gradient-ladder-introductions.R` asserts over a hundred and ten times.
-  # The reason for the short schedule is cost, which is the reason the line below
-  # it already gave.
-  scm <- solved_stand(5, schedule = list(c(0, 0.63)))
+  # The symbol exists, stand_gradient reaches it, and on this stand it answers:
+  # a refusal here is the model having moved under a written fixture, which is
+  # the finding rather than a state to tolerate.
+  scm <- census_stand()
   expect_true(is.function(census_trait_gradient_tf24))
   # A column is named for its species as well as its parameter: a bare name would
   # resolve to species one's column silently on a multi-species stand.
-  got <- tryCatch(stand_gradient(scm, traits = "1.lma"), error = identity)
-  if (inherits(got, "error")) {
-    # Either refusal is by name: the sweep cannot cross an introduction, or the
-    # leaf supplies no rows for the output the water channel runs through.
-    expect_match(conditionMessage(got),
-                 "widens the ODE state|per-layer uptake")
-  } else {
-    expect_equal(rownames(got$gradient), census_metric_names_tf24())
-    expect_equal(colnames(got$gradient), "1.lma")
-  }
+  got <- stand_gradient(scm, traits = "1.lma")
+  expect_equal(rownames(got$gradient), census_metric_names_tf24())
+  expect_equal(colnames(got$gradient), "1.lma")
+  expect_false(any(stand_gradient_refused(got)))
+  expect_true(all(is.finite(got$gradient)))
   # And the bare name refuses, naming the convention rather than only failing.
   expect_error(stand_gradient(scm, traits = "lma"), "species index")
 })
