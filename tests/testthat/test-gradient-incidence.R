@@ -83,7 +83,7 @@ test_that("the classification tally is the route to a regime's incidence", {
   expect_equal(sum(census_operating_point_counts_tf24(scm)[[1]]), 0)
 })
 
-test_that("the dry pins are a small minority, and are not what refuses", {
+test_that("the dry pins are most of a dry stand, and are not what refuses", {
   # The number this exists to produce. It was first taken while this driver's
   # gradient was refused outright, to say how much answering the pinned branch
   # would buy; the branch answers now, so the same number says what the answer
@@ -93,7 +93,7 @@ test_that("the dry pins are a small minority, and are not what refuses", {
   total <- sum(n)
   dry <- n[["boundary-crit"]] + n[["boundary-root-crit"]]
   expect_gt(dry, 0)
-  expect_gt(n[["interior"]], dry)
+  expect_gt(n[["interior"]], 0)
 
   # Which arm bound is not a detail: the two are different functions of the
   # inputs, so the row a pinned point needs depends on it. At shipped defaults
@@ -107,30 +107,29 @@ test_that("the dry pins are a small minority, and are not what refuses", {
   message(sprintf("  dry pins: %.0f of %.0f solves (%.2f%%), all on the %s arm",
                   dry, total, share, "continuity-root"))
   # Stated as a band rather than a value: the exact count moves with the schedule
-  # the adaptive pass resolves.
-  expect_lt(share, 5)
+  # the adaptive pass resolves. Bounded below as well as above, because what this
+  # stand is here for is that the pinned branch is the majority of it.
+  #
+  # ⚠️ THE STEM PATH INTEGRAL IS WHAT PUT THE PINS IN THE MAJORITY, and this
+  # band read under 5 before it. Resistance rises for a plant shorter than the
+  # anchor and falls for a taller one -- 1.38x at 0.394 m against 0.35x at 16.6 m
+  # -- so a seedling in a dry stand reaches its critical potential where it used
+  # to stay interior. Measured on this stand with D_c, theta_c and L_tip at zero
+  # and K_s at 1, the configuration test-strategy-tf24.R states recovers the
+  # model the path integral replaced: 0.90 per cent against 54.65.
+  expect_gt(share, 40)
+  expect_lt(share, 70)
 
-  # And the pairing that makes the number mean something: the pinned branch is
-  # not what costs the answer. Shown on a stand that reaches MORE of it and
-  # answers -- 345393 pins against this one's 26903 -- because this stand at
-  # lifetime 10 is refused for its DESCENT's range, which is a property of how
-  # long the sweep multiplies rather than of the branch.
-  n_short <- incidence_of(0.10, 5)
-  expect_gt(n_short[["boundary-crit"]], dry)
-  g_short <- incidence_swept(0.10, 5)$gradient
-  expect_false(any(stand_gradient_refused(g_short)))
-  expect_null(g_short$refusal[[1]])
-  expect_true(all(is.finite(g_short$gradient[[1]])))
-  message(sprintf("  the pinned branch answers: %.0f pins over %.0f solves on a 5-year stand",
-                  n_short[["boundary-crit"]], sum(n_short)))
-
-  # ⚠️ AND THIS STAND IS REFUSED FOR THE RANGE, NOT FOR THE PINS. Asserted so
-  # that a refusal arriving here for any other reason fails rather than reading
-  # as the same known gap.
+  # And the reading that makes the number mean something: the pinned branch is
+  # not what costs the answer. This stand answers with a finite gradient while a
+  # majority of its solves are pinned, which is a sharper statement than the
+  # minority the band used to assert. Counted before it is read, because
+  # all(is.finite(x)) is TRUE of an empty vector.
   g <- incidence_swept(0.25, 10)$gradient
-  expect_true(all(stand_gradient_refused(g)))
-  expect_true(grepl(ladder_range_refusal, g$refusal[[1]]$reason, fixed = TRUE))
-  expect_true(all(is.na(g$gradient[[1]])))
+  expect_false(any(stand_gradient_refused(g)))
+  expect_null(g$refusal[[1]])
+  expect_gt(length(g$gradient[[1]]), 0)
+  expect_true(all(is.finite(g$gradient[[1]])))
 })
 
 test_that("the light floor is counted on both paths, and binds at neither shipped value", {
@@ -196,10 +195,9 @@ test_that("the light floor is counted on both paths, and binds at neither shippe
   expect_true(all(is.finite(g$gradient[[1]])))
 
   # And the severance is readable rather than silent, which is the whole basis on
-  # which the zero would be declared instead of refused. The forward tally cannot
-  # stand in for this: it counts every solve, where the sweep visits only the
-  # recorded steps -- and fewer of them than it once did, since the descent stops
-  # where it overflows.
+  # which the zero is declared instead of refused. The forward tally cannot stand
+  # in for this: it counts every solve, where the sweep visits only the recorded
+  # steps.
   swept <- incidence_swept(2.0, 5, k_I = 40, introductions = 20L)$swept
   message(sprintf("  the sweep's own severances: %s",
                   paste(sprintf("%s %.0f", nm[light], swept[light]),
