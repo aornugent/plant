@@ -371,24 +371,40 @@ test_that("Can create empty SCM", {
 
 test_that("A second run on one SCM reproduces the first", {
   ## TF24 is the only model with environment ODE state (FF16 and K93 report
-  ## ode_size 0), so it is the one that can carry state across a reset. Short
-  ## patch lifetime: this covers the reset, not the trajectory.
+  ## ode_size 0), so it is the one that can carry state across a reset.
+  ##
+  ## What this covers is that reset() reaches Environment::clear(), whose
+  ## clear_state() puts the soil and the flux accumulators back where the run
+  ## began. Without it a second run continues out of the state the first left.
+  ##
+  ## A lifetime of 2, because the cost is the trajectory and the guarantee is
+  ## not: TF24 crosses a stiffness cliff a little past a lifetime of 3, and the
+  ## environment moves off its starting state within the first introductions, so
+  ## a longer run buys price and no signal. The schedule is NOT thinned with it
+  ## -- its 81 introductions are what the reproducibility check below compares,
+  ## and they are the cheap half.
   p0 <- scm_base_parameters("TF24", "TF24_Env")
-  p0$max_patch_lifetime <- 10
+  p0$max_patch_lifetime <- 2
   p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
   new_scm <- function() SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(), Control())
 
+  ## The environment's states are the tail of the patch ODE state, and before
+  ## any introduction and after a reset they are all of it.
   scm <- new_scm()
+  n_env <- scm$patch$environment$ode_size
+  unrun <- utils::tail(new_scm()$patch$ode_state, n_env)
+
   scm$run()
   first_offspring <- scm$offspring_production
   first_state <- scm$patch$ode_state
 
-  ## The environment's states are the tail of the patch ODE state, and after a
-  ## reset they are all of it.
-  n_env <- scm$patch$environment$ode_size
+  ## The run moved the environment, which is the state the reset has to put
+  ## back. Asserted rather than assumed: a fixture too short to move it would
+  ## pass the two checks below while guarding nothing.
+  expect_false(isTRUE(all.equal(utils::tail(first_state, n_env), unrun)))
+
   scm$reset()
-  expect_identical(utils::tail(scm$patch$ode_state, n_env),
-                   utils::tail(new_scm()$patch$ode_state, n_env))
+  expect_identical(utils::tail(scm$patch$ode_state, n_env), unrun)
 
   scm$run()
   expect_identical(scm$offspring_production, first_offspring)
