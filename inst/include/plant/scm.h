@@ -268,10 +268,6 @@ public:
   census_initial_state_replay(const std::vector<double>& state0,
                               size_t range = 0);
 
-  // The state a range's first step ran from, which is what the two calls above
-  // index their arguments against.
-  std::vector<double> range_base_state(size_t range);
-
   // The replay both entry points above run. `seed` fills the scalar state the
   // replay starts from, given the recorded one.
   //
@@ -1278,19 +1274,6 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   return ret;
 }
 
-
-template <typename T, typename E>
-std::vector<double> SCM<T, E>::range_base_state(size_t range) {
-  const trajectory rec = store_trajectory();
-  patch_type& live = solver.get_system_ref();
-
-  std::vector<double> base;
-  size_t start = 0;
-  odelia::ode::state_at_range(live, rec, range, base,
-                                start);
-  odelia::ode::be_at_step(live, rec, rec.size() - 1);
-  return base;
-}
 
 template <typename T, typename E>
 template <class Scalar, class Seed>
