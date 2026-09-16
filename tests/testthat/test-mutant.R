@@ -169,18 +169,23 @@ test_that("mutant method densities, TF24", {
   # a refusal would now FAIL rather than shrink, and `expect_no_error` below
   # passing is the statement that it meets none.
   #
-  # So the patch lifetime no longer buys refusal coverage; it buys REPLAY LENGTH,
-  # and the length is asserted below rather than left to the constant. Measured,
-  # against the 1e-3 this compares at:
+  # ⚠️ THE LIFETIME BUYS THE STIFF REGIME AND THE COHORT COUNT IS WHAT COSTS, and
+  # the default schedule confounds them by deriving its introduction count from
+  # the lifetime. At the full schedule a lifetime of 3 records 206 steps and one
+  # of 6 records 12714, so the regime wants 6. Held there and varying only how
+  # many of that schedule's 89 introductions are kept, against the 1e-3 this
+  # compares at:
   #
-  #   lifetime    6     8     10      14
-  #   steps   12714 17544  22597   28813
-  #   log gap 8e-13 2e-13  3e-14   2e-14
-  #   seconds   642   881   1151    1542
+  #   introductions     20     40     60     89
+  #   steps           6071   9110   9934  12714
+  #   log gap        2e-13  7e-15  5e-14  8e-13
+  #   seconds           71    203    328    623
   #
-  # Six, because ten orders of margin over twelve thousand replayed steps is the
-  # claim, and this file runs in every `R CMD check` leg on three operating
-  # systems.
+  # The gap does not fall with either count, because this is an identity rather
+  # than an approximation. So what a longer recording buys is a replay that meets
+  # more of the regime, and twenty introductions put six thousand steps over
+  # twenty ranges in a ninth of the time. Both counts are asserted below rather
+  # than left to the constants.
   ctrl <- Control()
   tol <- 1e-3
 
@@ -188,6 +193,9 @@ test_that("mutant method densities, TF24", {
   p0$max_patch_lifetime <- 6
   p1 <- add_strategies(p0, trait_matrix(0, "TF24_floor_lambda_o"),
                        hyperpar = TF24_hyperpar, birth_rate = 1)
+  full <- p1$node_schedule_times[[1]]
+  p1$node_schedule_times <-
+    list(full[round(seq(1, length(full), length.out = 20))])
 
   env <- Environment("TF24")
   env$set_soil_water_state(rep(0.428 * 0.5, env$get_soil_number_of_depths()))
@@ -198,10 +206,10 @@ test_that("mutant method densities, TF24", {
 
   # Not assertions about the model, just guards that the replay below has
   # something to replay: a resident that died out would make the identity
-  # trivial, and a short recording would make it cheap in the wrong way. The
-  # step count carries what the lifetime constant used to carry on trust.
+  # trivial, and a short recording would make it cheap in the wrong way.
   expect_true(all(is.finite(resident_rr)) && all(resident_rr > 0))
-  expect_gt(length(scm$ode_times), 10000)
+  expect_gt(length(scm$ode_times), 5000)
+  expect_equal(scm$patch$species[[1]]$size, 20L)
 
   # Identical mutant, replaying the resident's own recorded environment, must
   # recover the resident's own fitness.
