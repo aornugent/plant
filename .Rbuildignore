@@ -34,4 +34,3 @@
 ^water_bucket_submodel$
 ^LICENSE\.md$
 ^CLA\.md$
-^tests/testthat/test-gradient-demo\.R$
