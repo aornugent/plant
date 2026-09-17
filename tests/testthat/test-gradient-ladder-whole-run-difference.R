@@ -175,21 +175,24 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
     # reads 1.1e-03 on drought, 7.6e-04 on seasonal and 6.3e-05 on wet -- and all
     # three are `theta` or `omega`, which reach the census through the channels
     # the leaf boundary carries and are the last columns to resolve.
-    #
-    # ⚠️ A REGIME THAT REACHES SHADE-DEATH IS TWO DIFFERENCE SCHEMES COMPARED
-    # ACROSS A KINK, so its floor is the coarser of them. The shade-death exit
-    # places the collar exactly on the wet bound, where phylloptim's
-    # `duptake_dpsi` returns its not-a-number sentinel to say the analytic branch
-    # does not hold there and the marginal profit falls back to a central
-    # difference at the same collar. The split is the evidence: the two regimes
-    # that reach it read 9.9e-03 and 8.0e-03, both on `theta`, and the three that
-    # never do sit at or under 1.1e-03. Keyed on the counter rather than on the
-    # regime's name, so a regime that stops reaching it is held to the strict
-    # floor without anyone editing this.
-    kink <- r$kinds[["shade-death"]] > 0
-    tolerance <- pmax(3 * r$spread, if (kink) 2e-2 else 2e-3)
+    tolerance <- pmax(3 * r$spread, 2e-3)
     over <- live & r$residual > tolerance
-    expect_equal(sum(over), 0,
+    # ⚠️ TWO REGIMES ARE EXPECTED TO FAIL THIS AND THE FAILURE IS THE POINT.
+    # `shaded` and `clamped` disagree on `theta` and `omega` -- their birth-size
+    # columns and nothing else -- by about one per cent, and the rung is right.
+    # Scanning the census against theta on the clamped stand, it is smooth to
+    # 3e-09 relative over the innermost +/-2e-05 and its fitted local slope is
+    # 1105.19 where the sweep reports 1094.71. A forward tangent of the same
+    # trajectory reproduces the sweep to 1e-11, so the row is wrong in both
+    # directions, which is the one failure no other rung can see and the reason
+    # this one compares against arithmetic it shares nothing with.
+    #
+    # Held as an exact count rather than by widening the floor: a floor wide
+    # enough to pass is wide enough to hide the next one, and a count moving in
+    # either direction is a change to report. See docs/pr/transcription.md.
+    expected_over <- c(wet = 0L, drought = 0L, seasonal = 0L,
+                       shaded = 4L, clamped = 6L)[[r$name]]
+    expect_equal(sum(over), expected_over,
                  label = paste0(r$name, ": ", sum(over), " column(s) past the ",
                                 "reference's own spread, worst ",
                                 r$column[[which.max(ifelse(live, r$residual, 0))]],
