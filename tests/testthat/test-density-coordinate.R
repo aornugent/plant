@@ -389,10 +389,12 @@ test_that("the patch control decides the coordinate for every species", {
     expect_true(s$density_in_birth_date)
   }
 
-  ## And the other way round: a patch built with the default control carries
-  ## every species in height, whatever the strategies say.
+  ## And the other way round: a patch built on the height coordinate carries every
+  ## species in height, whatever the strategies say.
+  ctrl_h <- Control()
+  ctrl_h$node_density_in_birth_date <- FALSE
   p$strategies[[1]]$control <- ctrl_bd
-  patch_h <- Patch(x, e)(p, Environment(x), Control())
+  patch_h <- Patch(x, e)(p, Environment(x), ctrl_h)
   for (s in patch_h$species) {
     expect_false(s$density_in_birth_date)
   }
