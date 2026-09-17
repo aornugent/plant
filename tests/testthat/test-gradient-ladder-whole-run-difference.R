@@ -177,22 +177,14 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
     # the leaf boundary carries and are the last columns to resolve.
     tolerance <- pmax(3 * r$spread, 2e-3)
     over <- live & r$residual > tolerance
-    # ⚠️ TWO REGIMES ARE EXPECTED TO FAIL THIS AND THE FAILURE IS THE POINT.
-    # `shaded` and `clamped` disagree on `theta` and `omega` -- their birth-size
-    # columns and nothing else -- by about one per cent, and the rung is right.
-    # Scanning the census against theta on the clamped stand, it is smooth to
-    # 3e-09 relative over the innermost +/-2e-05 and its fitted local slope is
-    # 1105.19 where the sweep reports 1094.71. A forward tangent of the same
-    # trajectory reproduces the sweep to 1e-11, so the row is wrong in both
-    # directions, which is the one failure no other rung can see and the reason
-    # this one compares against arithmetic it shares nothing with.
-    #
-    # Held as an exact count rather than by widening the floor: a floor wide
-    # enough to pass is wide enough to hide the next one, and a count moving in
-    # either direction is a change to report. See docs/pr/transcription.md.
-    expected_over <- c(wet = 0L, drought = 0L, seasonal = 0L,
-                       shaded = 4L, clamped = 6L)[[r$name]]
-    expect_equal(sum(over), expected_over,
+    # ⚠️ THIS RUNG IS WHAT FOUND THE KNOT GRID, and the floor is what found it.
+    # `shaded` and `clamped` read 9.9e-03 and 8.0e-03 here while the light field
+    # was held against knots at u_k * height_max whose positions were passivised:
+    # the canopy top is a cohort's height, so the grid moved with it and the
+    # gradient carried only the values and the slopes. Every other rung takes the
+    # field AS values and slopes, so none of them could see it. Widening this
+    # floor to pass would have buried it.
+    expect_equal(sum(over), 0L,
                  label = paste0(r$name, ": ", sum(over), " column(s) past the ",
                                 "reference's own spread, worst ",
                                 r$column[[which.max(ifelse(live, r$residual, 0))]],

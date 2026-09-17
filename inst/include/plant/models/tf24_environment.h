@@ -259,7 +259,7 @@ public:
   // The count and the two fills below are declared together, so a reader that
   // gets the count from this class gets the fill from it too.
   size_t n_cohort_reads() const {
-    return 2 * light_availability.knot_count() +
+    return 2 * light_availability.knot_count() + 1 +
            static_cast<size_t>(soil_number_of_depths);
   }
 
@@ -274,6 +274,10 @@ public:
     for (size_t k = 0; k < m.size(); ++k) {
       util::write_iterator_scalar(it, m[k]);
     }
+    // The canopy top, because the field is held against height / height_max and
+    // a query divides by it: read the values and slopes without this and a
+    // cohort's reads name every knot and not the grid they sit on.
+    util::write_iterator_scalar(it, light_availability.height_max());
     const std::vector<S>& psi = get_soil_water_potential_state();
     for (int i = 0; i < soil_number_of_depths; ++i) {
       util::write_iterator_scalar(it, psi[i]);
@@ -287,6 +291,7 @@ public:
     for (size_t k = 0; k < n_knot; ++k) { y[k] = *it++; }
     for (size_t k = 0; k < n_knot; ++k) { m[k] = *it++; }
     light_availability.set_knot_data(y, m);
+    light_availability.set_height_max(*it++);
     // ⚠️ MARKED VALID SO THE INJECTED POTENTIALS SURVIVE. They are not what the
     // state implies, and a read that derived them again would quietly replace
     // them -- which is the second thing the flag is for.

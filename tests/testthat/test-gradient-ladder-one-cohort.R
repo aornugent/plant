@@ -20,16 +20,23 @@ test_that("the recorded block has the shape the design is costed on", {
   inputs <- colnames(block)
   outputs <- rownames(block)
 
-  # Six own states, the field's knot values and slopes, the soil potentials and
-  # the traits in; six rates, the density rate and one draw per layer out. Both
-  # counts move with the configuration and neither is a property of the model;
-  # the shape is. Every count is read off the names for that reason: a parameter
-  # added to the strategy moves them together, where a restated total fails here
-  # and says nothing about the shape.
+  # Six own states, the field's knot values and slopes, the canopy top its knots
+  # are fractions of, the soil potentials and the traits in; six rates, the
+  # density rate and one draw per layer out. Both counts move with the
+  # configuration and neither is a property of the model; the shape is. Every
+  # count is read off the names for that reason: a parameter added to the
+  # strategy moves them together, where a restated total fails here and says
+  # nothing about the shape.
+  #
+  # ⚠️ THE CANOPY TOP IS AN INPUT AND WAS NOT, which is what let the field's grid
+  # sever a channel nothing could see. The knots sit at u_k * height_max, so a
+  # block that reads values and slopes and not the top reads every knot and not
+  # the grid they are on.
   n_knot <- sum(grepl("^light_value_", inputs))
   n_layer <- sum(grepl("^psi_soil_", inputs))
-  n_par <- length(inputs) - 6L - 2L * n_knot - n_layer
+  n_par <- length(inputs) - 6L - 2L * n_knot - 1L - n_layer
   expect_equal(sum(grepl("^light_slope_", inputs)), n_knot)
+  expect_equal(sum(inputs == "light_height_max"), 1L)
   expect_gt(n_par, 0L)
   expect_equal(length(outputs), 6L + 1L + n_layer)
   expect_equal(head(inputs, 6L),

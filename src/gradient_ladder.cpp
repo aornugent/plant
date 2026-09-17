@@ -221,9 +221,10 @@ Rcpp::NumericMatrix to_matrix(const std::vector<std::vector<double>>& rows,
 }
 
 // The block's inputs, in the order block_inputs writes them: the individual's
-// own states, the field's knot values then its knot slopes, the soil potentials,
-// and the strategy's differentiable parameters. Read from the node, because the
-// trait names are that node's species'.
+// own states, the field's knot values then its knot slopes, the canopy top the
+// knots are fractions of, the soil potentials, and the strategy's differentiable
+// parameters. Read from the node, because the trait names are that node's
+// species'.
 std::vector<std::string> block_input_names(const patch_type& patch,
                                            const node_address& at) {
   std::vector<std::string> out = strategy_type::state_names();
@@ -235,6 +236,7 @@ std::vector<std::string> block_input_names(const patch_type& patch,
   for (size_t i = 0; i < n_knot; ++i) {
     out.push_back("light_slope_" + plant::util::to_string(static_cast<int>(i + 1)));
   }
+  out.push_back("light_height_max");
   const int n_layer = patch.r_environment().get_soil_number_of_depths();
   for (int i = 0; i < n_layer; ++i) {
     out.push_back("psi_soil_" + plant::util::to_string(i + 1));

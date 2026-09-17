@@ -69,13 +69,13 @@ public:
   // The query height is a knot position on the interpolant's own grid, which is
   // double (see ResourceSpline::rebuild_spline); what the cohorts put into the
   // field arrives through the node contributions summed over below.
-  value_type compute_competition(double height) const;
+  value_type compute_competition(const value_type& height) const;
 
   // The reduction and its vertical derivative from one traversal, so each node's
   // u^eta is evaluated once and the two sums add their terms in the same order.
   // The first entry equals compute_competition(height) bit for bit.
   with_slope<value_type>
-  compute_competition_and_slope(double height) const;
+  compute_competition_and_slope(const value_type& height) const;
 
   // The reduction stopped before its closing trapezium: the sums so far and the
   // last sample, which is everything one more interval needs. Holding it lets the
@@ -110,13 +110,14 @@ public:
   // every height reads a prefix of them. That makes the build linear in nodes plus
   // heights where a height-by-height walk is their product, and inside a recording
   // the operation count IS the tape.
-  void field_splits(const std::vector<double>& heights,
+  void field_splits(const std::vector<value_type>& heights,
                     std::vector<competition_split>& out) const;
   // The inclusive reduction, from a split taken at the same height. Bit-identical
   // to compute_competition_and_slope(height) at the boundary node it is closed
   // with.
   with_slope<value_type>
-  close_competition_and_slope(const competition_split& c, double height) const;
+  close_competition_and_slope(const competition_split& c,
+                              const value_type& height) const;
 
   // Evaluate the inflow boundary condition in the environment passed. Split out
   // of compute_rates() so the field build owns it and the field stops reading a
@@ -275,7 +276,7 @@ private:
   // The reduction, over the nodes in ascending abscissa. `order` names that order
   // where the node list is not already in it and is empty where it is; the early
   // exit is the decreasing heights', not this parameter's.
-  competition_split reduce_competition(double height,
+  competition_split reduce_competition(const value_type& height,
                                        const std::vector<std::size_t>& order) const;
   // The node positions in ascending abscissa, for the case where the heights are
   // no longer ordered and the node list cannot be the quadrature grid.
@@ -290,7 +291,7 @@ private:
     return size() == 1 || control().node_density_in_birth_date ||
            value_at_x1 > 0;
   }
-  competition_split compute_competition_and_slope_split(double height) const;
+  competition_split compute_competition_and_slope_split(const value_type& height) const;
 
   // Cache for scan_heights(). ⚠️ EVERY PATH THAT CAN CHANGE A NODE HEIGHT MUST
   // CALL invalidate_height_scan(): a stale cache here reports the wrong ordering
@@ -461,7 +462,7 @@ typename Species<T,E>::HeightScan Species<T,E>::compute_height_scan() const {
 // the integral).
 template <typename T, typename E>
 typename Species<T,E>::value_type
-Species<T,E>::compute_competition(double height) const {
+Species<T,E>::compute_competition(const value_type& height) const {
   // The value is the fused reduction's first entry, and taking it from there is
   // what makes them equal rather than a test's business. The two walked the same
   // grid with the same early exit and the same closing trapezium, and a value
@@ -484,7 +485,7 @@ Species<T,E>::compute_competition(double height) const {
 // trapezium are driven by the value, as they are there.
 template <typename T, typename E>
 with_slope<typename Species<T,E>::value_type>
-Species<T,E>::compute_competition_and_slope(double height) const {
+Species<T,E>::compute_competition_and_slope(const value_type& height) const {
   return close_competition_and_slope(compute_competition_and_slope_split(height),
                                      height);
 }
@@ -494,7 +495,7 @@ Species<T,E>::compute_competition_and_slope(double height) const {
 // height takes the walk, which is the same branch the walk's own early exit rests
 // on.
 template <typename T, typename E>
-void Species<T,E>::field_splits(const std::vector<double>& heights,
+void Species<T,E>::field_splits(const std::vector<value_type>& heights,
                                 std::vector<competition_split>& out) const {
   out.assign(heights.size(), competition_split());
   if (size() == 0) {
@@ -553,7 +554,7 @@ void Species<T,E>::field_splits(const std::vector<double>& heights,
   std::size_t crossing = n;
   moments weight, weight_slope;
   for (std::size_t k = 0; k < heights.size(); ++k) {
-    const double height = heights[k];
+    const value_type& height = heights[k];
     if (scan.h_max < height) {
       continue;  // no node reaches it; the empty split stands
     }
@@ -604,7 +605,7 @@ void Species<T,E>::field_splits(const std::vector<double>& heights,
 // there only while the heights are known to keep falling.
 template <typename T, typename E>
 typename Species<T,E>::competition_split
-Species<T,E>::reduce_competition(double height,
+Species<T,E>::reduce_competition(const value_type& height,
                                  const std::vector<std::size_t>& order) const {
   const bool birth_date = control().node_density_in_birth_date;
   const HeightScan& scan = scan_heights();
@@ -679,7 +680,7 @@ std::vector<std::size_t> Species<T,E>::ascending_by_abscissa() const {
 // close it later without walking the nodes again.
 template <typename T, typename E>
 typename Species<T,E>::competition_split
-Species<T,E>::compute_competition_and_slope_split(double height) const {
+Species<T,E>::compute_competition_and_slope_split(const value_type& height) const {
   const HeightScan& scan = scan_heights();
   if (size() == 0 || scan.h_max < height) {
     return competition_split();
@@ -695,7 +696,7 @@ Species<T,E>::compute_competition_and_slope_split(double height) const {
 template <typename T, typename E>
 with_slope<typename Species<T,E>::value_type>
 Species<T,E>::close_competition_and_slope(const competition_split& c,
-                                          double height) const {
+                                          const value_type& height) const {
   if (!c.closes) {
     return c.without_boundary();
   }

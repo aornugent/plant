@@ -1108,7 +1108,7 @@ void Patch<T,E>::compute_environment_excl_capturing() {
   // The reduction fills one entry per knot, so the only thing needed here is one
   // vector per species; field_splits sizes each of them.
   competition_capture.resize(size());
-  auto f = [&](const std::vector<double>& x, std::vector<value_type>& y,
+  auto f = [&](const std::vector<value_type>& x, std::vector<value_type>& y,
                std::vector<value_type>& m) -> void {
     for (size_t k = 0; k < x.size(); ++k) {
       y[k] = 0.0;
@@ -1136,7 +1136,7 @@ void Patch<T,E>::compute_environment_excl_capturing() {
 // the boundary node the call between the two established.
 template <typename T, typename E>
 void Patch<T,E>::compute_environment_closing() {
-  auto f = [&](const std::vector<double>& x, std::vector<value_type>& y,
+  auto f = [&](const std::vector<value_type>& x, std::vector<value_type>& y,
                std::vector<value_type>& m) -> void {
     for (size_t k = 0; k < x.size(); ++k) {
       y[k] = 0.0;

@@ -227,8 +227,8 @@ public:
   // The magnitudes look alarming and are not: z^2eta and H^-2eta are large and
   // small respectively, but a height only ever reads the sums of crowns that reach
   // it, so H >= z wherever the two meet and their product is at most one.
-  void height_weights(double z, std::array<S, max_moments>& out) const {
-    const S t = pow_eta(S(z));
+  void height_weights(const S& z, std::array<S, max_moments>& out) const {
+    const S t = pow_eta(z);
     out[0] = S(1.0);
     out[1] = -2.0 * t;
     out[2] = t * t;
@@ -238,8 +238,8 @@ public:
   // sums. z^eta differentiates to eta * z^(eta-1), and z^(eta-1) is 0/0 at the
   // crown base: the limit is 0 for every eta above 1 and 1 at eta = 1, which are
   // the two cases Q_and_q takes by hand.
-  void height_weight_slopes(double z, std::array<S, max_moments>& out) const {
-    const S t = pow_eta(S(z));
+  void height_weight_slopes(const S& z, std::array<S, max_moments>& out) const {
+    const S t = pow_eta(z);
     const S t_over_z = z > 0.0 ? S(t / z) : (eta_ == 1.0 ? S(1.0) : S(0.0));
     out[0] = S(0.0);
     out[1] = -2.0 * eta_ * t_over_z;
