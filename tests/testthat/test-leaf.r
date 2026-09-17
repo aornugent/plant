@@ -649,7 +649,7 @@ expect_equal(l$soil_consumption_[2], 0)
   psi_soil = c(0.5, 0.5)
   root_carbon = c(1, 1)
 l$set_physiology(root_network = net((root_carbon) / area_leaf_, soil_depth), PPFD = PPFD, psi_soil = psi_soil, soil_depth = soil_depth, leaf_specific_conductance_max = leaf_specific_conductance_max, atm_vpd = atm_vpd, ca = ca, leaf_temp = leaf_temp_, atm_o2_kpa = atm_o2_kpa_, atm_kpa = atm_kpa_)
-l$E_from_Soil_to_Root_Collar(psi_soil[1] + 0.5, psi_soil[1])
+l$E_from_Soil_to_Root_Collar(psi_soil[1] + 0.5, psi_soil)
 
 #check that soil consumption adds to E_up
 expect_equal(l$E_up_, sum(l$soil_consumption_)*0.018015)
