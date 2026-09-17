@@ -1,5 +1,5 @@
 ---
-title: "One sweep, forty-six trade-offs: reading the iso-biomass surface"
+title: "One sweep, forty-eight trade-offs: reading the iso-biomass surface"
 format:
   html:
     toc: true
@@ -23,8 +23,9 @@ library(patchwork)
 library(dplyr)
 library(tidyr)
 
-# Shared driving and interpretation code, also exercised by
-# tests/testthat/test-gradient-demo.R so this demo cannot silently rot.
+# Shared driving and interpretation code. Nothing exercises it: the smoke test
+# that did was dropped from this branch, so a plant interface change rots these
+# helpers and this document is where it surfaces.
 source(file.path(pkg_root, "overstorey_staging", "gradient_demo_helpers.R"))
 
 theme_set(theme_bw(base_size = 12))
