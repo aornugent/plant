@@ -110,13 +110,20 @@ test_that("the dry pins are most of a dry stand, and are not what refuses", {
   # the adaptive pass resolves. Bounded below as well as above, because what this
   # stand is here for is that the pinned branch is the majority of it.
   #
-  # ⚠️ THE STEM PATH INTEGRAL IS WHAT PUT THE PINS IN THE MAJORITY, and this
-  # band read under 5 before it. Resistance rises for a plant shorter than the
-  # anchor and falls for a taller one -- 1.38x at 0.394 m against 0.35x at 16.6 m
-  # -- so a seedling in a dry stand reaches its critical potential where it used
-  # to stay interior. Measured on this stand with D_c, theta_c and L_tip at zero
-  # and K_s at 1, the configuration test-strategy-tf24.R states recovers the
-  # model the path integral replaced: 0.90 per cent against 54.65.
+  # ⚠️ THE PATH INTEGRAL'S SHAPE PUT THE PINS HERE AND ITS LEVEL DID NOT, which
+  # is the reverse of what the seedling penalty suggests. Held height-linear and
+  # raised uniformly by 1.2x to 2.978x, resistance takes this share to ZERO. Held
+  # at the 1 m anchor by re-deriving K_s through TF24_K_s_from_whole_stem and
+  # swept in D_c, it takes 0.90, 6.34, 16.53, 26.83, 46.96, 54.65 per cent at
+  # D_c = 0, 0.02, 0.05, 0.10, 0.15, 0.20, while the stand's minimum soil
+  # moisture falls 0.13204 -> 0.13017. So it is the channel tf24_strategy.h's v10
+  # note names: a plant taller than the anchor pays 0.35 of the height-linear
+  # resistance, transpires faster, and takes the shared soil column down with it.
+  #
+  # The band is wide because the share is a threshold in moisture and this stand
+  # is past it rather than on it. Rainfall 0.50, 0.40, 0.35, 0.30, 0.25, 0.20
+  # gives 0.11, 13.45, 45.40, 52.22, 54.65, 60.82 per cent: the knee is at 0.4
+  # and 0.25 is on the plateau, where a fifth of the rainfall is three points.
   expect_gt(share, 40)
   expect_lt(share, 70)
 
