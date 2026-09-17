@@ -94,7 +94,17 @@ census_trait_gradient_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy
   return census_gradient_to_r(obj_->census_trait_gradient({}, wanted));
 }
 
+// The same rule as the metrics above: a name is what crosses. The entries arrive
+// paired from SCM::gradient_control(), so nothing here chooses an order.
 // [[Rcpp::export]]
-std::vector<double> gradient_control_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
-  return obj_->gradient_control();
+Rcpp::NumericVector gradient_control_tf24(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double>, plant::TF24_Environment<double> > > obj_) {
+  const auto entries = obj_->gradient_control();
+  Rcpp::NumericVector out(entries.size());
+  Rcpp::CharacterVector names(entries.size());
+  for (size_t i = 0; i < entries.size(); ++i) {
+    out[i] = entries[i].second;
+    names[i] = entries[i].first;
+  }
+  out.names() = names;
+  return out;
 }

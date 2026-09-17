@@ -320,14 +320,24 @@ test_that("the Control a gradient is taken at is the entries that move it", {
   # collar response the profit curvature is too small to support -- so two
   # gradients taken at different floors are gradients of different functions for a
   # different reason, and both reasons belong in the same comparison.
+  #
+  # ⚠️ ASKED BY NAME, WHICH IS WHAT MAKES THIS ABLE TO FAIL. The names came from
+  # R until scm.h carried them, so the first comparison was R's own list against
+  # itself, and the values were compared POSITIONALLY against a list built in the
+  # same order -- self-consistent either way. Measured on the form below: a value
+  # wired to the wrong Control field now FAILS, and a name changed in scm.h FAILS.
+  #
+  # ⚠️ What it still cannot see is ci_abs_tol and gradient_curvature_floor
+  # swapped, because both are 1e-3 at the defaults and a swap of equal numbers has
+  # nothing to read. That is fine HERE and only here: the pair travels from scm.h
+  # as name-with-value, so there is no second ordering left to disagree with it and
+  # nothing can produce that swap any more. Do not answer it with a test.
   scm <- census_stand()
-  expect_equal(names(gradient_control(scm)),
+  got <- gradient_control(scm)
+  expect_equal(names(got),
                c("GSS_tol_abs", "ci_abs_tol", "node_gradient_eps",
                  "schedule_eps", "gradient_curvature_floor"))
-  ctrl <- Control()
-  expect_equal(unname(gradient_control(scm)),
-               c(ctrl$GSS_tol_abs, ctrl$ci_abs_tol, ctrl$node_gradient_eps,
-                 ctrl$schedule_eps, ctrl$gradient_curvature_floor))
+  expect_equal(got, unlist(unclass(Control())[names(got)]))
 })
 
 test_that("the trait gradient entry point is reachable", {

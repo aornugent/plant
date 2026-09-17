@@ -278,12 +278,23 @@ public:
   std::vector<Scalar> replay_initial_state(size_t from_range, Seed seed);
 
   // The Control entries that move the trajectory or move which states answer,
-  // and so move the gradient, in the order stand_gradient() compares them. The
-  // curvature floor is here for the second reason rather than the first: it
-  // changes no forward number and still decides which rows exist.
-  std::vector<double> gradient_control() const {
-    return {control.GSS_tol_abs, control.ci_abs_tol, control.node_gradient_eps,
-            control.schedule_eps, control.gradient_curvature_floor};
+  // and so move the gradient. The curvature floor is here for the second reason
+  // rather than the first: it changes no forward number and still decides which
+  // rows exist.
+  //
+  // ⚠️ EACH NAME BESIDE ITS VALUE, because two of the five are 1e-3 at the
+  // defaults. The names used to be attached positionally in R, one file away from
+  // the order built here -- so transposing ci_abs_tol and gradient_curvature_floor
+  // left both readable, both plausible, and stand_gradient_compare() refusing on
+  // the wrong pair. census_gradient.cpp states the rule this now follows: a name
+  // is what crosses, because a position means a different entry as soon as the
+  // list changes.
+  std::vector<std::pair<std::string, double>> gradient_control() const {
+    return {{"GSS_tol_abs", control.GSS_tol_abs},
+            {"ci_abs_tol", control.ci_abs_tol},
+            {"node_gradient_eps", control.node_gradient_eps},
+            {"schedule_eps", control.schedule_eps},
+            {"gradient_curvature_floor", control.gradient_curvature_floor}};
   }
 
   // ---- R interface -------------------------------------------------------

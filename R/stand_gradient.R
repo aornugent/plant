@@ -44,11 +44,7 @@ stand_census_state_adjoint <- function(scm) {
 ##' @param scm A run \code{SCM} object for the TF24 strategy.
 ##' @return A named numeric vector of length five.
 ##' @export
-gradient_control <- function(scm) {
-  stats::setNames(gradient_control_tf24(scm),
-                  c("GSS_tol_abs", "ci_abs_tol", "node_gradient_eps",
-                    "schedule_eps", "gradient_curvature_floor"))
-}
+gradient_control <- function(scm) gradient_control_tf24(scm)
 
 # The parameter a gradient column names, with its species index stripped. An
 # unknown name is matched on this so a missing species prefix is distinguishable
