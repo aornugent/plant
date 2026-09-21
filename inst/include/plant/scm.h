@@ -447,6 +447,11 @@ public:
   // a difference of two runs wants -- one grid, each side free to reach it.
   std::vector<double> r_ode_step_sizes() const;
 
+  // How each attempt at an error-controlled step ended over the last run, named.
+  // accepted + accepted_at_minimum is the number of steps r_ode_times() holds;
+  // the three rejections are the attempts that were thrown away.
+  Rcpp::IntegerVector r_ode_step_attempts() const;
+
   // The trajectory as a list of records, each a time, the step size that reached it,
   // and the state there.
   Rcpp::List r_store_trajectory();
@@ -931,6 +936,17 @@ std::vector<double> SCM<T, E>::r_ode_times() const {
 template <typename T, typename E>
 std::vector<double> SCM<T, E>::r_ode_step_sizes() const {
   return solver.step_sizes();
+}
+
+template <typename T, typename E>
+Rcpp::IntegerVector SCM<T, E>::r_ode_step_attempts() const {
+  const odelia::ode::step_outcomes& o = solver.outcomes();
+  return Rcpp::IntegerVector::create(
+      Rcpp::_["accepted"] = static_cast<int>(o.accepted),
+      Rcpp::_["accepted_at_minimum"] = static_cast<int>(o.accepted_at_minimum),
+      Rcpp::_["rejected_inaccurate"] = static_cast<int>(o.rejected_inaccurate),
+      Rcpp::_["rejected_thrown"] = static_cast<int>(o.rejected_thrown),
+      Rcpp::_["rejected_refused"] = static_cast<int>(o.rejected_refused));
 }
 
 template <typename T, typename E>

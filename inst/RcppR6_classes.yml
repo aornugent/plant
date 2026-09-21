@@ -899,6 +899,12 @@ SCM:
       type: "std::vector<double>"
       access: member
       name_cpp: r_ode_step_sizes
+    # How each attempt at a step ended, counted over the run: accepted,
+    # accepted_at_minimum, rejected_inaccurate, rejected_thrown, rejected_refused.
+    ode_step_attempts:
+      type: "Rcpp::IntegerVector"
+      access: member
+      name_cpp: r_ode_step_attempts
     # Collection toggles (bound directly to the public members)
     collect: {type: bool, access: field}
     collect_refinement_errors: {type: bool, access: field}

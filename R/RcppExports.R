@@ -2773,6 +2773,10 @@ SCM___FF16__FF16_Env__ode_step_sizes__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__ode_step_sizes__get', PACKAGE = 'plant', obj_)
 }
 
+SCM___FF16__FF16_Env__ode_step_attempts__get <- function(obj_) {
+    .Call('_plant_SCM___FF16__FF16_Env__ode_step_attempts__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___FF16__FF16_Env__collect__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__collect__get', PACKAGE = 'plant', obj_)
 }
@@ -2887,6 +2891,10 @@ SCM___TF24__TF24_Env__ode_times__get <- function(obj_) {
 
 SCM___TF24__TF24_Env__ode_step_sizes__get <- function(obj_) {
     .Call('_plant_SCM___TF24__TF24_Env__ode_step_sizes__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___TF24__TF24_Env__ode_step_attempts__get <- function(obj_) {
+    .Call('_plant_SCM___TF24__TF24_Env__ode_step_attempts__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___TF24__TF24_Env__collect__get <- function(obj_) {
@@ -3005,6 +3013,10 @@ SCM___TF24f__TF24_Env__ode_step_sizes__get <- function(obj_) {
     .Call('_plant_SCM___TF24f__TF24_Env__ode_step_sizes__get', PACKAGE = 'plant', obj_)
 }
 
+SCM___TF24f__TF24_Env__ode_step_attempts__get <- function(obj_) {
+    .Call('_plant_SCM___TF24f__TF24_Env__ode_step_attempts__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___TF24f__TF24_Env__collect__get <- function(obj_) {
     .Call('_plant_SCM___TF24f__TF24_Env__collect__get', PACKAGE = 'plant', obj_)
 }
@@ -3119,6 +3131,10 @@ SCM___K93__K93_Env__ode_times__get <- function(obj_) {
 
 SCM___K93__K93_Env__ode_step_sizes__get <- function(obj_) {
     .Call('_plant_SCM___K93__K93_Env__ode_step_sizes__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___K93__K93_Env__ode_step_attempts__get <- function(obj_) {
+    .Call('_plant_SCM___K93__K93_Env__ode_step_attempts__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___K93__K93_Env__collect__get <- function(obj_) {
