@@ -662,3 +662,37 @@ test_that("a negative storage state is refused by name, not floored", {
   ind$set_state("storage", 1e-4)
   expect_no_error(ind$compute_rates(env))
 })
+
+test_that("a program replayed at other parameters holds by its times, not its sizes", {
+  # The sizes an adaptive run accepted are the sizes that kept the storage pool
+  # in its domain at the parameters that run used. Pinned to those sizes another
+  # parameter vector has nothing to shrink with, so the refusal above ends the
+  # run. Pinned to the times alone each interval is stepped to, and a refusal
+  # subdivides that interval, so the same grid carries.
+  p0 <- scm_base_parameters("TF24")
+  p0$max_patch_lifetime <- 2
+
+  run_at <- function(lma, times = NULL, sizes = NULL) {
+    p <- add_strategies(p0, trait_matrix(lma, "lma"))
+    env <- Environment("TF24")
+    env$extrinsic_drivers_set_constant("rainfall", 3.0)
+    scm <- SCM("TF24", "TF24_Env")(p, env, empty_events(), Control())
+    if (!is.null(times)) {
+      sched <- scm$node_schedule
+      sched$set_ode_steps(times, sizes)
+      scm$node_schedule <- sched
+    }
+    scm$run()
+    scm
+  }
+
+  free <- run_at(0.0825)
+  times <- free$ode_times
+  sizes <- free$ode_step_sizes
+
+  expect_error(run_at(0.0825 * 2, times, sizes), "storage is negative")
+
+  replayed <- run_at(0.0825 * 2, times, numeric(0))
+  expect_identical(replayed$ode_times, times)
+  expect_true(all(is.finite(replayed$offspring_production)))
+})
