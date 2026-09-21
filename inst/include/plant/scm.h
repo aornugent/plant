@@ -945,6 +945,13 @@ Rcpp::List SCM<T, E>::r_store_trajectory() {
         // odelia records an insertion; to a reader of plant it is the
         // introduction that made it.
         Rcpp::_["introduction"] = rec[i].insertion,
+        // The component whose weighted error set this step's size, as an R
+        // index, and that error. NA where the step formed no estimate.
+        Rcpp::_["error_index"] =
+            rec[i].error_index == odelia::ode::OdeControl::no_component
+                ? NA_INTEGER
+                : static_cast<int>(rec[i].error_index) + 1,
+        Rcpp::_["error_ratio"] = rec[i].error_ratio,
         Rcpp::_["state"] = rec[i].state);
   }
   return ret;
