@@ -47,12 +47,15 @@ for (x in names(strategy_types)) {
     expect_equal(length(patch$species), 1)
     expect_inherits(patch$species[[1]], sprintf("Species<%s,%s>",x,e))
     
-    # with no nodes, we only expect env vars
+    # With no nodes a species holds only what it carries beside them -- TF24's
+    # averaged establishment gate -- and the rest is the environment's.
     env_size <- env$ode_size
-    #fails here
+    beside_size <- patch$species[[1]]$ode_size
+    expect_equal(beside_size, if (x == "TF24") 1 else 0)
     env_state <- patch$ode_state
     env_rates <- patch$ode_rates
-    expect_equal(patch$ode_size, env_size)
+    expect_equal(patch$ode_size, beside_size + env_size)
+    expect_equal(patch$node_ode_size, 0)
     
     # either 0 or numeric(0)
     if(x %in% c("FF16", "K93")) {
@@ -62,8 +65,12 @@ for (x in names(strategy_types)) {
     if(x %in% c("TF24")) {
       length_odes <- env$get_soil_number_of_depths()
       soil_moist_inits <- c(rep(env$soil_moist_sat, length_odes)/2, rep(0,5))
-      expect_equal(patch$ode_state, soil_moist_inits)
-      expect_equal(patch$ode_rates, c(3.312786717, rep(0,4), 1.000000000, 0.996093750, 0.002257735, 0.000000000, 0.000000000), tolerance = 1e-4)
+      # The averaged gate starts where a newborn's gate stands, so its rate is
+      # exactly zero.
+      gate <- plant$establishment_probability(patch$environment)
+      expect_equal(patch$ode_state, c(gate, soil_moist_inits))
+      expect_equal(patch$ode_rates, c(0, 3.312786717, rep(0,4), 1.000000000, 0.996093750, 0.002257735, 0.000000000, 0.000000000), tolerance = 1e-4)
+      expect_identical(patch$ode_rates[[1]], 0)
     }
     
     expect_identical(patch$ode_state, env_state)
@@ -78,7 +85,7 @@ for (x in names(strategy_types)) {
     
     # introduce a node and expect different results
     node_size <- Node(x, e)(s)$ode_size
-    ode_size = node_size + env_size
+    ode_size = node_size + beside_size + env_size
     patch$introduce_new_node(1, 0)
     expect_equal(patch$node_ode_size, node_size)
     expect_equal(patch$ode_size, ode_size)
@@ -90,6 +97,8 @@ for (x in names(strategy_types)) {
     cmp$compute_initial_conditions(patch$environment, patch$pr_survival(0.0), 
                                    patch$species[[1]]$extrinsic_drivers$evaluate("birth_rate", 0))
      
+    # The node, then what the species carries beside it, then the environment:
+    # the state read before the introduction was the last two.
     ode_state <- c(cmp$ode_state, env_state)
     ode_rates <- c(cmp$ode_rates, env_rates)
     expect_identical(patch$ode_state, ode_state)
@@ -133,7 +142,7 @@ for (x in names(strategy_types)) {
     expect_equal(patch$derivs(y, 0), ode_rates)
 
     patch$reset()
-    expect_equal(patch$ode_size, env_size)
+    expect_equal(patch$ode_size, beside_size + env_size)
     expect_identical(patch$environment$time, 0.0)
   })
 

@@ -1398,6 +1398,7 @@ TF24_Pars:
     - theta_c: double
     - L_tip: double
     - recruitment_decay: double
+    - establishment_window: double
     - use_energy_balance: double
     - d: double
 

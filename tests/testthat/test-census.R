@@ -19,12 +19,14 @@ tf24_allometry_r <- function(pars, eta) {
 }
 
 # Every cohort's state, boundary node last, from the ODE state the species and
-# its boundary node write. The birth date is not ODE state and is read off the
-# nodes themselves.
+# its boundary node write. The species' own state is its nodes' followed by what
+# it carries beside them, so only the nodes' share is read. The birth date is not
+# ODE state and is read off the nodes themselves.
 species_state_r <- function(species) {
   names <- species$new_node$ode_names
   stride <- length(names)
-  flat <- c(species$ode_state, species$new_node$ode_state)
+  nodes <- utils::head(species$ode_state, length(species$nodes) * stride)
+  flat <- c(nodes, species$new_node$ode_state)
   s <- matrix(flat, nrow = stride, dimnames = list(names, NULL))
   data.frame(height = s["height", ],
              area_heartwood = s["area_heartwood", ],
@@ -76,9 +78,8 @@ census_r <- function(species, pars, eta, include_boundary = TRUE,
 #
 # ⚠️ SIX NODES RATHER THAN THE SEVENTY-EIGHT A DEFAULT SCHEDULE FILLS IN IS WHAT
 # MAKES THE BOUNDARY NODE READABLE. It is the reduction's closing grid point and
-# the one part of the seed no state column reports, so G3 reads it as the gap
-# between two references -- and that gap is 2.5e-07 of the main term here against
-# 6.1e-09 under a default schedule, where the reference's own floor is 9.5e-11.
+# the one part of the seed no node column reports, so G3 reads it through the
+# column of the averaged establishment gate it is seated at.
 #
 # What it does not carry is the claim that a real trajectory REACHES such a
 # state. Nothing here claims that; the premise is a guard on vacuity.
@@ -112,11 +113,10 @@ census_stand <- local({
 #
 # ⚠️ THE BOUNDARY NODE HAS TO MOVE WITH THE STATE, and a reference that holds it
 # fixed differentiates a different function. It is not ODE state:
-# census_state_and_trait_rows rebuilds it through set_state_and_boundary, from a
-# light field every cohort's height and density enters by the same product the
-# census integrates. Holding it fixed leaves a gap that grows with the stand --
-# 2.5e-07 here, 8.6e-05 on one grown to a lifetime of 12 -- and G3 below
-# measures it rather than absorbing it in a tolerance.
+# census_state_and_trait_rows rebuilds it through set_state_and_boundary, seated
+# at the species' averaged establishment gate, which is. Holding it fixed drops
+# that gate's column, which G3 below measures rather than absorbing it in a
+# tolerance.
 census_of_state <- function(scm, column, birth_date = TRUE) {
   strategy <- scm$parameters$strategies[[1]]
   patch <- scm$patch
@@ -235,11 +235,19 @@ test_that("G3: the seed is the census's derivative on the birth-date grid", {
   # and 54x at the furthest, so a seed built on the wrong one is nowhere a small
   # error.
   expect_gt(min(abs(got - over_height) / abs(over_birth_date)), 0.25)
-  # The boundary node's own response is in the seed. It is the one part of the
-  # answer no state column reports, and dropping it leaves every number finite:
-  # scm.h says the contribution goes to exactly zero with nothing thrown. What
-  # separates the two references is 2.5e-07, against the 9.5e-11 above.
-  expect_gt(min(abs(got - boundary_held) / abs(got)), 1e-8)
+  # The boundary node is seated at the species' averaged establishment gate,
+  # which the state holds, so at one state it answers to no node's: the node
+  # columns are the pinned reduction's. Its own response is the gate's column,
+  # the closing trapezium's weight times the density per unit gate times the
+  # metric at the seed -- the one part of the answer no node column reports, and
+  # scm.h says dropping it leaves every number finite.
+  expect_lt(max(abs(got - boundary_held) / abs(got)), 1e-10)
+  gate_col <- n_node * stride + 1L
+  k <- length(b)
+  gate <- scm$patch$ode_state[[gate_col]]
+  expect_gt(gate, 0)
+  expect_equal(unname(seed["leaf_area", gate_col]),
+               w[[k]] * density[[k]] / gate * area_leaf[[k]], tolerance = 1e-10)
 })
 
 test_that("G4: the seed reaches every state a metric reads", {

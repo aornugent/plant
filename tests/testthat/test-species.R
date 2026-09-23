@@ -15,6 +15,21 @@ height_coordinate_strategy <- function(x) {
   s
 }
 
+# What a species of model `x` carries beside its nodes: TF24's averaged
+# establishment gate.
+beside_nodes <- function(x) if (x == "TF24") 1L else 0L
+
+# Start an empty species' averaged establishment gate at its newborn's gate in
+# `env`, as a patch that starts empty does, so its boundary node is seeded where a
+# Node's own initial conditions are. Returns the gate, or nothing for a model
+# that establishes at the instant.
+start_window <- function(sp, x, s, env) {
+  if (beside_nodes(x) == 0L) return(numeric(0))
+  gate <- Individual(x, environment_types[[x]])(s)$establishment_probability(env)
+  sp$ode_state <- gate
+  gate
+}
+
 for (x in names(strategy_types)) {
   e <- environment_types[[x]]
 
@@ -34,11 +49,12 @@ for (x in names(strategy_types)) {
     expect_identical(sp$log_densities, numeric(0))
     expect_identical(sp$compute_competition_effect_by_nodes, numeric(0))
     expect_identical(sp$compute_competition_effect_by_nodes_error(1.0), numeric(0))
-    expect_equal(sp$ode_size, 0)
-    expect_identical(sp$ode_state, numeric(0))
-    expect_identical(sp$ode_rates, numeric(0))
+    expect_equal(sp$ode_size, beside_nodes(x))
+    expect_identical(sp$ode_state, numeric(beside_nodes(x)))
+    expect_identical(sp$ode_rates, numeric(beside_nodes(x)))
 
     ## Causes initial conditions to be estimated:
+    start_window(sp, x, s, env)
     sp$compute_rates(env, pr_patch_survival = 1, birth_rate = 1)
     new_node$compute_initial_conditions(env, pr_patch_survival = 1, birth_rate = 1)
 
@@ -119,6 +135,7 @@ for (x in names(strategy_types)) {
   test_that("Leaf area sensible with one node", {
     env <- Environment(x)
     sp <- Species(x, e)(height_coordinate_strategy(x))
+    gate <- start_window(sp, x, height_coordinate_strategy(x), env)
     sp$compute_rates(env, pr_patch_survival = 1, birth_rate = 1)
     sp$introduce_new_node()
     h_top <- sp$height_max * 4
@@ -136,14 +153,15 @@ for (x in names(strategy_types)) {
     ode_size <- Node(x, e)(height_coordinate_strategy(x))$ode_size
     ode_state <- sp$ode_state
     p <- sp$node_at(1)
-    expect_equal(sp$ode_size, ode_size)
-    expect_equal(length(ode_state), ode_size)
-    expect_identical(ode_state, p$ode_state)
+    expect_equal(sp$ode_size, ode_size + length(gate))
+    expect_equal(length(ode_state), ode_size + length(gate))
+    expect_identical(ode_state, c(p$ode_state, gate))
   })
 
   test_that("Leaf area sensible with two nodes", {
     env <- Environment(x)
     sp <- Species(x, e)(height_coordinate_strategy(x))
+    gate <- start_window(sp, x, height_coordinate_strategy(x), env)
     sp$compute_rates(env, pr_patch_survival = 1, birth_rate = 1)
     sp$introduce_new_node()
     h_top <- sp$height_max * 4
@@ -162,14 +180,16 @@ for (x in names(strategy_types)) {
     ode_size <- Node(x, e)(height_coordinate_strategy(x))$ode_size
     ode_state <- sp$ode_state
     nodes <- sp$nodes
-    expect_equal(sp$ode_size, ode_size * sp$size)
-    expect_equal(length(ode_state), ode_size * sp$size)
-    expect_identical(ode_state, unlist(lapply(nodes, function(p) p$ode_state)))
+    expect_equal(sp$ode_size, ode_size * sp$size + length(gate))
+    expect_equal(length(ode_state), ode_size * sp$size + length(gate))
+    expect_identical(ode_state,
+                     c(unlist(lapply(nodes, function(p) p$ode_state)), gate))
   })
 
   test_that("Leaf area sensible with three nodes", {
     env <- Environment(x)
     sp <- Species(x, e)(height_coordinate_strategy(x))
+    gate <- start_window(sp, x, height_coordinate_strategy(x), env)
     sp$compute_rates(env, pr_patch_survival = 1, birth_rate = 1)
     sp$introduce_new_node()
     h_top <- sp$height_max * 4
@@ -199,13 +219,15 @@ for (x in names(strategy_types)) {
     ode_size <- Node(x, e)(height_coordinate_strategy(x))$ode_size
     ode_state <- sp$ode_state
     nodes <- sp$nodes
-    expect_equal(length(ode_state), ode_size * sp$size)
-    expect_identical(ode_state, unlist(lapply(nodes, function(p) p$ode_state)))
+    expect_equal(length(ode_state), ode_size * sp$size + length(gate))
+    expect_identical(ode_state,
+                     c(unlist(lapply(nodes, function(p) p$ode_state)), gate))
   })
 
   test_that("set_birth_state restores per-node birth bookkeeping", {
     env <- Environment(x)
     sp <- Species(x, e)(height_coordinate_strategy(x))
+    start_window(sp, x, height_coordinate_strategy(x), env)
     sp$compute_rates(env, pr_patch_survival = 1, birth_rate = 1)
     for (i in seq_len(3)) sp$introduce_new_node()
     sp$heights <- sp$height_max * 40 * c(1, .75, .6)

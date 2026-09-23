@@ -1231,6 +1231,29 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_stops,
     } catch (const odelia::util::AdjointRangeError& e) {
       why = refusal{std::string("TF24 gradient: ") + e.what(), -1};
     }
+    // A run that starts empty seats each species' averaged establishment gate at
+    // the gate its first newborn reads, so the first recorded state reads the
+    // traits too. That seating is transposed here and its rows added to the
+    // traits'; the state's own adjoint stays the one the sweep ended on.
+    if constexpr (EstablishesOverWindow<T>) {
+      if (!why.happened() && parameters.initial_state.empty()) {
+        using scalar = odelia::ode::active_scalar<double>;
+        const trajectory rec = solver.recording();
+        odelia::ode::be_at_step(live, rec, 0);
+        const double t0 = rec[0].time;
+        auto start = [&](auto& sys, typename std::vector<scalar>::const_iterator x,
+                         std::vector<scalar>& y) -> void {
+          sys.set_state_and_boundary(x, t0);
+          sys.start_establishment_windows();
+          sys.ode_state(y.begin());
+        };
+        odelia::ode::adjoint_rows before_start;
+        odelia::ode::state_and_parameter_adjoints(live, rec[0].state, lambda,
+                                                  start, before_start,
+                                                  trait_adjoint);
+        odelia::ode::be_at_step(live, rec, rec.size() - 1);
+      }
+    }
     if (!why.happened()) {
       std::vector<std::vector<double>> at_first_state = lambda.to_rows();
 
@@ -1310,6 +1333,13 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
     x0[i] = rec[0].state[i];
   }
   active.set_ode_state(x0.begin(), rec[0].time);
+  // Where the run started empty its averaged establishment gates were seated at
+  // the gate, so they are seated again here and carry the direction too.
+  if constexpr (EstablishesOverWindow<T>) {
+    if (parameters.initial_state.empty()) {
+      active.start_establishment_windows();
+    }
+  }
 
   odelia::ode::Solver<decltype(active)> forward(active, make_ode_control(control));
   forward.set_collect(false);

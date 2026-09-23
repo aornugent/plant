@@ -36,8 +36,8 @@ test_that("a reloaded state carries the boundary node the run carries", {
   # they are the same function at different arguments: the first is taken with
   # every species' boundary interval left off, the field is then rebuilt including
   # it, and the second is taken in that rebuilt field. The reductions were built
-  # on the first; the water aggregation, an introduced node and a census all read
-  # the second.
+  # on the first; the water aggregation and the averaged establishment gate's rate
+  # read the second, through the boundary node's carbon.
   #
   # Every rebuild the sweep does -- the census seed, the census's direct term, the
   # replay of an introduction, and the introduction's own transpose -- starts from
@@ -50,21 +50,27 @@ test_that("a reloaded state carries the boundary node the run carries", {
   stand <- ladder_run(p)
 
   # What the run left behind is what the run introduced from and censused.
-  left <- ladder_boundary_density(stand)
+  left <- ladder_boundary_carbon(stand)
   patch <- ladder_as_patch(stand)
   both <- ladder_boundary_evaluations(patch, patch$ode_state, patch$ode_time)
 
   # Non-vacuity, and it is what the check rests on: if the two evaluations agreed
   # there would be no convention to get wrong and this check would pass on a
   # model that does not have the hazard.
-  gap <- max(abs(both$in_uptake - both$in_field) / abs(both$in_field))
+  gap <- max(abs(both$carbon_in_uptake - both$carbon_in_field) /
+               abs(both$carbon_in_field))
   message(sprintf("\n  the two evaluations differ by %.3e relative", gap))
   expect_gt(gap, 1e-6)
 
   # And the run carries the second, exactly. Tolerance is zero: this is a property
   # the implementation either has or does not.
-  expect_identical(both$in_uptake, left)
-  expect_false(isTRUE(all.equal(both$in_field, left, tolerance = 1e-12)))
+  expect_identical(both$carbon_in_uptake, left)
+  expect_false(isTRUE(all.equal(both$carbon_in_field, left, tolerance = 1e-12)))
+
+  # The density is seated at the averaged gate, which the state holds, so the two
+  # evaluations seat it at one value.
+  expect_identical(both$in_uptake, both$in_field)
+  expect_identical(both$in_uptake, ladder_boundary_density(stand))
 })
 
 test_that("the inflow condition's own parameters carry a row", {
@@ -130,7 +136,11 @@ test_that("the boundary node's row carries the field its own cohorts build", {
       expect_identical(got$dheight, 0)
     }
 
-    parts <- c("log_density", "carbon", if (reaches_birth_size) "height")
+    # The boundary density is seated at the averaged establishment gate, which
+    # the state holds, so at one state it has no row in any parameter: the field
+    # reaches it through the carbon, which the gate relaxes toward.
+    expect_identical(got$dlog_density, 0)
+    parts <- c("carbon", if (reaches_birth_size) "height")
     for (part in parts) {
       row <- got[[paste0("d", part)]]
       expect_gt(abs(row), 0)
@@ -208,20 +218,27 @@ test_that("the state a range resumes from is the one the introduction made", {
     held <- unlist(lapply(who, function(i) patch$species[[i]]$new_node$ode_state))
     before <- vapply(seq_len(length(patch$species)),
                      function(i) patch$species[[i]]$ode_size, numeric(1))
+    stride <- length(held) / length(who)
+    # A species' state is its nodes, then what it carries beside them, so a
+    # newcomer is pushed between the two.
+    nodes_before <- vapply(seq_len(length(patch$species)), function(i)
+      length(patch$species[[i]]$nodes) * stride, numeric(1))
     for (i in who) patch$introduce_new_node(i, times[[b]])
     post <- patch$ode_state
 
-    stride <- length(held) / length(who)
     carried <- integer(0)
     newcomer <- integer(0)
     q <- 0L
     for (i in seq_len(length(patch$species))) {
-      carried <- c(carried, q + seq_len(before[[i]]))
-      q <- q + before[[i]]
+      carried <- c(carried, q + seq_len(nodes_before[[i]]))
+      q <- q + nodes_before[[i]]
       if (i %in% who) {
         newcomer <- c(newcomer, q + seq_len(stride))
         q <- q + stride
       }
+      beside <- before[[i]] - nodes_before[[i]]
+      carried <- c(carried, q + seq_len(beside))
+      q <- q + beside
     }
     carried <- c(carried, q + seq_len(length(post) - q))
     expect_identical(post[carried], pre)
@@ -253,7 +270,9 @@ test_that("the newcomer depends on the state it was introduced into", {
   # Perturbing the soil at the introduction time is what exposes it, because a
   # boundary node taking its potentials from a cache has no visible dependence on
   # moisture at all -- and establishment is the most moisture-sensitive event in
-  # the life cycle.
+  # the life cycle. It is read through the newcomer's carbon, which its gate and
+  # the averaged gate's rate are taken from; its density is seated at the averaged
+  # gate, which is state.
   # The channel is isolated by perturbing the soil in the pre-introduction state
   # itself and introducing from each: comparing two whole runs would move the
   # answer whatever the newcomer reads, because two runs differ everywhere.
@@ -281,11 +300,12 @@ test_that("the newcomer depends on the state it was introduced into", {
     }
     patch
   }
-  newcomer_density <- function(state) {
+  newcomer <- function(state) {
     patch <- founding_patch()
     patch$set_ode_state(state, at)
     invisible(patch$ode_rates)
-    ladder_boundary_density(patch)
+    list(density = ladder_boundary_density(patch),
+         carbon = ladder_boundary_carbon(patch))
   }
 
   # The soil block begins after every species' nodes, so its offset is read off the
@@ -297,7 +317,7 @@ test_that("the newcomer depends on the state it was introduced into", {
                          function(i) template$species[[i]]$ode_size,
                          numeric(1))) + 1L
 
-  base <- newcomer_density(pre)
+  base <- newcomer(pre)
   # The top layer, and it has to be the top one: a plant at birth size is
   # shallow-rooted, so the deepest layer of the column does not reach it and a
   # perturbation there moves the newcomer by exactly zero. That is a property of
@@ -305,12 +325,20 @@ test_that("the newcomer depends on the state it was introduced into", {
   # the channel missing.
   bumped <- pre
   bumped[[moisture]] <- bumped[[moisture]] * 1.05
-  moved <- newcomer_density(bumped)
+  moved <- newcomer(bumped)
 
-  gap <- max(abs(moved - base) / abs(base))
+  gap <- max(abs(moved$carbon - base$carbon) / abs(base$carbon))
   message(sprintf("\n  a 5%% perturbation of the top layer moves the boundary node by %.3e",
                   gap))
   expect_gt(gap, 1e-9)
+
+  # The density answers to the averaged gate the state holds, and to the soil only
+  # through it.
+  expect_identical(moved$density, base$density)
+  gate <- template$species[[1]]$ode_size
+  shifted <- pre
+  shifted[[gate]] <- shifted[[gate]] * 0.95
+  expect_gt(abs(newcomer(shifted)$density[[1]] - base$density[[1]]), 0)
 })
 
 test_that("the initial condition carries no trait row on these fixtures", {
@@ -472,6 +500,13 @@ test_that("the census's sensitivity to a range's starting state is refereed", {
          ladder_census_initial_state_replay_tf24(stand, base - h * d, 0L)) /
         (2 * h)
     }
+    # Three steps, because two can agree by chance. The replayed census carries a
+    # round-off of about 1e-14, so a difference at 1e-6 resolves a few parts in a
+    # million at best, and on a component whose response is near-linear the two
+    # finer steps can land on the same error. Measured on species 1's averaged
+    # establishment gate: 3e-8, 3.8e-7 and 3.8e-7 from the tangent at 1e-4, 1e-5
+    # and 1e-6, the replay's residual about the tangent line +-8e-15 throughout.
+    wide <- along(1e-4)
     coarse <- along(1e-5)
     fine <- along(1e-6)
     scale <- max(abs(fine))
@@ -495,7 +530,8 @@ test_that("the census's sensitivity to a range's starting state is refereed", {
         max(abs(tangent)) / max(abs(none$value)), 1e-9)
       next
     }
-    floor <- max(max(abs(coarse - fine)) / scale, 4 * .Machine$double.eps)
+    floor <- max(max(abs(coarse - fine), abs(wide - fine), abs(wide - coarse)) /
+                   scale, 4 * .Machine$double.eps)
     ladder_report_margin(sprintf("d(census)/d(range 0 state %d)", i),
                          max(abs(tangent - fine)) / scale, 10 * floor)
   }

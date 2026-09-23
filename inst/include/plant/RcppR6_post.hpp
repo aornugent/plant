@@ -1408,6 +1408,7 @@ template <> inline SEXP wrap(const plant::TF24_Pars<double>& x) {
   ret["theta_c"] = Rcpp::wrap(x.theta_c);
   ret["L_tip"] = Rcpp::wrap(x.L_tip);
   ret["recruitment_decay"] = Rcpp::wrap(x.recruitment_decay);
+  ret["establishment_window"] = Rcpp::wrap(x.establishment_window);
   ret["use_energy_balance"] = Rcpp::wrap(x.use_energy_balance);
   ret["d"] = Rcpp::wrap(x.d);
   ret.attr("class") = "TF24_Pars";
@@ -1552,6 +1553,8 @@ template <> inline plant::TF24_Pars<double> as(SEXP x) {
   ret.L_tip = Rcpp::as<double >(xl["L_tip"]);
   // ret.recruitment_decay = Rcpp::as<decltype(retrecruitment_decay) >(xl["recruitment_decay"]);
   ret.recruitment_decay = Rcpp::as<double >(xl["recruitment_decay"]);
+  // ret.establishment_window = Rcpp::as<decltype(retestablishment_window) >(xl["establishment_window"]);
+  ret.establishment_window = Rcpp::as<double >(xl["establishment_window"]);
   // ret.use_energy_balance = Rcpp::as<decltype(retuse_energy_balance) >(xl["use_energy_balance"]);
   ret.use_energy_balance = Rcpp::as<double >(xl["use_energy_balance"]);
   // ret.d = Rcpp::as<decltype(retd) >(xl["d"]);

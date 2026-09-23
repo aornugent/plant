@@ -243,6 +243,10 @@ struct TF24_Pars {
   S L_tip = 0.02;
   // Germination
   S recruitment_decay = 0.0;
+  // The time a newborn's establishment integrates its conditions over [yr]. It
+  // establishes on the gate its carbon at birth size sets, averaged over the
+  // conditions of about this long before its birth; see Species::establishment.
+  S establishment_window = 0.05;
   // Penman-Monteith leaf energy balance (#523). use_energy_balance gates PM
   // (0 = off, today's Tleaf=Tair behaviour; != 0 = on); default off preserves
   // backward compatibility. d is the characteristic leaf dimension (m) for the
@@ -390,6 +394,7 @@ struct TF24_Pars {
       PLANT_TF24_AD_PARAMETER(theta_c),
       PLANT_TF24_AD_PARAMETER(L_tip),
       PLANT_TF24_AD_PARAMETER(recruitment_decay),
+      PLANT_TF24_AD_PARAMETER(establishment_window),
       PLANT_TF24_AD_PARAMETER(use_energy_balance),
       PLANT_TF24_AD_PARAMETER(d)
   };
@@ -745,7 +750,11 @@ public:
   // neither model reads either: the curve count is read at one site, building
   // the Leaf, and the floor only by the sweep. Both suites are green on their
   // pinned outputs.
-  static constexpr int scientific_version = 11;
+  // v12: a newborn establishes on its gate averaged over establishment_window
+  // (0.05 yr) rather than on the gate at its instant; one state per species.
+  // Lifetime-40 long-drought stand, lma 0.32: J 12.0526 -> 12.1172 on the
+  // default schedule, 12.417 -> 12.573 converged; 9931 -> 9917 steps.
+  static constexpr int scientific_version = 12;
 
   S compute_average_light_environment(const S& z, const S& height,
                                       const TF24_Environment<S> &environment);
@@ -1083,6 +1092,8 @@ public:
   // The equation the two above share.
   S establishment_probability(const TF24_Environment<S>& environment,
                               const S& net_mass_production_dt_);
+  // The gate a newborn establishes on is this one averaged over this long.
+  const S& establishment_window() const { return pars.establishment_window; }
 
   // * Competitive environment
   // [eqn 11] total projected leaf area above height above height `z` for given plant
@@ -2865,6 +2876,14 @@ void TF24_Strategy<S>::prepare_strategy() {
         "L_tip must be shorter than the birth-size flow path (height_0*eta_c): "
         "a plant cannot be smaller than one terminal segment");
     }
+  }
+
+  // The window divides the rate the averaged gate relaxes at.
+  const double window = odelia::util::to_passive(pars.establishment_window);
+  if (!(window > 0.0) || !std::isfinite(window)) {
+    throw std::invalid_argument(
+      "establishment_window must be a positive, finite time in years: it is "
+      "the timescale the gate a newborn establishes on is averaged over");
   }
 
   if (this->is_variable_birth_rate) {

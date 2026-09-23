@@ -19,6 +19,13 @@
 
 namespace plant {
 
+// A strategy whose newborn establishes on its gate averaged over a window of time,
+// rather than on the gate at the instant it is born.
+template <typename T>
+concept EstablishesOverWindow = requires(const T& s) {
+  { s.establishment_window() } -> std::convertible_to<typename T::value_type>;
+};
+
 // This is purely for running the deterministic model. It shares its storage and
 // ODE plumbing with the stochastic species through SpeciesBase (species_base.h);
 // the size-density-specific machinery below (density-weighted competition,
@@ -40,11 +47,9 @@ public:
   // Build on a strategy that is already prepared; see SpeciesBase.
   explicit Species(strategy_type_ptr s);
 
-  // ODE plumbing and the per-element serialisers are inherited from SpeciesBase
-  // and iterate all nodes (the deterministic model has no notion of "dead").
-  using base_type::ode_size;
-  using base_type::ode_state;
-  using base_type::ode_rates;
+  // The per-element serialisers are inherited from SpeciesBase. The ODE state is
+  // every node's, then the averaged gate where the strategy establishes over a
+  // window.
   using base_type::get_node_state;
   using base_type::get_node_aux;
   typename std::vector<node_type>::iterator node_begin() { return nodes.begin(); }
@@ -123,8 +128,16 @@ public:
   // of compute_rates() so the field build owns it and the field stops reading a
   // density carried from the previous evaluation.
   void compute_boundary_node(const environment_type& environment,
-                             double pr_patch_survival, double birth_rate) {
-    new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+                             double pr_patch_survival, double birth_rate);
+
+  // Put the averaged gate where the gate the boundary node last read stands, as
+  // though conditions had held for the whole window. Reads the boundary node, so
+  // it follows an evaluation of it.
+  void start_establishment_window(const environment_type& environment) {
+    if constexpr (EstablishesOverWindow<T>) {
+      establishment =
+        new_node.individual.establishment_probability_of_newborn(environment);
+    }
   }
 
   // The trapezium integral of n_k psi(state_k) over the size distribution, with
@@ -140,8 +153,8 @@ public:
   // nowhere else, because every node shares it.
   template <class F>
   void for_each_active(F&& f) {
-    odelia::ode::visit_active(f, nodes, new_node, height_scan_cache.h_max,
-                              strategy);
+    odelia::ode::visit_active(f, nodes, new_node, establishment,
+                              establishment_dt, height_scan_cache.h_max, strategy);
   }
 
   // Whether the decreasing-height node ordering still holds (see height_max()).
@@ -159,11 +172,33 @@ public:
   // knot, so this is hundreds of calls per change. Every mutator invalidates.
   const HeightScan& scan_heights() const;
 
+  // The entries this species carries beside its nodes.
+  static constexpr size_t window_size = EstablishesOverWindow<T> ? 1 : 0;
+  size_t ode_size() const { return base_type::ode_size() + window_size; }
+
   // Setting the ODE state rewrites every node's height, so the cached scan goes
   // with it. Shadows (rather than uses) the SpeciesBase version for that reason.
   template <typename It> It set_ode_state(It it) {
     invalidate_height_scan();
-    return base_type::set_ode_state(it);
+    it = base_type::set_ode_state(it);
+    if constexpr (EstablishesOverWindow<T>) {
+      establishment = *it++;
+    }
+    return it;
+  }
+  template <typename It> It ode_state(It it) const {
+    it = base_type::ode_state(it);
+    if constexpr (EstablishesOverWindow<T>) {
+      util::write_iterator_scalar(it, establishment);
+    }
+    return it;
+  }
+  template <typename It> It ode_rates(It it) const {
+    it = base_type::ode_rates(it);
+    if constexpr (EstablishesOverWindow<T>) {
+      util::write_iterator_scalar(it, establishment_dt);
+    }
+    return it;
   }
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
 
@@ -318,6 +353,10 @@ private:
   using base_type::strategy;
   using base_type::control;
   node_type new_node;
+  // The gate the boundary node is seeded at, for a strategy that establishes over
+  // a window: its newborns' gate averaged over the window, and the rate of that.
+  value_type establishment{0.0};
+  value_type establishment_dt{0.0};
 
   // The abscissa every reduction over the size distribution is taken over,
   // increasing as the node list is walked from the tallest down. Heights are
@@ -725,8 +764,26 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   // rated in. This is not the evaluation the field itself reads -- that one is in
   // a field excluding the boundary interval, and Patch::compute_environment owns
   // it -- so the two are the same function at different arguments rather than one
-  // computed twice. This value is the one an introduced node inherits.
-  new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+  // computed twice. This value is the one an introduced node inherits, and the
+  // averaged gate's rate is the one this evaluation reports.
+  compute_boundary_node(environment, pr_patch_survival, birth_rate);
+}
+
+template <typename T, typename E>
+void Species<T,E>::compute_boundary_node(const environment_type& environment,
+                                         double pr_patch_survival,
+                                         double birth_rate) {
+  if constexpr (EstablishesOverWindow<T>) {
+    new_node.compute_initial_conditions(environment, pr_patch_survival,
+                                        birth_rate, establishment);
+    // Relaxes toward the gate the newborn reads at this instant.
+    establishment_dt =
+      (new_node.individual.establishment_probability_of_newborn(environment) -
+       establishment) / strategy->establishment_window();
+  } else {
+    new_node.compute_initial_conditions(environment, pr_patch_survival,
+                                        birth_rate);
+  }
 }
 
 template <typename T, typename E>

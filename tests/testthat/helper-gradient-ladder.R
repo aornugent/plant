@@ -646,22 +646,34 @@ ladder_boundary_density <- function(x) {
          function(i) patch$species[[i]]$new_node$log_density, numeric(1))
 }
 
+# Each species' boundary node's carbon at birth size, which its gate is read from.
+ladder_boundary_carbon <- function(x) {
+  patch <- ladder_as_patch(x)
+  vapply(seq_len(length(patch$species)), function(i)
+    patch$species[[i]]$new_node$individual$aux("net_mass_production_dt"),
+    numeric(1))
+}
+
 # The inflow condition at each of its two evaluations, from one recorded state.
 #
 # A stage evaluates it twice. `in_field` is the one a state load produces, taken
 # in the field with every species' boundary interval left off -- the field is then
 # rebuilt including it, so this is the value the reductions were built on.
 # `in_uptake` is the one a rate evaluation produces, taken in that rebuilt field;
-# it is the value the water aggregation reads, the value an introduced node
-# inherits, and the value a census reports.
+# it is the value the water aggregation reads and the carbon the averaged
+# establishment gate's rate reads.
 #
 # They are the same function at different arguments, so nothing about either number
-# says which one a caller is holding.
+# says which one a caller is holding. The density is seated at the averaged gate,
+# which is state, so it is one value at both; the carbon is where they differ.
 ladder_boundary_evaluations <- function(patch, state, time) {
   patch$set_ode_state(state, time)
   in_field <- ladder_boundary_density(patch)
+  carbon_in_field <- ladder_boundary_carbon(patch)
   invisible(patch$ode_rates)
-  list(in_field = in_field, in_uptake = ladder_boundary_density(patch))
+  list(in_field = in_field, in_uptake = ladder_boundary_density(patch),
+       carbon_in_field = carbon_in_field,
+       carbon_in_uptake = ladder_boundary_carbon(patch))
 }
 
 # A gradient's columns with their species index stripped. A check written about a
@@ -758,9 +770,14 @@ ladder_rate_names <- function(x) {
   patch <- ladder_as_patch(x)
   out <- character(0)
   for (i in seq_len(length(patch$species))) {
-    for (node in patch$species[[i]]$nodes) {
+    sp <- patch$species[[i]]
+    for (node in sp$nodes) {
       out <- c(out, node$ode_names)
     }
+    # What the species carries after its nodes: TF24's averaged establishment
+    # gate.
+    beside <- sp$ode_size - length(sp$nodes) * sp$new_node$ode_size
+    out <- c(out, rep("establishment", beside))
   }
   n <- length(patch$ode_state)
   stopifnot(length(out) <= n)
@@ -1396,17 +1413,18 @@ ladder_reproductive_rates <- function() {
 
 # Reach the census through the introduction boundary and through nothing else.
 # The block is one individual's physiology and reads none of them: the
-# establishment probability, its decay in patch age and the initial reserve are
-# evaluated once per introduction, at the seed size, in the field the newcomer is
-# placed in. So an exact zero in the BLOCK is correct here and an exact zero in
-# the census is not -- which is the whole content of the class, and is why the
-# two levels carry different declared lists.
+# establishment probability, its decay in patch age, the window it is averaged
+# over and the initial reserve are evaluated at the boundary node, at the seed
+# size, in the field the newcomer is placed in. So an exact zero in the BLOCK is
+# correct here and an exact zero in the census is not -- which is the whole
+# content of the class, and is why the two levels carry different declared lists.
 #
 # The other half of the claim is asserted where it can be: the floor's census
-# classification puts all three in the live class, and the introductions file's single-channel
-# probes take a_st3 and recruitment_decay by name.
+# classification puts all four among the columns that reach the census, and the
+# introductions file's single-channel probes take a_st3 and recruitment_decay by
+# name.
 ladder_zero_outside_the_cohort_block <- function() {
-  c("a_d0", "a_st3", "recruitment_decay")
+  c("a_d0", "a_st3", "recruitment_decay", "establishment_window")
 }
 
 # Survival during dispersal. It enters no rate and multiplies every node's

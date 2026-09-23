@@ -24,6 +24,11 @@ public:
 
   void compute_rates(const environment_type& environment, double pr_patch_survival);
   void compute_initial_conditions(const environment_type& environment, double pr_patch_survival, double birth_rate);
+  // The same, seeded at an establishment probability the caller holds rather
+  // than the one the newborn reads at this instant.
+  void compute_initial_conditions(const environment_type& environment,
+                                  double pr_patch_survival, double birth_rate,
+                                  const value_type& pr_estab);
 
   // Wrapper to growth_rate_gradient for testing
   value_type r_growth_rate_gradient(const environment_type& environment);
@@ -147,6 +152,14 @@ private:
   void compute_node_rates(const environment_type& environment,
                           double pr_patch_survival);
 
+  // The two halves of the inflow condition: the newborn's own rates, then its
+  // state and the node's rates seated at an establishment probability.
+  void compute_rates_at_birth(const environment_type& environment,
+                              double pr_patch_survival);
+  void seat_at_birth(const environment_type& environment,
+                     double pr_patch_survival, double birth_rate,
+                     const value_type& pr_estab);
+
   // This is the gradient of growth rate with respect to height:
   value_type growth_rate_gradient(const environment_type& environment) const;
 
@@ -220,20 +233,40 @@ void Node<T,E>::compute_rates(const environment_type& environment,
 template <typename T, typename E>
 void Node<T,E>::compute_initial_conditions(const environment_type& environment,
                                              double pr_patch_survival, double birth_rate) {
+  compute_rates_at_birth(environment, pr_patch_survival);
+  seat_at_birth(environment, pr_patch_survival, birth_rate,
+                individual.establishment_probability_of_newborn(environment));
+}
+
+template <typename T, typename E>
+void Node<T,E>::compute_initial_conditions(const environment_type& environment,
+                                           double pr_patch_survival,
+                                           double birth_rate,
+                                           const value_type& pr_estab) {
+  compute_rates_at_birth(environment, pr_patch_survival);
+  seat_at_birth(environment, pr_patch_survival, birth_rate, pr_estab);
+}
+
+template <typename T, typename E>
+void Node<T,E>::compute_rates_at_birth(const environment_type& environment,
+                                       double pr_patch_survival) {
   pr_patch_survival_at_birth = pr_patch_survival;
   // Seed strategy-specific initial states (e.g. TF24f's tracked psi at its
   // optimum) before the first rates evaluation, so the birth growth rate uses
   // the initialised operating point rather than a default.
   individual.set_initial_states(environment);
   // ⚠️ THE INDIVIDUAL'S RATES ONLY. The node's own two come after the seeding
-  // below, because both read state it writes -- taken here, the density rate is
-  // guarded against the density this node held BEFORE birth, which on one being
-  // born for the first time is zero, and the rate it reports is that zero for
-  // the whole of the node's first evaluation.
+  // in seat_at_birth, because both read state it writes -- taken here, the
+  // density rate is guarded against the density this node held BEFORE birth,
+  // which on one being born for the first time is zero, and the rate it reports
+  // is that zero for the whole of the node's first evaluation.
   individual.compute_rates(environment);
+}
 
-  const value_type pr_estab =
-    individual.establishment_probability_of_newborn(environment);
+template <typename T, typename E>
+void Node<T,E>::seat_at_birth(const environment_type& environment,
+                              double pr_patch_survival, double birth_rate,
+                              const value_type& pr_estab) {
   // Held at establishment_failure_hazard on the zero arm rather than at the
   // -log(0) the equation gives; see the constant for what an infinite state
   // costs the reverse pass.
@@ -246,7 +279,7 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   // dh/dtau = -g(H_0) at birth, so this is |dh/dtau| exactly, with no
   // differencing: characteristics are labelled by birth date, and a cohort born
   // an instant later starts an instant's growth behind. Recorded for every node
-  // (a cheap read -- compute_rates() above has just set it, and the height
+  // (a cheap read -- compute_rates_at_birth() has just set it, and the height
   // branch below needs it anyway), but only current for the *boundary* node,
   // which compute_initial_conditions() re-evaluates every step. For an
   // introduced node it is frozen at its own birth and so cannot serve as its

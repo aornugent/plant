@@ -228,8 +228,9 @@ make_initial_state <- function(p, heights, densities = NULL,
     log_densities <- as_list(log_densities)
   }
 
-  ## Learn the node ODE layout and the (node-free) environment ODE tail from a
-  ## fresh patch, plus the patch-age-0 disturbance weights for birth bookkeeping.
+  ## Learn the node ODE layout, what each species carries beside its nodes and
+  ## the environment ODE tail from a fresh patch, plus the patch-age-0
+  ## disturbance weights for birth bookkeeping.
   patch <- do.call("Patch", types)(p, env, ctrl)
   ode_names <- patch$species[[1]]$new_node$ode_names
   hi <- match("height", ode_names)
@@ -238,7 +239,11 @@ make_initial_state <- function(p, heights, densities = NULL,
     stop("could not locate 'height'/'log_density' in node ODE names")
   }
   node_ode_size <- length(ode_names)
-  env_state <- patch$ode_state # fresh patch has no nodes: environment ODE only
+  ## A fresh patch has no nodes, so each species' state is only what it carries
+  ## beside them (TF24's averaged establishment gate), and the rest is the
+  ## environment's.
+  species_state <- lapply(patch$species, function(s) s$ode_state)
+  env_state <- utils::tail(patch$ode_state, patch$environment$ode_size)
   pr_surv0 <- patch$pr_survival(0)
   dens0 <- patch$density(0)
 
@@ -260,7 +265,9 @@ make_initial_state <- function(p, heights, densities = NULL,
     mat <- matrix(0, nrow = node_ode_size, ncol = length(h))
     mat[hi, ] <- h
     mat[ldi, ] <- ld
-    ode_chunks[[i]] <- as.vector(mat) # column-major: node-by-node, matching set_ode_state
+    ## column-major: node-by-node, then the species' own entries, matching
+    ## set_ode_state
+    ode_chunks[[i]] <- c(as.vector(mat), species_state[[i]])
     n[i] <- length(h)
     node_times[[i]] <- rep(0, length(h))
     patch_density[[i]] <- rep(dens0, length(h))

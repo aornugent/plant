@@ -78,6 +78,7 @@ test_that("Defaults", {
     theta_c = 0,
     L_tip = 0.02,
     recruitment_decay = 0,
+    establishment_window = 0.05,
     use_energy_balance = 0,
     d = 0.05)
 

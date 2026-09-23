@@ -216,10 +216,22 @@ public:
   std::pair<size_t, double> scale_node_densities(size_t species_index,
                                                  Select select);
 
-  // Open to better ways to test whether nodes have been introduced
+  // The nodes' share of the ODE state, which is what an introduction widens.
   int node_ode_size() const {
-    int node_ode_size = ode_size() - environment.ode_size();
-    return(node_ode_size);
+    size_t n = 0;
+    for (const species_type& s : species) {
+      n += s.size();
+    }
+    return static_cast<int>(n * node_type::ode_size());
+  }
+
+  // Put every species' averaged establishment gate where its newborn's gate now
+  // stands. A run that starts empty starts here, so its first recorded state
+  // reads the traits through the gate.
+  void start_establishment_windows() {
+    for (species_type& s : species) {
+      s.start_establishment_window(environment);
+    }
   }
 
   const species_type& at_species(size_t species_index) const {
@@ -611,10 +623,10 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
                                    species[i].r_pr_patch_survival_at_birth());
   }
 
-  std::vector<U> node_state(node_ode_size());
-  odelia::ode::ode_state(species.begin(), species.end(), node_state.begin());
+  std::vector<U> species_state(ode_size() - environment.ode_size());
+  odelia::ode::ode_state(species.begin(), species.end(), species_state.begin());
   odelia::ode::set_ode_state(out.species.begin(), out.species.end(),
-                             node_state.begin());
+                             species_state.begin());
 
   // reset() in the constructor cleared the environment back to its initial
   // soil state, so restore the current one before the spline is rebuilt. Moved,
@@ -670,6 +682,7 @@ void Patch<T,E>::reset() {
     check_initial_density_rates();
   } else {
     compute_environment();
+    start_establishment_windows();
 
     // compute effects of resource consumption
     compute_rates();
@@ -1732,13 +1745,15 @@ bool Patch<T,E>::ode_state_valid(const std::vector<double>& y) const {
   const size_t stride = node_type::ode_size();
   size_t at = 0;
   for (const auto& sp : species) {
-    for (size_t k = 0; k < sp.size(); ++k, at += stride) {
+    // A species' nodes, then what it carries beside them.
+    for (size_t k = 0; k < sp.size(); ++k) {
       for (const size_t i : bounded) {
-        if (y[at + i] < 0.0) {
+        if (y[at + k * stride + i] < 0.0) {
           return false;
         }
       }
     }
+    at += sp.ode_size();
   }
   return true;
 }

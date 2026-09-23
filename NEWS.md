@@ -13,6 +13,39 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **A TF24 newborn establishes on its gate averaged over `establishment_window`
+  (`TF24@v12`, `TF24f@v12.1`).** `TF24_Pars` gains `establishment_window`, in
+  years, default `0.05`, with a gradient column. Each species carries one more
+  ODE state, its averaged gate `E`, which follows
+  `dE/dt = (g(P) - E) / establishment_window` toward the gate
+  `g(P) = P^2 / (A^2 + P^2)` of a birth-size individual's carbon `P`. The
+  boundary node is seeded at `E` -- mortality `-log(E)`, density
+  `birth_rate * E` -- rather than at `g(P)`. A patch that starts empty starts
+  each `E` at its newborn's gate, so its rate starts at exactly zero. A window
+  that is not positive and finite is refused.
+
+  Migration: the flat ODE state gains one entry per TF24 or TF24f species, after
+  that species' nodes and before the next species'; the environment's state
+  still comes last. Code that walks `Patch$ode_state`,
+  `export_patch_state()$ode_state` or `SCM$store_trajectory()` rows in strides of
+  a node's size has to step over it. `Species$ode_size` counts it,
+  `Patch$node_ode_size` does not, and `make_initial_state()` writes it. A
+  `Species` built on its own, outside a `Patch`, holds `E = 0` until its
+  `ode_state` is set, so its newborns are seeded at zero density. FF16 and K93
+  carry nothing beside their nodes and are bit-identical. The stochastic patch
+  still establishes on the gate at the instant.
+
+  Measured on the lifetime-40 long-drought stand at `lma = 0.32`: the opening a
+  newborn's density reads widens from 0.06 to 40 days (10–90%, median) and the
+  closing from 1.7 to 18; `J` moves 12.0526 -> 12.1172 on the default 108-node
+  schedule and 12.417 -> 12.573 converged (+1.26%); accepted steps 9931 -> 9917.
+  The ladder's two-species reference stands move by at most 3.2e-04 relative.
+
+  ⚠️ **A node schedule built for the instantaneous gate is wrong for the averaged
+  one.** A mesh that leaves the dead bands without nodes -- they carried no
+  establishment before -- now spreads the averaged gate's decay over the whole
+  band by the trapezium, and reads `J` 1.9% low on that stand.
+
 * **`Control$save_RK45_cache` is gone, and `run_mutant()` no longer needs it.**
   Migration: delete the setting. It was the opt-in for the invasion-fitness
   recorder, set on the RESIDENT run one call before the one that needed it -- so a
