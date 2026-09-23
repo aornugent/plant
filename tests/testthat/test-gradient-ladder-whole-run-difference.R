@@ -30,7 +30,7 @@ reference_rows <- function() {
   # padding is stripped -- and a silently character column makes every comparison
   # below an error rather than a disagreement.
   rows <- utils::read.delim(path, stringsAsFactors = FALSE, strip.white = TRUE)
-  for (column in c("converged", "spread", "step")) {
+  for (column in c("converged", "spread", "step", "s1", "s2")) {
     rows[[column]] <- as.numeric(rows[[column]])
   }
   # A row with no metric is the capture's own record of a column it could not
@@ -54,10 +54,11 @@ reference_stand <- function(regime) {
 # The columns this reference carries no row for. Two default to 0, so the
 # capture's RELATIVE step `abs(value) * rel` is 0 and the difference moves no
 # parameter at all; their rows record that refusal and carry no metric, which
-# reference_rows() drops. Survival during dispersal has no row and needs none: it
-# enters no rate and offspring production is linear in it, so its column is
-# exactly the value over itself, which test-census.R referees to round-off and a
-# difference of whole runs could only approximate.
+# reference_rows() drops. Survival during dispersal does carry rows, and its
+# column is exactly the value over itself on offspring production, which
+# test-census.R referees to round-off; a difference of whole runs only
+# approximates it, so it is declared zero-by-construction below rather than
+# refereed here.
 #
 # ⚠️ ASSERTED BOTH WAYS, because the alternative is what this rung did while
 # passing at 13: `reference_compare` drops a reference row whose column the sweep
@@ -65,8 +66,15 @@ reference_stand <- function(regime) {
 # column the REFERENCE does not carry. Forty of forty-eight were refereed and
 # nothing said so.
 reference_uncaptured_columns <- function() {
-  c("S_D", "TF24_floor_lambda_o", "recruitment_decay")
+  c("TF24_floor_lambda_o", "recruitment_decay")
 }
+
+# Columns whose reference steps straddle a jump in the census, by regime, read at
+# the finest step. On `clamped` species 1's census jumps between a_bio (1 + 7e-6)
+# and a_bio (1 + 1e-5), where the forward difference of leaf_area goes -17.062 to
+# -61.468, so the capture's rule picks its 1e-4/1e-3 pair (-19.855); every central
+# difference from 1e-7 to 7e-6 reads -17.0943 to -17.0950, the sweep -17.0950.
+reference_straddled_jump <- list(clamped = "1.a_bio")
 
 reference_compare <- function(regime, rows) {
   scm <- reference_stand(regime)
@@ -80,8 +88,10 @@ reference_compare <- function(regime, rows) {
     mine$metric %in% rownames(got$gradient)
   mine <- mine[keep, , drop = FALSE]
   column <- column[keep]
+  straddles <- column %in% reference_straddled_jump[[regime$name]]
+  reference <- ifelse(straddles, mine$s1, mine$converged)
   observed <- got$gradient[cbind(mine$metric, column)]
-  scale <- tapply(pmax(abs(mine$converged), abs(observed)), mine$metric, max)
+  scale <- tapply(pmax(abs(reference), abs(observed)), mine$metric, max)
   list(name = regime$name, column = column, metric = mine$metric,
        parameter = mine$parameter,
        observed = observed,
@@ -96,14 +106,18 @@ reference_compare <- function(regime, rows) {
        reason = if (any(stand_gradient_refused(got)))
                   got$refusal[[which(stand_gradient_refused(got))[[1]]]]$reason
                 else NA_character_,
-       reference = mine$converged,
+       reference = reference,
+       straddles = straddles,
+       # The jump's mark on a straddling column: its second step's distance from
+       # its first.
+       jump = abs(mine$s2 - mine$s1) / unname(scale[mine$metric]),
        # The capture's own resolution and this rung's disagreement, divided by
        # one scale in one place: the capture reports the gap between the two
        # readings it chose between in the metric's own units, and normalising it
-       # anywhere but here would be a second division that hides this one.
-       spread = mine$spread / unname(scale[mine$metric]),
-       residual = abs(observed - mine$converged) /
-         unname(scale[mine$metric]))
+       # anywhere but here would be a second division that hides this one. A
+       # column read at its finest step has no pair, so only the floor applies.
+       spread = ifelse(straddles, 0, mine$spread) / unname(scale[mine$metric]),
+       residual = abs(observed - reference) / unname(scale[mine$metric]))
 }
 
 # The regimes whose descent leaves the range a double holds, so this reference
@@ -172,12 +186,19 @@ test_that("the sweep agrees with a difference of whole runs, over five regimes",
     # column that is exactly zero against a difference that is merely small.
     live <- !r$refused & !(r$parameter %in% ladder_zero_by_construction())
     expect_gt(sum(live), 200)
+    # Each declared straddle is present and still shows its jump, so a capture
+    # that moves the jump off the first two steps fails here, not silently.
+    declared <- as.character(reference_straddled_jump[[r$name]])
+    expect_setequal(unique(r$column[r$straddles]), declared)
+    for (column in declared) {
+      expect_gt(max(r$jump[r$column == column]), 5 * 2e-3)
+    }
     # The reference's own resolution, with a floor: where its four steps agreed
     # to round-off, the sweep is still only asked to agree to the truncation the
-    # coarsest of them carries. Over 270 answered columns a regime, the worst
-    # reads 1.1e-03 on drought, 7.6e-04 on seasonal and 6.3e-05 on wet -- and all
-    # three are `theta` or `omega`, which reach the census through the channels
-    # the leaf boundary carries and are the last columns to resolve.
+    # coarsest of them carries. Over 368 answered columns a regime, the worst
+    # reads 1.5e-03 on drought, 8.1e-05 on seasonal and 6.9e-05 on wet -- and all
+    # three are `omega`, which reaches the census through the channels the leaf
+    # boundary carries and is among the last columns to resolve.
     tolerance <- pmax(3 * r$spread, 2e-3)
     over <- live & r$residual > tolerance
     # ⚠️ THIS RUNG IS WHAT FOUND THE KNOT GRID, and the floor is what found it.
