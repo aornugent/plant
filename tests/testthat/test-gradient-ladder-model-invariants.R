@@ -346,8 +346,11 @@ test_that("every trait column resolves to one declared class", {
     "live"
   }
 
+  # Classified on the size metrics, which is what the declarations are about;
+  # offspring production reads what they declare themselves outside of.
+  size <- ladder_size_metrics()
   classes <- vapply(seq_along(bare),
-                    function(j) classify(g[, j], bare[[j]]), character(1))
+                    function(j) classify(g[size, j], bare[[j]]), character(1))
   names(classes) <- colnames(g)
 
   message("\ntrait column classes:")
@@ -364,6 +367,11 @@ test_that("every trait column resolves to one declared class", {
   # the classification absent.
   expect_gt(sum(classes == "zero by construction"), 0L)
   expect_gt(sum(classes == "live"), 0L)
+  # A declared zero is live on offspring production, where its reason stops
+  # applying.
+  for (col in names(classes)[classes == "zero by construction"]) {
+    expect_true(g["offspring_production", col] != 0, label = col)
+  }
 })
 
 test_that("each declared zero is zero for the cause it is declared for", {
@@ -397,11 +405,15 @@ test_that("each declared zero is zero for the cause it is declared for", {
       # moves nothing at all, and that is complementary slackness rather than a
       # missing row -- the same parameter carries the whole row at a pin.
       expect_length(moved, 0L)
+    } else if (name %in% ladder_zero_outside_every_rate()) {
+      # A factor on the offspring reduction, read by no rate at all -- so the
+      # column reaches offspring production through the census alone.
+      expect_length(moved, 0L)
     } else {
       # The two reproductive accumulators and nothing else. A third rate would
-      # make the census's silence about the column wrong, and neither of these
-      # two is read by any metric or by any equation -- which is why the same
-      # column would be live on a fitness functional.
+      # make the size metrics' silence about the column wrong; neither of these
+      # two is read by a size metric or by any other equation, and offspring
+      # production reads the second, which is where the column is live.
       expect_setequal(unique(moved), ladder_reproductive_rates())
     }
   }

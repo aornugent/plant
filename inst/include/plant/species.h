@@ -172,6 +172,14 @@ public:
   std::vector<double> net_reproduction_ratio_by_node_weighted() const;
   // Introduction times of each node (the integration x-axis for fitness).
   std::vector<double> node_times() const;
+  // Each node's weighted lifetime offspring times its entry in `scalars`,
+  // integrated over introduction times. At the species' own scalar, so the value
+  // a run reports and the functional a sweep is seeded from are one reduction.
+  // Zero below two nodes, which span no interval.
+  value_type net_reproduction_ratio(const std::vector<double>& scalars) const;
+  // The net reproduction ratio with each node weighted by the birth rate at its
+  // introduction.
+  value_type offspring_production() const;
 
   // The boundary node's birth date is *now*, but compute_initial_conditions()
   // (which stamps it) runs inside compute_rates(), which the ODE stepper calls
@@ -759,6 +767,36 @@ std::vector<double> Species<T,E>::net_reproduction_ratio_by_node_weighted() cons
       odelia::util::to_passive(c.weighted_fecundity(strategy->pars.S_D)));
   }
   return ret;
+}
+
+template <typename T, typename E>
+typename Species<T,E>::value_type
+Species<T,E>::net_reproduction_ratio(const std::vector<double>& scalars) const {
+  util::check_length(scalars.size(), size());
+  if (size() < 2) {
+    return value_type(0.0);
+  }
+  std::vector<double> x;
+  std::vector<value_type> weighted;
+  x.reserve(size());
+  weighted.reserve(size());
+  for (size_t i = 0; i < size(); ++i) {
+    x.push_back(nodes[i].introduction_time());
+    weighted.push_back(nodes[i].weighted_fecundity(strategy->pars.S_D) *
+                       scalars[i]);
+  }
+  return util::trapezium(x, weighted);
+}
+
+template <typename T, typename E>
+typename Species<T,E>::value_type
+Species<T,E>::offspring_production() const {
+  std::vector<double> birth_rate(size());
+  for (size_t i = 0; i < size(); ++i) {
+    birth_rate[i] = extrinsic_drivers().evaluate(
+        "birth_rate", nodes[i].introduction_time());
+  }
+  return net_reproduction_ratio(birth_rate);
 }
 
 template <typename T, typename E>

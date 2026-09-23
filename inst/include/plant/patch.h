@@ -903,13 +903,8 @@ std::vector<double> Patch<T,E>::r_compute_competition_effect_error_by_node_for_s
 template <typename T, typename E>
 double Patch<T,E>::net_reproduction_ratio_for_species(
     size_t species_index, std::vector<double> const& scalars) const {
-  auto net_prod = species[species_index].net_reproduction_ratio_by_node_weighted();
-  auto const times = species[species_index].node_times();
-  auto net_prod_scaled = std::vector<double>(times.size());
-  for (size_t i = 0; i < times.size(); ++i) {
-    net_prod_scaled[i] = net_prod[i] * scalars[i];
-  }
-  return util::trapezium(times, net_prod_scaled);
+  return odelia::util::to_passive(
+      species[species_index].net_reproduction_ratio(scalars));
 }
 
 // Offspring production, equal to overall fitness scaled by the birth rate.
@@ -917,13 +912,7 @@ template <typename T, typename E>
 std::vector<double> Patch<T,E>::offspring_production() const {
   auto ret = std::vector<double>(species.size());
   for (size_t i = 0; i < species.size(); ++i) {
-    // scale by birth rate function over time
-    auto const times = species[i].node_times();
-    auto scalars = std::vector<double>(times.size());
-    for (size_t j = 0; j < times.size(); ++j) {
-      scalars[j] = species[i].extrinsic_drivers().evaluate("birth_rate", times[j]);
-    }
-    ret[i] = net_reproduction_ratio_for_species(i, scalars);
+    ret[i] = odelia::util::to_passive(species[i].offspring_production());
   }
   return ret;
 }

@@ -2,14 +2,14 @@
 
 // The census exports stand_gradient() and stand_census() call.
 
-// The census metrics and their trait gradient, for the one strategy that
-// carries an active scalar. A metric is added to the strategy's own
-// census_metrics(); nothing here names one, and the codomain is that list's
-// length.
+// The census rows and their trait gradient, for the one strategy that carries
+// an active scalar: its own census_metrics(), then offspring production. A
+// metric is added to that list; nothing here names one.
 
 // [[Rcpp::export]]
 std::vector<std::string> census_metric_names_tf24() {
-  return plant::census_metric_names<plant::TF24_Strategy<double>>();
+  return plant::SCM<plant::TF24_Strategy<double>,
+                    plant::TF24_Environment<double>>::census_names();
 }
 
 // [[Rcpp::export]]

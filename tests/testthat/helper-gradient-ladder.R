@@ -1375,9 +1375,9 @@ ladder_zero_at_an_interior_optimum <- function() {
 }
 
 # The accessory cost of a seed. It reaches two rates and no others -- offspring
-# production, and the survival-weighted offspring the census does not read -- so
-# the column is exactly zero on this metric set and would be live on a fitness
-# functional.
+# production, and the survival-weighted offspring the size metrics do not read --
+# so the column is exactly zero on the size metrics and live on offspring
+# production, which reads the second.
 #
 # omega was here while its second route, through birth size, was imposed to zero.
 # The seed height now solves its own condition, so that route carries a row: omega
@@ -1388,8 +1388,8 @@ ladder_zero_outside_the_metric_support <- function() {
 }
 
 # The rates a parameter outside the metric support is allowed to move. Naming
-# them is what makes the class a measurement: a third rate would mean the
-# census's silence about the column is wrong.
+# them is what makes the class a measurement: a third rate would mean the size
+# metrics' silence about the column is wrong.
 ladder_reproductive_rates <- function() {
   c("fecundity", "offspring_produced_survival_weighted")
 }
@@ -1409,9 +1409,25 @@ ladder_zero_outside_the_cohort_block <- function() {
   c("a_d0", "a_st3", "recruitment_decay")
 }
 
+# Survival during dispersal. It enters no rate and multiplies every node's
+# weighted fecundity, so its column is exactly zero in every rate and on the size
+# metrics, and offspring production is linear in it with no trajectory term: the
+# column there is offspring production divided by it.
+ladder_zero_outside_every_rate <- function() {
+  "S_D"
+}
+
 ladder_zero_by_construction <- function() {
   c(ladder_zero_at_an_interior_optimum(),
-    ladder_zero_outside_the_metric_support())
+    ladder_zero_outside_the_metric_support(),
+    ladder_zero_outside_every_rate())
+}
+
+# The rows the declared zeros are declared on. Offspring production reads the
+# reproductive rates and survival during dispersal, which is where those columns
+# are live.
+ladder_size_metrics <- function() {
+  setdiff(census_metric_names_tf24(), "offspring_production")
 }
 
 # Which cause a declared zero is claimed to have. Named so a check can measure
@@ -1421,7 +1437,9 @@ ladder_zero_cause <- function(name) {
   if (bare %in% ladder_zero_at_an_interior_optimum()) {
     "a limit the operating point is away from: moves no rate at all"
   } else if (bare %in% ladder_zero_outside_the_metric_support()) {
-    "outside the metric support: reaches no rate the census reads"
+    "outside the size metrics' support: reaches no rate they read"
+  } else if (bare %in% ladder_zero_outside_every_rate()) {
+    "enters no rate: multiplies offspring production only"
   } else {
     NA_character_
   }

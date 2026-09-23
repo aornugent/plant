@@ -139,8 +139,13 @@ test_that("G1: the census value matches an independent R reduction", {
   strategy <- scm$parameters$strategies[[1]]
   expected <- census_r(species, strategy$pars, strategy$pars$eta)
   got <- stand_census(scm)
-  expect_equal(names(got), c("leaf_area", "mass_above_ground", "area_stem"))
-  expect_equal(unname(got), unname(expected[names(got)]), tolerance = 1e-12)
+  expect_equal(names(got), c("leaf_area", "mass_above_ground", "area_stem",
+                             "offspring_production"))
+  size <- names(expected)
+  expect_equal(unname(got[size]), unname(expected[size]), tolerance = 1e-12)
+  # Offspring production is the number the run reports, bit for bit, because the
+  # census and the run read one reduction rather than a reduction and a copy.
+  expect_identical(got[["offspring_production"]], sum(scm$offspring_production))
 })
 
 test_that("G2: the boundary node is in the reduction", {
@@ -156,8 +161,8 @@ test_that("G2: the boundary node is in the reduction", {
   # A reduction that starts at the smallest cohort drops the interval down to
   # the boundary node. Measured, the closing interval is 3.5e-04 of the answer.
   expect_gt(min(abs(with_boundary - without) / abs(with_boundary)), 1e-6)
-  expect_equal(unname(stand_census(scm)), unname(with_boundary),
-               tolerance = 1e-12)
+  expect_equal(unname(stand_census(scm)[names(with_boundary)]),
+               unname(with_boundary), tolerance = 1e-12)
 })
 
 test_that("G3: the seed is the census's derivative on the birth-date grid", {
@@ -301,17 +306,62 @@ test_that("G6: no census metric has an all-zero state sensitivity", {
   # distribution, so it reads the stand every other block uses.
   scm <- census_stand()
   seed <- stand_census_state_adjoint(scm)
-  expect_equal(nrow(seed), 3L)
-  # Every metric is built from height, and every cohort's log density multiplies
-  # it, so both state families must move all three metrics.
+  expect_equal(rownames(seed), census_metric_names_tf24())
+  # Every size metric is built from height, and every cohort's log density
+  # multiplies it, so both state families must move all three. Offspring
+  # production reads neither, and G7 owns its row.
   stride <- length(scm$patch$species[[1]]$new_node$ode_names)
   n_node <- scm$patch$species[[1]]$size
   height_cols <- (seq_len(n_node) - 1) * stride + 1
   density_cols <- (seq_len(n_node) - 1) * stride + stride
-  for (m in rownames(seed)) {
+  for (m in setdiff(rownames(seed), "offspring_production")) {
     expect_true(any(seed[m, height_cols] != 0))
     expect_true(any(seed[m, density_cols] != 0))
   }
+})
+
+test_that("G7: offspring production is seeded on the offspring states alone", {
+  # Offspring production is linear in each node's accumulated offspring and
+  # reads no other state at the census time: the birth rate and the patch
+  # density it weights them by are fixed at each node's introduction. So its
+  # seed is zero on every other column, and -- Euler's identity for a linear
+  # function -- the seed dotted with the state it is taken at is the value.
+  #
+  # Exact rather than approximate. A difference of a linear function carries no
+  # truncation error, which is what lets this check the row without the
+  # reduction it checks.
+  scm <- census_stand()
+  seed <- stand_census_state_adjoint(scm)["offspring_production", ]
+  species <- scm$patch$species[[1]]
+  names_i <- species$nodes[[1]]$ode_names
+  stride <- length(names_i)
+  cols <- (seq_along(species$nodes) - 1) * stride +
+    match("offspring_produced_survival_weighted", names_i)
+  state <- scm$patch$ode_state
+  value <- stand_census(scm)[["offspring_production"]]
+
+  # Non-vacuity: a stand that has produced nothing would pass the identity
+  # below at zero on both sides.
+  expect_gt(value, 0)
+  expect_true(all(seed[-cols] == 0))
+  expect_true(all(seed[cols] > 0))
+  expect_equal(sum(seed[cols] * state[cols]), value, tolerance = 1e-12)
+})
+
+test_that("survival during dispersal's column is offspring production over it", {
+  # It multiplies every node's weighted fecundity and enters no rate, so it has
+  # no trajectory term and offspring production is linear in it: the sweep's
+  # column is the value divided by the parameter, and exactly zero on the size
+  # metrics, which do not read it.
+  scm <- census_stand()
+  g <- stand_gradient(scm, traits = "1.S_D")
+  expect_false(any(stand_gradient_refused(g)))
+  S_D <- scm$parameters$strategies[[1]]$pars$S_D
+  value <- stand_census(scm)[["offspring_production"]]
+  expect_equal(g$gradient["offspring_production", "1.S_D"], value / S_D,
+               tolerance = 1e-12)
+  size <- setdiff(census_metric_names_tf24(), "offspring_production")
+  expect_true(all(g$gradient[size, "1.S_D"] == 0))
 })
 
 test_that("the Control a gradient is taken at is the entries that move it", {
