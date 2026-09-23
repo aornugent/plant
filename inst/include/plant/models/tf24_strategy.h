@@ -305,9 +305,6 @@ struct TF24_Pars {
       no_gradient{"a_p1", "the light-response curve the Farquhar leaf replaced"},
       no_gradient{"a_p2", "the light-response curve the Farquhar leaf replaced"},
       no_gradient{"beta1", "no equation on this path reads it"},
-      no_gradient{"S_D",
-                  "survival during dispersal, which multiplies a census "
-                  "reduction and enters no rate"},
       no_gradient{"var_sapwood_volume_cost", "declared and carried; no equation "
                                              "on this path reads it"},
       no_gradient{"nmass_l", "declared and carried; no equation reads it"},
@@ -343,9 +340,9 @@ struct TF24_Pars {
       PLANT_TF24_AD_PARAMETER(k_r),
       PLANT_TF24_AD_PARAMETER(a_p1),
       PLANT_TF24_AD_PARAMETER(a_p2),
-      // Occurs only in fecundity_dt's denominator, and no census metric reads
-      // fecundity: zero on any trajectory rather than on this one.
-      // `ladder_zero_outside_the_metric_support` prices that claim.
+      // Occurs only in fecundity_dt's denominator, so offspring production is
+      // the one census row it reaches: zero on the size metrics on any
+      // trajectory. `ladder_zero_outside_the_metric_support` prices that claim.
       PLANT_TF24_AD_PARAMETER(a_f3),
       PLANT_TF24_AD_PARAMETER(a_f1),
       PLANT_TF24_AD_PARAMETER(a_f2),

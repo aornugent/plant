@@ -24,7 +24,7 @@ test_that("the structural checks hold before any reference is consulted", {
   result <- shared$gradient
 
   expect_equal(dim(result$gradient),
-               c(3L, length(census_trait_names_tf24(stand))))
+               c(length(census_metric_names_tf24()), length(census_trait_names_tf24(stand))))
   expect_true(all(is.finite(result$gradient)))
 
   # The trait adjoint accumulates over every cohort, every stage and every step,

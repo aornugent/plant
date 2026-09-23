@@ -897,27 +897,12 @@ std::vector<double> Patch<T,E>::r_compute_competition_effect_error_by_node_for_s
   return species[species_index].r_compute_competition_effect_by_nodes_error(tot_competition_effect);
 }
 
-// Integrate over lifetime fitness of individual nodes, scaled per node. On the
-// birth-date path each node's offspring per seed arriving is weighted by its
-// establishment weight; the boundary node, last in w, has no offspring yet.
+// Integrate over lifetime fitness of individual nodes, scaled per node.
 template <typename T, typename E>
 double Patch<T,E>::net_reproduction_ratio_for_species(
     size_t species_index, std::vector<double> const& scalars) const {
-  auto net_prod = species[species_index].net_reproduction_ratio_by_node_weighted();
-  if (species[species_index].density_in_birth_date()) {
-    const auto w = species[species_index].establishment_weights();
-    double tot = 0.0;
-    for (size_t i = 0; i < net_prod.size(); ++i) {
-      tot += w[i] * net_prod[i] * scalars[i];
-    }
-    return tot;
-  }
-  auto const times = species[species_index].node_times();
-  auto net_prod_scaled = std::vector<double>(times.size());
-  for (size_t i = 0; i < times.size(); ++i) {
-    net_prod_scaled[i] = net_prod[i] * scalars[i];
-  }
-  return util::trapezium(times, net_prod_scaled);
+  return odelia::util::to_passive(
+      species[species_index].net_reproduction_ratio(scalars));
 }
 
 // Offspring production, equal to overall fitness scaled by the birth rate.
@@ -925,13 +910,7 @@ template <typename T, typename E>
 std::vector<double> Patch<T,E>::offspring_production() const {
   auto ret = std::vector<double>(species.size());
   for (size_t i = 0; i < species.size(); ++i) {
-    // scale by birth rate function over time
-    auto const times = species[i].node_times();
-    auto scalars = std::vector<double>(times.size());
-    for (size_t j = 0; j < times.size(); ++j) {
-      scalars[j] = species[i].extrinsic_drivers().evaluate("birth_rate", times[j]);
-    }
-    ret[i] = net_reproduction_ratio_for_species(i, scalars);
+    ret[i] = odelia::util::to_passive(species[i].offspring_production());
   }
   return ret;
 }

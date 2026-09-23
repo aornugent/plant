@@ -181,14 +181,24 @@ test_that("the columns declared zero are exactly zero, and no others are", {
   g <- stand_gradient(stand)
   expect_false(any(stand_gradient_refused(g)))
 
-  # Both directions. Every column the ladder declares zero is zero, and every
-  # column that is zero is declared -- the second is what turns an unexplained
-  # zero into a failure rather than a number nobody looks at.
+  # Both directions, on the size metrics. Every column the ladder declares zero
+  # is zero there, and every column that is zero there is declared -- the second
+  # is what turns an unexplained zero into a failure rather than a number nobody
+  # looks at.
   declared <- ladder_zero_by_construction()
-  zero <- apply(g$gradient, 2, function(col) all(col == 0))
+  size <- g$gradient[ladder_size_metrics(), , drop = FALSE]
+  zero <- apply(size, 2, function(col) all(col == 0))
   observed <- ladder_bare_traits(names(zero)[zero])
 
   expect_setequal(observed, declared)
+
+  # And each is live on offspring production, which reads the rates and the
+  # factor the size metrics do not: the declaration is about the size metrics,
+  # and a zero here as well would be a missing accumulator on the one row that
+  # reaches it.
+  for (col in names(zero)[zero]) {
+    expect_true(g$gradient["offspring_production", col] != 0, label = col)
+  }
   message(sprintf("  %d of %d columns exactly zero: %s",
                   sum(zero), ncol(g$gradient),
                   paste(sort(unique(observed)), collapse = ", ")))
