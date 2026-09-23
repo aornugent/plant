@@ -75,6 +75,14 @@ test_that("each shortlisted trait's own column is refereed", {
                     ladder_bare_traits(present)))
   expect_length(present, 22L)
 
+  # Offspring production is refereed again on its own scale, from the same
+  # replays. A column's peak is its largest entry over every metric, and
+  # offspring production can sit orders of magnitude below leaf area -- 4e-07 of
+  # it on the census fixture -- so an error confined to that row would pass the
+  # check above at a size nothing reads. Measured here, the worst of the 22 is
+  # 2.1e-08 and species one's columns sit at round-off.
+  row <- which(rownames(result$gradient) == "offspring_production")
+  worst_offspring <- 0
   for (name in present) {
     reference <- ladder_trajectory_tangent(
       stand, ladder_trait_direction(columns, name))$tangent
@@ -83,5 +91,11 @@ test_that("each shortlisted trait's own column is refereed", {
     ladder_report_margin(paste("column", name),
                          max(abs(reference - result$gradient[, name])) / peak,
                          ladder_trajectory_agreement())
+    own <- abs(result$gradient[row, name])
+    expect_gt(own, 0)
+    worst_offspring <- max(worst_offspring,
+                           abs(reference[row] - result$gradient[row, name]) / own)
   }
+  ladder_report_margin("offspring production on its own scale",
+                       worst_offspring, ladder_trajectory_agreement())
 })

@@ -51,10 +51,13 @@ reference_stand <- function(regime) {
                                       else regime$amplitude))
 }
 
-# The two columns this reference carries no row for, and the reason is not that
-# nobody captured them: both default to 0, so the capture's RELATIVE step
-# `abs(value) * rel` is 0 and the difference moves no parameter at all. Their
-# rows record that refusal and carry no metric, which reference_rows() drops.
+# The columns this reference carries no row for. Two default to 0, so the
+# capture's RELATIVE step `abs(value) * rel` is 0 and the difference moves no
+# parameter at all; their rows record that refusal and carry no metric, which
+# reference_rows() drops. Survival during dispersal has no row and needs none: it
+# enters no rate and offspring production is linear in it, so its column is
+# exactly the value over itself, which test-census.R referees to round-off and a
+# difference of whole runs could only approximate.
 #
 # ⚠️ ASSERTED BOTH WAYS, because the alternative is what this rung did while
 # passing at 13: `reference_compare` drops a reference row whose column the sweep
@@ -62,7 +65,7 @@ reference_stand <- function(regime) {
 # column the REFERENCE does not carry. Forty of forty-eight were refereed and
 # nothing said so.
 reference_uncaptured_columns <- function() {
-  c("TF24_floor_lambda_o", "recruitment_decay")
+  c("S_D", "TF24_floor_lambda_o", "recruitment_decay")
 }
 
 reference_compare <- function(regime, rows) {
