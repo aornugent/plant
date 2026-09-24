@@ -177,9 +177,11 @@ for (x in names(strategy_types)) {
     node <- Node(x, e)(s)
     node$compute_initial_conditions(env, pr_patch_survival = 1, birth_rate = 2)
 
-    ## No division by the growth rate at the boundary.
-    pr_estab <- node$individual$establishment_probability(env)
-    expect_equal(node$log_density, log(2 * pr_estab))
+    ## The seed arriving at the node's birth date: no division by the growth
+    ## rate at the boundary, and no establishment probability, which enters
+    ## through the species' establishment weights instead.
+    expect_equal(node$log_density, log(2))
+    expect_identical(node$individual$state("mortality"), 0)
 
     ## Nothing moves an individual along the birth-date axis, so the only
     ## term left is mortality.

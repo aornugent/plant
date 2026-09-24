@@ -92,8 +92,8 @@ public:
   //
   // Both accountings have to move together. On the birth-date coordinate the
   // model maintains log_density(t) = log(birth_rate) - mortality(t), because
-  // log_density integrates -mortality_rate from log(birth_rate * pr_estab)
-  // while mortality integrates +mortality_rate from -log(pr_estab). Moving
+  // log_density integrates -mortality_rate from log(birth_rate) while
+  // mortality integrates +mortality_rate from zero. Moving
   // only log_density leaves fecundity undiscounted (it is weighted by
   // exp(-mortality) independently); moving only mortality leaves the standing
   // density untouched. Either way the two views of the same cohort disagree.
@@ -103,10 +103,13 @@ public:
   std::pair<size_t, double> scale_node_densities(size_t species_index,
                                                  Select select);
 
-  // Open to better ways to test whether nodes have been introduced
+  // The nodes' share of the ODE state, so zero until a node is introduced.
   int node_ode_size() const {
-    int node_ode_size = ode_size() - environment.ode_size();
-    return(node_ode_size);
+    size_t ret = 0;
+    for (const auto& s : species) {
+      ret += s.size() * node_type::ode_size();
+    }
+    return static_cast<int>(ret);
   }
 
   const species_type& at_species(size_t species_index) const {
@@ -420,11 +423,10 @@ void Patch<T,E>::check_birth_dates_distinct() const {
     if (!species[i].birth_dates_are_distinct()) {
       util::stop("Species " + util::to_string(i + 1) + " has nodes sharing an "
                  "introduction time, which the birth-date size-density "
-                 "coordinate integrates over: the repeated nodes span zero width "
-                 "and drop out of the competition and resource integrals. Supply "
-                 "per-node introduction times (parameters$initial_node_times) "
-                 "with the initial state, or run with "
-                 "control$node_density_in_birth_date = FALSE.");
+                 "coordinate reads: the establishment since the newest node is "
+                 "split by that node's birth date. Supply per-node introduction "
+                 "times (parameters$initial_node_times) with the initial state, "
+                 "or run with control$node_density_in_birth_date = FALSE.");
     }
   }
 }
@@ -537,11 +539,21 @@ std::vector<double> Patch<T,E>::r_compute_competition_effect_error_by_node_for_s
   return species[species_index].r_compute_competition_effect_by_nodes_error(tot_competition_effect);
 }
 
-// Integrate over lifetime fitness of individual nodes, scaled per node.
+// Integrate over lifetime fitness of individual nodes, scaled per node. On the
+// birth-date path each node's lifetime offspring is per seed arriving, and the
+// establishment it stands for is its weight.
 template <typename T, typename E>
 double Patch<T,E>::net_reproduction_ratio_for_species(
     size_t species_index, std::vector<double> const& scalars) const {
   auto net_prod = species[species_index].net_reproduction_ratio_by_node_weighted();
+  if (species[species_index].density_in_birth_date()) {
+    const auto w = species[species_index].node_establishment_weights();
+    double tot = 0.0;
+    for (size_t i = 0; i < w.size(); ++i) {
+      tot += w[i] * net_prod[i] * scalars[i];
+    }
+    return tot;
+  }
   auto const times = species[species_index].node_times();
   auto net_prod_scaled = std::vector<double>(times.size());
   for (size_t i = 0; i < times.size(); ++i) {
@@ -1220,6 +1232,7 @@ bool Patch<T,E>::ode_state_valid(const std::vector<double>& y) const {
   const size_t stride = node_type::ode_size();
   size_t at = 0;
   for (const auto& sp : species) {
+    const size_t start = at;
     for (size_t k = 0; k < sp.size(); ++k, at += stride) {
       for (const size_t i : bounded) {
         if (y[at + i] < 0.0) {
@@ -1227,6 +1240,8 @@ bool Patch<T,E>::ode_state_valid(const std::vector<double>& y) const {
         }
       }
     }
+    // The species' own entries follow its nodes.
+    at = start + sp.ode_size();
   }
   return true;
 }

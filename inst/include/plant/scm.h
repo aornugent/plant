@@ -359,8 +359,16 @@ std::vector<double> SCM<T, E>::bisect_flagged_intervals(const std::vector<double
   return ret;
 }
 
+// Its indicators take trapezia of each node's density; on the birth-date path
+// that is a density per seed, and the establishment it stands for sits in the
+// weights, which they would not see.
 template <typename T, typename E>
 void SCM<T, E>::refine_schedule() {
+  if (control.node_density_in_birth_date) {
+    util::stop("refine_schedule() refines the height coordinate's schedule. On "
+               "the birth-date coordinate each node carries the establishment it "
+               "stands for exactly; give the schedule directly.");
+  }
   collect_refinement_errors = true;
   const double eps = control.schedule_eps;
 

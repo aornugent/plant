@@ -43,6 +43,12 @@ public:
   // exported state, which never ran compute_initial_conditions().
   double growth_rate_at_birth() const {return birth_growth_rate;}
 
+  // On the birth-date path, the establishment probability integrated against
+  // this node's share of birth dates; see Species::introduce_new_node(). The
+  // newest node's is still missing the share of the interval since its birth.
+  double establishment_weight() const {return establishment_integral;}
+  void set_establishment_weight(double x) {establishment_integral = x;}
+
   // Refresh only the birth date, leaving the rest of the bookkeeping alone.
   // Used for the not-yet-introduced boundary node, whose birth date is the
   // current time and so moves with every step; see
@@ -127,6 +133,8 @@ private:
   double patch_density_at_birth;
   // |dh/dtau| at birth; see growth_rate_at_birth().
   double birth_growth_rate;
+  // See establishment_weight().
+  double establishment_integral;
 };
 
 template <typename T, typename E>
@@ -139,7 +147,8 @@ Node<T,E>::Node(strategy_type_ptr s)
     offspring_produced_survival_weighted_dt(0),
     node_introduction_time(0),
     patch_density_at_birth(0),
-    birth_growth_rate(0) {
+    birth_growth_rate(0),
+    establishment_integral(0) {
 }
 
 template <typename T, typename E>
@@ -179,6 +188,11 @@ void Node<T,E>::compute_rates(const environment_type& environment,
 //
 // NOTE: The initial condition for log_density is also a bit tricky, and
 // defined on p 7 at the moment.
+//
+// On the birth-date path a node describes the seed arriving at its birth date
+// before it establishes: its loss starts at zero and its density at the birth
+// rate, and the establishment probability enters once, through the species'
+// establishment weights.
 template <typename T, typename E>
 void Node<T,E>::compute_initial_conditions(const environment_type& environment,
                                              double pr_patch_survival, double birth_rate) {
@@ -189,9 +203,6 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   individual.set_initial_states(environment);
   compute_rates(environment, pr_patch_survival);
 
-  const double pr_estab =
-    individual.establishment_probability_of_newborn(environment);
-  individual.set_state("mortality", -log(pr_estab));
   // The birth-date axis of the node about to be introduced; Patch re-stamps
   // this with the exact introduction time as the node is pushed.
   node_introduction_time = environment.time;
@@ -206,8 +217,12 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   const double g = individual.rate(HEIGHT_INDEX);
   birth_growth_rate = g;
   if (individual.control().node_density_in_birth_date) {
-    set_log_density(log(birth_rate * pr_estab));
+    individual.set_state("mortality", 0.0);
+    set_log_density(log(birth_rate));
   } else {
+    const double pr_estab =
+      individual.establishment_probability_of_newborn(environment);
+    individual.set_state("mortality", -log(pr_estab));
     // NOTE: log(0.0) -> -Inf, which should behave fine.
     set_log_density(g > 0 ? log(birth_rate * pr_estab / g) : log(0.0));
   }

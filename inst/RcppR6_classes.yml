@@ -667,10 +667,14 @@ Species:
     ## Always a density in height, whichever coordinate the solver carried it in.
     log_densities: {type: "std::vector<double>", access: member, name_cpp: r_log_densities}
     ## The quantity actually integrated: the height density on the height path,
-    ## the birth-date density (nu) on the birth-date one.
+    ## the density per seed arriving on the birth-date one.
     log_densities_state: {type: "std::vector<double>", access: member, name_cpp: r_log_densities_state, readonly: true}
     ## |dh/dtau| per node, boundary node last; the conversion between the two.
     height_jacobian: {type: "std::vector<double>", access: member, readonly: true}
+    ## Birth-date path: the establishment each node stands for now, boundary
+    ## node last. They sum to the establishment probability integrated over
+    ## every birth date so far.
+    establishment_weights: {type: "std::vector<double>", access: member, readonly: true}
     node_times: {type: "std::vector<double>", access: member}
     ## Which coordinate this species' size distribution is carried in. Set from
     ## the patch's control, not the strategy's (Patch::add_strategies).

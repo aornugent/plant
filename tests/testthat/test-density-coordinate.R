@@ -8,12 +8,15 @@
 # where the birth-date answer is already converged at the default schedule
 # while the height answer is still climbing toward it.
 #
-# The defect this file exists to catch is a stale or duplicated quadrature
-# abscissa: a resource integral taken over the wrong axis, or over an axis with
-# zero-width intervals. The first group of tests asserts that directly, on a
-# single patch state, naming the defect each one catches and demonstrating (with
-# expect_failure) that the assertion really does fail when the defect is
-# present. Those cost nothing. The convergence trends that follow are the
+# On the birth-date coordinate each node describes the seed arriving at its
+# birth date, and carries as its weight the establishment probability integrated
+# against its share of birth dates, so the resource integrals are weighted sums
+# over the nodes. The defects this file exists to catch are a resource integral
+# taken by the other coordinate's rule, a weight that is not that integral, and
+# an establishment probability that enters twice. The first group of tests
+# asserts those directly, on a single patch state, naming the defect each one
+# catches and demonstrating (with expect_failure) that the assertion really does
+# fail when the defect is present. Those cost nothing. The convergence trends that follow are the
 # end-to-end check that the invariants compose, through a full run and a shared
 # competition profile, into two coordinates that agree; they cost SCM runs, so
 # each is carried at the cheapest schedule and patch lifetime that still shows
@@ -96,10 +99,10 @@ trapezium_by_hand <- function(x, y) {
   sum(diff(x) * (head(y, -1) + tail(y, -1))) / 2
 }
 
-## The abscissa Species::compute_competition() claims to integrate over:
-## introduction times on the birth-date path, negated heights on the height one
+## A grid to take the trapezium over: introduction times, or negated heights
 ## (negated so both increase as the node list is walked from the tallest down).
-## The boundary node closes the grid in either case.
+## The height path integrates over the second; the boundary node closes the grid
+## in either case.
 quadrature_grid <- function(s, birth_date = s$density_in_birth_date) {
   if (birth_date) {
     c(s$node_times, s$new_node$introduction_time)
@@ -109,7 +112,8 @@ quadrature_grid <- function(s, birth_date = s$density_in_birth_date) {
 }
 
 ## Each node's *carried* density times its crown area above z: the integrand of
-## the competition integral, whichever coordinate is carried.
+## the competition integral, whichever coordinate is carried. On the birth-date
+## path the carried density is per seed arriving.
 competition_integrand <- function(s, z) {
   c(vapply(s$nodes, function(nd) nd$compute_competition(z), numeric(1)),
     s$new_node$compute_competition(z))
@@ -122,15 +126,18 @@ expect_integrates_over <- function(s, grid, z) {
                trapezium_by_hand(grid, competition_integrand(s, z)),
                tolerance = 1e-10)
 }
-expect_strictly_increasing <- function(x) {
-  expect_true(all(diff(x) > 0))
+## On the birth-date path: each node's competition per seed, boundary node
+## last, weighted by the establishment it stands for.
+expect_weighted_sum <- function(s, z) {
+  expect_equal(s$compute_competition(z),
+               sum(s$establishment_weights * competition_integrand(s, z)),
+               tolerance = 1e-10)
 }
 
-## Defect: the competition integral taken over the wrong axis -- a density per
-## unit birth date integrated over height, or the reverse. Caught here
-## immediately and by name; the convergence trends at the end of the file catch
-## it only slowly and by implication, as a gap that fails to shrink.
-test_that("the competition integral runs over the coordinate the density is carried in", {
+## Defect: the competition integral taken by the other coordinate's rule. Caught
+## here immediately and by name; the convergence trends at the end of the file
+## catch it only slowly and by implication, as a gap that fails to shrink.
+test_that("each coordinate's competition integral is taken by its own rule", {
   for (x in c("FF16", "K93")) {
     for (birth_date in c(FALSE, TRUE)) {
       scm <- short_run(x, birth_date)
@@ -138,87 +145,85 @@ test_that("the competition integral runs over the coordinate the density is carr
         s <- scm$history[[k]]$species[[1]]
         expect_identical(s$density_in_birth_date, birth_date)
         for (z in c(0, s$height_max * 0.3, s$height_max * 0.7)) {
-          expect_integrates_over(s, quadrature_grid(s), z)
+          if (birth_date) {
+            expect_weighted_sum(s, z)
+          } else {
+            expect_integrates_over(s, quadrature_grid(s), z)
+          }
         }
       }
-      ## And the same assertion over the *other* coordinate's grid fails, so it
-      ## discriminates between the two axes rather than holding for either.
-      ## Measured discrepancy at z = 0: >=20% carrying in birth date, >=0.7%
-      ## carrying in height -- seven orders above the tolerance above.
-      s <- scm$patch$species[[1]]
-      expect_failure(
-        expect_integrates_over(s, quadrature_grid(s, !birth_date), 0))
     }
   }
+
+  ## And the other rule fails, so each assertion discriminates. The height path
+  ## carries no weights. On the birth-date path the trapezium over introduction
+  ## times misses the establishment probability -- except on K93, which
+  ## establishes every seed, so its weights are the trapezium's own.
+  expect_failure(
+    expect_weighted_sum(short_run("FF16", FALSE)$patch$species[[1]], 0))
+  s <- short_run("FF16", TRUE)$patch$species[[1]]
+  expect_failure(expect_integrates_over(s, quadrature_grid(s), 0))
+  s <- short_run("K93", TRUE)$patch$species[[1]]
+  expect_integrates_over(s, quadrature_grid(s), 0)
 })
 
-## Defect: repeated abscissae. Those span zero width, so the nodes between them
-## drop out of the integral -- silently, because a trapezium sum over a grid
-## with a zero-width interval is still a valid trapezium sum over that grid. No
-## comparison of integral values can see it (the assertion above holds either
-## way, as the next test shows), so the grid is checked for strict monotonicity
-## in its own right.
-test_that("the birth-date quadrature grid is strictly increasing", {
-  for (x in c("FF16", "K93")) {
-    scm <- short_run(x, TRUE)
-    for (k in sampled_steps(scm)) {
-      s <- scm$history[[k]]$species[[1]]
-      if (s$size < 2) next
-      grid <- quadrature_grid(s)
-      ## The introduced nodes: no zero-width interval anywhere.
-      expect_strictly_increasing(head(grid, -1))
-      ## The boundary node closes the grid. Its birth date is the current patch
-      ## time, so it is never *behind* the newest node -- but it coincides with
-      ## it at the instant of introduction, where a zero-width closing segment
-      ## is legitimate and contributes nothing.
-      expect_gte(tail(grid, 1), tail(head(grid, -1), 1))
-    }
-  }
-})
+## Defect: a weight that is not the establishment probability integrated
+## against its node's share of birth dates. The running integral and moment are
+## set by hand here, so every share is known exactly.
+test_that("an introduction splits the establishment accrued since the newest node", {
+  ctrl <- Control()
+  ctrl$node_density_in_birth_date <- TRUE
+  st <- FF16_Strategy()
+  st$control <- ctrl
+  s <- Species("FF16", "FF16_Env")(st)
+  env <- Environment("FF16")
+  env$set_fixed_environment(1.0, 200)
 
-## What a repeated birth date actually costs, and why the check above is the one
-## that catches it. Introducing the boundary node twice without advancing the
-## clock is the only way to produce one, and it is what a patch seeded without
-## per-node times does.
-test_that("a repeated birth date drops a node out of the competition integral", {
-  build <- function(birth_date, times) {
-    ctrl <- Control()
-    ctrl$node_density_in_birth_date <- birth_date
-    st <- FF16_Strategy()
-    st$control <- ctrl
-    s <- Species("FF16", "FF16_Env")(st)
-    env <- Environment("FF16")
-    env$set_fixed_environment(1.0, 200)
-    for (t in times) {
-      env$time <- t
-      s$compute_rates(env, 1.0, 1.0)
-      s$introduce_new_node()
-    }
-    s$heights <- c(9, 6, 4, 2)
-    s
+  ## The species' own entries follow its nodes' states: the establishment since
+  ## the newest node and its first moment about that node's birth date, then
+  ## one weight per node.
+  since_newest <- function(y = s$ode_state) {
+    y[length(y) - s$size - 1:0]
+  }
+  accrue <- function(total, moment) {
+    y <- s$ode_state
+    y[length(y) - s$size - 1:0] <- c(total, moment)
+    s$ode_state <- y
+  }
+  at <- function(t) {
+    env$time <- t
+    s$compute_rates(env, 1.0, 1.0)
   }
 
-  ok <- build(TRUE, c(0, 1, 2, 3))
-  bad <- build(TRUE, c(0, 1, 1, 3))
-  ## Same nodes, same heights, same carried densities: only the grid differs.
-  expect_equal(bad$heights, ok$heights)
-  expect_equal(bad$log_densities_state, ok$log_densities_state)
+  at(0)
+  s$introduce_new_node()
+  expect_identical(s$establishment_weights, c(0, 0))
 
-  ## The monotonicity check is what catches it, and it does.
-  expect_strictly_increasing(ok$node_times)
-  expect_failure(expect_strictly_increasing(bad$node_times))
+  ## Between introductions the boundary node takes moment / width and the
+  ## newest node the rest.
+  at(2)
+  accrue(0.6, 0.8)
+  expect_equal(s$establishment_weights, c(0.2, 0.4))
+  ## And an introduction stores that split, and restarts the running pair.
+  s$introduce_new_node()
+  expect_equal(s$establishment_weights, c(0.2, 0.4, 0))
+  expect_identical(since_newest(), c(0, 0))
 
-  ## The integral, meanwhile, silently loses 15%+ of the competition -- and the
-  ## axis assertion above cannot see that, because both the C++ and the
-  ## by-hand trapezium walk the same defective grid.
-  expect_gt(abs(bad$compute_competition(0) - ok$compute_competition(0)) /
-              ok$compute_competition(0), 0.1)
-  expect_integrates_over(bad, quadrature_grid(bad), 0)
+  ## The pair grows at the establishment probability of a seed arriving now,
+  ## and its moment at that times the time since the newest node; the weights
+  ## change only at introductions.
+  at(3)
+  pr_estab <- s$new_node$individual$establishment_probability(env)
+  expect_gt(pr_estab, 0)
+  r <- s$ode_rates
+  expect_equal(since_newest(r), c(pr_estab, (3 - 2) * pr_estab))
+  expect_identical(tail(r, s$size), rep(0, s$size))
 
-  ## The height coordinate does not integrate over these times, so it is
-  ## unaffected: same nodes, same answer.
-  expect_identical(build(FALSE, c(0, 1, 1, 3))$compute_competition(0),
-                   build(FALSE, c(0, 1, 2, 3))$compute_competition(0))
+  ## A second introduction at the same instant closes a zero-width interval,
+  ## which accrued nothing: its 0/0 share is zero.
+  at(2)
+  s$introduce_new_node()
+  expect_equal(s$establishment_weights, c(0.2, 0.4, 0, 0))
 })
 
 ## Defect: the wrong density equation for the coordinate. A density in birth
@@ -256,23 +261,28 @@ test_that("only the height coordinate's density rate carries a compression term"
 })
 
 ## The height coordinate's boundary condition is N(H_0) = birth_rate * pr_estab
-## / g(H_0) (eq-bc1); the birth-date one drops the division, because nu is a
-## density per unit birth date and offspring arrive at a rate. Recording g(H_0)
-## lets each be checked against the other's.
+## / g(H_0) (eq-bc1). The birth-date one describes the seed arriving: the birth
+## rate, with no division, because offspring arrive at a rate, and with no
+## establishment probability, which the weights carry. Carrying it here as well
+## would count it twice.
 test_that("each coordinate's boundary condition is the one its integral needs", {
   for (birth_date in c(FALSE, TRUE)) {
     scm <- collected_run(birth_date)
     nd <- scm$patch$species[[1]]$new_node
-    g0 <- nd$growth_rate_at_birth
-    expect_gt(g0, 0)
-    ## log(birth_rate * pr_estab), which is what the birth-date path carries
-    ## directly. Compare in log space.
-    undivided <- log(1.0 * nd$individual$establishment_probability(
-      scm$patch$environment))
-    expect_equal(nd$log_density + if (birth_date) 0 else log(g0), undivided,
-                 tolerance = 1e-10)
-    ## And the division is doing real work, so the two are not interchangeable.
-    expect_gt(abs(log(g0)), 1)
+    pr_estab <- nd$individual$establishment_probability(scm$patch$environment)
+    expect_lt(pr_estab, 0.99)
+    if (birth_date) {
+      expect_identical(nd$log_density, log(1.0))
+      expect_identical(nd$individual$state("mortality"), 0)
+    } else {
+      g0 <- nd$growth_rate_at_birth
+      expect_gt(g0, 0)
+      expect_equal(nd$log_density + log(g0), log(1.0 * pr_estab),
+                   tolerance = 1e-10)
+      expect_equal(nd$individual$state("mortality"), -log(pr_estab))
+      ## And the division is doing real work.
+      expect_gt(abs(log(g0)), 1)
+    }
   }
 })
 
@@ -298,31 +308,36 @@ test_that("the boundary node's birth date tracks patch time", {
 })
 
 ## A scheduled run cannot produce repeated introduction times; a patch seeded
-## without per-node times can, and used to do so silently. Given what that costs
-## the integral (above), Patch rejects it up front.
+## without per-node times can. The birth-date coordinate splits the establishment
+## since the newest node by that node's birth date, so Patch rejects it up front.
 test_that("nodes sharing a birth date are rejected in birth-date coordinates", {
   x <- "FF16"; e <- "FF16_Env"
   p <- size_only_parameters(x)
-
-  scm <- SCM(x, e)(p, Environment(x), empty_events(), Control())
-  scm$collect <- TRUE
-  scm$run()
-  state <- export_patch_state(scm, step = max(2L, length(scm$history) %/% 2L))
-
-  ## A faithful resume carries per-node times, so both coordinates accept it.
-  p_ok <- set_initial_state(p, state)
   ctrl_bd <- Control()
   ctrl_bd$node_density_in_birth_date <- TRUE
-  expect_no_error(Patch(x, e)(p_ok, Environment(x), ctrl_bd))
 
-  ## Drop them and every node inherits the boundary node's birth date.
-  p_bad <- p_ok
-  p_bad$initial_node_times <- numeric(0)
-  expect_error(Patch(x, e)(p_bad, Environment(x), ctrl_bd),
-               "sharing an introduction time")
+  for (ctrl in list(Control(), ctrl_bd)) {
+    scm <- SCM(x, e)(p, Environment(x), empty_events(), ctrl)
+    scm$collect <- TRUE
+    scm$run()
+    state <- export_patch_state(scm, step = max(2L, length(scm$history) %/% 2L))
 
-  ## The height coordinate never integrates over these, so it is unaffected.
-  expect_no_error(Patch(x, e)(p_bad, Environment(x), Control()))
+    ## A faithful resume carries per-node times, so either coordinate accepts
+    ## its own state.
+    p_ok <- set_initial_state(p, state)
+    expect_no_error(Patch(x, e)(p_ok, Environment(x), ctrl))
+
+    ## Drop them and every node inherits the boundary node's birth date, which
+    ## only the birth-date coordinate reads.
+    p_bad <- p_ok
+    p_bad$initial_node_times <- numeric(0)
+    if (ctrl$node_density_in_birth_date) {
+      expect_error(Patch(x, e)(p_bad, Environment(x), ctrl),
+                   "sharing an introduction time")
+    } else {
+      expect_no_error(Patch(x, e)(p_bad, Environment(x), ctrl))
+    }
+  }
 })
 
 ## The coordinate is stored per strategy but cannot differ between the species
@@ -418,17 +433,25 @@ test_that("log_densities_state is the quantity actually integrated", {
 
   ## On the height path there is nothing to convert.
   expect_equal(sa$log_densities_state, sa$log_densities)
-  ## On the birth-date path it is the raw per-node state, which Node reports
-  ## unconverted (a lone node cannot form dh/dtau).
+  ## On the birth-date path it is the raw per-node state, the density per seed
+  ## arriving, which Node reports unconverted.
   expect_equal(sb$log_densities_state,
                vapply(sb$nodes, function(nd) nd$log_density, numeric(1)))
   expect_false(isTRUE(all.equal(sb$log_densities_state, sb$log_densities)))
 
-  ## And the two are related by the Jacobian, boundary node last.
+  ## And the two are related by the establishment per unit birth date -- each
+  ## weight over half the span of its neighbours' birth dates -- and then the
+  ## Jacobian, boundary node last.
+  n <- sb$size
   jac <- sb$height_jacobian
-  expect_length(jac, sb$size + 1L)
+  w <- sb$establishment_weights
+  expect_length(jac, n + 1L)
+  expect_length(w, n + 1L)
+  b <- c(sb$node_times, sb$new_node$introduction_time)
+  j <- seq_len(n)
+  span <- (b[j + 1] - b[pmax(j - 1, 1)]) / 2
   expect_equal(sb$log_densities,
-               sb$log_densities_state - log(head(jac, sb$size)))
+               sb$log_densities_state + log(w[j] / span) - log(jac[j]))
 })
 
 ## The reported height density is not merely self-consistent with the Jacobian:
@@ -440,13 +463,10 @@ test_that("log_densities_state is the quantity actually integrated", {
 ## because it also covers the boundary node's exact g(H_0).
 test_that("the reported height density integrates to the solver's competition", {
   for (birth_date in c(FALSE, TRUE)) {
-    s <- collected_run(birth_date)$patch$species[[1]]
-    jac <- s$height_jacobian
-    ## log_densities is already the height density; the boundary node is not in
-    ## it, so convert that one here.
-    n <- c(exp(s$log_densities),
-           exp(s$new_node$log_density -
-                 if (birth_date) log(jac[[s$size + 1L]]) else 0))
+    patch <- collected_run(birth_date)$patch
+    s <- patch$species[[1]]
+    ## The collected state reports the height density, boundary node last.
+    n <- exp(patch$state$species[[1]]["log_density", ])
     crown <- c(vapply(s$nodes,
                       function(nd) nd$individual$compute_competition(0),
                       numeric(1)),

@@ -32,11 +32,8 @@ public:
   typedef typename strategy_type::ptr strategy_type_ptr;
   Species(strategy_type s);
 
-  // ODE plumbing and the per-element serialisers are inherited from SpeciesBase
-  // and iterate all nodes (the deterministic model has no notion of "dead").
-  using base_type::ode_size;
-  using base_type::ode_state;
-  using base_type::ode_rates;
+  // The per-element serialisers are inherited from SpeciesBase and iterate all
+  // nodes (the deterministic model has no notion of "dead").
   using base_type::get_node_state;
   using base_type::get_node_aux;
   typename std::vector<node_type>::iterator node_begin() { return nodes.begin(); }
@@ -66,12 +63,15 @@ public:
   // knot, so this is hundreds of calls per change. Every mutator invalidates.
   HeightScan scan_heights() const;
 
-  // Setting the ODE state rewrites every node's height, so the cached scan goes
-  // with it. Shadows (rather than uses) the SpeciesBase version for that reason.
-  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it) {
-    invalidate_height_scan();
-    return base_type::set_ode_state(it);
-  }
+  // The nodes' states (SpeciesBase), then on the birth-date path the
+  // establishment since the newest node, as its integral and first moment, and
+  // each node's establishment weight. Setting the state rewrites every node's
+  // height, so the cached scan goes with it.
+  size_t ode_size() const;
+  odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it);
+  odelia::ode::iterator ode_state(odelia::ode::iterator it) const;
+  odelia::ode::iterator ode_rates(odelia::ode::iterator it) const;
+
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
   std::vector<double> net_reproduction_ratio_by_node() const;
   // Per-node lifetime offspring, weighted by patch-age density and S_D.
@@ -79,21 +79,32 @@ public:
   // Introduction times of each node (the integration x-axis for fitness).
   std::vector<double> node_times() const;
 
+  // The establishment each node stands for now, boundary node last: the stored
+  // weights, with the establishment since the newest node split between it and
+  // the boundary node as introducing a node now would split it. They sum to the
+  // establishment probability integrated over every birth date so far.
+  std::vector<double> establishment_weights() const;
+  // The stored weights alone, one per node: what lifetime fitness integrates,
+  // since the boundary node has no lifetime.
+  std::vector<double> node_establishment_weights() const;
+
   // The boundary node's birth date is *now*, but compute_initial_conditions()
   // (which stamps it) runs inside compute_rates(), which the ODE stepper calls
   // after set_ode_state() has already rebuilt the environment. Reading the stamp
   // during that rebuild would therefore pick up the previous derivs call's time
-  // and shorten the boundary trapezium by one Runge-Kutta stage. Patch refreshes
-  // it before building the profile. Harmless on the height path, where the
-  // boundary abscissa is the constant initial height.
+  // and split the establishment since the newest node one Runge-Kutta stage
+  // late. Patch refreshes it before building the profile. Harmless on the
+  // height path, which does not read it.
   void set_new_node_birth_date(double time) {
     new_node.set_introduction_time(time);
   }
 
-  // Two nodes sharing a birth date give a zero-width trapezium interval, so the
-  // birth-date quadrature silently loses them. Cannot happen for a scheduled
-  // run (introduction times are distinct by construction) but can for a patch
-  // seeded or imported without per-node times.
+  // The establishment since the newest node is split by that node's birth date,
+  // and the reported densities divide each weight by the span of its
+  // neighbours', so nodes sharing a birth date mean the birth dates were lost.
+  // Cannot happen for a scheduled run (introduction times are distinct by
+  // construction) but can for a patch seeded or imported without per-node
+  // times.
   bool birth_dates_are_distinct() const;
 
   // Which coordinate this species' size distribution is carried in. Exposed so
@@ -106,7 +117,6 @@ public:
   // NOTE: We are a time-independent model here so no need to pass
   // time in as an argument.  All the bits involving time are taken
   // care of by Environment for us.
-  // (ode_size/set_ode_state/ode_state/ode_rates come from SpeciesBase.)
   size_t aux_size() const;
 
   void resize_consumption_rates(int i);
@@ -145,14 +155,15 @@ public:
   // Per-node size density, **always** as a density in height whichever
   // coordinate the solver carried it in, so downstream code (tidy_outputs.R's
   // `density`, interpolate_to_heights(), the plots) keeps its meaning. In
-  // birth-date coordinates that means dividing the carried quantity by the
-  // Jacobian; see height_jacobian(). NA for a node where the Jacobian vanishes,
-  // which is where the height density genuinely does not exist.
+  // birth-date coordinates that means the density in birth date divided by the
+  // Jacobian; see log_birth_date_densities() and height_jacobian(). NA for a
+  // node where the Jacobian vanishes, which is where the height density
+  // genuinely does not exist.
   std::vector<double> r_log_densities() const;
   // The quantity actually integrated: the density in height on the height path,
-  // and the density in birth date (nu) on the birth-date one. Reported
-  // alongside r_log_densities() rather than instead of it, because it is the
-  // thing whose ODE the solver solves and the thing that cannot go non-finite.
+  // and the density per seed arriving on the birth-date one. Reported alongside
+  // r_log_densities() rather than instead of it, because it is the thing whose
+  // ODE the solver solves and the thing that cannot go non-finite.
   std::vector<double> r_log_densities_state() const;
   // Per-node rate of change of log density; used to guard against initial
   // conditions whose densities would explode to non-finite values. This is the
@@ -179,9 +190,43 @@ public:
 private:
   // compute_competition() for the case where the node heights are no longer
   // ordered, so the node list cannot be used directly as the quadrature grid.
-  // Height coordinate only -- it integrates in height, and the birth-date
-  // abscissa cannot invert (see compute_competition).
+  // Height coordinate only; the birth-date path sums over the nodes in any
+  // order.
   double compute_competition_unordered(double height) const;
+
+  // The node just introduced closes the interval since the one before it; see
+  // introduce_new_node().
+  void split_establishment_since_newest();
+  // The part of the establishment since the newest node that goes to the far
+  // end of an interval of this width: the integral against that end's hat
+  // function, moment / width. A zero-width interval accrues nothing, so its 0/0
+  // share is zero.
+  double far_share(double width) const {
+    return width > 0 ? establishment_moment_since_newest / width : 0.0;
+  }
+  double time_since_newest() const {
+    return new_node.introduction_time() - nodes.back().introduction_time();
+  }
+  // The sum over the nodes and the boundary node of f(node) times the
+  // establishment each stands for now (establishment_weights()). Needs a node.
+  template <typename F>
+  double establishment_weighted_sum(F f) const {
+    const size_t newest = size() - 1;
+    const double boundary = far_share(time_since_newest());
+    double tot = 0.0;
+    for (size_t j = 0; j < newest; ++j) {
+      tot += nodes[j].establishment_weight() * f(nodes[j]);
+    }
+    tot += (nodes[newest].establishment_weight() + establishment_since_newest -
+            boundary) * f(nodes[newest]);
+    return tot + boundary * f(new_node);
+  }
+  // Per node, boundary node last, the log density in birth date: the density
+  // per seed carried, times the establishment per unit birth date, which for an
+  // introduced node is its weight over half the span of its neighbours' birth
+  // dates. The boundary node's is exact: its establishment probability is
+  // current.
+  std::vector<double> log_birth_date_densities() const;
 
   // Cache for scan_heights(). Every path that can change a node height must call
   // invalidate_height_scan(); a stale cache here would silently reintroduce the
@@ -201,11 +246,20 @@ private:
   using base_type::control;
   node_type new_node;
 
-  // The abscissa both resource integrals are taken over, increasing as the node
-  // list is walked from the tallest down. Heights are negated so that both
-  // coordinates increase in the same direction; negation is exact, so the height
-  // branch's trapezium widths are bit-identical to differencing the heights
-  // themselves. Callers in hot loops read the coordinate once and pass it in.
+  // Birth-date path only. The establishment probability integrated over the
+  // birth dates since the newest node's, and that integral's first moment
+  // about the newest node's birth date; introduce_new_node() splits them.
+  double establishment_since_newest = 0.0;
+  double establishment_moment_since_newest = 0.0;
+  // The establishment probability of a seed arriving now, from the boundary
+  // node: the rate of establishment_since_newest.
+  double establishment_rate = 0.0;
+
+  // The abscissa the height path's resource integrals and the refinement
+  // indicators are taken over, increasing as the node list is walked from the
+  // tallest down. Heights are negated so that both coordinates increase in the
+  // same direction; negation is exact, so the height branch's trapezium widths
+  // are bit-identical to differencing the heights themselves.
   static double abscissa_of(const node_type& n, bool birth_date) {
     return birth_date ? n.introduction_time() : -n.height();
   }
@@ -243,6 +297,9 @@ void Species<T,E>::clear() {
   nodes.clear();
   // Reset the new_node to a blank new_node, too.
   new_node = node_type(strategy);
+  establishment_since_newest = 0.0;
+  establishment_moment_since_newest = 0.0;
+  establishment_rate = 0.0;
 }
 
 template <typename T, typename E>
@@ -256,6 +313,7 @@ void Species<T,E>::introduce_new_node() {
   // the post-introduction environment rather than the environment at the
   // node's introduction time (resolves the recompute question in #478).
   nodes.push_back(new_node);
+  split_establishment_since_newest();
 }
 
 // If a species contains no individuals, we return the height of a
@@ -353,10 +411,18 @@ double Species<T,E>::compute_competition(double height) const {
   if (scan.h_max < height) {
     return 0.0;
   }
-  // Read the coordinate once: this is the hottest loop in the solver (one pass
-  // per spline knot per Runge-Kutta stage), so the control lookup does not
-  // belong inside it.
-  const bool birth_date = control().node_density_in_birth_date;
+  if (control().node_density_in_birth_date) {
+    // One term per node, weighted by the establishment it stands for, so a node
+    // below `height` contributes an exact zero and the order of the nodes does
+    // not matter.
+    return establishment_weighted_sum([height](const node_type& n) {
+      const double f = n.compute_competition(height);
+      if (!util::is_finite(f)) {
+        util::stop("Detected non-finite contribution");
+      }
+      return f;
+    });
+  }
   // The loop below uses the node list itself as the quadrature grid, and the
   // early exit is valid only if that grid is monotone. When it is not, the exit
   // fires at the first node below `height` and silently drops every node beyond
@@ -364,22 +430,16 @@ double Species<T,E>::compute_competition(double height) const {
   // fictitious step in the competition profile. Take the ordered path instead.
   // Heights only, so the usual (ordered) case keeps this loop and its results
   // exactly.
-  //
-  // Only the height abscissa can invert. Introduction times are fixed at birth
-  // and nodes are appended in that order, so the birth-date grid is monotone
-  // whatever the heights do -- and compute_competition_unordered integrates in
-  // height, so sending the birth-date coordinate down it would silently swap
-  // coordinates mid-run.
-  if (!birth_date && !scan.decreasing) {
+  if (!scan.decreasing) {
     return compute_competition_unordered(height);
   }
   double tot = 0.0;
   nodes_const_iterator it = nodes.begin();
-  double x1 = abscissa_of(*it, birth_date), f1 = it->compute_competition(height);
+  double x1 = abscissa_of(*it, false), f1 = it->compute_competition(height);
 
   // Loop over nodes
   for (++it; it != nodes.end(); ++it) {
-    const double x0 = abscissa_of(*it, birth_date), h0 = it->height(),
+    const double x0 = abscissa_of(*it, false), h0 = it->height(),
                  f0 = it->compute_competition(height);
     if (!util::is_finite(f0)) {
       util::stop("Detected non-finite contribution");
@@ -389,23 +449,15 @@ double Species<T,E>::compute_competition(double height) const {
     // Upper point moves for next time:
     x1 = x0;
     f1 = f0;
-    // It is the decreasing height ordering, not the abscissa, that licenses
-    // stopping here: every later node is then shorter than `height` and
-    // contributes nothing. On the birth-date axis that ordering can break while
-    // the abscissa stays monotone, and a node below `height` may be followed by
-    // a taller one, so walk the whole list instead. Always true on the height
-    // path, which returned above otherwise.
-    if (scan.decreasing && h0 < height) {
+    // The decreasing height ordering licenses stopping here: every later node
+    // is shorter than `height` and contributes nothing.
+    if (h0 < height) {
       break;
     }
   }
 
-  // On the birth-date axis this segment is zero-width at the moment of
-  // introduction and contributes nothing once the boundary node is below
-  // `height`, so it is always safe to include; f1 can legitimately be zero here
-  // when the walk ran to the end.
-  if (size() == 1 || birth_date || f1 > 0) {
-    const double x0 = abscissa_of(new_node, birth_date),
+  if (size() == 1 || f1 > 0) {
+    const double x0 = abscissa_of(new_node, false),
                  f0 = new_node.compute_competition(height);
     tot += (x0 - x1) * (f1 + f0);
   }
@@ -472,6 +524,10 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
     c.compute_rates(environment, pr_patch_survival);
   }
   new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+  if (density_in_birth_date()) {
+    establishment_rate =
+      new_node.individual.establishment_probability_of_newborn(environment);
+  }
 }
 
 template <typename T, typename E>
@@ -481,6 +537,117 @@ void Species<T,E>::introduce_new_node(double time, double patch_density) {
   // the no-arg introduction paths.
   nodes.push_back(new_node);
   nodes.back().set_introduction(time, patch_density);
+  split_establishment_since_newest();
+}
+
+// Of the establishment accrued since the node before it, the new node takes
+// the integral against its own hat function and the node before takes the
+// rest, so each weight is exact however the establishment probability varies
+// between two introductions.
+template <typename T, typename E>
+void Species<T,E>::split_establishment_since_newest() {
+  if (!density_in_birth_date()) {
+    return;
+  }
+  node_type& added = nodes.back();
+  double share = 0.0;
+  if (size() > 1) {
+    node_type& before = nodes[size() - 2];
+    share = far_share(added.introduction_time() - before.introduction_time());
+    before.set_establishment_weight(before.establishment_weight() +
+                                    establishment_since_newest - share);
+  }
+  added.set_establishment_weight(share);
+  establishment_since_newest = 0.0;
+  establishment_moment_since_newest = 0.0;
+}
+
+template <typename T, typename E>
+size_t Species<T,E>::ode_size() const {
+  return base_type::ode_size() + (density_in_birth_date() ? 2 + size() : 0);
+}
+
+template <typename T, typename E>
+odelia::ode::const_iterator
+Species<T,E>::set_ode_state(odelia::ode::const_iterator it) {
+  invalidate_height_scan();
+  it = base_type::set_ode_state(it);
+  if (density_in_birth_date()) {
+    establishment_since_newest = *it++;
+    establishment_moment_since_newest = *it++;
+    for (auto& n : nodes) {
+      n.set_establishment_weight(*it++);
+    }
+  }
+  return it;
+}
+
+template <typename T, typename E>
+odelia::ode::iterator Species<T,E>::ode_state(odelia::ode::iterator it) const {
+  it = base_type::ode_state(it);
+  if (density_in_birth_date()) {
+    *it++ = establishment_since_newest;
+    *it++ = establishment_moment_since_newest;
+    for (const auto& n : nodes) {
+      *it++ = n.establishment_weight();
+    }
+  }
+  return it;
+}
+
+// Nothing accrues before the first node, and a node's weight changes only at
+// introductions.
+template <typename T, typename E>
+odelia::ode::iterator Species<T,E>::ode_rates(odelia::ode::iterator it) const {
+  it = base_type::ode_rates(it);
+  if (density_in_birth_date()) {
+    const bool open = size() > 0;
+    *it++ = open ? establishment_rate : 0.0;
+    *it++ = open ? time_since_newest() * establishment_rate : 0.0;
+    it = std::fill_n(it, size(), 0.0);
+  }
+  return it;
+}
+
+template <typename T, typename E>
+std::vector<double> Species<T,E>::establishment_weights() const {
+  std::vector<double> ret = node_establishment_weights();
+  if (size() == 0) {
+    ret.push_back(0.0);
+    return ret;
+  }
+  const double boundary = far_share(time_since_newest());
+  ret.back() += establishment_since_newest - boundary;
+  ret.push_back(boundary);
+  return ret;
+}
+
+template <typename T, typename E>
+std::vector<double> Species<T,E>::node_establishment_weights() const {
+  std::vector<double> ret;
+  ret.reserve(size() + 1);
+  for (const auto& n : nodes) {
+    ret.push_back(n.establishment_weight());
+  }
+  return ret;
+}
+
+template <typename T, typename E>
+std::vector<double> Species<T,E>::log_birth_date_densities() const {
+  const size_t n = size();
+  const std::vector<double> w = establishment_weights();
+  std::vector<double> ret(n + 1);
+  for (size_t j = 0; j < n; ++j) {
+    const double lo = nodes[j == 0 ? 0 : j - 1].introduction_time();
+    const double hi = j + 1 < n ? nodes[j + 1].introduction_time()
+                                : new_node.introduction_time();
+    const double span = (hi - lo) / 2;
+    ret[j] = (w[j] > 0 && span > 0 ? std::log(w[j] / span)
+                                   : -std::numeric_limits<double>::infinity()) +
+      nodes[j].get_log_density();
+  }
+  ret[n] = std::log(establishment_rate) + new_node.get_log_density();
+  return ret;
 }
 
 template <typename T, typename E>
@@ -534,15 +701,9 @@ double Species<T,E>::consumption_rate(int i) const {
     return 0.0;
   }
   if (control().node_density_in_birth_date) {
-    // Introduction times are fixed at birth and nodes are appended in that
-    // order, so this grid is ascending however the heights behave -- there is no
-    // inverted case to sort. new_node's birth date is the current time, which is
-    // the newest, so it goes on the end rather than the front.
-    std::vector<double> times = node_times();
-    times.push_back(new_node.introduction_time());
-    std::vector<double> rates = consumption_rate_by_node(i);
-    rates.push_back(new_node.consumption_rate(i));
-    return util::trapezium(times, rates);
+    return establishment_weighted_sum([i](const node_type& n) {
+      return n.consumption_rate(i);
+    });
   }
   // node heights are in descending order - we need ascending for integration,
   // starting at new_node, which is where the size distribution starts.
@@ -613,8 +774,8 @@ Rcpp::NumericMatrix Species<T, E>::r_get_state() const {
 
   // On the birth-date path `log_density` is converted to the density in height
   // before it leaves C++, so every downstream consumer of this matrix keeps its
-  // meaning, and the quantity actually integrated is reported alongside it as
-  // `log_density_state`. Note export_patch_state() resumes from patch$ode_state,
+  // meaning, and the quantity actually integrated, the density per seed, is
+  // reported alongside it as `log_density_state`. Note export_patch_state() resumes from patch$ode_state,
   // not from here, so the raw state is what a resume reloads.
   const size_t extra = control().node_density_in_birth_date ? 1 : 0;
 
@@ -644,12 +805,13 @@ Rcpp::NumericMatrix Species<T, E>::r_get_state() const {
     const int st = static_cast<int>(ode_size + aux_size);
     names.push_back("log_density_state");
     // This matrix includes the boundary node as its last column, so the
-    // Jacobian's trailing entry is used here (unlike r_log_densities()).
+    // trailing entries are used here (unlike r_log_densities()).
+    const std::vector<double> nu = log_birth_date_densities();
     const std::vector<double> jac = height_jacobian();
     for (int col = 0; col <= static_cast<int>(n_nodes); ++col) {
-      const double nu = ret(ld, col);
-      ret(st, col) = nu;
-      ret(ld, col) = util::is_finite(jac[col]) ? nu - std::log(jac[col]) : NA_REAL;
+      ret(st, col) = ret(ld, col);
+      ret(ld, col) =
+        util::is_finite(jac[col]) ? nu[col] - std::log(jac[col]) : NA_REAL;
     }
   }
 
@@ -777,15 +939,16 @@ std::vector<double> Species<T,E>::r_log_densities_state() const {
 
 template <typename T, typename E>
 std::vector<double> Species<T,E>::r_log_densities() const {
-  std::vector<double> ret = r_log_densities_state();
   if (!control().node_density_in_birth_date) {
-    return ret;
+    return r_log_densities_state();
   }
-  // N = nu / |dh/dtau|. jac carries one extra trailing entry for the boundary
+  // N = nu / |dh/dtau|. Both carry one extra trailing entry for the boundary
   // node, which this accessor does not report.
+  const std::vector<double> nu = log_birth_date_densities();
   const std::vector<double> jac = height_jacobian();
+  std::vector<double> ret(size());
   for (size_t i = 0; i < ret.size(); ++i) {
-    ret[i] = util::is_finite(jac[i]) ? ret[i] - std::log(jac[i]) : NA_REAL;
+    ret[i] = util::is_finite(jac[i]) ? nu[i] - std::log(jac[i]) : NA_REAL;
   }
   return ret;
 }
