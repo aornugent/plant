@@ -449,6 +449,47 @@ were not previously recorded here:
 
 ### New features
 
+* **The birth-date coordinate integrates establishment exactly.** Each cohort's
+  density included the establishment probability at its own birth date, and
+  every integral over birth date was a trapezium through those samples. TF24's
+  establishment probability rises after rain and falls as the soil dries, within
+  days, while cohorts are weeks to months apart, so offspring production
+  depended on when cohorts were introduced. On this coordinate a cohort's ODE
+  state is now its individual, its offspring, and the establishment probability
+  integrated from its birth date to the next cohort's with that integral's first
+  moment; its density, the birth rate times its survival, is no longer a state.
+  Competition, uptake and offspring production weight each cohort by the
+  establishment probability integrated against its hat function, so only the
+  rest of each integrand, which is smooth, is interpolated between cohorts. The
+  height coordinate is unchanged, and K93, which establishes every seed, gives
+  the same answers to ten digits.
+
+  One TF24 species over 40 years of generated daily rain with three multi-year
+  droughts, at `ode_tol = 1e-4`, every run stepping to the same times:
+
+  | cohorts | before | after |
+  |---|---|---|
+  | 108 | 14.119 | 13.466 |
+  | 215 | 13.706 | 13.463 |
+  | 215, moved half a spacing | 13.210 | 13.465 |
+  | 429 | 13.440 | 13.455 |
+
+  Moving the same 215 cohorts by half a spacing changed offspring production by
+  3.6%; now the four answers agree to 0.08%.
+
+  - On this coordinate `interval_establishment` and
+    `interval_establishment_moment` replace `log_density` in each cohort's
+    state, `Species$log_densities_state` and the `log_density_state` row are
+    removed, `Species$establishment_weights` reports the weights, and
+    `refine_schedule()` raises an error: its error indicators are trapezia of
+    cohort densities, which no longer include the establishment probability.
+  - The ODE tolerance now sets the weights' accuracy. At `ode_tol = 1e-3` the
+    same runs spread over about 1%, because an absolute tolerance of `1e-3` is
+    about the increase of the newest cohort's integral over one step.
+  - The scenario gateway's baseline is regenerated: S01 moves by +15.9%, S02 by
+    +17.9%, S05 by +3.5%, S06 by +1.3% and S08 by −3.3%, the rest by 0.05% or
+    less, and no `persists` flag changes.
+
 * **TF24 stem hydraulic resistance is now a path integral over the stem**, with
   three new `TF24_Pars` fields — `D_c` (conduit widening exponent, default
   `0.2`), `theta_c` (Huber-profile exponent, default `0`) and `L_tip` (terminal
@@ -712,9 +753,9 @@ were not previously recorded here:
   than a worse approximation of the right one.
 
   In birth-date coordinates the density rate is mortality alone (nothing moves an
-  individual along the birth-date axis), the birth density is
-  `birth_rate·pr_estab` with no division by the growth rate, and both resource
-  integrals run over introduction times.
+  individual along the birth-date axis), the birth density is `birth_rate` with
+  no division by the growth rate, and both resource integrals run over birth
+  date, with the establishment probability integrated exactly.
 
   With the flag off the solver is bit-identical to before. With it on:
 
@@ -781,15 +822,12 @@ were not previously recorded here:
   birth and so cannot serve as its present-day Jacobian. This removes a 31%
   error on the boundary node — it sits a whole introduction interval from its
   neighbour, which is the worst case for a one-sided difference. Recording it
-  also lets the two coordinates' boundary conditions be checked against each
-  other: `exp(log_density) · g(H₀)` on the height path must equal
-  `birth_rate · pr_estab`, which the birth-date path carries directly, and that
-  is now a test.
+  also lets the height coordinate's boundary condition be checked:
+  `exp(log_density) · g(H₀)` must equal `birth_rate · pr_estab`, and that is now
+  a test.
 
-  The quantity actually integrated is reported alongside rather than lost:
-  `Species$log_densities_state` (and a `log_density_state` row in `Patch$state`,
-  present only on the birth-date path), plus `Species$height_jacobian` for the
-  conversion itself. `Node$log_density` stays unconverted, since forming
+  `Species$height_jacobian` reports the conversion itself. `Node$log_density`
+  stays unconverted, since forming
   `|dh/dτ|` needs the neighbouring nodes and a `Node` does not have them.
   `export_patch_state()` resumes from `patch$ode_state`, which is the raw state,
   so resume is unaffected by any of this — pinned by a test.

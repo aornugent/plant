@@ -359,8 +359,14 @@ std::vector<double> SCM<T, E>::bisect_flagged_intervals(const std::vector<double
   return ret;
 }
 
+// The refinement indicators are trapezia of node densities, which on the
+// birth-date path exclude the establishment probability.
 template <typename T, typename E>
 void SCM<T, E>::refine_schedule() {
+  if (control.node_density_in_birth_date) {
+    util::stop("refine_schedule() supports only the height coordinate; with "
+               "node_density_in_birth_date, give the node schedule directly.");
+  }
   collect_refinement_errors = true;
   const double eps = control.schedule_eps;
 
