@@ -43,6 +43,22 @@ public:
   // exported state, which never ran compute_initial_conditions().
   double growth_rate_at_birth() const {return birth_growth_rate;}
 
+  // Birth-date path: pr_estab integrated from this node's birth date to the
+  // next node's, split between the hat functions at the two ends, {this, next}.
+  std::pair<double, double> interval_shares(double width) const {
+    const double next =
+      width > 0 ? interval_establishment_moment / width : 0.0;
+    return {interval_establishment - next, next};
+  }
+  // Only the newest node's interval grows: at the establishment probability of
+  // a seed arriving now, `time_since_birth` after this node's birth date.
+  void set_interval_establishment_rate(double pr_estab,
+                                       double time_since_birth) {
+    interval_establishment_dt = pr_estab;
+    interval_establishment_moment_dt = time_since_birth * pr_estab;
+  }
+  double interval_establishment_rate() const {return interval_establishment_dt;}
+
   // Refresh only the birth date, leaving the rest of the bookkeeping alone.
   // Used for the not-yet-introduced boundary node, whose birth date is the
   // current time and so moves with every step; see
@@ -55,14 +71,19 @@ public:
 
   // Restore birth bookkeeping for a node imported from an exported patch state,
   // without re-running compute_initial_conditions (which would overwrite the
-  // loaded ODE state). pr_patch_survival_at_birth feeds the fecundity rate;
-  // node_introduction_time and patch_density_at_birth feed lifetime-fitness
-  // integrals. Required for a resumed run to reproduce the original trajectory.
+  // loaded ODE state). pr_patch_survival_at_birth feeds the fecundity rate and
+  // the birth rate the birth-date density; node_introduction_time and
+  // patch_density_at_birth feed lifetime-fitness integrals. Required for a
+  // resumed run to reproduce the original trajectory.
   void set_birth_state(double time, double patch_density_in,
-                       double pr_patch_survival) {
+                       double pr_patch_survival, double birth_rate) {
     node_introduction_time = time;
     patch_density_at_birth = patch_density_in;
     pr_patch_survival_at_birth = pr_patch_survival;
+    log_birth_rate = log(birth_rate);
+    if (individual.control().node_density_in_birth_date) {
+      set_birth_date_density();
+    }
   }
 
   // Lifetime offspring of this node, weighted by the probability of
@@ -86,18 +107,27 @@ public:
   // NOTE: We are a time-independent model here so no need to pass
   // time in as an argument.  All the bits involving time are taken
   // care of by Environment for us.
-  // +2 for log_density and offspring_production_dt
-  static size_t ode_size() { return strategy_type::state_size() + 2; }
+  // +2 for log_density and offspring_production_dt; on the birth-date path the
+  // interval's establishment and its moment replace log_density.
+  size_t ode_size() const {
+    return strategy_type::state_size() + 2 +
+      (individual.control().node_density_in_birth_date ? 1 : 0);
+  }
   size_t aux_size() const { return individual.aux_size(); }
   odelia::ode::const_iterator set_ode_state(odelia::ode::const_iterator it);
   odelia::ode::iterator       ode_state(odelia::ode::iterator it) const;
   odelia::ode::iterator       ode_rates(odelia::ode::iterator it) const;
   odelia::ode::iterator       ode_aux(odelia::ode::iterator it) const;
 
-  static std::vector<std::string> ode_names() {
+  std::vector<std::string> ode_names() const {
     std::vector<std::string> names = strategy_type::state_names();
     names.push_back("offspring_produced_survival_weighted");
-    names.push_back("log_density");
+    if (individual.control().node_density_in_birth_date) {
+      names.push_back("interval_establishment");
+      names.push_back("interval_establishment_moment");
+    } else {
+      names.push_back("log_density");
+    }
     return names;
   }
 
@@ -115,18 +145,30 @@ private:
   // This is the gradient of growth rate with respect to height:
   double growth_rate_gradient(const environment_type& environment) const;
 
+  // On the birth-date path log_density is not a state: the birth rate at the
+  // node's birth date times its survival.
+  void set_birth_date_density() {
+    set_log_density(log_birth_rate - individual.state(MORTALITY_INDEX));
+  }
+
   double log_density;
   double log_density_dt;
   double density; // hmm...
   double offspring_produced_survival_weighted;
   double offspring_produced_survival_weighted_dt;
   double pr_patch_survival_at_birth;
+  double log_birth_rate;
 
   // Recorded at introduction (see set_introduction).
   double node_introduction_time;
   double patch_density_at_birth;
   // |dh/dtau| at birth; see growth_rate_at_birth().
   double birth_growth_rate;
+  // See interval_shares().
+  double interval_establishment;
+  double interval_establishment_dt;
+  double interval_establishment_moment;
+  double interval_establishment_moment_dt;
 };
 
 template <typename T, typename E>
@@ -137,9 +179,14 @@ Node<T,E>::Node(strategy_type_ptr s)
     density(0),
     offspring_produced_survival_weighted(0),
     offspring_produced_survival_weighted_dt(0),
+    log_birth_rate(-std::numeric_limits<double>::infinity()),
     node_introduction_time(0),
     patch_density_at_birth(0),
-    birth_growth_rate(0) {
+    birth_growth_rate(0),
+    interval_establishment(0),
+    interval_establishment_dt(0),
+    interval_establishment_moment(0),
+    interval_establishment_moment_dt(0) {
 }
 
 template <typename T, typename E>
@@ -171,6 +218,10 @@ void Node<T,E>::compute_rates(const environment_type& environment,
   offspring_produced_survival_weighted_dt =
     individual.rate(FECUNDITY_INDEX) * survival_individual *
     pr_patch_survival / pr_patch_survival_at_birth;
+
+  // Zero except on the newest node, set by Species::compute_rates() after this.
+  interval_establishment_dt = 0.0;
+  interval_establishment_moment_dt = 0.0;
 }
 
 // NOTE: There will be a discussion of why the mortality rate initial
@@ -179,19 +230,20 @@ void Node<T,E>::compute_rates(const environment_type& environment,
 //
 // NOTE: The initial condition for log_density is also a bit tricky, and
 // defined on p 7 at the moment.
+//
+// On the birth-date path mortality starts at zero and density at the birth
+// rate; pr_estab enters only through Species' establishment weights.
 template <typename T, typename E>
 void Node<T,E>::compute_initial_conditions(const environment_type& environment,
                                              double pr_patch_survival, double birth_rate) {
   pr_patch_survival_at_birth = pr_patch_survival;
+  log_birth_rate = log(birth_rate);
   // Seed strategy-specific initial states (e.g. TF24f's tracked psi at its
   // optimum) before the first rates evaluation, so the birth growth rate uses
   // the initialised operating point rather than a default.
   individual.set_initial_states(environment);
   compute_rates(environment, pr_patch_survival);
 
-  const double pr_estab =
-    individual.establishment_probability_of_newborn(environment);
-  individual.set_state("mortality", -log(pr_estab));
   // The birth-date axis of the node about to be introduced; Patch re-stamps
   // this with the exact introduction time as the node is pushed.
   node_introduction_time = environment.time;
@@ -206,8 +258,12 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   const double g = individual.rate(HEIGHT_INDEX);
   birth_growth_rate = g;
   if (individual.control().node_density_in_birth_date) {
-    set_log_density(log(birth_rate * pr_estab));
+    individual.set_state("mortality", 0.0);
+    set_birth_date_density();
   } else {
+    const double pr_estab =
+      individual.establishment_probability_of_newborn(environment);
+    individual.set_state("mortality", -log(pr_estab));
     // NOTE: log(0.0) -> -Inf, which should behave fine.
     set_log_density(g > 0 ? log(birth_rate * pr_estab / g) : log(0.0));
   }
@@ -279,7 +335,13 @@ odelia::ode::const_iterator Node<T,E>::set_ode_state(odelia::ode::const_iterator
     individual.set_state(i, *it++);
   }
   offspring_produced_survival_weighted = *it++;
-  set_log_density(*it++);
+  if (individual.control().node_density_in_birth_date) {
+    interval_establishment = *it++;
+    interval_establishment_moment = *it++;
+    set_birth_date_density();
+  } else {
+    set_log_density(*it++);
+  }
   return it;
 }
 template <typename T, typename E>
@@ -288,7 +350,12 @@ odelia::ode::iterator Node<T,E>::ode_state(odelia::ode::iterator it) const {
     *it++ = individual.state(i);
   }
   *it++ = offspring_produced_survival_weighted;
-  *it++ = log_density;
+  if (individual.control().node_density_in_birth_date) {
+    *it++ = interval_establishment;
+    *it++ = interval_establishment_moment;
+  } else {
+    *it++ = log_density;
+  }
   return it;
 }
 template <typename T, typename E>
@@ -297,7 +364,12 @@ odelia::ode::iterator Node<T,E>::ode_rates(odelia::ode::iterator it) const {
     *it++ = individual.rate(i);
   }
   *it++ = offspring_produced_survival_weighted_dt;
-  *it++ = log_density_dt;
+  if (individual.control().node_density_in_birth_date) {
+    *it++ = interval_establishment_dt;
+    *it++ = interval_establishment_moment_dt;
+  } else {
+    *it++ = log_density_dt;
+  }
   return it;
 }
 
