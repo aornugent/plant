@@ -150,6 +150,23 @@ test_that("mutant method densities", {
   run_case(20, c(0, 5, 10, 20))
 })
 
+# The TF24 stand the invasion tests below replay: lifetime 6, twenty of the default
+# schedule's introductions for every species, and constant rain.
+tf24_invasion_fixture <- function(traits = trait_matrix(0, "TF24_floor_lambda_o")) {
+  p0 <- scm_base_parameters("TF24")
+  p0$max_patch_lifetime <- 6
+  p1 <- add_strategies(p0, traits, hyperpar = TF24_hyperpar,
+                       birth_rate = rep(1, nrow(traits)))
+  full <- p1$node_schedule_times[[1]]
+  p1$node_schedule_times <-
+    rep(list(full[round(seq(1, length(full), length.out = 20))]), nrow(traits))
+
+  env <- Environment("TF24")
+  env$set_soil_water_state(rep(0.428 * 0.5, env$get_soil_number_of_depths()))
+  env$extrinsic_drivers_set_constant("rainfall", 1)
+  list(p = p1, env = env)
+}
+
 test_that("mutant method densities, TF24", {
   # The same resident-vs-mutant identity as the block above, for a model whose
   # rates refuse a state. TF24's storage pool reports an overshoot below empty by
@@ -192,19 +209,9 @@ test_that("mutant method densities, TF24", {
   ctrl <- Control()
   tol <- 1e-3
 
-  p0 <- scm_base_parameters("TF24")
-  p0$max_patch_lifetime <- 6
-  p1 <- add_strategies(p0, trait_matrix(0, "TF24_floor_lambda_o"),
-                       hyperpar = TF24_hyperpar, birth_rate = 1)
-  full <- p1$node_schedule_times[[1]]
-  p1$node_schedule_times <-
-    list(full[round(seq(1, length(full), length.out = 20))])
-
-  env <- Environment("TF24")
-  env$set_soil_water_state(rep(0.428 * 0.5, env$get_soil_number_of_depths()))
-  env$extrinsic_drivers_set_constant("rainfall", 1)
-
-  scm <- run_scm(p1, env = env, ctrl = ctrl)
+  fixture <- tf24_invasion_fixture()
+  p1 <- fixture$p
+  scm <- run_scm(p1, env = fixture$env, ctrl = ctrl)
   resident_rr <- scm$net_reproduction_ratios
 
   # Not assertions about the model, just guards that the replay below has
@@ -220,4 +227,66 @@ test_that("mutant method densities, TF24", {
   mutant_rr <- scm$net_reproduction_ratios
 
   expect_equal(log(mutant_rr), log(resident_rr), tolerance = tol)
+})
+
+test_that("a resident and a mutant invade together, TF24", {
+  # Each invader is evaluated in the recorded field and solves for its own leaf
+  # operating points, so invading beside another invader changes neither of them.
+  lma <- scm_base_parameters("TF24")$strategy_default$pars[["lma"]]
+  traits <- trait_matrix(c(0, 0, lma, 0.95 * lma),
+                         c("TF24_floor_lambda_o", "lma"))
+  resident <- tf24_invasion_fixture(traits[1, , drop = FALSE])
+  scm <- run_scm(resident$p, env = resident$env, ctrl = Control())
+  resident_rr <- scm$net_reproduction_ratios
+
+  scm$run_mutant(tf24_invasion_fixture(traits)$p)
+  together <- scm$net_reproduction_ratios
+  scm$run_mutant(tf24_invasion_fixture(traits[2, , drop = FALSE])$p)
+  alone <- scm$net_reproduction_ratios
+
+  expect_equal(log(together[1]), log(resident_rr), tolerance = 1e-12)
+  expect_identical(together[2], alone)
+  # The mutant's fitness is not the resident's.
+  expect_gt(abs(log(alone) - log(resident_rr)), 1)
+})
+
+test_that("an invader's sweep agrees with a pinned difference of its census", {
+  # On the birth-date coordinate, which the sweep runs on. The gradient holds the
+  # recorded field fixed, and each side of the difference invades against the
+  # same recording, so both take its steps.
+  p <- ladder_parameters("fast")
+  p$node_schedule_times <- list(c(0, 0.63))
+  with_parameter <- function(q, name, value) {
+    strategies <- q$strategies
+    pars <- strategies[[1]]$pars
+    pars[[name]] <- value
+    strategies[[1]]$pars <- pars
+    q$strategies <- strategies
+    q
+  }
+  invader <- with_parameter(p, "lma", 0.95 * p$strategies[[1]]$pars[["lma"]])
+
+  scm <- ladder_run(p)
+  scm$record_trajectory <- TRUE
+  scm$run_mutant(invader)
+  columns <- c("1.hmat", "1.k_I")
+  swept <- stand_gradient(scm, traits = columns)$gradient
+  scm$record_trajectory <- FALSE
+
+  # lma is left out: its difference has a floor near 1e-5 on a resident too.
+  for (name in c("hmat", "k_I")) {
+    value <- invader$strategies[[1]]$pars[[name]]
+    h <- 1e-5 * value
+    census_at <- function(x) {
+      scm$run_mutant(with_parameter(invader, name, x))
+      stand_census(scm)
+    }
+    differenced <- (census_at(value + h) - census_at(value - h)) / (2 * h)
+    expect_equal(swept[, paste0("1.", name)], differenced, tolerance = 1e-7)
+  }
+
+  # As a resident the same strategy moves the field it is evaluated in, and its
+  # gradient differs by up to a fifth.
+  moving <- stand_gradient(ladder_run(invader), traits = columns)$gradient
+  expect_gt(max(abs(moving / swept - 1)), 0.1)
 })

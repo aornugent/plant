@@ -300,29 +300,21 @@ public:
   // computing the environment as it goes.
   template <typename It> It set_ode_state(It it, double time);
 
-  // One rate evaluation's extent, so every species that keeps a choice can reach
-  // what the run chose here. Opened by the walk around the whole evaluation, which
-  // is what puts it before the field build below -- the inflow condition's own leaf
-  // solves happen in there -- and closes it however the evaluation leaves.
-  // What one of this patch's rate evaluations solves for, in the order the run
-  // made them: each species' own inner solves, and -- where a run was asked to
-  // keep it -- the field the evaluation was taken in.
+  // What one of this patch's rate evaluations solves for: each species' own inner
+  // solves, and the field the evaluation was taken in where a run keeps it.
   //
-  // ⚠️ THE FIELD IS KEPT ONLY WHEN A RUN ASKS, AND A GRADIENT RECORDING MUST NOT
-  // ASK. A resident's field is recomputable from its own state, so loading one
-  // back as a recorded double would sever the tape there and the sweep would come
-  // back wrong with every number finite. An INVADER's is not recomputable: it is
-  // exogenous, its derivative is zero rather than severed, and that is the one
-  // case that asks. `keep_field` is therefore set by the invasion pass and by
-  // nothing else.
-  // ⚠️ AN ALIAS AND NOT A NESTED STRUCT, because a nested struct of a class
-  // template is a DISTINCT TYPE per instantiation -- so the sweep, which hands a
-  // recording taken on the double patch to the patch lifted to an active scalar,
-  // could not hand it over at all. The alias makes both name one type, which is
-  // also what says a recorded value carries no scalar.
+  // ⚠️ ONLY AN INVASION'S RECORDING PASS KEEPS THE FIELD. A run's own field is
+  // recomputable from its state, so a sweep using a recorded copy would drop the
+  // field's derivative with every number finite. An invader's field is not its
+  // own, and a recorded copy gives the derivative it has, zero.
+  // ⚠️ AN ALIAS AND NOT A NESTED STRUCT: a nested struct of a class template is a
+  // distinct type per instantiation, and the sweep hands a recording taken on the
+  // double patch to the patch at an active scalar.
   using solved_values =
       patch_solved_values<odelia::ode::solved_values_t<strategy_type>>;
 
+  // The walk opens this extent before the state is loaded, when the field is not
+  // built yet, so compute_environment() is handed the row's field by address.
   void store_solved(solved_values& into) {
     if constexpr (KeepsSolvedChoices<strategy_type>) {
       into.strategies.resize(species.size());
@@ -330,21 +322,16 @@ public:
         species[i].strategy_ptr()->store_solved(into.strategies[i]);
       }
     }
-    // ⚠️ A DESTINATION, NOT A VALUE. The walk opens this extent BEFORE the state
-    // is loaded -- a System's inner solves can happen inside the load -- so the
-    // field does not exist yet and anything captured here would be the PREVIOUS
-    // evaluation's. `leaf_solved_points` hands over a cursor for the same reason.
-    // compute_environment() fills it, which is where the field comes to exist.
-    field_slot = keep_field ? &into.field : nullptr;
+    // A row that starts as a copy of a recorded one holds the field that run
+    // was evaluated in; otherwise this evaluation writes its own where kept.
+    if (into.field.kept) {
+      row_field = &into.field;
+    } else if (keep_field) {
+      field_slot = &into.field;
+    }
   }
-  // ⚠️ THE SPECIES COUNT IS CHECKED, because it is the one thing a recorded list can
-  // disagree with the patch about that would otherwise read as a species solving
-  // nothing.
-  //
-  // The field is not installed here but POINTED AT, because the walk opens this
-  // extent before the state is loaded and `set_ode_state` rebuilds the field on
-  // its way past. compute_environment() is where the two meet, and the pointer is
-  // live only for this evaluation: end_solved() clears it.
+  // The species count is checked: a recorded list of another length would
+  // otherwise read as a species that solved for nothing.
   void load_solved(const solved_values& from) {
     if constexpr (KeepsSolvedChoices<strategy_type>) {
       util::check_length(from.strategies.size(), species.size());
@@ -352,7 +339,9 @@ public:
         species[i].strategy_ptr()->load_solved(from.strategies[i]);
       }
     }
-    loaded_field = from.field.kept ? &from.field : nullptr;
+    if (from.field.kept) {
+      row_field = &from.field;
+    }
   }
   void end_solved() {
     if constexpr (KeepsSolvedChoices<strategy_type>) {
@@ -360,19 +349,22 @@ public:
         s.strategy_ptr()->end_solved();
       }
     }
+    row_field = nullptr;
     field_slot = nullptr;
-    // ⚠️ `loaded_field` IS NOT CLEARED HERE, and that is the point. A field is a
-    // state of the world the patch stands in, not a loan for one evaluation: an
-    // INSERTION happens between two rows, at the instant the row below it ended,
-    // and it evaluates the inflow condition for every node it introduces. Cleared
-    // here, that evaluation would build the invader's own field and every cohort
-    // it introduces would enter at a density taken in the wrong light. It is
-    // replaced by the next row that carries one, and cleared by reset().
   }
 
-  // Keep the field this run stands in, so a later run can stand in it. Off
-  // everywhere but the invasion pass -- see `solved_values`.
+  // Keep the field each evaluation is taken in; set by the recording pass of an
+  // invasion only (see `solved_values`).
   void set_keep_field(bool keep) { keep_field = keep; }
+
+  // The field recorded at the end of each step of a run, and none at its start.
+  // An invader's evaluation outside a row happens at one of those instants and
+  // uses the field recorded there. reset() clears them.
+  void set_step_end_fields(
+      std::shared_ptr<const std::vector<recorded_field>> fields) {
+    step_end_fields = std::move(fields);
+  }
+  bool uses_recorded_fields() const { return step_end_fields != nullptr; }
 
   // A recorded state loaded as the run itself carries it. set_ode_state evaluates
   // the inflow condition in the field that leaves the boundary interval off, then
@@ -462,20 +454,15 @@ private:
   void compute_environment();
   void compute_rates();
 
-  // Set by the invasion pass, read by store_solved(). See `solved_values`.
+  // Set by the recording pass of an invasion, read by store_solved().
   bool keep_field = false;
-  // The field the patch is standing in, or null where it builds its own; and where
-  // THIS rate evaluation's field is to be written, or null where it is not kept.
-  // At most one is ever set, because a walk hands a row over to be read or to be
-  // written and the constness says which.
-  //
-  // They have different lifetimes on purpose. The SLOT is one evaluation's, so a
-  // recording writes each row once. The FIELD outlives its row, because what
-  // happens between rows -- an insertion -- happens in the field too; see
-  // end_solved(). It points into a recording the SCM holds for as long as it can
-  // replay one, and reset() clears it.
-  const recorded_field* loaded_field = nullptr;
+  // For one rate evaluation, the field its row holds or the slot it writes its
+  // own into; at most one is set.
+  const recorded_field* row_field = nullptr;
   recorded_field* field_slot = nullptr;
+  // See set_step_end_fields().
+  std::shared_ptr<const std::vector<recorded_field>> step_end_fields;
+  const recorded_field* step_end_field(double time) const;
 
   // Seed the patch from parameters.initial_state (nodes + birth bookkeeping)
   // when present; called from reset(). Sets environment.time = initial_time.
@@ -623,6 +610,9 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
   out.environment.set_shading_model(control.shading_model,
                                     control.ppa_layer_optical_depth,
                                     control.ppa_layer_smoothing);
+  // The fields an invader is evaluated in, which the constructor's reset()
+  // cleared.
+  out.step_end_fields = step_end_fields;
   // The field and the boundary node are left to the caller. Every caller sets a
   // state through set_ode_state or set_state_and_boundary before reading
   // either, and both rebuild the field and re-evaluate the inflow condition, so
@@ -649,9 +639,10 @@ void Patch<T,E>::add_strategies(std::vector<strategy_type> strategies) {
 
 template <typename T, typename E>
 void Patch<T,E>::reset() {
-  // A fresh run stands in no recorded field until a row hands it one.
-  loaded_field = nullptr;
+  // A reset patch builds its own field until a recording hands it one.
+  row_field = nullptr;
   field_slot = nullptr;
+  step_end_fields.reset();
    for (auto& s : species) {
     s.clear();
     // allocate variables for tracking resource consumption
@@ -1046,30 +1037,26 @@ void Patch<T,E>::compute_environment() {
     s.set_new_node_birth_date(environment.time);
   }
 
-  // Standing in a field this evaluation did not build, which is what an invader
-  // does: it is vanishingly rare, so the field is exogenous to it and it puts
-  // nothing into the reduction below. Only the inflow condition is still its own
-  // -- that is what a species does IN a field rather than to it -- and the
-  // resident's own closing trapezium is already in what it is handed.
+  // An invader is evaluated in a field it did not build: its row's, or at an
+  // instant no row covers, the field recorded there. It adds nothing to the
+  // reduction below, and only the inflow condition is its own.
   //
-  // ⚠️ THE INSTANT IS CHECKED. The field and the state reach here by different
-  // routes, and a recording paired one step out would hand every evaluation its
-  // neighbour's field with every number finite.
-  if (loaded_field != nullptr) {
-    if (!util::identical(loaded_field->time, environment.time)) {
-      // ⚠️ EVERY DIGIT, because the two instants a mispaired recording hands over
-      // are usually the same to six places and different in the bits -- which is
-      // the whole reason this is checked rather than assumed.
+  // ⚠️ THE INSTANT IS CHECKED, to every digit: a recording paired one step out
+  // would hand every evaluation its neighbour's field with every number finite.
+  const recorded_field* field =
+      row_field != nullptr ? row_field : step_end_field(environment.time);
+  if (field != nullptr) {
+    if (!util::identical(field->time, environment.time)) {
       std::ostringstream m;
       m.precision(17);
-      m << "The recorded field is for t=" << loaded_field->time
+      m << "The recorded field is for t=" << field->time
         << " and this evaluation is at t=" << environment.time
         << ": the recording and the run it is replayed through disagree about "
            "which rate evaluation this is";
       util::stop(m.str());
     }
-    environment.r_init_interpolators(loaded_field->interpolators);
-    environment.set_ode_state(loaded_field->state.begin());
+    environment.r_init_interpolators(field->interpolators);
+    environment.set_ode_state(field->state.begin());
     compute_boundary_nodes();
     return;
   }
@@ -1086,6 +1073,26 @@ void Patch<T,E>::compute_environment() {
     field_slot->time = environment.time;
     field_slot->kept = true;
   }
+}
+
+// Null where no fields were recorded, or at the start, which holds none.
+template <typename T, typename E>
+const recorded_field* Patch<T,E>::step_end_field(double time) const {
+  if (step_end_fields == nullptr) {
+    return nullptr;
+  }
+  const std::vector<recorded_field>& fields = *step_end_fields;
+  const auto at = std::lower_bound(
+      fields.begin(), fields.end(), time,
+      [](const recorded_field& f, double t) { return f.time < t; });
+  if (at == fields.end() || !util::identical(at->time, time)) {
+    std::ostringstream m;
+    m.precision(17);
+    m << "An evaluation at t=" << time << " has no row, and no recorded step "
+      << "ends there, so there is no recorded field for it";
+    util::stop(m.str());
+  }
+  return at->kept ? &*at : nullptr;
 }
 
 // The field without the boundary interval, keeping each species' reduction at
@@ -1607,10 +1614,9 @@ void Patch<T,E>::reshape_to(double time) {
       }
     }
   }
+  // The field is built by the load that follows, at the recorded time.
   if (moved) {
     check_birth_dates_distinct();
-    compute_environment();
-    compute_rates();
   }
 }
 

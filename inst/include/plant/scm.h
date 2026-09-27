@@ -104,11 +104,11 @@ public:
   using trajectory = std::span<const odelia::ode::step_record<patch_type>>;
   trajectory store_trajectory();
 
-  // Set before run() to keep the state at every accepted step. The reverse pass
-  // needs those states and cannot recover them from a finished run, so a run that
-  // did not keep them has to be repeated -- one whole forward integration. Off by
-  // default because the store is one double per state entry per step and a forward
-  // run has no use for it.
+  // Set before run() or run_mutant() to keep the state at every accepted step.
+  // The reverse pass needs those states and cannot recover them from a finished
+  // run, so a run that did not keep them has to be repeated -- one whole forward
+  // integration. Off by default because the store is one double per state entry
+  // per step and a forward run has no use for it.
   bool record_trajectory = false;
 
   // Adaptively refine the node-introduction schedule entirely in C++:
@@ -528,6 +528,10 @@ private:
   // its loop, rather than per event.
   std::vector<size_t> run_next();
 
+  // The second pass of run_mutant(): walk `resident_recording` with this SCM's
+  // strategies, keeping states where record_trajectory asks.
+  void invade();
+
   parameters_type parameters;
   Control control;
   patch_type patch;
@@ -707,30 +711,20 @@ std::vector<size_t> SCM<T, E>::run_next() {
   return ret;
 }
 
-// An invader integrates against a field it does not move: every strategy in `p`
-// is an invader, the resident's own among them, and that one coming back with the
-// resident's fitness is what says the machinery is sound.
+// Every strategy in `p` is an invader, evaluated in a field it does not move; one
+// identical to a strategy of the recorded run must come back with its fitness.
 //
-// Two passes, because the field lives at the Runge-Kutta stages and no recorded
-// step boundary carries one. The first replays the resident over its own recorded
-// program, keeping the field at each rate evaluation; the second walks that
-// recording with `p`'s strategies in the patch, and each evaluation LOADS the
-// field the resident stood in rather than building its own. Which of the two a
-// pass is doing is the constness of what the walk hands over, so there is no mode
-// here and none to go stale.
+// Two passes. The first re-runs this SCM's community over its own program,
+// keeping the field at each rate evaluation; invade() then walks that recording
+// with `p`'s strategies.
 //
 // ⚠️ THE RECORDING PASS IS PINNED AND NOT ADAPTIVE. An adaptive run evaluates
 // inside attempts it then rejects; pinned to its own program it rejects nothing,
-// so what it keeps is exactly the sequence a replay of that program makes.
+// so what it keeps is exactly the sequence a walk of that program makes.
 //
-// The replay needs no schedule of its own: the recording carries its own
-// insertions, and the patch answers each one from ITS introduction times, so `p`'s
-// species are introduced where the resident's were. That is the same map the sweep
-// transposes rather than a second spelling of it.
-//
-// The record outlives the call, so a second invasion against the same resident
-// pays for one pass and not two -- and, as on develop, it is still the FIRST
-// resident's field, because this call has overwritten `parameters` with `p`.
+// The recording outlives the call, so a second invasion pays for one pass, and
+// it is still the first community's field, because this call overwrites
+// `parameters` with `p`.
 template <typename T, typename E>
 void SCM<T, E>::run_mutant(parameters_type p) {
   if (resident_recording.empty()) {
@@ -755,16 +749,32 @@ void SCM<T, E>::run_mutant(parameters_type p) {
     resident_recording.assign(rec.begin(), rec.end());
   }
 
-  // Destructive, as it has always been: the mutants become this SCM's community,
-  // and its outputs are theirs.
+  // Destructive, as it has always been: the invaders become this SCM's
+  // community, and its outputs are theirs.
   parameters = p;
   patch.overwrite_strategies(parameters.strategies);
   node_schedule = make_node_schedule(parameters);
+  invade();
+}
+
+// Each evaluation uses the field its row holds, and one outside a row the field
+// recorded at that step's end. The recording's insertions are answered from this
+// patch's own introduction times, by the map the sweep transposes.
+template <typename T, typename E>
+void SCM<T, E>::invade() {
+  // Set before reset(), which records the state the walk starts from.
+  solver.set_keep_states(record_trajectory);
   reset();
-  // ⚠️ A REPLAY KEEPS NOTHING. It is the recording's consumer, not another one of
-  // them, and a recording of a replay is a copy of its own input that nobody
-  // reads -- a state vector and six rows per step, for every invader in a sweep.
-  solver.set_keep_states(false);
+  // Keyed by the time each row reached, which is the time an evaluation outside
+  // a row runs at. The start row holds no field.
+  auto fields = std::make_shared<std::vector<recorded_field>>();
+  for (const odelia::ode::step_record<patch_type>& row : resident_recording) {
+    if (!row.insertion) {
+      fields->push_back(row.solved.back().field);
+      fields->back().time = row.time;
+    }
+  }
+  solver.get_system_ref().set_step_end_fields(std::move(fields));
   solver.advance_recorded(resident_recording);
   patch = solver.get_system_ref();
 }
@@ -776,10 +786,15 @@ typename SCM<T, E>::trajectory SCM<T, E>::store_trajectory() {
   // a second consumer reads the same record rather than repeating the run.
   //
   // Asked of this flag and not of the solver: run() is what sets the solver's
-  // from this one, so asking the solver is asking it what it was just told.
+  // from this one, so asking the solver is asking it what it was just told. An
+  // invaded SCM repeats its invasion, where run() would run the invaders alone.
   if (!record_trajectory) {
     record_trajectory = true;
-    run();
+    if (solver.get_system_ref().uses_recorded_fields()) {
+      invade();
+    } else {
+      run();
+    }
   }
 
   // Handed back as the solver holds it. The state, the time it was reached at and

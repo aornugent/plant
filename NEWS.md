@@ -1198,11 +1198,12 @@ were not previously recorded here:
   answer independent of how many invaders share the call (traitecoevo/plant#646),
   since no error norm is consulted.
 
-  It has not been seen to fire. TF24's identity case replays 28,813 steps at
-  `max_patch_lifetime = 14` — the fixture chosen because TF24's storage pool
-  refuses routinely, ~480 times in a resident run — and never refuses, which is
-  what an identity invader on the resident's own grid should do. **A genuinely
-  different TF24 invader is the untested case.** If it fires it will say so
+  **It fires for TF24.** On `test-mutant.R`'s TF24 fixture (lifetime 6, 20
+  introductions, constant rain), invaders with `lma` from 0.95 to 1.0001 times
+  the resident's run. From 1.001 times up they fail with `TF24 storage is
+  negative`: the resident's steps sit at its storage pool's stability limit, and
+  an invader whose pool is slightly stiffer overshoots. Until invaders solved for
+  their own leaf operating points, the failures began at 1.0001. It says so
   loudly rather than quietly approximating, which is the choice made here:
   `develop` subdivided instead, and its field then rewound once per sub-step,
   which is the whole of its unexplained ~1e-6 on TF24 against ~1e-13 on FF16.
