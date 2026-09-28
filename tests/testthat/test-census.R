@@ -124,7 +124,7 @@ census_of_state <- function(scm, column, birth_date = TRUE) {
     y[[column]] <- value
     patch$set_ode_state(y, time)
     # A rate evaluation owns the field build and the inflow condition, so this
-    # leaves the boundary node where set_state_and_boundary would.
+    # leaves the boundary node where the final row's evaluation does.
     invisible(patch$ode_rates)
     census_r(patch$species[[1]], strategy$pars,
              strategy$pars$eta, birth_date = birth_date)[["leaf_area"]]

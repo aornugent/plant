@@ -3,7 +3,7 @@
 ## into the patch. odelia's rewrite deleted those hooks; what replaces them is
 ## odelia's own store/load channel -- the run keeps the field in the same
 ## per-(step, stage) row it already keeps what a rate evaluation solved for, and
-## the invasion pass loads it. The numbers did not move, which is the point of
+## the invasion pass reads it there. The numbers did not move, which is the point of
 ## keeping them: they were the specification the replacement was written to, not
 ## a re-pin taken from it.
 
@@ -167,95 +167,83 @@ tf24_invasion_fixture <- function(traits = trait_matrix(0, "TF24_floor_lambda_o"
   list(p = p1, env = env)
 }
 
-test_that("mutant method densities, TF24", {
-  # The same resident-vs-mutant identity as the block above, for a model whose
-  # rates refuse a state. TF24's storage pool reports an overshoot below empty by
-  # throwing a domain error, which the adaptive stepper answers by shrinking and
-  # retrying -- a routine event, some hundreds of times in a resident run that
-  # goes on to complete normally.
+test_that("an identical invader repeats the run's fitness exactly, TF24", {
+  # An invasion walks the run's accepted steps in the field each evaluation was
+  # taken in, applying the same entries: the same events in the same order, then
+  # the same introductions. A copy of the run's own strategy therefore makes every
+  # evaluation the run made, and its fitness is the run's to every digit -- with
+  # no events, and under a pulse, a harvest where it meets the schedule's 19th
+  # introduction, a climate extreme and a second harvest.
   #
-  # run_mutant() pins the stepper to the resident's recorded step times, and that
-  # path used to call the stepper with no domain handling at all, so the first of
-  # those refusals killed the replay (#642). It failed for every TF24 strategy
-  # tried, this identity case included.
+  # TF24's storage pool refuses a state below empty by throwing, which the run's
+  # stepper answers by shrinking and retrying some hundreds of times. The walk
+  # takes only accepted steps and would fail rather than shrink, so passing
+  # without an error is the statement that it meets no refusal.
   #
-  # ⚠️ THE FIX IS NOT THE ONE THIS COMMENT USED TO NAME. odelia 0.4.0 subdivided a
-  # refused pinned step; this replay does not subdivide at all, deliberately --
-  # see NEWS.md under Known issues, where the reason is that subdividing is what
-  # made the answer depend on how many invaders shared the call. A replay that met
-  # a refusal would now FAIL rather than shrink, and `expect_no_error` below
-  # passing is the statement that it meets none.
-  #
-  # ⚠️ THE LIFETIME BUYS THE REGIME AND THE COHORT COUNT IS WHAT COSTS, and the
-  # default schedule confounds them by deriving its introduction count from the
-  # lifetime. Held at 6 and varying only how many of that schedule's 89
-  # introductions are kept, against the 1e-3 this compares at:
-  #
-  #   introductions     20     40     60     89
-  #   steps            311    363    452    497
-  #   log gap        4e-15  4e-13  1e-14  4e-15
-  #   seconds          2.7    6.0   11.2     18
-  #
-  # The gap does not fall with either count, because this is an identity rather
-  # than an approximation. So a longer recording buys only more of the regime,
-  # and twenty introductions are enough to hold the identity at 4e-15.
-  #
-  # ⚠️ THOSE STEP COUNTS ARE A TWENTIETH OF WHAT THEY WERE, and the pool is why.
-  # This table read 6071 to 12714 steps and 71 to 623 seconds while compute_rates
-  # ran the clamped pre-v9 pool the templating commit transcribed; restoring the
-  # charge and drain form took the same four fixtures to 311 to 497. The stiffness
-  # the schedule was thinned to avoid was mostly the pool integrating past its own
-  # ceiling. Both counts are asserted below rather than left to the constants.
-  ctrl <- Control()
-  tol <- 1e-3
+  # Lifetime 6 with twenty of the default schedule's introductions is 311 steps
+  # and 2.7 s a run; more introductions buy only more of the same regime.
+  introduction <- tf24_invasion_fixture()$p$node_schedule_times[[1]][19]
+  schedules <- list(
+    none = NULL,
+    events = list(rainfall_pulse(time = 1, depth = 0.05),
+                  harvest(time = introduction, fraction = 0.5),
+                  climate_extreme(time = 3.5, intensity = 5, threshold = 1,
+                                  sensitivity = 20),
+                  harvest(time = 4, fraction = 0.5)))
+  for (name in names(schedules)) {
+    fixture <- tf24_invasion_fixture()
+    p1 <- fixture$p
+    ev <- do.call(events, c(list(events_default(p1)), schedules[[name]]))
+    scm <- run_scm(p1, env = fixture$env, ctrl = Control(), events = ev)
+    run_rr <- scm$net_reproduction_ratios
 
-  fixture <- tf24_invasion_fixture()
-  p1 <- fixture$p
-  scm <- run_scm(p1, env = fixture$env, ctrl = ctrl)
-  resident_rr <- scm$net_reproduction_ratios
+    # Guards that the walk has something to repeat: a stand that died out would
+    # make the identity trivial, and a short recording would make it cheap in the
+    # wrong way.
+    expect_true(all(is.finite(run_rr)) && all(run_rr > 0))
+    expect_gt(length(scm$ode_times), 200)
+    expect_equal(scm$patch$species[[1]]$size, 20L)
 
-  # Not assertions about the model, just guards that the replay below has
-  # something to replay: a resident that died out would make the identity
-  # trivial, and a short recording would make it cheap in the wrong way.
-  expect_true(all(is.finite(resident_rr)) && all(resident_rr > 0))
-  expect_gt(length(scm$ode_times), 250)
-  expect_equal(scm$patch$species[[1]]$size, 20L)
-
-  # Identical mutant, replaying the resident's own recorded environment, must
-  # recover the resident's own fitness.
-  expect_no_error(scm$run_mutant(p1))
-  mutant_rr <- scm$net_reproduction_ratios
-
-  expect_equal(log(mutant_rr), log(resident_rr), tolerance = tol)
+    run_log <- scm$event_log
+    expect_no_error(scm$run_mutant(p1))
+    expect_identical(scm$net_reproduction_ratios, run_rr,
+                     label = paste("the invader's fitness with", name))
+    # Its log is the run's: the same events, each taking out what it took out.
+    expect_identical(scm$event_log$time, run_log$time)
+    expect_identical(scm$event_log$applied, run_log$applied)
+  }
 })
 
-test_that("a resident and a mutant invade together, TF24", {
+test_that("two invaders together each have the fitness they have alone, TF24", {
   # Each invader is evaluated in the recorded field and solves for its own leaf
   # operating points, so invading beside another invader changes neither of them.
   lma <- scm_base_parameters("TF24")$strategy_default$pars[["lma"]]
   traits <- trait_matrix(c(0, 0, lma, 0.95 * lma),
                          c("TF24_floor_lambda_o", "lma"))
-  resident <- tf24_invasion_fixture(traits[1, , drop = FALSE])
-  scm <- run_scm(resident$p, env = resident$env, ctrl = Control())
-  resident_rr <- scm$net_reproduction_ratios
+  stand <- tf24_invasion_fixture(traits[1, , drop = FALSE])
+  scm <- run_scm(stand$p, env = stand$env, ctrl = Control())
+  run_rr <- scm$net_reproduction_ratios
 
   scm$run_mutant(tf24_invasion_fixture(traits)$p)
   together <- scm$net_reproduction_ratios
   scm$run_mutant(tf24_invasion_fixture(traits[2, , drop = FALSE])$p)
   alone <- scm$net_reproduction_ratios
 
-  expect_equal(log(together[1]), log(resident_rr), tolerance = 1e-12)
+  expect_identical(together[1], run_rr)
   expect_identical(together[2], alone)
-  # The mutant's fitness is not the resident's.
-  expect_gt(abs(log(alone) - log(resident_rr)), 1)
+  # The second invader's fitness is not the run's.
+  expect_gt(abs(log(alone) - log(run_rr)), 1)
 })
 
-test_that("an invader's sweep agrees with a pinned difference of its census", {
-  # On the birth-date coordinate, which the sweep runs on. The gradient holds the
-  # recorded field fixed, and each side of the difference invades against the
-  # same recording, so both take its steps.
+test_that("an invader's sweep across a harvest agrees with a difference and a tangent", {
+  # On the birth-date coordinate, which the sweep runs on, under a harvest where it
+  # meets the stand's second introduction. The gradient holds the recorded field
+  # fixed, and each side of the difference invades against the same recording, so
+  # both take its steps and apply its harvest.
   p <- ladder_parameters("fast")
   p$node_schedule_times <- list(c(0, 0.63))
+  ev <- events(events_default(p), harvest(time = 0.63, fraction = 0.5))
+  run <- function(q) run_scm(q, Environment("TF24"), ladder_control(), events = ev)
   with_parameter <- function(q, name, value) {
     strategies <- q$strategies
     pars <- strategies[[1]]$pars
@@ -266,14 +254,20 @@ test_that("an invader's sweep agrees with a pinned difference of its census", {
   }
   invader <- with_parameter(p, "lma", 0.95 * p$strategies[[1]]$pars[["lma"]])
 
-  scm <- ladder_run(p)
-  scm$record_trajectory <- TRUE
+  scm <- run(p)
   scm$run_mutant(invader)
   columns <- c("1.hmat", "1.k_I")
+  # The invasion kept no states, so the sweep repeats it to keep them.
   swept <- stand_gradient(scm, traits = columns)$gradient
+  # The tangent walks the same recording forward, through the same entries.
+  every <- census_trait_names_tf24(scm)
+  for (column in columns) {
+    tangent <- ladder_trajectory_tangent(scm, as.numeric(every == column))$tangent
+    expect_equal(tangent, unname(swept[, column]), tolerance = 1e-12)
+  }
   scm$record_trajectory <- FALSE
 
-  # lma is left out: its difference has a floor near 1e-5 on a resident too.
+  # lma is left out: its difference has a floor near 1e-5 without an invasion too.
   for (name in c("hmat", "k_I")) {
     value <- invader$strategies[[1]]$pars[[name]]
     h <- 1e-5 * value
@@ -285,8 +279,8 @@ test_that("an invader's sweep agrees with a pinned difference of its census", {
     expect_equal(swept[, paste0("1.", name)], differenced, tolerance = 1e-7)
   }
 
-  # As a resident the same strategy moves the field it is evaluated in, and its
+  # Run on its own, the same strategy moves the field it is evaluated in, and its
   # gradient differs by up to a fifth.
-  moving <- stand_gradient(ladder_run(invader), traits = columns)$gradient
+  moving <- stand_gradient(run(invader), traits = columns)$gradient
   expect_gt(max(abs(moving / swept - 1)), 0.1)
 })

@@ -35,8 +35,14 @@ public:
   {
     light_availability.r_init_interpolators(state);
   }
-  virtual std::vector<double> get_interpolators_state() const {
-    return light_availability.interpolators_state();
+  virtual std::vector<double> knot_data() const {
+    std::vector<double> ret(light_availability.knot_data_size());
+    light_availability.knot_data(ret.begin());
+    return ret;
+  }
+  virtual void set_knot_data(const std::vector<double>& data) {
+    util::check_length(data.size(), light_availability.knot_data_size());
+    light_availability.set_knot_data(data.begin());
   }
 
   virtual Rcpp::List r_get_state() const

@@ -505,3 +505,33 @@ test_that("the census's sensitivity to a range's starting state is refereed", {
                          max(abs(tangent - fine)) / scale, 10 * floor)
   }
 })
+
+test_that("a harvest where it meets an introduction is swept as the run applies it", {
+  # The entry applies the harvest and then introduces, and the newcomer takes the
+  # inflow the patch held before the harvest. The sweep transposes that same map,
+  # so it agrees with a difference of runs pinned to the run's steps. A map that
+  # took the newcomer's inflow after the harvest agrees only to 2e-6 in k_I.
+  stand_at <- function(name = NULL, value = NULL, times = NULL) {
+    p <- if (is.null(name)) ladder_parameters("fast")
+         else ladder_perturbed_parameters("fast", 1L, name, value)
+    p$node_schedule_times <- list(c(0, 0.63))
+    if (!is.null(times)) p$ode_times <- times
+    ev <- events(events_default(p), harvest(time = 0.63, fraction = 0.5))
+    run_scm(p, Environment("TF24"), ladder_control(), events = ev)
+  }
+  stand <- stand_at()
+  expect_identical(stand$event_log$time[stand$event_log$type == "harvest"], 0.63)
+  swept <- stand_gradient(stand, traits = c("1.hmat", "1.k_I"))$gradient
+  times <- stand$ode_times
+
+  for (name in c("hmat", "k_I")) {
+    value <- ladder_parameters("fast")$strategies[[1]]$pars[[name]]
+    h <- 1e-5 * value
+    census_at <- function(x) stand_census(stand_at(name, x, times))
+    differenced <- (census_at(value + h) - census_at(value - h)) / (2 * h)
+    ladder_report_margin(
+      paste("the sweep across the harvest against a difference in", name),
+      max(abs(swept[, paste0("1.", name)] - differenced)) / max(abs(differenced)),
+      1e-7)
+  }
+})

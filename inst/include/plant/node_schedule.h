@@ -145,6 +145,9 @@ public:
   void set_all_events(const std::vector<Event>& events_);
   void reset();
 
+  // The entries in time order, which a patch applies.
+  const std::vector<schedule_entry>& entries() const { return schedule; }
+
   // Where the walk is, where its interval ends, and moving past it. `next()`
   // stays valid across a pop, which only moves the position.
   const schedule_entry& next() const;
@@ -191,8 +194,7 @@ private:
 
   size_t n_species;
   // Ascending by time, one entry per distinct time, species ascending within an
-  // entry -- which is the order Patch::introduced_at rebuilds off the same times,
-  // so the two agree.
+  // entry.
   std::vector<schedule_entry> schedule;
   // How far the run has got. A position rather than a consumed copy of the
   // schedule, so what the run reads and what a caller set are one object.

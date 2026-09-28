@@ -255,29 +255,17 @@ public:
   }
 
   // A cohort reads the light field and its own layers' water potentials. The
-  // order is knot values, then knot slopes, then one potential per soil layer.
-  // The count and the two fills below are declared together, so a reader that
-  // gets the count from this class gets the fill from it too.
+  // order is the field's knot data (values, slopes, the canopy top), then one
+  // potential per soil layer. The count and the two fills below are declared
+  // together, so a reader that gets the count from this class gets the fill from
+  // it too.
   size_t n_cohort_reads() const {
-    return 2 * light_availability.knot_count() + 1 +
+    return light_availability.knot_data_size() +
            static_cast<size_t>(soil_number_of_depths);
   }
 
   template <typename It> It cohort_reads(It it) const {
-    const std::vector<S>& y = light_availability.knot_values();
-    const std::vector<S>& m = light_availability.knot_slopes();
-    util::check_length(y.size(), light_availability.knot_count());
-    util::check_length(m.size(), light_availability.knot_count());
-    for (size_t k = 0; k < y.size(); ++k) {
-      util::write_iterator_scalar(it, y[k]);
-    }
-    for (size_t k = 0; k < m.size(); ++k) {
-      util::write_iterator_scalar(it, m[k]);
-    }
-    // The canopy top, because the field is held against height / height_max and
-    // a query divides by it: read the values and slopes without this and a
-    // cohort's reads name every knot and not the grid they sit on.
-    util::write_iterator_scalar(it, light_availability.height_max());
+    it = light_availability.knot_data(it);
     const std::vector<S>& psi = get_soil_water_potential_state();
     for (int i = 0; i < soil_number_of_depths; ++i) {
       util::write_iterator_scalar(it, psi[i]);
@@ -286,12 +274,7 @@ public:
   }
 
   template <typename It> It set_cohort_reads(It it) {
-    const size_t n_knot = light_availability.knot_count();
-    std::vector<S> y(n_knot), m(n_knot);
-    for (size_t k = 0; k < n_knot; ++k) { y[k] = *it++; }
-    for (size_t k = 0; k < n_knot; ++k) { m[k] = *it++; }
-    light_availability.set_knot_data(y, m);
-    light_availability.set_height_max(*it++);
+    it = light_availability.set_knot_data(it);
     // ⚠️ MARKED VALID SO THE INJECTED POTENTIALS SURVIVE. They are not what the
     // state implies, and a read that derived them again would quietly replace
     // them -- which is the second thing the flag is for.
@@ -525,8 +508,14 @@ public:
   {
     light_availability.r_init_interpolators(state);
   }
-  virtual std::vector<double> get_interpolators_state() const {
-    return light_availability.interpolators_state();
+  virtual std::vector<double> knot_data() const {
+    std::vector<double> ret(light_availability.knot_data_size());
+    light_availability.knot_data(ret.begin());
+    return ret;
+  }
+  virtual void set_knot_data(const std::vector<double>& data) {
+    util::check_length(data.size(), light_availability.knot_data_size());
+    light_availability.set_knot_data(data.begin());
   }
 
   // ------------------------------------------------------------------

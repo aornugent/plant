@@ -142,50 +142,38 @@ public:
     spline.init(state_x, state_y, state_m);
   }
 
-  // The inverse of r_init_interpolators(): heights, then values, then slopes, end
-  // to end. Passive, because this is what a REPLAY evaluates -- a recording is
-  // taken at double and handed to whatever scalar a later pass runs at, so a
-  // recorded number that carried a scalar could not be handed over at all.
-  //
-  // ⚠️ THE FIELD AND NOT THE BUILDER. What an interpolant costs is dominated by
-  // the adaptive builder and band-solve workspace it drags, which no replay
-  // reads: copying those whole is what put a mutant run at 6.8 GB and OOM past
-  // ~10 yr.
-  std::vector<double> interpolators_state() const {
-    const std::vector<double>& x = spline.knots();
-    const std::vector<S>& y = spline.values();
-    const std::vector<S>& m = spline.slopes();
-    const double top = odelia::util::to_passive(height_max_);
-    std::vector<double> ret;
-    ret.reserve(3 * x.size());
-    // Heights out, per-height slopes out: what r_init_interpolators() reads and
-    // what every consumer of this record has always been handed. The heights are
-    // the ones the field was BUILT at rather than u_k * height_max recomputed,
-    // so the round trip through this is bit-identical -- test-environment.R asks
-    // for exactly that.
-    for (const double h : knot_heights_) { ret.push_back(h); }
-    for (const S& v : y) { ret.push_back(odelia::util::to_passive(v)); }
-    for (const S& v : m) { ret.push_back(odelia::util::to_passive(v) / top); }
-    return ret;
-  }
-
   // Knots the run places, fixed by the fractions and not by any build.
   size_t knot_count() const { return knot_fractions_.size(); }
 
-  // The data the field was last built from, as the interpolant was handed it.
-  const std::vector<S>& knot_values() const { return spline.values(); }
-  const std::vector<S>& knot_slopes() const { return spline.slopes(); }
-
-  // Rebuild the spans from supplied data, leaving the knot positions alone.
-  // set_data length-checks, so injecting into an unbuilt field throws.
-  void set_knot_data(const std::vector<S>& y, const std::vector<S>& m) {
-    spline.set_data(y, m);
+  // The knot values, the knot slopes, then the canopy top: the field as the
+  // interpolant holds it, which set_knot_data() restores to every digit. A record
+  // in heights does not, because u_k * top / top need not be u_k.
+  //
+  // ⚠️ THE FIELD AND NOT THE BUILDER. What an interpolant costs is dominated by
+  // the builder and band-solve workspace it drags, which no replay reads: copying
+  // those whole is what put an invasion at 6.8 GB and OOM past ~10 yr.
+  size_t knot_data_size() const { return 2 * knot_count() + 1; }
+  template <typename It> It knot_data(It it) const {
+    // A field set from heights may hold another count than knot_data_size() says.
+    util::check_length(spline.size(), knot_count());
+    for (const S& v : spline.values()) { util::write_iterator_scalar(it, v); }
+    for (const S& v : spline.slopes()) { util::write_iterator_scalar(it, v); }
+    util::write_iterator_scalar(it, height_max_);
+    return it;
   }
-
-  // The canopy top, written back with the knot data it belongs to. Injected
-  // rather than derived, for the reason set_cohort_reads() gives about the soil
-  // potentials: a read that recomputed it would replace what was injected.
-  void set_height_max(S height_max) { height_max_ = height_max; }
+  template <typename It> It set_knot_data(It it) {
+    const size_t n = knot_count();
+    std::vector<S> y(n), m(n);
+    for (S& v : y) { v = *it++; }
+    for (S& v : m) { v = *it++; }
+    lay_out_knots();
+    spline.set_data(y, m);
+    height_max_ = *it++;
+    const double top = odelia::util::to_passive(height_max_);
+    knot_heights_.resize(n);
+    for (size_t k = 0; k < n; ++k) { knot_heights_[k] = knot_fractions_[k] * top; }
+    return it;
+  }
 
   // Resource availability as a function of size, carrying a value and a slope at
   // every knot: what a caller reads as the slope is the derivative of what it
@@ -197,9 +185,9 @@ public:
   // tallest cohort and a walk that skipped it would drop that channel again.
   S height_max_ = S(1.0);
 
-  // The heights the field was built at, kept for reporting and for the replay
-  // record so that a round trip returns what it was handed. Passive and read by
-  // nothing on the rate path: u_k * height_max is what the model uses.
+  // The heights the field was built at, kept for reporting so that a round trip
+  // through r_init_interpolators() returns what it was handed. Passive and read
+  // by nothing on the rate path: u_k * height_max is what the model uses.
   std::vector<double> knot_heights_ = {0.0, 0.5, 1.0};
 
   template <class F>

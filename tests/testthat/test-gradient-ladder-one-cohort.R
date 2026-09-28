@@ -385,8 +385,8 @@ test_that("the state Jacobian holds at the states a trajectory reached", {
     patch$set_ode_state(trajectory[[k]]$state, trajectory[[k]]$time)
     # A state load leaves the inflow condition at its FIRST evaluation, taken with
     # every species' boundary interval left off; a run carries the second, taken in
-    # the field rebuilt to include it. Asking for the rates is what advances it from
-    # R, where set_recorded_state is not reachable.
+    # the field rebuilt to include it. Asking for the rates is what advances it,
+    # which is the evaluation the run made there.
     #
     # Without this the two paths linearise at different boundary nodes and disagree
     # by their own whole magnitude -- 1.0 at every loaded state, against 3e-16 with

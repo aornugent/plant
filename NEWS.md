@@ -13,6 +13,16 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **An invasion applies the recorded run's events, and `run()` repeats it.**
+  Migration: none for `run_mutant()`; invasion results change wherever the
+  schedule carries events. An invader used to be walked through the run's steps
+  and introductions only, so it survived every harvest and climate extreme the run
+  applied and received no pulse. Each entry now applies the same events, in the
+  same order, before the same introductions, and `SCM$event_log` lists what they
+  did. A copy of the run's own strategy recovers its fitness to every digit,
+  events included. After `run_mutant()`, `SCM$run()` repeats the invasion rather
+  than running the invaders on their own; build a new SCM for that.
+
 * **A node introduced at an event's instant takes its initial density from before
   the event.** Migration: none; results change only where a harvest or a climate
   extreme falls exactly on an introduction time. Such an event used to rebuild
@@ -41,8 +51,8 @@ products using plant.
   What it keeps is the same field, at the same address -- per (step, stage) -- but
   in odelia's own store/load channel rather than three solver hooks that odelia's
   rewrite deleted. And it keeps the NUMBERS a replay evaluates rather than the
-  environment holding them: the light interpolant's knots, values and slopes, and
-  the environment's own ODE state. That is what makes an invasion sweep affordable
+  environment holding them: the light interpolant's knot values and slopes with
+  the canopy top, and the environment's own ODE state. That is what makes an invasion sweep affordable
   -- a replay costs less than the resident run it stands in (0.06 s against 0.07 s
   on a lifetime-30 FF16 stand), where copying whole environments per sub-step put
   the old cache at 6.8 GB and out of memory past ~10 years.

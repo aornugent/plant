@@ -133,9 +133,8 @@ test_that("Set times (two species)", {
   expect_equal(drain_column(cmp, "time_end"),
                c(expected_times[-1], max_t))
 
-  ## Species ascending within an introduction, which is the order
-  ## Patch::introduced_at rebuilds off the same times -- so the schedule and the
-  ## patch agree rather than being each other's reverse.
+  ## Species ascending within an introduction, which is the order the patch
+  ## pushes an entry's nodes in and so the order of the state they widen.
   for (i in seq_along(cmp)) {
     expect_equal(cmp[[i]]$species,
                  c(if (expected_times[[i]] %in% t1) 1,
