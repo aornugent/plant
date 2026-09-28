@@ -12,6 +12,7 @@
 #include <cmath>
 #include <limits>
 #include <span>
+#include <sstream>
 #include <tuple>
 
 using namespace Rcpp;
@@ -519,14 +520,20 @@ private:
   static std::vector<double> uniform_euler_times(double t0, double t1, double dt);
 
   // Advance one event: introduce every node due at the current time, then
-  // integrate to the next introduction (or over the pinned ode times). Returns
-  // the species introduced. The solver owns the patch system, so the live state
-  // is solver.get_system_ref(); run() refreshes the `patch` snapshot once, after
-  // its loop, rather than per event.
+  // integrate to the next introduction. Returns the species introduced. The
+  // solver owns the patch system, so the live state is solver.get_system_ref();
+  // run() refreshes the `patch` snapshot once, after its loop, rather than per
+  // event.
   std::vector<size_t> run_next();
-  // The schedule entry at `time`, applied to `sys`, with what its events did
-  // logged. A run and a walk over its recording both apply entries through this.
-  void apply_entry(patch_type& sys, double time);
+  // Walk rows through the schedule: each insertion applies the entry it is at,
+  // and each interval's end collects what a run collects there.
+  template <class Rows> void walk(const Rows& rows);
+  // The schedule's next entry, which must be at `time`, applied to `sys` with
+  // what its events did logged. Returns the species it introduced.
+  std::vector<size_t> apply_entry(patch_type& sys, double time);
+  // What a run collects where an entry's interval ends: the competition errors
+  // at the nodes `added` introduced, and the patch.
+  void end_interval(const std::vector<size_t>& added);
 
   parameters_type parameters;
   Control control;
@@ -590,42 +597,41 @@ template <typename T, typename E> void SCM<T, E>::run() {
   // kept too.
   solver.set_keep_states(record_trajectory);
   reset();
-  if (!invaded_run.empty()) {
-    solver.advance_recorded(invaded_run,
-                            [this](patch_type& sys, double time) {
-                              apply_entry(sys, time);
-                            });
-    patch = solver.get_system_ref();
-    return;
-  }
   // The solver owns the live patch system; operate on it directly during the
   // run and avoid per-step copies into the `patch` member.
   if (collect) {
     history.push_back(solver.get_system_ref());
   }
 
-  while (!complete()) {
-    std::vector<size_t> added = run_next();
-    if (collect_refinement_errors) {
-      solver.get_system_ref().collect_competition_errors(added);
+  if (!invaded_run.empty()) {
+    walk(invaded_run);
+  } else if (node_schedule.using_ode_steps()) {
+    // The schedule's steps are RKCK steps, so a run pinned to them cannot also be
+    // the forward-Euler run fixed_time_step asks for.
+    if (control.fixed_time_step > 0.0) {
+      util::stop("fixed_time_step (forward Euler) is not supported for a pinned "
+                 "ODE schedule");
     }
-    if (collect) {
-      history.push_back(solver.get_system_ref());
+    if (!complete() && node_schedule.next().time > time()) {
+      util::stop("Resuming from an initial state is not supported for "
+                 "replaying a recorded run");
+    }
+    walk(node_schedule.program());
+  } else {
+    while (!complete()) {
+      end_interval(run_next());
     }
   }
 
-  // Expose the final state through the `patch` accessor after the loop.
+  // Expose the final state through the `patch` accessor after the run.
   patch = solver.get_system_ref();
 }
 
 template <typename T, typename E>
 std::vector<size_t> SCM<T, E>::run_next() {
-  std::vector<size_t> ret;
   const double t0 = time();
   // The live patch system is owned by the solver; mutate it in place.
   auto &sys = solver.get_system_ref();
-
-  const schedule_entry& intro = node_schedule.next();
 
   // Resume support: if the next scheduled introduction is in the future,
   // integrate the gap up to it without introducing any node. This happens on
@@ -634,86 +640,81 @@ std::vector<size_t> SCM<T, E>::run_next() {
   // falls before the first residual schedule entry. It never happens for an
   // empty patch, whose schedule always starts at t0 = 0, so the normal path
   // below is unchanged. The next call will then introduce at that time.
-  if (intro.time > t0) {
+  const double t_next = node_schedule.next().time;
+  if (t_next > t0) {
     solver.set_state_from_system();
-    if (node_schedule.using_ode_steps()) {
-      util::stop("Resuming from an initial state is not supported for "
-                 "replaying a recorded run");
-    } else if (control.fixed_time_step > 0.0) {
+    if (control.fixed_time_step > 0.0) {
       solver.advance_euler(
-          uniform_euler_times(t0, intro.time, control.fixed_time_step));
+          uniform_euler_times(t0, t_next, control.fixed_time_step));
     } else {
-      solver.advance_adaptive({solver.time(), intro.time});
+      solver.advance_adaptive({solver.time(), t_next});
     }
-    return ret; // empty: nothing introduced this step
+    return {}; // nothing introduced this step
   }
 
-  if (!util::identical(t0, intro.time)) {
-    util::stop("Start time not what was expected");
-  }
-  // The species this introduction names, which the schedule grouped when it was
-  // set rather than the run regrouping them by walking equal times.
-  ret = intro.species;
   const double t_end = node_schedule.time_end();
-  node_schedule.pop();
-
   // The entry's actions and then its introductions, which take the inflow value
   // from before the actions.
-  apply_entry(sys, intro.time);
+  const std::vector<size_t> ret = apply_entry(sys, t0);
   // The insertion, as its own row: it holds the wider state the introduction just
   // reached, which is what the next step runs from and which no step reached. The
   // evaluation there is the row's.
   solver.push_insertion();
   solver.set_state_from_system();
 
-  // Three integration modes:
-  //  - pinned ode times (resident replay for a mutant): step exactly to the
-  //    cached times via the full RKCK stepper, by their recorded step sizes
-  //    when the schedule carries them;
-  //  - fixed-step forward Euler (control.fixed_time_step > 0): walk a uniform
-  //    sub-grid between this introduction and the next;
-  //  - otherwise: adaptive, error-controlled RKCK to the next introduction.
-  if (node_schedule.using_ode_steps()) {
-    if (control.fixed_time_step > 0.0) {
-      // A recorded field is kept per rate evaluation, and forward Euler makes
-      // one per step where RKCK makes six -- so a program recorded under one
-      // cannot be replayed under the other. Refuse rather than mis-integrate.
-      util::stop("fixed_time_step (forward Euler) is not supported for a pinned "
-                 "ODE schedule");
-    }
-    // Each recorded step carries the size it took and the time it reached, so a
-    // replay lands where the run landed rather than a rounding short of it.
-    // Stepping to the times instead would take different steps, because a size
-    // differenced back out of two recorded times is not the size that was taken.
-    //
-    // A size is NaN where the schedule is a grid rather than a recording, and
-    // the step is taken TO that time instead. The schedule holds no step at an
-    // interval's own end -- a run stops there by clamping its last step to the
-    // boundary, and the step below does the same arithmetic.
-    // An interval with no step inside it is one the schedule crosses in a single
-    // step, so there is nothing to replay before the step to its end. Deciding
-    // that per interval rather than per schedule is what silently integrated
-    // those intervals adaptively.
-    const std::vector<odelia::ode::instruction> inside =
-        node_schedule.program_within(t0, t_end);
-    if (!inside.empty()) {
-      solver.advance_recorded(inside);
-    }
-    solver.advance_fixed({solver.time(), t_end});
-  } else if (control.fixed_time_step > 0.0) {
+  if (control.fixed_time_step > 0.0) {
     solver.advance_euler(
         uniform_euler_times(t0, t_end, control.fixed_time_step));
   } else {
     solver.advance_adaptive({solver.time(), t_end});
   }
-
   return ret;
 }
 
 template <typename T, typename E>
-void SCM<T, E>::apply_entry(patch_type& sys, double time) {
+template <class Rows>
+void SCM<T, E>::walk(const Rows& rows) {
+  // An interval ends at each insertion the walk has moved to since the last one,
+  // and where the walk ends.
+  std::vector<size_t> added;
+  double since = rows[0].time;
+  solver.advance_recorded(rows, [&](patch_type& sys, double time) {
+    if (!util::identical(time, since)) {
+      end_interval(added);
+    }
+    added = apply_entry(sys, time);
+    since = time;
+  });
+  end_interval(added);
+}
+
+template <typename T, typename E>
+std::vector<size_t> SCM<T, E>::apply_entry(patch_type& sys, double time) {
+  const schedule_entry& entry = node_schedule.next();
+  if (!util::identical(entry.time, time)) {
+    std::ostringstream m;
+    m.precision(17);
+    m << "An entry is applied at t=" << time << " where the schedule's next is "
+      << "at t=" << entry.time;
+    util::stop(m.str());
+  }
+  // The species this introduction names, which the schedule grouped when it was
+  // set rather than the run regrouping them by walking equal times.
+  std::vector<size_t> added = entry.species;
+  node_schedule.pop();
   const std::vector<EventRecord> applied = sys.apply_insertion(time);
   event_log.insert(event_log.end(), applied.begin(), applied.end());
+  return added;
+}
+
+template <typename T, typename E>
+void SCM<T, E>::end_interval(const std::vector<size_t>& added) {
+  if (collect_refinement_errors) {
+    solver.get_system_ref().collect_competition_errors(added);
+  }
+  if (collect) {
+    history.push_back(solver.get_system_ref());
+  }
 }
 
 // Every strategy in `p` is an invader, evaluated in a field it does not move; one
@@ -728,6 +729,11 @@ void SCM<T, E>::apply_entry(patch_type& sys, double time) {
 // `parameters` with `p`.
 template <typename T, typename E>
 void SCM<T, E>::run_mutant(parameters_type p) {
+  // The walk takes the recorded steps as RKCK steps, so an invasion cannot be the
+  // forward-Euler run fixed_time_step asks for.
+  if (control.fixed_time_step > 0.0) {
+    util::stop("fixed_time_step (forward Euler) is not supported for an invasion");
+  }
   if (invaded_run.empty()) {
     // Two, not one: a run that never stepped still reports the instant it
     // started at.

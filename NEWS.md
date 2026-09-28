@@ -13,6 +13,11 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **An invader must be introduced where the recorded run introduced.** Migration:
+  give `run_mutant()`'s parameters the run's `node_schedule_times`. An invasion
+  applies an entry wherever the recording inserts, so an introduction elsewhere
+  was skipped with every number finite. It is now refused, naming both times.
+
 * **An invasion applies the recorded run's events, and `run()` repeats it.**
   Migration: none for `run_mutant()`; invasion results change wherever the
   schedule carries events. An invader used to be walked through the run's steps

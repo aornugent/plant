@@ -169,18 +169,22 @@ size_t NodeSchedule::remaining() const {
   return schedule.size() - at;
 }
 
-std::vector<odelia::ode::instruction>
-NodeSchedule::program_within(double start, double end) const {
+std::vector<odelia::ode::instruction> NodeSchedule::program() const {
+  const double nan = std::numeric_limits<double>::quiet_NaN();
   std::vector<odelia::ode::instruction> ret;
-  for (const odelia::ode::instruction& s : ode_steps) {
-    if (s.time <= start || s.time >= end) {
-      continue;
+  ret.push_back({schedule.empty() ? 0.0 : schedule.front().time, nan});
+  auto step = ode_steps.begin();
+  for (size_t k = 0; k < schedule.size(); ++k) {
+    const double start = schedule[k].time;
+    const double end = k + 1 < schedule.size() ? schedule[k + 1].time : max_time;
+    ret.push_back({start, nan, true});
+    // A step at a boundary is excluded, because the step to the end reaches it.
+    for (; step != ode_steps.end() && step->time < end; ++step) {
+      if (step->time > start) {
+        ret.push_back(*step);
+      }
     }
-    if (ret.empty()) {
-      // The state the replay starts from, which no step reached.
-      ret.push_back({start, std::numeric_limits<double>::quiet_NaN()});
-    }
-    ret.push_back(s);
+    ret.push_back({end, nan});
   }
   return ret;
 }

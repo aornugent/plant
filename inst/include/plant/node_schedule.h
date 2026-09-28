@@ -111,7 +111,7 @@ public:
 // rates after the instant are taken in the field after them.
 //
 // `times` keeps the [t_intro, ...extra ode times..., t_end] semantics events
-// carried before; ode_steps is what a replay reads, and program_within() serves it.
+// carried before; ode_steps is what a replay reads, and program() serves it.
 };
 
 struct schedule_entry {
@@ -155,14 +155,10 @@ public:
   void pop();
   size_t remaining() const;
 
-  // The program a replay of the interval `(start, end)` takes: the state it
-  // starts from, then the recorded steps strictly inside it. Empty where the
-  // recording put no step in there, and empty on a schedule holding no recording.
-  //
-  // Boundaries are excluded because the run stops at them anyway and the
-  // interval above starts from there -- so a step at one would be taken twice.
-  std::vector<odelia::ode::instruction>
-  program_within(double start, double end) const;
+  // The pinned run as rows: its start, then for each entry the insertion it
+  // makes, the ODE steps strictly inside its interval, and a step to the
+  // interval's end, which is the clamped step a run stops there with.
+  std::vector<odelia::ode::instruction> program() const;
 
   double get_max_time() const;
   std::vector<std::vector<double> > get_times() const;

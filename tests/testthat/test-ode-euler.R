@@ -68,6 +68,11 @@ test_that("fixed_time_step is rejected on the mutant-replay paths", {
   p <- add_strategies(p0, trait_matrix(0.08, "lma"), birth_rate = 1.0)
   env <- Environment(x)
 
+  ## An invasion, which walks the run's steps as RKCK steps, is refused before it
+  ## records anything.
+  euler <- run_scm(p, env, Control(fixed_time_step = 0.5))
+  expect_error(euler$run_mutant(p), "not supported for an invasion")
+
   ## A pinned ODE schedule is refused with forward Euler.
   p$ode_times <- run_scm(p, env, Control())$ode_times
   expect_error(

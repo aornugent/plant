@@ -214,6 +214,20 @@ test_that("an identical invader repeats the run's fitness exactly, TF24", {
   }
 })
 
+test_that("an invader introduced where the run introduced nothing is refused", {
+  # A walk applies an entry wherever the recording inserts, so the invaders'
+  # introductions have to be the run's; one elsewhere would be skipped with every
+  # number finite.
+  p <- add_strategies(scm_base_parameters("FF16"), trait_matrix(0.0825, "lma"))
+  p$max_patch_lifetime <- 10
+  times <- p$node_schedule_times[[1]]
+  p$node_schedule_times <- list(times[times <= 10])
+  scm <- run_scm(p)
+  invader <- p
+  invader$node_schedule_times <- list(sort(c(invader$node_schedule_times[[1]], 0.25)))
+  expect_error(scm$run_mutant(invader), "where the schedule's next is at t=0.25")
+})
+
 test_that("two invaders together each have the fitness they have alone, TF24", {
   # Each invader is evaluated in the recorded field and solves for its own leaf
   # operating points, so invading beside another invader changes neither of them.
