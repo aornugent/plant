@@ -13,6 +13,23 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **A week is added to the relaxation time of TF24's storage pool.** Migration:
+  none for the interface; TF24 results change, and `storage_relaxation_offset =
+  0` recovers the previous model bit for bit. The new TF24 parameter
+  `storage_relaxation_offset`, 7 days by default, is added to the pool's own
+  relaxation time, `storage_max / (charge + drain)`, which is hours in a
+  seedling. The rate is divided by `1 + (charge + drain) *
+  storage_relaxation_offset / storage_max`, which keeps the pool's equilibrium
+  and its sign at each bound. TF24 is v12 and TF24f v12.1, and the parameter has
+  a gradient column. On the 40-year long-drought stand (108 nodes, birth date)
+  offspring production moves 12.4167 -> 12.6656 (+2.0%) and its derivative in
+  `lma` -168.56 -> -195.99, the steps fall 10514 -> 9313 and the attempts
+  refused for a pool below empty 759 -> 149, improved but not eliminated. A
+  negative offset is refused. Invaders from `lma` x 1.001 to x 1.05 now run on
+  the resident's steps. Five-year pinned stands move by -3% and -5% on the
+  birth-date coordinate, and by -24% on the height coordinate, whose compression
+  term amplifies any change to the pool.
+
 * **An invader must be introduced where the recorded run introduced.** Migration:
   give `run_mutant()`'s parameters the run's `node_schedule_times`. An invasion
   applies an entry wherever the recording inserts, so an introduction elsewhere

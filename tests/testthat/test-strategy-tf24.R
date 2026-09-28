@@ -21,6 +21,7 @@ test_that("Defaults", {
     a_st1 = 0.10,
     a_st2 = 0.10,
     a_st3 = 0.8,
+    storage_relaxation_offset = 7 / 365,
     a_p1   = 151.177775377968,
     a_p2   = 0.204716166503633,
     a_f1   = 1,
@@ -306,7 +307,7 @@ test_that("offspring arrival", {
                        hyperpar = TF24_hyperpar, birth_rate = list(20))
 
   out <- run_scm(p1, env, ctrl)
-  expect_equal(out$offspring_production, 24.32140145, tolerance = 2e-2)
+  expect_equal(out$offspring_production, 18.61664324, tolerance = 2e-2)
 
   # two species: the second strategy has a moderately higher lma (0.10 vs
   # 0.0825), so it grows more slowly and is more heavily shaded. We pin the
@@ -320,7 +321,7 @@ test_that("offspring arrival", {
                        hyperpar = TF24_hyperpar, birth_rate = list(20, 20))
 
   out <- run_scm(p2, env, ctrl)
-  expect_equal(out$offspring_production[[1]], 18.54300907, tolerance = 2e-2)
+  expect_equal(out$offspring_production[[1]], 14.10616656, tolerance = 2e-2)
   expect_lt(out$offspring_production[[2]], 0.5)
 
   # Same two species, integrated in birth date (#590). They coexist at
@@ -356,15 +357,16 @@ test_that("offspring arrival", {
   # a reserve fraction of exactly 1 with the read clipped there, where it now
   # sits at 0.62 with nothing on the clip.
   out_bd <- run_scm(p2, env, Control(node_density_in_birth_date = TRUE))
-  expect_equal(out_bd$offspring_production[[1]], 219.26680110, tolerance = 2e-2)
-  expect_equal(out_bd$offspring_production[[2]], 34.58766277, tolerance = 2e-2)
+  expect_equal(out_bd$offspring_production[[1]], 212.01188300, tolerance = 2e-2)
+  expect_equal(out_bd$offspring_production[[2]], 32.98554137, tolerance = 2e-2)
 })
 
 test_that("the height-linear parameters reproduce the pre-path-integral results", {
   # The stem path integral (plant/stem_hydraulics.h) replaced a resistance
   # strictly linear in height. Setting D_c, theta_c and L_tip to zero and K_s
-  # back to its old whole-stem value of 1 must recover that model exactly --
-  # end-to-end through a full SCM run, not just in the closed form.
+  # back to its old whole-stem value of 1, with no storage relaxation offset,
+  # must recover that model exactly -- end-to-end through a full SCM run, not
+  # just in the closed form.
   #
   # The values pinned here are develop's own, i.e. the ones the tests above this
   # one carried before the path integral landed, at the same 2e-2 tolerance and
@@ -381,6 +383,7 @@ test_that("the height-linear parameters reproduce the pre-path-integral results"
       s$pars$theta_c <- 0
       s$pars$L_tip <- 0
       s$pars$K_s <- 1
+      s$pars$storage_relaxation_offset <- 0
       p$strategies[[i]] <- s
     }
     p
@@ -595,7 +598,8 @@ test_that("the storage rate relaxes on the pool's own timescale near empty", {
   # times the accepted steps and 38 times the wall clock.
   #
   # Asserted as a ratio against the pool's own rate rather than as a step count,
-  # so it is a property of the form and not a benchmark.
+  # so it is a property of the form and not a benchmark. Posed at a zero
+  # relaxation offset, whose divisor lowers the rate this measures.
   height <- 5
   cap <- tf24_storage_capacity_r(height)
   light <- 0.05                        # deep shade, so the drain is what acts
@@ -603,17 +607,65 @@ test_that("the storage rate relaxes on the pool's own timescale near empty", {
   S0 <- r0 * cap
 
   s <- TF24_Strategy()
-  P <- tf24_storage_at(S0, height, light)$P
+  s$pars$storage_relaxation_offset <- 0
+  P <- tf24_storage_at(S0, height, light, s = s)$P
   expect_lt(P, 0)                      # non-vacuity: the pool is draining here
   Ppos <- 0.5 * (P + sqrt(P * P + 1e-4 * 1e-4))
   G <- 1 / (1 + exp(-(r0 - s$pars$a_st2) / 0.1))
   own_rate <- (Ppos * (1 - G) + (Ppos - P)) / cap
 
   h <- 1e-6 * cap
-  lambda <- (tf24_storage_at(S0 + h, height, light)$dS -
-             tf24_storage_at(S0 - h, height, light)$dS) / (2 * h)
+  lambda <- (tf24_storage_at(S0 + h, height, light, s = s)$dS -
+             tf24_storage_at(S0 - h, height, light, s = s)$dS) / (2 * h)
   expect_lt(lambda, 0)                 # the boundary attracts, as it must
   expect_lt(abs(lambda) / own_rate, 10)
+})
+
+test_that("the relaxation offset divides the pool's rate by 1 + its own rate times the offset", {
+  # For a seedling in deep shade the divisor is about 7; at an offset of zero the
+  # rate is the charge and the drain alone.
+  s <- TF24_Strategy()
+  env <- Environment("TF24")
+  env$set_fixed_environment(1, height_max = 150)
+  env$set_soil_water_state(rep(0.4, env$get_soil_number_of_depths()))
+  born <- Individual("TF24", "TF24_Env")(s)
+  born$set_initial_states(env)
+  height <- born$internals$states[[match("height", born$ode_names)]]
+  cap <- tf24_storage_capacity_r(height)
+  light <- 0.05
+  r0 <- 1e-3
+  S0 <- r0 * cap
+  offset <- s$pars$storage_relaxation_offset
+  no_offset <- TF24_Strategy()
+  no_offset$pars$storage_relaxation_offset <- 0
+
+  P <- tf24_storage_at(S0, height, light, s = s)$P
+  Ppos <- 0.5 * (P + sqrt(P * P + 1e-4 * 1e-4))
+  G <- 1 / (1 + exp(-(r0 - s$pars$a_st2) / 0.1))
+  charge <- Ppos * (1 - G)
+  drain <- Ppos - P
+  own_rate <- (charge + drain) / cap
+  expect_gt(own_rate * offset, 5)      # non-vacuity: the offset binds here
+
+  expect_equal(tf24_storage_at(S0, height, light, s = no_offset)$dS,
+               charge * (1 - r0) - drain * r0, tolerance = 1e-12)
+  expect_equal(tf24_storage_at(S0, height, light, s = s)$dS,
+               (charge * (1 - r0) - drain * r0) / (1 + own_rate * offset),
+               tolerance = 1e-12)
+
+  # The relaxation rate, -d(dS/dt)/dS, falls from 380 to 55 /yr, against
+  # 1/offset = 52 /yr: the gate's slope moves the divisor with the pool.
+  h <- 1e-6 * cap
+  relaxation <- function(strategy) {
+    -(tf24_storage_at(S0 + h, height, light, s = strategy)$dS -
+      tf24_storage_at(S0 - h, height, light, s = strategy)$dS) / (2 * h)
+  }
+  expect_gt(relaxation(no_offset) * offset, 5)
+  expect_lt(relaxation(s) * offset, 1.1)
+
+  negative <- TF24_Strategy()
+  negative$pars$storage_relaxation_offset <- -1 / 365
+  expect_error(TF24_Individual(negative), "storage_relaxation_offset must be >= 0")
 })
 
 test_that("a run keeps every storage state inside [0, capacity]", {
@@ -690,9 +742,11 @@ test_that("a program replayed at other parameters holds by its times, not its si
   times <- free$ode_times
   sizes <- free$ode_step_sizes
 
-  expect_error(run_at(0.0825 * 2, times, sizes), "storage is negative")
+  # Far from the run's lma: with the relaxation offset, a replay on the run's
+  # sizes keeps the pool non-negative up to lma x 4 here.
+  expect_error(run_at(0.0825 * 6, times, sizes), "storage is negative")
 
-  replayed <- run_at(0.0825 * 2, times, numeric(0))
+  replayed <- run_at(0.0825 * 6, times, numeric(0))
   expect_identical(replayed$ode_times, times)
   expect_true(all(is.finite(replayed$offspring_production)))
 })

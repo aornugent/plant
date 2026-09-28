@@ -176,12 +176,12 @@ test_that("an identical invader repeats the run's fitness exactly, TF24", {
   # introduction, a climate extreme and a second harvest.
   #
   # TF24's storage pool refuses a state below empty by throwing, which the run's
-  # stepper answers by shrinking and retrying some hundreds of times. The walk
-  # takes only accepted steps and would fail rather than shrink, so passing
-  # without an error is the statement that it meets no refusal.
+  # stepper answers by shrinking and retrying. The walk takes only accepted
+  # steps and would fail rather than shrink, so passing without an error is the
+  # statement that it meets no refusal.
   #
-  # Lifetime 6 with twenty of the default schedule's introductions is 311 steps
-  # and 2.7 s a run; more introductions buy only more of the same regime.
+  # Lifetime 6 with twenty of the default schedule's introductions is 194 steps
+  # a run; more introductions buy only more of the same regime.
   introduction <- tf24_invasion_fixture()$p$node_schedule_times[[1]][19]
   schedules <- list(
     none = NULL,
@@ -201,7 +201,7 @@ test_that("an identical invader repeats the run's fitness exactly, TF24", {
     # make the identity trivial, and a short recording would make it cheap in the
     # wrong way.
     expect_true(all(is.finite(run_rr)) && all(run_rr > 0))
-    expect_gt(length(scm$ode_times), 200)
+    expect_gt(length(scm$ode_times), 150)
     expect_equal(scm$patch$species[[1]]$size, 20L)
 
     run_log <- scm$event_log
@@ -211,6 +211,37 @@ test_that("an identical invader repeats the run's fitness exactly, TF24", {
     # Its log is the run's: the same events, each taking out what it took out.
     expect_identical(scm$event_log$time, run_log$time)
     expect_identical(scm$event_log$applied, run_log$applied)
+  }
+})
+
+test_that("an invader a little costlier in leaf runs on the run's steps, TF24", {
+  # The storage relaxation offset slows every pool, so on the run's steps these
+  # invaders' pools stay non-negative. At a zero offset both go below empty.
+  lma <- scm_base_parameters("TF24")$strategy_default$pars[["lma"]]
+  with_offset <- function(p, offset) {
+    for (i in seq_along(p$strategies)) {
+      s <- p$strategies[[i]]
+      s$pars$storage_relaxation_offset <- offset
+      p$strategies[[i]] <- s
+    }
+    p
+  }
+  invader <- function(m, offset) {
+    traits <- trait_matrix(c(0, m * lma), c("TF24_floor_lambda_o", "lma"))
+    with_offset(tf24_invasion_fixture(traits)$p, offset)
+  }
+  stand <- tf24_invasion_fixture()
+
+  scm <- run_scm(stand$p, env = stand$env, ctrl = Control())
+  run_rr <- scm$net_reproduction_ratios
+  for (m in c(1.001, 1.05)) {
+    scm$run_mutant(invader(m, 7 / 365))
+    expect_lt(scm$net_reproduction_ratios, run_rr)
+  }
+
+  scm <- run_scm(with_offset(stand$p, 0), env = stand$env, ctrl = Control())
+  for (m in c(1.001, 1.05)) {
+    expect_error(scm$run_mutant(invader(m, 0)), "storage is negative")
   }
 })
 

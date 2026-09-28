@@ -90,6 +90,9 @@ struct TF24_Pars {
   S a_st1  = 0.10;           // Storage capacity per unit sapwood mass [kg NSC / kg]
   S a_st2  = 0.1;            // Reserve fraction at which growth is half-on [0-1]
   S a_st3  = 0.8;            // Initial storage at birth [fraction of capacity]
+  // Added to the storage pool's own relaxation time, storage_max/(charge +
+  // drain) [yr].
+  S storage_relaxation_offset = 7.0 / 365.0;
   // * Light capture
   S k_I = 0.5;
   // * Leaf hydraulic / photosynthesis traits (default Eucalyptus saligna)
@@ -354,6 +357,7 @@ struct TF24_Pars {
       PLANT_TF24_AD_PARAMETER(a_st1),
       PLANT_TF24_AD_PARAMETER(a_st2),
       PLANT_TF24_AD_PARAMETER(a_st3),
+      PLANT_TF24_AD_PARAMETER(storage_relaxation_offset),
       PLANT_TF24_AD_PARAMETER(k_I),
       PLANT_TF24_AD_PARAMETER(vcmax_25),
       PLANT_TF24_AD_PARAMETER(stem_P50),
@@ -745,7 +749,11 @@ public:
   // neither model reads either: the curve count is read at one site, building
   // the Leaf, and the floor only by the sweep. Both suites are green on their
   // pinned outputs.
-  static constexpr int scientific_version = 11;
+  // v12: storage_relaxation_offset = 7 days is added to the storage pool's own
+  // relaxation time, and zero is v11. Offspring production moves +2.0% on the
+  // 40-year long-drought stand, -3% to -5% on the five-year birth-date stands and
+  // -24% on the height ones.
+  static constexpr int scientific_version = 12;
 
   S compute_average_light_environment(const S& z, const S& height,
                                       const TF24_Environment<S> &environment);
@@ -2045,7 +2053,14 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
   // The pool is capped by withholding the surplus rather than by spending it,
   // so production and the two flows no longer balance: at capacity the charge
   // the gate withheld, Ppos(1 - G) ~ 1.2e-4 of production, leaves the budget.
-  vars.set_rate(state_idx_storage, charge * (1.0 - r) - drain * r);
+  //
+  // The flow relaxes the pool over storage_max/(charge + drain), hours in a
+  // seedling; the divisor adds storage_relaxation_offset to that time.
+  const S relaxation_rate =
+      storage_max > 0.0 ? (charge + drain) / storage_max : S(0.0);
+  vars.set_rate(state_idx_storage,
+                (charge * (1.0 - r) - drain * r) /
+                    (1.0 + relaxation_rate * pars.storage_relaxation_offset));
 
   // [eqn 21] - Instantaneous mortality rate, now driven by relative reserves r.
   vars.set_rate(MORTALITY_INDEX,
@@ -2838,6 +2853,11 @@ void TF24_Strategy<S>::prepare_strategy() {
       "use a constant theta. A hydraulics-only theta profile would be "
       "physically inconsistent, so it is refused rather than half-applied. Use "
       "D_c to vary the height dependence of resistance.");
+  }
+
+  // A negative offset can make the storage rate's divisor zero or flip its sign.
+  if (!(odelia::util::to_passive(pars.storage_relaxation_offset) >= 0.0)) {
+    throw std::invalid_argument("storage_relaxation_offset must be >= 0");
   }
 
   if (odelia::util::to_passive(stem_path_exponent()) != 0.0) {
