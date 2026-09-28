@@ -40,7 +40,8 @@
 ##' What each event actually did — as against what was asked of it — is
 ##' recorded, and readable afterwards as \code{scm$event_log}. The two differ
 ##' routinely: a pulse is capped at what the pool can hold, and harvesting a
-##' size class removes whatever was in it.
+##' size class removes whatever was in it. A resource pulse of zero amount only
+##' ends a step at its time, and is not recorded.
 ##'
 ##' @param ... For \code{events}, objects returned by the individual event
 ##'   constructors, or whole \code{Events} objects; these are concatenated. Each

@@ -226,9 +226,70 @@ test_that("a resource pulse is refused by environments with no pools", {
   ## FF16 declares no resources at all, so the patch catches it before the
   ## environment is even asked, and says how many there are.
   expect_error(scm$run(), "this environment has 0 resources")
+  ## A zero pulse is never applied, and its resource is checked all the same.
+  zero <- events(node_introductions(p), rainfall_pulse(time = 1, depth = 0))
+  expect_error(SCM("FF16", "FF16_Env")(p, Environment("FF16"), zero, control())$run(),
+               "this environment has 0 resources")
 
   expect_error(Environment("TF24")$add_water_pulse(-1),
                "finite and non-negative")
+})
+
+test_that("a zero pulse only ends a step at its time", {
+  ## Against the same pulses at 1e-300, which the soil cannot resolve and which
+  ## stay entries: the runs agree to every digit, and only the entries cost rows.
+  p <- ladder_parameters("fast")
+  p$node_schedule_times <- list(c(0, 0.63))
+  knots <- c(0.21, 0.47, 0.63, 0.9, 1.3)
+  run <- function(depth, q = p) {
+    ev <- events(events_default(q), rainfall_pulse(time = knots, depth = depth))
+    run_scm(q, Environment("TF24"), ladder_control(), events = ev,
+            record_trajectory = TRUE)
+  }
+  zero <- run(0)
+  tiny <- run(1e-300)
+  inserted <- function(scm) {
+    sum(vapply(scm$store_trajectory(), function(s) s$introduction, TRUE))
+  }
+
+  expect_true(all(knots %in% zero$ode_times))
+  expect_equal(inserted(zero), 2)
+  expect_equal(length(zero$event_log$time), 0)
+  ## The pulse at 0.63 shares its entry with the second introduction.
+  expect_equal(inserted(tiny), 2 + 4)
+  expect_equal(tiny$event_log$time, knots)
+  expect_identical(zero$ode_times, tiny$ode_times)
+  expect_identical(zero$offspring_production, tiny$offspring_production)
+  traits <- c("1.hmat", "1.k_I", "1.lma")
+  expect_identical(stand_gradient(zero, traits = traits)$gradient,
+                   stand_gradient(tiny, traits = traits)$gradient)
+
+  ## The pulses come back out of the schedule, each before the introduction it
+  ## shares a time with, and a schedule built from them gives them back again.
+  ev <- zero$events
+  expect_equal(ev$type[ev$time == 0.63],
+               c("resource_pulse", "node_introduction"))
+  again <- run_scm(p, Environment("TF24"), ladder_control(), events = ev)
+  expect_identical(again$events$time, ev$time)
+  expect_identical(again$events$type, ev$type)
+  expect_identical(again$ode_times, zero$ode_times)
+
+  ## A grid ends a step at them; a recording replays the steps it took.
+  q <- p
+  q$ode_times <- seq(0, 2, by = 0.25)
+  expect_true(all(knots %in% run(0, q)$ode_times))
+  free <- run_scm(p, Environment("TF24"), ladder_control())
+  pinned <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), zero$events,
+                                    ladder_control())
+  sched <- pinned$node_schedule
+  sched$set_ode_steps(free$ode_times, free$ode_step_sizes)
+  pinned$node_schedule <- sched
+  pinned$run()
+  expect_identical(pinned$ode_times, free$ode_times)
+
+  ## A schedule ends at or after its last zero pulse.
+  sched <- zero$node_schedule
+  expect_error(sched$max_time <- 1.25, "final scheduled time")
 })
 
 test_that("pulses wet the soil during a run", {

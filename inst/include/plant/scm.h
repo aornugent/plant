@@ -519,12 +519,12 @@ private:
   // Uniform grid for fixed-step forward-Euler integration (control.fixed_time_step).
   static std::vector<double> uniform_euler_times(double t0, double t1, double dt);
 
-  // Advance one event: introduce every node due at the current time, then
-  // integrate to the next introduction. Returns the species introduced. The
-  // solver owns the patch system, so the live state is solver.get_system_ref();
-  // run() refreshes the `patch` snapshot once, after its loop, rather than per
-  // event.
+  // Apply the entry at the current time and integrate to the next; returns the
+  // species introduced. The solver owns the patch; run() copies it back once.
   std::vector<size_t> run_next();
+  // Integrate to `t_end`, ending a step at each zero pulse's time before it, as
+  // program() does for a grid. Forward Euler takes a uniform grid per span.
+  void advance_to(double t_end);
   // Walk rows through the schedule: each insertion applies the entry it is at,
   // and each interval's end collects what a run collects there.
   template <class Rows> void walk(const Rows& rows);
@@ -643,12 +643,7 @@ std::vector<size_t> SCM<T, E>::run_next() {
   const double t_next = node_schedule.next().time;
   if (t_next > t0) {
     solver.set_state_from_system();
-    if (control.fixed_time_step > 0.0) {
-      solver.advance_euler(
-          uniform_euler_times(t0, t_next, control.fixed_time_step));
-    } else {
-      solver.advance_adaptive({solver.time(), t_next});
-    }
+    advance_to(t_next);
     return {}; // nothing introduced this step
   }
 
@@ -661,14 +656,28 @@ std::vector<size_t> SCM<T, E>::run_next() {
   // evaluation there is the row's.
   solver.push_insertion();
   solver.set_state_from_system();
-
-  if (control.fixed_time_step > 0.0) {
-    solver.advance_euler(
-        uniform_euler_times(t0, t_end, control.fixed_time_step));
-  } else {
-    solver.advance_adaptive({solver.time(), t_end});
-  }
+  advance_to(t_end);
   return ret;
+}
+
+template <typename T, typename E>
+void SCM<T, E>::advance_to(double t_end) {
+  std::vector<double> times = {solver.time()};
+  for (const double t : node_schedule.zero_pulse_times(solver.time(), t_end)) {
+    times.push_back(t);
+  }
+  times.push_back(t_end);
+  if (control.fixed_time_step > 0.0) {
+    std::vector<double> grid = {times.front()};
+    for (size_t k = 1; k < times.size(); ++k) {
+      const std::vector<double> span =
+          uniform_euler_times(times[k - 1], times[k], control.fixed_time_step);
+      grid.insert(grid.end(), span.begin() + 1, span.end());
+    }
+    solver.advance_euler(grid);
+  } else {
+    solver.advance_adaptive(times);
+  }
 }
 
 template <typename T, typename E>
@@ -880,6 +889,10 @@ template <typename T, typename E> void SCM<T, E>::reset() {
   // the patch and the solver are put back to t = 0.
   patch.set_schedule(std::make_shared<const std::vector<schedule_entry>>(
       node_schedule.entries()));
+  // A zero pulse is never applied, so its resource is checked here.
+  for (const NodeScheduleEvent& e : node_schedule.zero_pulses()) {
+    patch.check_resource(e.target_index);
+  }
   patch.reset();
   node_schedule.reset();
   // Seed the solver's owned system from the freshly reset patch, then reset

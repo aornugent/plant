@@ -13,6 +13,20 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **A resource pulse of zero amount only ends a step at its time.** Migration:
+  none for results. A schedule carries one to make the integrator end a step at
+  its time, as the knot-alignment measurements do at every active knot of a
+  forcing. It was applied like any other entry: a map, an insertion row, an
+  evaluation, and a range of its own in every sweep. Every zero pulse is now
+  held apart from the entries, including one that shares a time with an
+  introduction, and a run ends a step at its time; its resource is still
+  checked. On `test-mutant.R`'s TF24 fixture with 500 of them, offspring
+  production, the step sequence and the census gradient are unchanged to every
+  digit, a run makes 13% fewer rate evaluations and takes 12% less time, and a
+  sweep takes half. `SCM$event_log` no longer lists them, `NodeSchedule$size` no
+  longer counts them, and a run collecting history takes no snapshot at them;
+  `SCM$events` still returns them.
+
 * **An invader must be introduced where the recorded run introduced.** Migration:
   give `run_mutant()`'s parameters the run's `node_schedule_times`. An invasion
   applies an entry wherever the recording inserts, so an introduction elsewhere

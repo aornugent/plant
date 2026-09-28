@@ -88,6 +88,11 @@ public:
   bool is_node_introduction() const {
     return type == EventType::NodeIntroduction;
   }
+  // A resource pulse of zero amount: a run ends a step at its time and applies
+  // nothing there.
+  bool is_zero_pulse() const {
+    return type == EventType::ResourcePulse && params.at(0) == 0.0;
+  }
 
   EventType type;
   EventTarget target;
@@ -147,6 +152,10 @@ public:
 
   // The entries in time order, which a patch applies.
   const std::vector<schedule_entry>& entries() const { return schedule; }
+  // The zero pulses, ascending by time, and their distinct times strictly
+  // between `start` and `end`.
+  const std::vector<Event>& zero_pulses() const { return zero_pulses_; }
+  std::vector<double> zero_pulse_times(double start, double end) const;
 
   // Where the walk is, where its interval ends, and moving past it. `next()`
   // stays valid across a pop, which only moves the position.
@@ -192,6 +201,8 @@ private:
   // Ascending by time, one entry per distinct time, species ascending within an
   // entry.
   std::vector<schedule_entry> schedule;
+  // Every zero pulse, ascending by time, and in no entry of `schedule`.
+  std::vector<Event> zero_pulses_;
   // How far the run has got. A position rather than a consumed copy of the
   // schedule, so what the run reads and what a caller set are one object.
   size_t at;

@@ -2,7 +2,7 @@
 #include <plant/parameters.h>
 #include <plant/util.h>
 #include <Rcpp.h>
-#include <algorithm> // find, lower_bound, remove
+#include <algorithm> // all_of, find, lower_bound, max, remove, stable_sort, unique
 #include <cmath> // log2, exp2
 #include <limits> // std::numeric_limits
 
@@ -87,10 +87,16 @@ std::vector<double> NodeSchedule::times(size_t species_index) const {
 }
 
 // The queue flattened back to the wire format: an instant's actions in their
-// application order, then its introductions, one Event each.
+// application order, then its introductions, one Event each. A zero pulse comes
+// before the instant it shares a time with.
 std::vector<NodeScheduleEvent> NodeSchedule::get_events() const {
   std::vector<Event> ret;
+  std::vector<Event>::const_iterator pulse = zero_pulses_.begin();
   for (const schedule_entry& e : schedule) {
+    for (; pulse != zero_pulses_.end() && pulse->time_introduction() <= e.time;
+         ++pulse) {
+      ret.push_back(*pulse);
+    }
     for (const Event& a : e.actions) {
       ret.push_back(a);
     }
@@ -98,6 +104,7 @@ std::vector<NodeScheduleEvent> NodeSchedule::get_events() const {
       ret.push_back(Event(e.time, sp));
     }
   }
+  ret.insert(ret.end(), pulse, zero_pulses_.end());
   return ret;
 }
 
@@ -109,10 +116,14 @@ std::vector<NodeScheduleEvent> NodeSchedule::get_events() const {
 // were given in is the order they must be applied in.
 void NodeSchedule::set_all_events(const std::vector<Event>& events_) {
   schedule.clear();
+  zero_pulses_.clear();
   for (std::vector<Event>::const_iterator e = events_.begin();
        e != events_.end(); ++e) {
     if (e->is_node_introduction()) {
       insert(e->time_introduction(), e->target_index);
+    } else if (e->is_zero_pulse()) {
+      zero_pulses_.push_back(Event(e->time_introduction(), e->target_index,
+                                   e->type, e->target, e->params));
     } else {
       std::vector<schedule_entry>::iterator it = entry_at(e->time_introduction());
       std::vector<Event>::iterator a = it->actions.begin();
@@ -124,7 +135,23 @@ void NodeSchedule::set_all_events(const std::vector<Event>& events_) {
                                   e->type, e->target, e->params));
     }
   }
+  std::stable_sort(zero_pulses_.begin(), zero_pulses_.end(),
+                   [](const Event& a, const Event& b) {
+                     return a.time_introduction() < b.time_introduction();
+                   });
   reset();
+}
+
+std::vector<double> NodeSchedule::zero_pulse_times(double start,
+                                                   double end) const {
+  std::vector<double> ret;
+  for (const Event& e : zero_pulses_) {
+    const double t = e.time_introduction();
+    if (t > start && t < end && (ret.empty() || ret.back() != t)) {
+      ret.push_back(t);
+    }
+  }
+  return ret;
 }
 
 // Find the instant, or make it. Every entry seeds `times` with its own time, so
@@ -171,15 +198,39 @@ size_t NodeSchedule::remaining() const {
 
 std::vector<odelia::ode::instruction> NodeSchedule::program() const {
   const double nan = std::numeric_limits<double>::quiet_NaN();
+  // Every size in a grid is NaN, but only the first in a recording. A grid is
+  // stepped to, so the zero pulses' times join it; a recording keeps its steps.
+  std::vector<odelia::ode::instruction> steps = ode_steps;
+  const bool grid =
+      std::all_of(steps.begin(), steps.end(),
+                  [](const odelia::ode::instruction& s) {
+                    return std::isnan(s.step_size);
+                  });
+  if (!steps.empty() && grid) {
+    for (const Event& e : zero_pulses_) {
+      steps.push_back({e.time_introduction(), nan});
+    }
+    std::stable_sort(steps.begin(), steps.end(),
+                     [](const odelia::ode::instruction& a,
+                        const odelia::ode::instruction& b) {
+                       return a.time < b.time;
+                     });
+    steps.erase(std::unique(steps.begin(), steps.end(),
+                            [](const odelia::ode::instruction& a,
+                               const odelia::ode::instruction& b) {
+                              return a.time == b.time;
+                            }),
+                steps.end());
+  }
   std::vector<odelia::ode::instruction> ret;
   ret.push_back({schedule.empty() ? 0.0 : schedule.front().time, nan});
-  auto step = ode_steps.begin();
+  auto step = steps.begin();
   for (size_t k = 0; k < schedule.size(); ++k) {
     const double start = schedule[k].time;
     const double end = k + 1 < schedule.size() ? schedule[k + 1].time : max_time;
     ret.push_back({start, nan, true});
     // A step at a boundary is excluded, because the step to the end reaches it.
-    for (; step != ode_steps.end() && step->time < end; ++step) {
+    for (; step != steps.end() && step->time < end; ++step) {
       if (step->time > start) {
         ret.push_back(*step);
       }
@@ -221,7 +272,14 @@ void NodeSchedule::r_set_max_time(double x) {
   }
   // Guarded on emptiness: this is called on a freshly built schedule, before any
   // time is set, where there is no final scheduled time to be at least.
-  if (!schedule.empty() && x < schedule.back().time) {
+  double last = -std::numeric_limits<double>::infinity();
+  if (!schedule.empty()) {
+    last = schedule.back().time;
+  }
+  if (!zero_pulses_.empty()) {
+    last = std::max(last, zero_pulses_.back().time_introduction());
+  }
+  if (x < last) {
     Rcpp::stop("max_time must be at least the final scheduled time");
   }
   max_time = x;

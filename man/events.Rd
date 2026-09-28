@@ -115,7 +115,8 @@ without, at solver tolerance, even away from the events themselves.
 What each event actually did — as against what was asked of it — is
 recorded, and readable afterwards as \code{scm$event_log}. The two differ
 routinely: a pulse is capped at what the pool can hold, and harvesting a
-size class removes whatever was in it.
+size class removes whatever was in it. A resource pulse of zero amount only
+ends a step at its time, and is not recorded.
 
 \code{events_default(p)} is the schedule a run gets when no events
   are supplied: the node introductions from \code{p$node_schedule_times} and

@@ -165,6 +165,8 @@ public:
   // own fast sub-model over the event's nominal duration with the patch's
   // demography frozen; to this solver that is still one instantaneous jump.
   EventRecord apply_event(const NodeScheduleEvent& event);
+  // Refuses a resource index this patch's environment does not have.
+  void check_resource(size_t index) const;
 
   // Scale every selected node's density by phi, and report how many nodes were
   // touched. Shared by harvest and climate extremes, which differ only in how phi
@@ -1157,6 +1159,15 @@ Patch<T,E>::scale_node_densities(size_t species_index, Select select) {
 }
 
 template <typename T, typename E>
+void Patch<T,E>::check_resource(size_t index) const {
+  if (index >= environment.n_resources()) {
+    util::stop("Resource " + util::to_string(index + 1) +
+               " does not exist: this environment has " +
+               util::to_string(environment.n_resources()) + " resources");
+  }
+}
+
+template <typename T, typename E>
 EventRecord Patch<T,E>::apply_event(const NodeScheduleEvent& event) {
   EventRecord rec;
   rec.time = time();
@@ -1187,11 +1198,7 @@ EventRecord Patch<T,E>::apply_event(const NodeScheduleEvent& event) {
     // is untouched and the nodes keep their state. The rates are stale
     // afterwards, but the solver recomputes them when it re-reads the system
     // (Patch::ode_rates computes), so there is nothing to do here.
-    if (event.target_index >= environment.n_resources()) {
-      util::stop("Resource " + util::to_string(event.target_index + 1) +
-                 " does not exist: this environment has " +
-                 util::to_string(environment.n_resources()) + " resources");
-    }
+    check_resource(event.target_index);
     rec.applied = environment.add_resource_pulse(event.target_index,
                                                  event.params.at(0));
     break;
