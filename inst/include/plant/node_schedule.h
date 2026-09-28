@@ -30,9 +30,8 @@ namespace plant {
 //
 // The enumerator order is also the order in which events sharing a time are
 // applied, so do not reorder casually. Environment events come first (they set
-// the external conditions), removals next, and node introduction last so that
-// a newborn's initial conditions are computed against the post-event
-// environment.
+// the external conditions), removals next, and node introduction last, so a
+// newborn is not removed by an event at its own instant.
 enum class EventType {
   ResourcePulse = 0,
   ClimateExtreme,
@@ -108,9 +107,8 @@ public:
 // time naming three species is one introduction: the run introduces them
 // together and computes the environment once for the set. Actions at the same
 // instant are held sorted by event_type_rank and apply BEFORE the
-// introductions, so a newborn's initial conditions are computed against the
-// post-event environment -- an ordering made a property of this structure
-// rather than re-established by the run loop at every stop.
+// introductions. A newborn takes the inflow value from before them, and its
+// rates after the instant are taken in the field after them.
 //
 // `times` keeps the [t_intro, ...extra ode times..., t_end] semantics events
 // carried before; ode_steps is what a replay reads, and program_within() serves it.

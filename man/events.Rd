@@ -104,8 +104,9 @@ own fast sub-model over a nominal duration — \code{\link{climate_extreme}}
 does — with demography frozen. The solver sees one jump either way.
 
 Events sharing a time are applied in a fixed order: environment events
-first, then demographic ones, then node introductions — so a node
-introduced at that instant starts life in the post-event environment.
+first, then demographic ones, then node introductions. A node introduced at
+that instant is not removed by them, takes its initial density from before
+them, and grows in the post-event environment.
 
 Because an event is also a stop time for the integrator, adding one changes
 the adaptive step sequence. A run with events legitimately differs from one

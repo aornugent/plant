@@ -13,6 +13,15 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **A node introduced at an event's instant takes its initial density from before
+  the event.** Migration: none; results change only where a harvest or a climate
+  extreme falls exactly on an introduction time. Such an event used to rebuild
+  the field, and the newborn inherited the inflow value computed there; a pulse
+  never did. Invasion needs the rule: an invader stands in fields recorded before
+  an entry's events and after the entry, and in none between them. The newborn
+  still grows in the post-event environment and is not removed by an event at its
+  own instant.
+
 * **`make_initial_state()` takes the birth dates on the birth-date coordinate.**
   Migration: pass `birth_dates` instead of setting `state$node_times` after the
   call. On that coordinate a node's density is its birth rate times its
