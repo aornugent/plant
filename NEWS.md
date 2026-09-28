@@ -13,6 +13,13 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **`make_initial_state()` takes the birth dates on the birth-date coordinate.**
+  Migration: pass `birth_dates` instead of setting `state$node_times` after the
+  call. On that coordinate a node's density is its birth rate times its
+  survival, so the call writes each density as the mortality that gives it and
+  each interval's establishment as its width, as if every seed established. It
+  needs the dates for both, and refuses without them.
+
 * **`Control$save_RK45_cache` is gone, and `run_mutant()` no longer needs it.**
   Migration: delete the setting. It was the opt-in for the invasion-fitness
   recorder, set on the RESIDENT run one call before the one that needed it -- so a
@@ -873,9 +880,10 @@ were not previously recorded here:
   the first two back explicitly.
 
 * **FF16 and K93 `scientific_version` 1 -> 2.** Neither model's own equations
-  changed. Both read their trapezium widths from the coordinate the density is
-  carried in, and that is what `node_density_in_birth_date` moves -- so a run
-  with the flag set is a different quadrature of the same model and says so.
+  changed. Both take their reductions by the rule of the coordinate the density
+  is carried in -- the establishment weights in birth date, the trapezium in
+  height -- and that is what `node_density_in_birth_date` moves, so a run with
+  the flag set is a different quadrature of the same model and says so.
   TF24 and TF24f are at `v10` / `v10.1`; the stem path integral that took them
   there is `develop`'s, not this branch's.
 

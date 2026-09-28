@@ -202,12 +202,18 @@ export_patch_state <- function(scm, step = NULL) {
 ##'   \code{densities}).
 ##' @param env Environment object (defaults to the strategy's environment).
 ##' @param ctrl Control object.
+##' @param birth_dates Per-species node birth dates, before 0 and ascending as
+##'   the heights descend (same shape as \code{heights}). Required on the
+##'   birth-date coordinate, where each node's density is its birth rate times
+##'   its survival and \code{densities} are densities in birth date: the
+##'   survival is set to give that density, and each interval's establishment to
+##'   its width, as if every seed established. Elsewhere every node is born at 0.
 ##' @return A state list suitable for \code{\link{set_initial_state}}.
 ##' @seealso \code{\link{set_initial_state}}, \code{\link{export_patch_state}}
 ##' @export
 make_initial_state <- function(p, heights, densities = NULL,
                                log_densities = NULL, env = NULL,
-                               ctrl = control()) {
+                               ctrl = control(), birth_dates = NULL) {
   types <- extract_RcppR6_template_types(p, "Parameters")
   if (is.null(env)) {
     env <- Environment(types[[1]])
@@ -233,9 +239,18 @@ make_initial_state <- function(p, heights, densities = NULL,
   patch <- do.call("Patch", types)(p, env, ctrl)
   ode_names <- patch$species[[1]]$new_node$ode_names
   hi <- match("height", ode_names)
-  ldi <- match("log_density", ode_names)
-  if (is.na(hi) || is.na(ldi)) {
-    stop("could not locate 'height'/'log_density' in node ODE names")
+  birth_date <- ctrl$node_density_in_birth_date
+  ldi <- match(if (birth_date) "mortality" else "log_density", ode_names)
+  ii <- match(c("interval_establishment", "interval_establishment_moment"),
+              ode_names)
+  if (is.na(hi) || is.na(ldi) || (birth_date && anyNA(ii))) {
+    stop("could not locate the node's height and density in its ODE names")
+  }
+  if (birth_date) {
+    if (is.null(birth_dates)) {
+      stop("the birth-date coordinate needs each node's `birth_dates`")
+    }
+    birth_dates <- as_list(birth_dates)
   }
   node_ode_size <- length(ode_names)
   env_state <- patch$ode_state # fresh patch has no nodes: environment ODE only
@@ -259,10 +274,25 @@ make_initial_state <- function(p, heights, densities = NULL,
     ld <- ld[o]
     mat <- matrix(0, nrow = node_ode_size, ncol = length(h))
     mat[hi, ] <- h
-    mat[ldi, ] <- ld
+    times <- rep(0, length(h))
+    if (birth_date) {
+      times <- birth_dates[[i]][o]
+      width <- diff(c(times, 0))
+      if (length(times) != length(h) || any(width <= 0)) {
+        stop("birth_dates must be before 0 and ascend as the heights descend ",
+             "(species ", i, ")")
+      }
+      drivers <- patch$species[[i]]$extrinsic_drivers
+      birth_rate <- vapply(times, function(t) drivers$evaluate("birth_rate", t),
+                           numeric(1))
+      mat[ldi, ] <- log(birth_rate) - ld
+      mat[ii, ] <- rbind(width, width^2 / 2)
+    } else {
+      mat[ldi, ] <- ld
+    }
     ode_chunks[[i]] <- as.vector(mat) # column-major: node-by-node, matching set_ode_state
     n[i] <- length(h)
-    node_times[[i]] <- rep(0, length(h))
+    node_times[[i]] <- times
     patch_density[[i]] <- rep(dens0, length(h))
     pr_patch_survival[[i]] <- rep(pr_surv0, length(h))
   }

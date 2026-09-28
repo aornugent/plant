@@ -180,7 +180,7 @@ public:
 
   // Every row a census reports: each metric, summed over the species, then
   // offspring production. A metric weights one individual by its density and
-  // closes on the boundary node; offspring production weights each node by the
+  // includes the boundary node; offspring production weights each node by the
   // birth rate at its introduction and stops at the last node, so written as a
   // metric it would gain a panel and a different value.
   template <class P>
@@ -1034,11 +1034,10 @@ std::vector<double> SCM<T, E>::census() const {
 //
 // set_state_and_boundary rebuilds the environment and the boundary node from the state
 // it is given. Both are on the census's path -- the boundary node is the
-// reduction's lower grid point and is not ODE state -- so the recording must carry
-// that rebuild. Loading the state without it leaves the boundary node at the values
-// it was copied with, and its whole contribution to the seed is then exactly zero
-// with nothing thrown. Loading it with set_ode_state alone leaves the condition at
-// its first evaluation, which is not the one census() reads.
+// reduction's lower grid point and is not ODE state, and its crown is the seed's,
+// whose size the traits set -- so the recording must carry that rebuild. Loading
+// the state without it leaves the boundary node at the values it was copied with,
+// which carry no trait's derivative, with nothing thrown.
 //
 // One patch, one tape, one recording, and a seed per metric. The recording does
 // not depend on which metric is being asked for -- it writes every metric into y
