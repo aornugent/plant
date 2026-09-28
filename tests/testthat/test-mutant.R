@@ -223,9 +223,13 @@ test_that("an invader introduced where the run introduced nothing is refused", {
   times <- p$node_schedule_times[[1]]
   p$node_schedule_times <- list(times[times <= 10])
   scm <- run_scm(p)
+  run_times <- p$node_schedule_times[[1]]
   invader <- p
-  invader$node_schedule_times <- list(sort(c(invader$node_schedule_times[[1]], 0.25)))
+  invader$node_schedule_times <- list(sort(c(run_times, 0.25)))
   expect_error(scm$run_mutant(invader), "where the schedule's next is at t=0.25")
+  # Past the run's last introduction, where no insertion comes to refuse it.
+  invader$node_schedule_times <- list(c(run_times, (max(run_times) + 10) / 2))
+  expect_error(scm$run_mutant(invader), "past the rows' last insertion")
 })
 
 test_that("two invaders together each have the fitness they have alone, TF24", {

@@ -57,10 +57,11 @@ products using plant.
   in odelia's own store/load channel rather than three solver hooks that odelia's
   rewrite deleted. And it keeps the NUMBERS a replay evaluates rather than the
   environment holding them: the light interpolant's knot values and slopes with
-  the canopy top, and the environment's own ODE state. That is what makes an invasion sweep affordable
-  -- a replay costs less than the resident run it stands in (0.06 s against 0.07 s
-  on a lifetime-30 FF16 stand), where copying whole environments per sub-step put
-  the old cache at 6.8 GB and out of memory past ~10 years.
+  the canopy top, and the environment's own ODE state. That is what makes an
+  invasion sweep affordable -- a replay costs less than the resident run it stands
+  in (0.06 s against 0.07 s on a lifetime-30 FF16 stand), where copying whole
+  environments per sub-step put the old cache at 6.8 GB and out of memory past
+  ~10 years.
 
   ⚠️ **`SCM$environment_history` and `SCM$patch_step_history` were never on the
   R interface**, whatever the #362/#379 note below says: neither is in

@@ -686,6 +686,15 @@ void SCM<T, E>::walk(const Rows& rows) {
     since = time;
   });
   end_interval(added);
+  // An entry past the last insertion would otherwise be skipped with every
+  // number finite.
+  if (!complete()) {
+    std::ostringstream m;
+    m.precision(17);
+    m << "The schedule's entry at t=" << node_schedule.next().time
+      << " is past the rows' last insertion, at t=" << since;
+    util::stop(m.str());
+  }
 }
 
 template <typename T, typename E>
