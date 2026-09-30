@@ -1297,10 +1297,6 @@ public:
   // (replacing the old hard net>0 growth cutoff) for AD-readiness.
   double storage_gate_width = 0.1;
   double storage_prod_eps   = 1e-4;
-  // How far below empty the storage pool may sit before the solver is told the
-  // step is invalid, as a fraction of capacity. A draining cohort approaches the
-  // boundary, so this separates round-off there from a real excursion.
-  double storage_domain_tol = 1e-8;
 
   // The clamp sites this strategy reaches; the list itself is shared with the
   // environment, which reaches the others.
@@ -1964,30 +1960,12 @@ void TF24_Strategy<S>::compute_rates(const TF24_Environment<S>& environment,  In
   // relative reserves rather than instantaneous net production -- so a trough
   // draws reserves down and death is gradual, instead of the growth cutoff and
   // ~1e32 mortality spike that caused the #550 blow-up.
-  // The storage state is read as it stands, and neither end of its range is
-  // clamped: the rate below holds the flow inside [0, storage_max] by its own
-  // form, so a value outside is a step that overshot rather than a state the
-  // model has. Where a stage does land outside, both limiters go negative and
-  // push back, so the arithmetic is finite and restoring; what a committed value
-  // outside would corrupt is the meaning of the state, because mortality reads
-  // the ratio and grows without bound below zero. So the pool is refused there
-  // rather than floored, and the stepper shrinks and retries (#609, #610).
+  // Read unclamped. A stage below empty is a step overshooting: its rates stay
+  // finite for the error estimate, and non_negative_states() refuses the step's end.
   const S storage     = vars.state(state_idx_storage);
   const S storage_max = storage_capacity(area_leaf_, height);
   using std::exp;
   using std::sqrt;
-  // Refused only where the pool is negative by more than round-off on its own
-  // scale. The tolerance is not slack: at r = 0 the rate is the charge alone and
-  // so non-negative, so a draining cohort approaches the boundary and its last
-  // bits are round-off on a state near zero. Comparing against an exact zero
-  // refuses nearly every attempt there, which rejects nothing real.
-  if (storage < -storage_domain_tol * storage_max) {
-    odelia::util::stop_domain(
-        "TF24 storage is negative (" +
-        util::format_double(odelia::util::to_passive(storage)) +
-        " kg): the pool's flow does not leave [0, capacity], so this is a step "
-        "that overshot the empty boundary");
-  }
   const S r           = storage_max > 0.0 ? storage / storage_max : S(0.0);
   // Reserve-gated growth (#517), following Daniel's intuition that a plant
   // should not grow unless it has ample carbon in storage. Growth and

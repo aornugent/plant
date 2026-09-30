@@ -13,6 +13,20 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **A TF24 stage below an empty storage pool no longer refuses the step.**
+  Migration: none for the interface; TF24 results change wherever a stage went
+  below empty. The stage check and `storage_domain_tol` are gone, and a step whose
+  end leaves a pool below zero is still refused. A stage below empty is the step
+  overshooting: the pool's rate pushes back and storage mortality stays finite,
+  so the error estimate rejects the step. On the 40-year long-drought stand (108
+  nodes, birth date, `ode_tol` = 1e-3) offspring production moves 12.66564 ->
+  12.66219, the attempts thrown fall 149 -> 0, and 22 step ends are refused
+  instead. Invaders from `lma` x 0.7 to x 2 now run on the resident's steps, where
+  x 0.95 to x 1.05 other than x 0.99 failed. A walked run has no error estimate, so
+  a stage far below empty is committed there: at a zero relaxation offset on the
+  height coordinate, the invader at `lma` x 1.05 now fails on an overflowing
+  density rather than at the stage.
+
 * **A week is added to the relaxation time of TF24's storage pool.** Migration:
   none for the interface; TF24 results change, and `storage_relaxation_offset =
   0` recovers the previous model bit for bit. The new TF24 parameter

@@ -216,7 +216,8 @@ test_that("an identical invader repeats the run's fitness exactly, TF24", {
 
 test_that("an invader a little costlier in leaf runs on the run's steps, TF24", {
   # The storage relaxation offset slows every pool, so on the run's steps these
-  # invaders' pools stay non-negative. At a zero offset both go below empty.
+  # invaders' pools stay non-negative. At a zero offset the farther invader's
+  # stages go so far below empty that its density overflows on this height stand.
   lma <- scm_base_parameters("TF24")$strategy_default$pars[["lma"]]
   with_offset <- function(p, offset) {
     for (i in seq_along(p$strategies)) {
@@ -240,9 +241,8 @@ test_that("an invader a little costlier in leaf runs on the run's steps, TF24", 
   }
 
   scm <- run_scm(with_offset(stand$p, 0), env = stand$env, ctrl = Control())
-  for (m in c(1.001, 1.05)) {
-    expect_error(scm$run_mutant(invader(m, 0)), "storage is negative")
-  }
+  expect_no_error(scm$run_mutant(invader(1.001, 0)))
+  expect_error(scm$run_mutant(invader(1.05, 0)), "density")
 })
 
 test_that("an invader introduced where the run introduced nothing is refused", {

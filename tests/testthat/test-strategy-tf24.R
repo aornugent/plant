@@ -695,11 +695,9 @@ test_that("a run keeps every storage state inside [0, capacity]", {
   expect_gte(min(r), 0)
 })
 
-test_that("a negative storage state is refused by name, not floored", {
-  # The refusal is what replaces the read-clamp: the solver catches it, shrinks
-  # and retries, so a step that would leave the pool negative is never accepted.
-  # Posed directly here, because on a run it is unreachable -- which is the
-  # point, and is why the check needs an out-of-domain state written by hand.
+test_that("a stage below empty has finite rates that refill the pool", {
+  # A stage below empty is a step overshooting, so its rates must stay finite
+  # for the error estimate. Posed directly, since no run commits such a state.
   s <- TF24_Strategy()
   env <- Environment("TF24")
   env$set_fixed_environment(1, height_max = 150)
@@ -707,20 +705,15 @@ test_that("a negative storage state is refused by name, not floored", {
   ind <- Individual("TF24", "TF24_Env")(s)
   ind$set_state("height", 5)
   ind$set_state("storage", -1e-4)
-  expect_error(ind$compute_rates(env), "storage is negative")
-
-  # A positive pool is untouched by the refusal, so the check above is about the
-  # domain and not about compute_rates refusing generally.
-  ind$set_state("storage", 1e-4)
-  expect_no_error(ind$compute_rates(env))
+  ind$compute_rates(env)
+  rates <- ind$internals$rates
+  expect_true(all(is.finite(rates)))
+  expect_gt(rates[[match("storage", ind$ode_names)]], 0)
 })
 
-test_that("a program replayed at other parameters holds by its times, not its sizes", {
-  # The sizes an adaptive run accepted are the sizes that kept the storage pool
-  # in its domain at the parameters that run used. Pinned to those sizes another
-  # parameter vector has nothing to shrink with, so the refusal above ends the
-  # run. Pinned to the times alone each interval is stepped to, and a refusal
-  # subdivides that interval, so the same grid carries.
+test_that("a program replayed at other parameters holds by its sizes and by its times", {
+  # Pinned to the sizes an adaptive run accepted, a walk at other parameters has
+  # nothing to shrink with; pinned to the times alone, it steps to each under control.
   p0 <- scm_base_parameters("TF24")
   p0$max_patch_lifetime <- 2
 
@@ -742,11 +735,9 @@ test_that("a program replayed at other parameters holds by its times, not its si
   times <- free$ode_times
   sizes <- free$ode_step_sizes
 
-  # Far from the run's lma: with the relaxation offset, a replay on the run's
-  # sizes keeps the pool non-negative up to lma x 4 here.
-  expect_error(run_at(0.0825 * 6, times, sizes), "storage is negative")
-
-  replayed <- run_at(0.0825 * 6, times, numeric(0))
-  expect_identical(replayed$ode_times, times)
-  expect_true(all(is.finite(replayed$offspring_production)))
+  for (pinned_sizes in list(sizes, numeric(0))) {
+    replayed <- run_at(0.0825 * 6, times, pinned_sizes)
+    expect_identical(replayed$ode_times, times)
+    expect_true(all(is.finite(replayed$offspring_production)))
+  }
 })
