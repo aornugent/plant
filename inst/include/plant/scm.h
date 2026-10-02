@@ -103,11 +103,12 @@ public:
   using trajectory = std::span<const odelia::ode::step_record<patch_type>>;
   trajectory store_trajectory();
 
-  // Set before run() or run_mutant() to keep the state at every accepted step.
-  // The reverse pass needs those states and cannot recover them from a finished
-  // run, so a run that did not keep them has to be repeated -- one whole forward
-  // integration. Off by default because the store is one double per state entry
-  // per step and a forward run has no use for it.
+  // Set before run() or run_mutant() to keep the state at every accepted step,
+  // and the field each rate evaluation built. The reverse pass needs the states and
+  // an invasion the fields, and neither can recover them from a finished run, so a
+  // run that did not keep them has to be repeated -- one whole forward integration.
+  // Off by default because the store is one double per state entry per step and a
+  // field per evaluation, and a forward run has no use for it.
   bool record_trajectory = false;
 
   // Adaptively refine the node-introduction schedule entirely in C++:
@@ -495,6 +496,9 @@ public:
   bool collect;                    // record a patch snapshot after each step
   bool collect_refinement_errors;  // accumulate competition errors during run
   std::vector<patch_type> history; // per-step patch snapshots when collect
+  // The runs this SCM has made, each walk of an invasion and each run repeated
+  // to keep a recording included. Read-only in R.
+  size_t runs = 0;
 
 private:
   // One environment serves every species, so its tally has no species of its own;
@@ -591,11 +595,13 @@ std::vector<double> SCM<T, E>::uniform_euler_times(double t0, double t1,
 // ---- Simulation lifecycle ------------------------------------------------
 
 template <typename T, typename E> void SCM<T, E>::run() {
-  // Set before reset(), which records the state the run starts from. One flag, and
-  // it is the solver's: the choices this run's rate evaluations make are the same
-  // recording as its states, so what keeps the states is what says the choices are
+  ++runs;
+  // Set before reset(), which records the state the run starts from. One flag: the
+  // choices this run's rate evaluations make, and the fields they build, are the
+  // same recording as its states, so what keeps the states is what says those are
   // kept too.
   solver.set_keep_states(record_trajectory);
+  patch.set_keep_field(record_trajectory);
   reset();
   // The solver owns the live patch system; operate on it directly during the
   // run and avoid per-step copies into the `patch` member.
@@ -729,12 +735,13 @@ void SCM<T, E>::end_interval(const std::vector<size_t>& added) {
 // Every strategy in `p` is an invader, evaluated in a field it does not move; one
 // identical to a strategy of the recorded run must come back with its fitness.
 //
-// Two passes. The first re-runs this SCM's community keeping the field at each
-// rate evaluation. run() then walks that recording with `p`'s strategies, on the
-// recorded run's events and `p`'s introductions.
+// run() walks the run's recording with `p`'s strategies, on the recorded run's
+// events and `p`'s introductions, each evaluation in the field the run built
+// there. A run that kept its states kept those fields beside them; one that did
+// not is repeated first, keeping both.
 //
-// The recording outlives the call, so a second invasion pays for one pass, and
-// it is still the first community's field, because this call overwrites
+// The recording outlives the call, so a second invasion repeats nothing, and it
+// is still the first community's field, because this call overwrites
 // `parameters` with `p`.
 template <typename T, typename E>
 void SCM<T, E>::run_mutant(parameters_type p) {
@@ -749,14 +756,22 @@ void SCM<T, E>::run_mutant(parameters_type p) {
     if (r_ode_times().size() < 2) {
       util::stop("Run a resident first to generate a competitive landscape");
     }
-    patch.set_keep_field(true);
-    const bool kept = record_trajectory;
-    record_trajectory = true;
-    run();
-    record_trajectory = kept;
-    patch.set_keep_field(false);
+    // Asked of the patch, which says what the last run kept whatever
+    // record_trajectory has been set to since.
+    if (!patch.keeps_field()) {
+      const bool kept = record_trajectory;
+      record_trajectory = true;
+      run();
+      record_trajectory = kept;
+    }
     const trajectory rec = solver.recording();
     invaded_run.assign(rec.begin(), rec.end());
+    for (odelia::ode::step_record<patch_type>& row : invaded_run) {
+      for (typename patch_type::solved_values& slot : row.solved.stages) {
+        slot.field = std::move(slot.built);
+      }
+      row.solved.at_state.field = std::move(row.solved.at_state.built);
+    }
   }
 
   // Destructive, as it has always been: the invaders become this SCM's

@@ -2801,6 +2801,10 @@ SCM___FF16__FF16_Env__record_trajectory__set <- function(obj_, value) {
     invisible(.Call('_plant_SCM___FF16__FF16_Env__record_trajectory__set', PACKAGE = 'plant', obj_, value))
 }
 
+SCM___FF16__FF16_Env__runs__get <- function(obj_) {
+    .Call('_plant_SCM___FF16__FF16_Env__runs__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___TF24__TF24_Env__ctor <- function(parameters, environment, events, control) {
     .Call('_plant_SCM___TF24__TF24_Env__ctor', PACKAGE = 'plant', parameters, environment, events, control)
 }
@@ -2919,6 +2923,10 @@ SCM___TF24__TF24_Env__record_trajectory__get <- function(obj_) {
 
 SCM___TF24__TF24_Env__record_trajectory__set <- function(obj_, value) {
     invisible(.Call('_plant_SCM___TF24__TF24_Env__record_trajectory__set', PACKAGE = 'plant', obj_, value))
+}
+
+SCM___TF24__TF24_Env__runs__get <- function(obj_) {
+    .Call('_plant_SCM___TF24__TF24_Env__runs__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___TF24f__TF24_Env__ctor <- function(parameters, environment, events, control) {
@@ -3041,6 +3049,10 @@ SCM___TF24f__TF24_Env__record_trajectory__set <- function(obj_, value) {
     invisible(.Call('_plant_SCM___TF24f__TF24_Env__record_trajectory__set', PACKAGE = 'plant', obj_, value))
 }
 
+SCM___TF24f__TF24_Env__runs__get <- function(obj_) {
+    .Call('_plant_SCM___TF24f__TF24_Env__runs__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___K93__K93_Env__ctor <- function(parameters, environment, events, control) {
     .Call('_plant_SCM___K93__K93_Env__ctor', PACKAGE = 'plant', parameters, environment, events, control)
 }
@@ -3159,6 +3171,10 @@ SCM___K93__K93_Env__record_trajectory__get <- function(obj_) {
 
 SCM___K93__K93_Env__record_trajectory__set <- function(obj_, value) {
     invisible(.Call('_plant_SCM___K93__K93_Env__record_trajectory__set', PACKAGE = 'plant', obj_, value))
+}
+
+SCM___K93__K93_Env__runs__get <- function(obj_) {
+    .Call('_plant_SCM___K93__K93_Env__runs__get', PACKAGE = 'plant', obj_)
 }
 
 StochasticSpecies___FF16__FF16_Env__ctor <- function(strategy) {

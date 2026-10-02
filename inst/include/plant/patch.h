@@ -58,16 +58,19 @@ struct recorded_field {
   double time = 0.0;
 };
 
-// One rate evaluation's record: what each species solved for, and the field it
-// was taken in. Templated on the strategy's own recorded type rather than nested
-// in Patch, so that a patch and the same patch lifted to an active scalar name
-// ONE type -- see the alias in Patch for why that is load-bearing.
+// One rate evaluation's record: what each species solved for, the field it was
+// taken in, and the field it built. Templated on the strategy's own recorded type
+// rather than nested in Patch, so that a patch and the same patch lifted to an
+// active scalar name ONE type -- see the alias in Patch for why that is
+// load-bearing.
 template <typename StrategySolved>
 struct patch_solved_values {
   std::vector<StrategySolved> strategies;
-  // Null where the evaluation built a field no run kept. Shared, because a walk
-  // copies every row it is seeded with.
+  // Null where the evaluation built its own. Shared, because a walk copies every
+  // row it is seeded with.
   std::shared_ptr<const recorded_field> field;
+  // Null where no run kept it. An invasion of the run moves it into `field`.
+  std::shared_ptr<const recorded_field> built;
 };
 
 template <typename T, typename E>
@@ -269,12 +272,14 @@ public:
   template <typename It> It set_ode_state(It it, double time);
 
   // What one of this patch's rate evaluations solves for: each species' own inner
-  // solves, and the field the evaluation was taken in where a run keeps it.
+  // solves, the field the evaluation was taken in, and the field it built where a
+  // run keeps it.
   //
-  // ⚠️ ONLY AN INVASION'S RECORDING PASS KEEPS THE FIELD. A run's own field is
-  // recomputable from its state, so a sweep using a recorded copy would drop the
-  // field's derivative with every number finite. An invader's field is not its
-  // own, and a recorded copy gives the derivative it has, zero.
+  // ⚠️ A RUN KEEPS ITS FIELD IN `built`, WHICH NO EVALUATION READS. A run's own
+  // field is recomputable from its state, so a sweep taken in a recorded copy would
+  // drop the field's derivative with every number finite. An invasion moves the
+  // run's fields into `field`: an invader's field is not its own, and a recorded
+  // copy gives the derivative it has, zero.
   // ⚠️ AN ALIAS AND NOT A NESTED STRUCT: a nested struct of a class template is a
   // distinct type per instantiation, and the sweep hands a recording taken on the
   // double patch to the patch at an active scalar.
@@ -307,9 +312,10 @@ public:
     loading = nullptr;
   }
 
-  // Keep the field each evaluation is taken in; set by the recording pass of an
-  // invasion only (see `solved_values`).
+  // Keep the field each evaluation builds; set by a run that keeps its states (see
+  // `solved_values`).
   void set_keep_field(bool keep) { keep_field = keep; }
+  bool keeps_field() const { return keep_field; }
 
   // The entries this patch is run on, which a walk applies and works out the
   // shape at a step from. Set where a run begins, since the schedule can change
@@ -385,7 +391,7 @@ private:
   void compute_environment();
   void compute_rates();
 
-  // Set by the recording pass of an invasion, read by compute_environment().
+  // Set where a run begins, read by compute_environment().
   bool keep_field = false;
   // The slot the rate evaluation now running stores into or loads from.
   solved_values* storing = nullptr;
@@ -993,7 +999,7 @@ void Patch<T,E>::compute_environment() {
     kept.state.assign(environment.ode_size(), 0.0);
     environment.ode_state(kept.state.begin());
     kept.time = environment.time;
-    storing->field = std::make_shared<const recorded_field>(std::move(kept));
+    storing->built = std::make_shared<const recorded_field>(std::move(kept));
   }
 }
 

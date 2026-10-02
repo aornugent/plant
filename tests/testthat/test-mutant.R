@@ -167,7 +167,7 @@ tf24_invasion_fixture <- function(traits = trait_matrix(0, "TF24_floor_lambda_o"
   list(p = p1, env = env)
 }
 
-test_that("an identical invader repeats the run's fitness exactly, TF24", {
+test_that("an identical invader repeats the run's fitness exactly, and a recorded run is not repeated, TF24", {
   # An invasion walks the run's accepted steps in the field each evaluation was
   # taken in, applying the same entries: the same events in the same order, then
   # the same introductions. A copy of the run's own strategy therefore makes every
@@ -180,6 +180,10 @@ test_that("an identical invader repeats the run's fitness exactly, TF24", {
   # steps and would fail rather than shrink, so passing without an error is the
   # statement that it meets no refusal.
   #
+  # A run that kept its states kept those fields beside them, so the invasion
+  # walks its recording and repeats nothing; a run that kept none is repeated
+  # first. The identity holds either way.
+  #
   # Lifetime 6 with twenty of the default schedule's introductions is 194 steps
   # a run; more introductions buy only more of the same regime.
   introduction <- tf24_invasion_fixture()$p$node_schedule_times[[1]][19]
@@ -191,26 +195,33 @@ test_that("an identical invader repeats the run's fitness exactly, TF24", {
                                   sensitivity = 20),
                   harvest(time = 4, fraction = 0.5)))
   for (name in names(schedules)) {
-    fixture <- tf24_invasion_fixture()
-    p1 <- fixture$p
-    ev <- do.call(events, c(list(events_default(p1)), schedules[[name]]))
-    scm <- run_scm(p1, env = fixture$env, ctrl = Control(), events = ev)
-    run_rr <- scm$net_reproduction_ratios
+    for (record in c(FALSE, TRUE)) {
+      fixture <- tf24_invasion_fixture()
+      p1 <- fixture$p
+      ev <- do.call(events, c(list(events_default(p1)), schedules[[name]]))
+      scm <- run_scm(p1, env = fixture$env, ctrl = Control(), events = ev,
+                     record_trajectory = record)
+      run_rr <- scm$net_reproduction_ratios
+      label <- paste("with", name, if (record) "after a recorded run")
 
-    # Guards that the walk has something to repeat: a stand that died out would
-    # make the identity trivial, and a short recording would make it cheap in the
-    # wrong way.
-    expect_true(all(is.finite(run_rr)) && all(run_rr > 0))
-    expect_gt(length(scm$ode_times), 150)
-    expect_equal(scm$patch$species[[1]]$size, 20L)
+      # Guards that the walk has something to repeat: a stand that died out
+      # would make the identity trivial, and a short recording would make it
+      # cheap in the wrong way.
+      expect_true(all(is.finite(run_rr)) && all(run_rr > 0))
+      expect_gt(length(scm$ode_times), 150)
+      expect_equal(scm$patch$species[[1]]$size, 20L)
 
-    run_log <- scm$event_log
-    expect_no_error(scm$run_mutant(p1))
-    expect_identical(scm$net_reproduction_ratios, run_rr,
-                     label = paste("the invader's fitness with", name))
-    # Its log is the run's: the same events, each taking out what it took out.
-    expect_identical(scm$event_log$time, run_log$time)
-    expect_identical(scm$event_log$applied, run_log$applied)
+      run_log <- scm$event_log
+      expect_equal(scm$runs, 1)
+      expect_no_error(scm$run_mutant(p1))
+      expect_equal(scm$runs, if (record) 2 else 3,
+                   label = paste("the runs", label))
+      expect_identical(scm$net_reproduction_ratios, run_rr,
+                       label = paste("the invader's fitness", label))
+      # Its log is the run's: the same events, each taking out what it took out.
+      expect_identical(scm$event_log$time, run_log$time)
+      expect_identical(scm$event_log$applied, run_log$applied)
+    }
   }
 })
 

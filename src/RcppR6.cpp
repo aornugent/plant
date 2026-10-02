@@ -3180,6 +3180,11 @@ void SCM___FF16__FF16_Env__record_trajectory__set(plant::RcppR6::RcppR6<plant::S
   obj_->record_trajectory = value;
 }
 
+// [[Rcpp::export]]
+size_t SCM___FF16__FF16_Env__runs__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->runs;
+}
+
 
 // [[Rcpp::export]]
 plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > SCM___TF24__TF24_Env__ctor(plant::Parameters<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > parameters, plant::TF24_Environment<double> environment, plant::Events events, plant::Control control) {
@@ -3316,6 +3321,11 @@ bool SCM___TF24__TF24_Env__record_trajectory__get(plant::RcppR6::RcppR6<plant::S
 // [[Rcpp::export]]
 void SCM___TF24__TF24_Env__record_trajectory__set(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_, bool value) {
   obj_->record_trajectory = value;
+}
+
+// [[Rcpp::export]]
+size_t SCM___TF24__TF24_Env__runs__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->runs;
 }
 
 
@@ -3456,6 +3466,11 @@ void SCM___TF24f__TF24_Env__record_trajectory__set(plant::RcppR6::RcppR6<plant::
   obj_->record_trajectory = value;
 }
 
+// [[Rcpp::export]]
+size_t SCM___TF24f__TF24_Env__runs__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->runs;
+}
+
 
 // [[Rcpp::export]]
 plant::SCM<plant::K93_Strategy,plant::K93_Environment> SCM___K93__K93_Env__ctor(plant::Parameters<plant::K93_Strategy,plant::K93_Environment> parameters, plant::K93_Environment environment, plant::Events events, plant::Control control) {
@@ -3592,6 +3607,11 @@ bool SCM___K93__K93_Env__record_trajectory__get(plant::RcppR6::RcppR6<plant::SCM
 // [[Rcpp::export]]
 void SCM___K93__K93_Env__record_trajectory__set(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_, bool value) {
   obj_->record_trajectory = value;
+}
+
+// [[Rcpp::export]]
+size_t SCM___K93__K93_Env__runs__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->runs;
 }
 
 

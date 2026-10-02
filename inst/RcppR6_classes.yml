@@ -907,6 +907,8 @@ SCM:
     collect: {type: bool, access: field}
     collect_refinement_errors: {type: bool, access: field}
     record_trajectory: {type: bool, access: field}
+    # The runs the SCM has made, repeated runs and invasions' walks included.
+    runs: {type: size_t, access: field, readonly: true}
 
 StochasticSpecies:
   name_cpp: "plant::StochasticSpecies<T,E>"
