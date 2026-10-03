@@ -263,6 +263,15 @@ public:
   // the order ode_state writes it.
   bool ode_state_valid(const std::vector<double>& y) const;
 
+  // What the adaptive stepper multiplies each state's error level by on a step
+  // starting at `time` (see Control's ode_weight_soil and ode_weight_times).
+  void error_weights(double time, std::vector<double>& w) const;
+  std::vector<double> r_error_weights(double time) const {
+    std::vector<double> w;
+    error_weights(time, w);
+    return w;
+  }
+
   // Returns state in structure format as opposed to single 
   // vector as given by ode_state
   Rcpp::List r_get_state() const;
@@ -440,6 +449,7 @@ Patch<T,E>::Patch(parameters_type p, environment_type e, Control c)
     control(c) {
 
   parameters.validate();
+  validate_ode_weights(control);
 
   // The validated member, not the argument: validate() derives the regime from
   // patch_type and max_patch_lifetime, so an argument whose lifetime was
@@ -1632,6 +1642,23 @@ bool Patch<T,E>::ode_state_valid(const std::vector<double>& y) const {
     }
   }
   return true;
+}
+
+template <typename T, typename E>
+void Patch<T,E>::error_weights(double time, std::vector<double>& w) const {
+  // The environment's states close the patch's, as ode_state writes them.
+  w.assign(ode_size(), 1.0);
+  environment.error_weights(
+    control, w.end() - static_cast<std::ptrdiff_t>(environment.ode_size()));
+  const std::vector<double>& times = control.ode_weight_times;
+  if (!times.empty()) {
+    const auto after = std::upper_bound(times.begin(), times.end(), time);
+    const double factor = control.ode_weight_factors.at(
+      static_cast<size_t>(after - times.begin()) - 1);
+    for (double& x : w) {
+      x *= factor;
+    }
+  }
 }
 
 }

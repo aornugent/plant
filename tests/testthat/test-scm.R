@@ -410,6 +410,59 @@ test_that("A second run on one SCM reproduces the first", {
   expect_identical(scm$patch$ode_state, first_state)
 })
 
+test_that("A run's steps answer to the error weights, and at their defaults to nothing", {
+  ## TF24's environment carries the soil layers and the flux accumulators, so it
+  ## is the model the weights reach. One year is enough: what is checked is each
+  ## step's decision, and the soil binds about half of them.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 1
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  run <- function(...) {
+    run_scm(p, Environment("TF24"), Control(...), record_trajectory = TRUE)
+  }
+  ## How many accepted steps each kind of state bound. The environment's states
+  ## close the state, its soil layers first.
+  binding <- function(scm) {
+    n_env <- Environment("TF24")$ode_size
+    n_soil <- Environment("TF24")$get_soil_number_of_depths()
+    rows <- Filter(function(r) !r$introduction && !is.na(r$error_index),
+                   scm$store_trajectory())
+    kind <- vapply(rows, function(r) {
+      at <- r$error_index - (length(r$state) - n_env)
+      if (at > n_soil) "accumulator" else if (at > 0) "soil" else "node"
+    }, "")
+    table(factor(kind, c("node", "soil", "accumulator")))
+  }
+
+  ## The default is the run as it was before the weights: these are its steps.
+  base <- run()
+  expect_equal(length(base$ode_times), 122)
+  expect_equal(base$ode_times[c(10, 100)], c(7e-05, 0.60634553781117784),
+               tolerance = 1e-12)
+  ## Weights of one, and a schedule of one factor of one, are the default exactly.
+  ones <- run(ode_weight_soil = 1, ode_weight_accumulator = 1,
+              ode_weight_times = 0, ode_weight_factors = 1)
+  expect_identical(ones$ode_times, base$ode_times)
+  expect_identical(ones$ode_step_sizes, base$ode_step_sizes)
+  expect_identical(ones$patch$ode_state, base$patch$ode_state)
+
+  ## Each weight reaches its own states and no others.
+  expect_gt(binding(base)[["soil"]], 0)
+  no_soil <- binding(run(ode_weight_soil = 1e6))
+  expect_equal(no_soil[["soil"]], 0)
+  expect_gt(no_soil[["accumulator"]], 0)
+  no_env <- binding(run(ode_weight_soil = 1e6, ode_weight_accumulator = 1e6))
+  expect_equal(no_env[["soil"]] + no_env[["accumulator"]], 0)
+
+  ## The schedule's factor is read at each step's start, so every step starting
+  ## before its second time is the default's.
+  late <- run(ode_weight_times = c(0, 0.5), ode_weight_factors = c(1, 100))
+  n <- sum(base$ode_times < 0.5) + 1
+  expect_identical(head(late$ode_times, n), head(base$ode_times, n))
+  expect_identical(head(late$ode_step_sizes, n), head(base$ode_step_sizes, n))
+  expect_false(identical(late$ode_times, base$ode_times))
+})
+
 
 
 test_that("store_trajectory records one state per instruction", {

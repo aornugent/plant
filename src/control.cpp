@@ -1,4 +1,5 @@
 #include <plant/control.h>
+#include <plant/util.h>
 #include <phylloptim/leaf_model.hpp>
 
 namespace plant {
@@ -42,6 +43,12 @@ Control::Control() {
   ode_a_y           = 1.0;
   ode_a_dydt        = 0.0;
 
+  // Weights of one and no schedule: each error level as the tolerances set it.
+  ode_weight_soil        = 1.0;
+  ode_weight_accumulator = 1.0;
+  ode_weight_times       = {};
+  ode_weight_factors     = {};
+
   // 0 = adaptive RKCK (default); > 0 selects fixed-step forward Euler with this
   // spacing in years (see control.h).
   fixed_time_step   = 0.0;
@@ -77,6 +84,31 @@ Control::Control() {
   vulnerability_curve_ncontrol = phylloptim::Leaf::ncontrol_default;
   ci_abs_tol = 1e-3;
   ci_niter = 1e3;
+}
+
+// Each comparison is written so that a NaN fails it.
+void validate_ode_weights(const Control& control) {
+  if (!(control.ode_weight_soil > 0.0) ||
+      !(control.ode_weight_accumulator > 0.0)) {
+    util::stop("ode_weight_soil and ode_weight_accumulator must be positive");
+  }
+  const std::vector<double>& times = control.ode_weight_times;
+  const std::vector<double>& factors = control.ode_weight_factors;
+  if (factors.size() != times.size()) {
+    util::stop("ode_weight_factors must hold one factor per "
+               "ode_weight_times entry");
+  }
+  if (!times.empty() && !(times[0] == 0.0)) {
+    util::stop("ode_weight_times must start at 0");
+  }
+  for (size_t i = 0; i < times.size(); ++i) {
+    if (i > 0 && !(times[i] >= times[i - 1])) {
+      util::stop("ode_weight_times must be sorted");
+    }
+    if (!(factors[i] > 0.0)) {
+      util::stop("ode_weight_factors must be positive");
+    }
+  }
 }
 
 }

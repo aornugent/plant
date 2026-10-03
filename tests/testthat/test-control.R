@@ -14,6 +14,11 @@ test_that("Defaults", {
     ode_step_size_min = 1e-6,
     ode_tol_abs = 1e-4,
     ode_tol_rel = 1e-4,
+    # Weights of one and no schedule leave every error level as it was.
+    ode_weight_soil = 1,
+    ode_weight_accumulator = 1,
+    ode_weight_times = numeric(0),
+    ode_weight_factors = numeric(0),
     fixed_time_step = 0.0,
 
     function_integration_rule = 21, # size_t so not int
@@ -51,4 +56,27 @@ test_that("Defaults", {
 
   expect_identical(sort(names(ctrl)), keys)
   expect_identical(unclass(ctrl)[keys], expected[keys])
+})
+
+test_that("error weights the stepper cannot use are refused", {
+  # Refused where a patch takes its control, so a run fails before its first
+  # step rather than at the step that reads the weight.
+  patch <- function(...) {
+    Patch("FF16", "FF16_Env")(Parameters("FF16", "FF16_Env")(),
+                              Environment("FF16"), Control(...))
+  }
+  expect_error(patch(ode_weight_soil = 0), "must be positive")
+  expect_error(patch(ode_weight_accumulator = NaN), "must be positive")
+  expect_error(patch(ode_weight_times = c(0, 1), ode_weight_factors = 1),
+               "one factor per")
+  expect_error(patch(ode_weight_times = 1, ode_weight_factors = 2),
+               "must start at 0")
+  expect_error(patch(ode_weight_times = c(0, 2, 1),
+                     ode_weight_factors = c(1, 2, 3)), "must be sorted")
+  expect_error(patch(ode_weight_times = c(0, NaN),
+                     ode_weight_factors = c(1, 2)), "must be sorted")
+  expect_error(patch(ode_weight_times = c(0, 1),
+                     ode_weight_factors = c(1, -2)), "must be positive")
+  expect_no_error(patch(ode_weight_soil = 100, ode_weight_times = c(0, 1),
+                        ode_weight_factors = c(1, 10)))
 })

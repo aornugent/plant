@@ -5,6 +5,7 @@
 #include <plant/qag.h>
 #include <odelia/ode_control.hpp>
 #include <string>
+#include <vector>
 
 // The `Control` object holds all the non-biological control
 // parameters.  These might get templated against different ways of
@@ -73,6 +74,15 @@ struct Control {
   double ode_a_y;
   double ode_a_dydt;
 
+  // Multiply the error level of the soil layers, and of the flux accumulators,
+  // on each of the SCM's adaptive steps. They decide which steps it takes.
+  double ode_weight_soil;
+  double ode_weight_accumulator;
+  // Multiplies every state's error level, on a step starting at t, by the factor
+  // of the last time at or before t. Times start at 0 and ascend; empty is 1.
+  std::vector<double> ode_weight_times;
+  std::vector<double> ode_weight_factors;
+
   // Fixed-step ODE integration (forward Euler).  Units: years.  When 0 (the
   // default) the SCM integrates residents with the adaptive, error-controlled
   // Cash-Karp RKCK solver.  When > 0 it instead uses plain forward Euler on a
@@ -97,6 +107,10 @@ struct Control {
   double ci_abs_tol;
   double ci_niter;
 };
+
+// Refuses error weights the stepper cannot use: one that is not positive, or a
+// schedule that does not start at 0 and ascend with one factor per time.
+void validate_ode_weights(const Control& control);
 
 inline odelia::ode::OdeControl make_ode_control(const Control& control) {
   return odelia::ode::OdeControl(control.ode_tol_abs,

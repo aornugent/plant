@@ -25,3 +25,13 @@ fast-ish settings used for essentially all of plant's runs (see
 \code{control.cpp}). \code{control_accurate()} tightens the ODE and schedule
 tolerances for high-accuracy runs at the cost of speed.
 }
+\details{
+The SCM's adaptive ODE stepper multiplies each state's error level by a
+weight, which decides which steps it takes and nothing else:
+\code{ode_weight_soil} on the soil layers, \code{ode_weight_accumulator} on
+the flux accumulators, and on every state, for a step starting at time
+\code{t}, the entry of \code{ode_weight_factors} paired with the last of
+\code{ode_weight_times} at or before \code{t}. The times start at 0 and are
+sorted. The weights default to 1 and the schedule to empty, which leaves
+every step as it was.
+}

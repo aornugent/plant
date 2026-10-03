@@ -215,6 +215,15 @@ public:
     return it;
   }
 
+  // The soil layers' weight, then the accumulators'.
+  template <typename It> It error_weights(const Control& control, It it) const {
+    for (size_t i = 0; i < vars.state_size(); i++) {
+      *it++ = i < n_resources() ? control.ode_weight_soil
+                                : control.ode_weight_accumulator;
+    }
+    return it;
+  }
+
   template <typename It> It ode_aux(It it) const {
     util::check_length(resource_uptake.size(), aux_size());
     for (size_t i = 0; i < aux_size(); i++) {
