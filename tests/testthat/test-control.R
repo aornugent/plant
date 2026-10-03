@@ -21,6 +21,8 @@ test_that("Defaults", {
     ode_weight_times = numeric(0),
     ode_weight_factors = numeric(0),
     ode_weight_max = Inf,
+    # Cash-Karp.
+    ode_method = "rkck",
     fixed_time_step = 0.0,
 
     function_integration_rule = 21, # size_t so not int
@@ -83,4 +85,16 @@ test_that("error weights the stepper cannot use are refused", {
                      ode_weight_factors = c(1, -2)), "must be positive")
   expect_no_error(patch(ode_weight_soil = 100, ode_weight_times = c(0, 1),
                         ode_weight_factors = c(1, 10), ode_weight_max = 300))
+})
+
+test_that("a stepper ode_method does not name is refused", {
+  # Refused where a run takes its control, before its first step.
+  p <- add_strategies(scm_base_parameters("FF16"), trait_matrix(0.0825, "lma"))
+  scm <- function(...) {
+    SCM("FF16", "FF16_Env")(p, Environment("FF16"), empty_events(), Control(...))
+  }
+  expect_error(scm(ode_method = "rk4"), "ode_method must be \"rkck\" or \"ark\"")
+  # FF16's environment names no stiff block for ARK to solve for.
+  expect_error(scm(ode_method = "ark"), "names a stiff block")
+  expect_no_error(scm(ode_method = "rkck"))
 })

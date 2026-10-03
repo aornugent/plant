@@ -554,7 +554,6 @@ public:
   void compute_rates(std::vector<S> const &resource_depletion)
   {
     using std::max;
-    using std::pow;
 
     S water_input;
     // Rainfall is floored at zero. Drivers are interpolated with a cubic
@@ -581,9 +580,7 @@ public:
       note_clamp(CLAMP_RAINFALL);
     }
     double rainfall = std::max(0.0, rainfall_raw);
-    const double soil_moist_sat_0 =
-      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
-    const S excess = S(1) - a_infil * pow(vars.state(0) / soil_moist_sat_0, b_infil);
+    const S excess = infiltration_excess(vars.state(0));
     // Counted: where the top layer is wet enough that this goes negative, the
     // infiltrated fraction stops reading that layer's state at all.
     if (excess < S(0.0)) {
@@ -649,9 +646,6 @@ public:
 
   // calculate K from K_sat based on theta
   S soil_K_from_soil_theta(S theta, size_t layer) const {
-    using std::max;
-    using std::min;
-    using std::pow;
     //Eq. 5 Zeng and Decker (2009), ref Clapp and Hornberger (1978)
     // Clamp theta to [0, soil_moist_sat] (issue #485/#549): an intermediate
     // explicit-RK stage can probe theta < 0 (std::pow(negative, non-integer) is
@@ -661,15 +655,104 @@ public:
     // large and cascade the blow-up across layers. Physically K saturates at
     // K_sat, so clamp there. Per-layer parameters (#558) fall back to the
     // scalar default when no layered vector is set.
+    const double soil_moist_sat_layer =
+      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
+    if (theta < S(0.0) || theta > S(soil_moist_sat_layer)) {
+      note_clamp(CLAMP_SOIL_CONDUCTIVITY);
+    }
+    return conductivity(theta, layer);
+  }
+
+  // The conductivity at theta held to [0, saturation], at any scalar and counting
+  // no clamp: what the rates and the stiff block's rates both read.
+  template <class U> U conductivity(const U& theta, size_t layer) const {
+    using std::max;
+    using std::min;
+    using std::pow;
     const double k_sat_layer = soil_parameter_value(K_sat_layers, K_sat, layer);
     const double soil_moist_sat_layer =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
     const double n_psi_layer = soil_parameter_value(n_psi_layers, n_psi, layer);
-    if (theta < S(0.0) || theta > S(soil_moist_sat_layer)) {
-      note_clamp(CLAMP_SOIL_CONDUCTIVITY);
-    }
-    const S t = min(max(theta, S(0.0)), S(soil_moist_sat_layer));
+    const U t = min(max(theta, U(0.0)), U(soil_moist_sat_layer));
     return k_sat_layer * pow(t / soil_moist_sat_layer, 2 * n_psi_layer + 3);
+  }
+
+  // The share of the rain the top layer takes at moisture theta, before it is
+  // floored at zero: one less the saturation-excess runoff.
+  template <class U> U infiltration_excess(const U& theta) const {
+    using std::pow;
+    const double soil_moist_sat_0 =
+      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
+    return U(1) - a_infil * pow(theta / soil_moist_sat_0, b_infil);
+  }
+
+  // The layers an implicit stepper solves for, under drainage and infiltration
+  // alone; the plants' uptake from them is the rest of the patch's part.
+  size_t stiff_size() const { return n_resources(); }
+
+  template <class U>
+  void stiff_rates(double time_, const std::vector<U>& theta,
+                   std::vector<U>& rate) const {
+    using std::max;
+    const double rainfall =
+      std::max(0.0, extrinsic_drivers.evaluate("rainfall", time_));
+    rate.resize(theta.size());
+    U water_input = rainfall * max(U(0.0), infiltration_excess(theta[0]));
+    for (size_t i = 0; i < theta.size(); ++i) {
+      const U drainage = conductivity(theta[i], i);
+      rate[i] = (water_input - drainage) / dz[i];
+      water_input = drainage;
+    }
+  }
+
+  // Their Jacobian, row-major: lower bidiagonal, each layer's drainage feeding
+  // the one below, with infiltration's slope on the top layer.
+  void stiff_jacobian(double time_, const std::vector<double>& theta,
+                      std::vector<double>& out) const {
+    const size_t n = theta.size();
+    out.assign(n * n, 0.0);
+    for (size_t i = 0; i < n; ++i) {
+      const double k_sat_layer = soil_parameter_value(K_sat_layers, K_sat, i);
+      const double soil_moist_sat_layer =
+        soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, i);
+      const double q = 2 * soil_parameter_value(n_psi_layers, n_psi, i) + 3;
+      // Zero where the conductivity is held at a bound.
+      const double slope =
+        theta[i] > 0.0 && theta[i] < soil_moist_sat_layer
+          ? q * k_sat_layer * std::pow(theta[i] / soil_moist_sat_layer, q) /
+              theta[i]
+          : 0.0;
+      out[i * n + i] = -(slope / dz[i]);
+      if (i + 1 < n) {
+        out[(i + 1) * n + i] = slope / dz[i + 1];
+      }
+    }
+    if (infiltration_excess(theta[0]) > 0.0) {
+      const double rainfall =
+        std::max(0.0, extrinsic_drivers.evaluate("rainfall", time_));
+      const double soil_moist_sat_0 =
+        soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
+      out[0] = out[0] - rainfall * a_infil * b_infil *
+                            std::pow(theta[0], b_infil - 1) /
+                            std::pow(soil_moist_sat_0, b_infil) / dz[0];
+    }
+  }
+
+  // The uptake the plants took from each layer at the last evaluation.
+  void stiff_inputs(std::vector<double>& u) const { u = resource_uptake; }
+
+  // The layers alone, losing uptake u: their stiff rates less it, held at the
+  // residual moisture where compute_rates holds them.
+  void stiff_alone(double time_, const std::vector<double>& theta,
+                   const std::vector<double>& u,
+                   std::vector<double>& rate) const {
+    stiff_rates(time_, theta, rate);
+    for (size_t i = 0; i < rate.size(); ++i) {
+      rate[i] = rate[i] - u[i] / dz[i];
+      if (theta[i] <= soil_moist_residual && !(rate[i] > 0.0)) {
+        rate[i] = 0.0;
+      }
+    }
   }
 
   S soil_K_from_soil_theta(S theta) {

@@ -65,7 +65,7 @@ StochasticPatchRunner<T, E>::StochasticPatchRunner(parameters_type p,
                                                    Control c)
     : parameters(p), patch(parameters, e, c),
       node_schedule(make_empty_stochastic_schedule(parameters)),
-      solver(patch, make_ode_control(c)) {
+      solver(patch, make_ode_control(c), ode_method(c)) {
   parameters.validate();
   solver.set_collect(false);
 }

@@ -35,4 +35,12 @@ the flux accumulators, and on every state, for a step starting at time
 sorted. \code{ode_weight_max} bounds each state's weight once the factor
 multiplies it. The weights default to 1, the schedule to empty and the bound
 to \code{Inf}, which leaves every step as it was.
+
+\code{ode_method} names the stepper: \code{"rkck"}, Cash-Karp, the default;
+or \code{"ark"}, the additive Runge-Kutta ARK4(3)6L[2]SA, which steps TF24's
+soil drainage and infiltration implicitly and everything else explicitly.
+Under \code{"ark"} the soil layers' error estimate is the soil alone's,
+integrated tightly over each step with the plants' uptake linear in time.
+Walks, invasions and the gradient sweeps take the run's steps with the
+run's stepper.
 }

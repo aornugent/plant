@@ -52,6 +52,8 @@ Control::Control() {
   ode_weight_factors     = {};
   ode_weight_max         = std::numeric_limits<double>::infinity();
 
+  ode_method = "rkck";
+
   // 0 = adaptive RKCK (default); > 0 selects fixed-step forward Euler with this
   // spacing in years (see control.h).
   fixed_time_step   = 0.0;
@@ -114,6 +116,17 @@ void validate_ode_weights(const Control& control) {
       util::stop("ode_weight_factors must be positive");
     }
   }
+}
+
+odelia::ode::Method ode_method(const Control& control) {
+  if (control.ode_method == "rkck") {
+    return odelia::ode::Method::rkck;
+  }
+  if (control.ode_method == "ark") {
+    return odelia::ode::Method::ark;
+  }
+  util::stop("ode_method must be \"rkck\" or \"ark\", not \"" +
+             control.ode_method + "\"");
 }
 
 }

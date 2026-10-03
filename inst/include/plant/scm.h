@@ -550,6 +550,9 @@ private:
   // The stepper reads the patch's weights only through this concept, so a
   // signature that drifted from it would leave every run unweighted, silently.
   static_assert(odelia::ode::WeighsErrors<patch_type>);
+  // Likewise the stiff block: a patch whose environment names one and that does
+  // not meet the concept would have ode_method "ark" refused at run time.
+  static_assert(odelia::ode::HasStiffBlock<patch_type> == StiffEnvironment<E>);
   odelia::ode::Solver<patch_type> solver;
 };
 
@@ -559,7 +562,7 @@ template <typename T, typename E>
 SCM<T, E>::SCM(parameters_type p, environment_type e, Events ev, Control c)
     : parameters(p), control(c), patch(parameters, e, c),
       node_schedule(make_node_schedule(parameters, ev)),
-      solver(patch, make_ode_control(c)) {
+      solver(patch, make_ode_control(c), ode_method(c)) {
 
   parameters.validate();
 
@@ -615,7 +618,7 @@ template <typename T, typename E> void SCM<T, E>::run() {
   if (!invaded_run.empty()) {
     walk(invaded_run);
   } else if (node_schedule.using_ode_steps()) {
-    // The schedule's steps are RKCK steps, so a run pinned to them cannot also be
+    // The schedule's steps are ode_method's, so a run pinned to them cannot also be
     // the forward-Euler run fixed_time_step asks for.
     if (control.fixed_time_step > 0.0) {
       util::stop("fixed_time_step (forward Euler) is not supported for a pinned "
@@ -748,7 +751,7 @@ void SCM<T, E>::end_interval(const std::vector<size_t>& added) {
 // `parameters` with `p`.
 template <typename T, typename E>
 void SCM<T, E>::run_mutant(parameters_type p) {
-  // The walk takes the recorded steps as RKCK steps, so an invasion cannot be the
+  // The walk takes the recorded steps as ode_method's, so an invasion cannot be the
   // forward-Euler run fixed_time_step asks for.
   if (control.fixed_time_step > 0.0) {
     util::stop("fixed_time_step (forward Euler) is not supported for an invasion");
@@ -1351,7 +1354,8 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   }
   active.set_ode_state(x0.begin(), rec[0].time);
 
-  odelia::ode::Solver<decltype(active)> forward(active, make_ode_control(control));
+  odelia::ode::Solver<decltype(active)> forward(active, make_ode_control(control),
+                                                ode_method(control));
   forward.set_collect(false);
 
   // From row 0: the state seeded above is that row's, at its own width, and any
@@ -1412,7 +1416,8 @@ std::vector<Scalar> SCM<T, E>::replay_initial_state(size_t from_range,
   seed(x0, base);
   active.set_ode_state(x0.begin(), rec[start].time);
 
-  odelia::ode::Solver<decltype(active)> forward(active, make_ode_control(control));
+  odelia::ode::Solver<decltype(active)> forward(active, make_ode_control(control),
+                                                ode_method(control));
   forward.set_collect(false);
   forward.advance_recorded(rec.subspan(start));
 

@@ -4,6 +4,7 @@
 
 #include <plant/qag.h>
 #include <odelia/ode_control.hpp>
+#include <odelia/ode_solver_internal.hpp>
 #include <string>
 #include <vector>
 
@@ -86,9 +87,13 @@ struct Control {
   // nothing.
   double ode_weight_max;
 
+  // The SCM's stepper: "rkck", Cash-Karp, or "ark", ARK4(3)6L[2]SA, implicit in an
+  // environment's stiff block (TF24's soil drainage and infiltration).
+  std::string ode_method;
+
   // Fixed-step ODE integration (forward Euler).  Units: years.  When 0 (the
   // default) the SCM integrates residents with the adaptive, error-controlled
-  // Cash-Karp RKCK solver.  When > 0 it instead uses plain forward Euler on a
+  // solver ode_method names.  When > 0 it instead uses plain forward Euler on a
   // uniform grid of this spacing (e.g. 1/365 for a daily step), the way
   // industry-standard DGVMs are run.
   double fixed_time_step;
@@ -115,6 +120,9 @@ struct Control {
 // is not positive, or a schedule that does not start at 0 and ascend with one
 // factor per time.
 void validate_ode_weights(const Control& control);
+
+// The stepper ode_method names; refuses any other name.
+odelia::ode::Method ode_method(const Control& control);
 
 inline odelia::ode::OdeControl make_ode_control(const Control& control) {
   return odelia::ode::OdeControl(control.ode_tol_abs,

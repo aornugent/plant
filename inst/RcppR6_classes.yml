@@ -392,6 +392,7 @@ Control:
     - ode_weight_times: "std::vector<double>"
     - ode_weight_factors: "std::vector<double>"
     - ode_weight_max: double
+    - ode_method: std::string
     - fixed_time_step: double
     - schedule_nsteps: size_t
     - schedule_eps: double

@@ -73,6 +73,12 @@ struct patch_solved_values {
   std::shared_ptr<const recorded_field> built;
 };
 
+// An environment whose first stiff_size() states an implicit stepper solves for.
+template <typename E>
+concept StiffEnvironment = requires(const E& e) {
+  { e.stiff_size() } -> std::convertible_to<size_t>;
+};
+
 template <typename T, typename E>
 class Patch {
 public:
@@ -271,6 +277,30 @@ public:
     std::vector<double> w;
     error_weights(time, w);
     return w;
+  }
+
+  // The environment's stiff block, which the ARK stepper solves for: the first of
+  // its states, which close the patch's; its rates and Jacobian are its own.
+  std::pair<size_t, size_t> stiff_block() const requires StiffEnvironment<E> {
+    return {ode_size() - environment.ode_size(), environment.stiff_size()};
+  }
+  template <class U>
+  void stiff_rates(double t, const std::vector<U>& y, std::vector<U>& rate) const
+    requires StiffEnvironment<E> {
+    environment.stiff_rates(t, y, rate);
+  }
+  void stiff_jacobian(double t, const std::vector<double>& y,
+                      std::vector<double>& out) const
+    requires StiffEnvironment<E> {
+    environment.stiff_jacobian(t, y, out);
+  }
+  void stiff_inputs(std::vector<double>& u) const requires StiffEnvironment<E> {
+    environment.stiff_inputs(u);
+  }
+  void stiff_alone(double t, const std::vector<double>& y,
+                   const std::vector<double>& u, std::vector<double>& rate) const
+    requires StiffEnvironment<E> {
+    environment.stiff_alone(t, y, u, rate);
   }
 
   // Returns state in structure format as opposed to single 
