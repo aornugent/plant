@@ -11,8 +11,9 @@
 ##' state, for a step starting at time \code{t}, the entry of
 ##' \code{ode_tol_factor_values} paired with the last of
 ##' \code{ode_tol_factor_times} at or before \code{t}. The times start at 0 and
-##' are sorted. The factors default to 1 and the schedule to empty, which leaves
-##' every step as it was.
+##' are sorted. \code{ode_tol_factor_max} bounds each state's factor once the
+##' schedule's multiplies it. The factors default to 1, the schedule to empty
+##' and the bound to \code{Inf}, which leaves every step as it was.
 ##'
 ##' @title Control presets
 ##' @param ... Named control fields, passed to \code{Control()}.

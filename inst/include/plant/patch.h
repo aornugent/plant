@@ -264,8 +264,8 @@ public:
   bool ode_state_valid(const std::vector<double>& y) const;
 
   // What the adaptive stepper multiplies each state's error level by on a step
-  // starting at `time` (see Control's ode_tol_factor_soil and
-  // ode_tol_factor_times).
+  // starting at `time` (see Control's ode_tol_factor_soil, ode_tol_factor_times
+  // and ode_tol_factor_max).
   void state_tolerance_factors(double time, std::vector<double>& f) const;
   std::vector<double> r_state_tolerance_factors(double time) const {
     std::vector<double> f;
@@ -1652,13 +1652,14 @@ void Patch<T,E>::state_tolerance_factors(double time, std::vector<double>& f) co
   environment.state_tolerance_factors(
     control, f.end() - static_cast<std::ptrdiff_t>(environment.ode_size()));
   const std::vector<double>& times = control.ode_tol_factor_times;
+  double factor = 1.0;
   if (!times.empty()) {
     const auto after = std::upper_bound(times.begin(), times.end(), time);
-    const double factor = control.ode_tol_factor_values.at(
+    factor = control.ode_tol_factor_values.at(
       static_cast<size_t>(after - times.begin()) - 1);
-    for (double& x : f) {
-      x *= factor;
-    }
+  }
+  for (double& x : f) {
+    x = std::min(x * factor, control.ode_tol_factor_max);
   }
 }
 

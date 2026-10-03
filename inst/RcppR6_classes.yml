@@ -391,6 +391,7 @@ Control:
     - ode_tol_factor_accumulator: double
     - ode_tol_factor_times: "std::vector<double>"
     - ode_tol_factor_values: "std::vector<double>"
+    - ode_tol_factor_max: double
     - fixed_time_step: double
     - schedule_nsteps: size_t
     - schedule_eps: double

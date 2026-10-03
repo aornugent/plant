@@ -14,11 +14,13 @@ test_that("Defaults", {
     ode_step_size_min = 1e-6,
     ode_tol_abs = 1e-4,
     ode_tol_rel = 1e-4,
-    # Factors of one and no schedule leave every error level as it was.
+    # Factors of one, no schedule and no bound leave every error level as it
+    # was.
     ode_tol_factor_soil = 1,
     ode_tol_factor_accumulator = 1,
     ode_tol_factor_times = numeric(0),
     ode_tol_factor_values = numeric(0),
+    ode_tol_factor_max = Inf,
     fixed_time_step = 0.0,
 
     function_integration_rule = 21, # size_t so not int
@@ -67,6 +69,8 @@ test_that("tolerance factors the stepper cannot use are refused", {
   }
   expect_error(patch(ode_tol_factor_soil = 0), "must be positive")
   expect_error(patch(ode_tol_factor_accumulator = NaN), "must be positive")
+  expect_error(patch(ode_tol_factor_max = 0), "must be positive")
+  expect_error(patch(ode_tol_factor_max = NaN), "must be positive")
   expect_error(patch(ode_tol_factor_times = c(0, 1), ode_tol_factor_values = 1),
                "one factor per")
   expect_error(patch(ode_tol_factor_times = 1, ode_tol_factor_values = 2),
@@ -79,5 +83,6 @@ test_that("tolerance factors the stepper cannot use are refused", {
                      ode_tol_factor_values = c(1, -2)), "must be positive")
   expect_no_error(patch(ode_tol_factor_soil = 100,
                         ode_tol_factor_times = c(0, 1),
-                        ode_tol_factor_values = c(1, 10)))
+                        ode_tol_factor_values = c(1, 10),
+                        ode_tol_factor_max = 300))
 })

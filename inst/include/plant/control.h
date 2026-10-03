@@ -82,6 +82,9 @@ struct Control {
   // of the last time at or before t. Times start at 0 and ascend; empty is 1.
   std::vector<double> ode_tol_factor_times;
   std::vector<double> ode_tol_factor_values;
+  // Bounds every state's factor once the schedule's multiplies it; infinite
+  // bounds nothing.
+  double ode_tol_factor_max;
 
   // Fixed-step ODE integration (forward Euler).  Units: years.  When 0 (the
   // default) the SCM integrates residents with the adaptive, error-controlled
@@ -108,8 +111,9 @@ struct Control {
   double ci_niter;
 };
 
-// Refuses tolerance factors the stepper cannot use: one that is not positive,
-// or a schedule that does not start at 0 and ascend with one factor per time.
+// Refuses tolerance factors the stepper cannot use: a factor or bound that
+// is not positive, or a schedule that does not start at 0 and ascend with one
+// factor per time.
 void validate_ode_tol_factors(const Control& control);
 
 inline odelia::ode::OdeControl make_ode_control(const Control& control) {

@@ -406,6 +406,15 @@ test_that("a patch sets each state's tolerance factor", {
   expect_identical(patch$state_tolerance_factors(1.5), 3 * w)
   expect_identical(patch$state_tolerance_factors(40), 5 * w)
 
+  # The bound applies to each state's factor once the schedule's multiplies it.
+  ctrl$ode_tol_factor_max <- 30
+  bounded <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), ctrl)
+  bounded$introduce_new_node(1, 0)
+  bounded$introduce_new_node(1, 0.5)
+  expect_identical(bounded$state_tolerance_factors(0), pmin(w, 30))
+  expect_identical(bounded$state_tolerance_factors(1.5), pmin(3 * w, 30))
+  expect_identical(bounded$state_tolerance_factors(40), pmin(5 * w, 30))
+
   # An environment holding no state leaves the soil and accumulator factors
   # nothing to scale.
   ff <- Patch("FF16", "FF16_Env")(
