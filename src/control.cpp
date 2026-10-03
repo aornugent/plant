@@ -1,6 +1,7 @@
 #include <plant/control.h>
 #include <plant/util.h>
 #include <phylloptim/leaf_model.hpp>
+#include <limits> // std::numeric_limits
 
 namespace plant {
 
@@ -43,11 +44,13 @@ Control::Control() {
   ode_a_y           = 1.0;
   ode_a_dydt        = 0.0;
 
-  // Weights of one and no schedule: each error level as the tolerances set it.
+  // Weights of one, no schedule and no bound: each error level as the
+  // tolerances set it.
   ode_weight_soil        = 1.0;
   ode_weight_accumulator = 1.0;
   ode_weight_times       = {};
   ode_weight_factors     = {};
+  ode_weight_max         = std::numeric_limits<double>::infinity();
 
   // 0 = adaptive RKCK (default); > 0 selects fixed-step forward Euler with this
   // spacing in years (see control.h).
@@ -89,8 +92,10 @@ Control::Control() {
 // Each comparison is written so that a NaN fails it.
 void validate_ode_weights(const Control& control) {
   if (!(control.ode_weight_soil > 0.0) ||
-      !(control.ode_weight_accumulator > 0.0)) {
-    util::stop("ode_weight_soil and ode_weight_accumulator must be positive");
+      !(control.ode_weight_accumulator > 0.0) ||
+      !(control.ode_weight_max > 0.0)) {
+    util::stop("ode_weight_soil, ode_weight_accumulator and ode_weight_max "
+               "must be positive");
   }
   const std::vector<double>& times = control.ode_weight_times;
   const std::vector<double>& factors = control.ode_weight_factors;

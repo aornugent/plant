@@ -453,6 +453,11 @@ test_that("A run's steps answer to the error weights, and at their defaults to n
   expect_gt(no_soil[["accumulator"]], 0)
   no_env <- binding(run(ode_weight_soil = 1e6, ode_weight_accumulator = 1e6))
   expect_equal(no_env[["soil"]] + no_env[["accumulator"]], 0)
+  ## A bound of one takes every weight back to one, and the run to the default.
+  bounded <- run(ode_weight_soil = 1e6, ode_weight_accumulator = 1e6,
+                 ode_weight_max = 1)
+  expect_identical(bounded$ode_times, base$ode_times)
+  expect_identical(bounded$ode_step_sizes, base$ode_step_sizes)
 
   ## The schedule's factor is read at each step's start, so every step starting
   ## before its second time is the default's.

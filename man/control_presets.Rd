@@ -32,6 +32,7 @@ weight, which decides which steps it takes and nothing else:
 the flux accumulators, and on every state, for a step starting at time
 \code{t}, the entry of \code{ode_weight_factors} paired with the last of
 \code{ode_weight_times} at or before \code{t}. The times start at 0 and are
-sorted. The weights default to 1 and the schedule to empty, which leaves
-every step as it was.
+sorted. \code{ode_weight_max} bounds each state's weight once the factor
+multiplies it. The weights default to 1, the schedule to empty and the bound
+to \code{Inf}, which leaves every step as it was.
 }

@@ -264,7 +264,8 @@ public:
   bool ode_state_valid(const std::vector<double>& y) const;
 
   // What the adaptive stepper multiplies each state's error level by on a step
-  // starting at `time` (see Control's ode_weight_soil and ode_weight_times).
+  // starting at `time` (see Control's ode_weight_soil, ode_weight_times and
+  // ode_weight_max).
   void error_weights(double time, std::vector<double>& w) const;
   std::vector<double> r_error_weights(double time) const {
     std::vector<double> w;
@@ -1651,13 +1652,14 @@ void Patch<T,E>::error_weights(double time, std::vector<double>& w) const {
   environment.error_weights(
     control, w.end() - static_cast<std::ptrdiff_t>(environment.ode_size()));
   const std::vector<double>& times = control.ode_weight_times;
+  double factor = 1.0;
   if (!times.empty()) {
     const auto after = std::upper_bound(times.begin(), times.end(), time);
-    const double factor = control.ode_weight_factors.at(
+    factor = control.ode_weight_factors.at(
       static_cast<size_t>(after - times.begin()) - 1);
-    for (double& x : w) {
-      x *= factor;
-    }
+  }
+  for (double& x : w) {
+    x = std::min(x * factor, control.ode_weight_max);
   }
 }
 

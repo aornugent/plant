@@ -82,6 +82,9 @@ struct Control {
   // of the last time at or before t. Times start at 0 and ascend; empty is 1.
   std::vector<double> ode_weight_times;
   std::vector<double> ode_weight_factors;
+  // Bounds every state's weight once the factor multiplies it; infinite bounds
+  // nothing.
+  double ode_weight_max;
 
   // Fixed-step ODE integration (forward Euler).  Units: years.  When 0 (the
   // default) the SCM integrates residents with the adaptive, error-controlled
@@ -108,8 +111,9 @@ struct Control {
   double ci_niter;
 };
 
-// Refuses error weights the stepper cannot use: one that is not positive, or a
-// schedule that does not start at 0 and ascend with one factor per time.
+// Refuses error weights the stepper cannot use: a weight, factor or bound that
+// is not positive, or a schedule that does not start at 0 and ascend with one
+// factor per time.
 void validate_ode_weights(const Control& control);
 
 inline odelia::ode::OdeControl make_ode_control(const Control& control) {

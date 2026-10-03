@@ -406,6 +406,15 @@ test_that("a patch weighs each state's error level", {
   expect_identical(patch$error_weights(1.5), 3 * w)
   expect_identical(patch$error_weights(40), 5 * w)
 
+  # The bound applies to each state's weight once the factor multiplies it.
+  ctrl$ode_weight_max <- 30
+  bounded <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), ctrl)
+  bounded$introduce_new_node(1, 0)
+  bounded$introduce_new_node(1, 0.5)
+  expect_identical(bounded$error_weights(0), pmin(w, 30))
+  expect_identical(bounded$error_weights(1.5), pmin(3 * w, 30))
+  expect_identical(bounded$error_weights(40), pmin(5 * w, 30))
+
   # An environment holding no state leaves the soil and accumulator weights
   # nothing to weigh.
   ff <- Patch("FF16", "FF16_Env")(
