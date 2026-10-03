@@ -435,6 +435,10 @@ template <> inline SEXP wrap(const plant::Control& x) {
   ret["ode_tol_abs"] = Rcpp::wrap(x.ode_tol_abs);
   ret["ode_a_y"] = Rcpp::wrap(x.ode_a_y);
   ret["ode_a_dydt"] = Rcpp::wrap(x.ode_a_dydt);
+  ret["ode_tol_factor_soil"] = Rcpp::wrap(x.ode_tol_factor_soil);
+  ret["ode_tol_factor_accumulator"] = Rcpp::wrap(x.ode_tol_factor_accumulator);
+  ret["ode_tol_factor_times"] = Rcpp::wrap(x.ode_tol_factor_times);
+  ret["ode_tol_factor_values"] = Rcpp::wrap(x.ode_tol_factor_values);
   ret["fixed_time_step"] = Rcpp::wrap(x.fixed_time_step);
   ret["schedule_nsteps"] = Rcpp::wrap(x.schedule_nsteps);
   ret["schedule_eps"] = Rcpp::wrap(x.schedule_eps);
@@ -492,6 +496,14 @@ template <> inline plant::Control as(SEXP x) {
   ret.ode_a_y = Rcpp::as<double >(xl["ode_a_y"]);
   // ret.ode_a_dydt = Rcpp::as<decltype(retode_a_dydt) >(xl["ode_a_dydt"]);
   ret.ode_a_dydt = Rcpp::as<double >(xl["ode_a_dydt"]);
+  // ret.ode_tol_factor_soil = Rcpp::as<decltype(retode_tol_factor_soil) >(xl["ode_tol_factor_soil"]);
+  ret.ode_tol_factor_soil = Rcpp::as<double >(xl["ode_tol_factor_soil"]);
+  // ret.ode_tol_factor_accumulator = Rcpp::as<decltype(retode_tol_factor_accumulator) >(xl["ode_tol_factor_accumulator"]);
+  ret.ode_tol_factor_accumulator = Rcpp::as<double >(xl["ode_tol_factor_accumulator"]);
+  // ret.ode_tol_factor_times = Rcpp::as<decltype(retode_tol_factor_times) >(xl["ode_tol_factor_times"]);
+  ret.ode_tol_factor_times = Rcpp::as<std::vector<double> >(xl["ode_tol_factor_times"]);
+  // ret.ode_tol_factor_values = Rcpp::as<decltype(retode_tol_factor_values) >(xl["ode_tol_factor_values"]);
+  ret.ode_tol_factor_values = Rcpp::as<std::vector<double> >(xl["ode_tol_factor_values"]);
   // ret.fixed_time_step = Rcpp::as<decltype(retfixed_time_step) >(xl["fixed_time_step"]);
   ret.fixed_time_step = Rcpp::as<double >(xl["fixed_time_step"]);
   // ret.schedule_nsteps = Rcpp::as<decltype(retschedule_nsteps) >(xl["schedule_nsteps"]);

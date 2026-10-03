@@ -4,6 +4,16 @@
 ##' \code{control.cpp}). \code{control_accurate()} tightens the ODE and schedule
 ##' tolerances for high-accuracy runs at the cost of speed.
 ##'
+##' The SCM's adaptive ODE stepper multiplies each state's error level by a
+##' tolerance factor, which decides which steps it takes and nothing else:
+##' \code{ode_tol_factor_soil} on the soil layers,
+##' \code{ode_tol_factor_accumulator} on the flux accumulators, and on every
+##' state, for a step starting at time \code{t}, the entry of
+##' \code{ode_tol_factor_values} paired with the last of
+##' \code{ode_tol_factor_times} at or before \code{t}. The times start at 0 and
+##' are sorted. The factors default to 1 and the schedule to empty, which leaves
+##' every step as it was.
+##'
 ##' @title Control presets
 ##' @param ... Named control fields, passed to \code{Control()}.
 ##' @param base An optional \code{Control} object to tighten; defaults are used

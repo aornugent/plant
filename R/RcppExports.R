@@ -2193,6 +2193,10 @@ Patch___FF16__FF16_Env__ode_state_valid <- function(obj_, y) {
     .Call('_plant_Patch___FF16__FF16_Env__ode_state_valid', PACKAGE = 'plant', obj_, y)
 }
 
+Patch___FF16__FF16_Env__state_tolerance_factors <- function(obj_, time) {
+    .Call('_plant_Patch___FF16__FF16_Env__state_tolerance_factors', PACKAGE = 'plant', obj_, time)
+}
+
 Patch___FF16__FF16_Env__introduce_new_node <- function(obj_, species_index, time) {
     invisible(.Call('_plant_Patch___FF16__FF16_Env__introduce_new_node', PACKAGE = 'plant', obj_, species_index, time))
 }
@@ -2315,6 +2319,10 @@ Patch___TF24__TF24_Env__ctor <- function(parameters, environment, control) {
 
 Patch___TF24__TF24_Env__ode_state_valid <- function(obj_, y) {
     .Call('_plant_Patch___TF24__TF24_Env__ode_state_valid', PACKAGE = 'plant', obj_, y)
+}
+
+Patch___TF24__TF24_Env__state_tolerance_factors <- function(obj_, time) {
+    .Call('_plant_Patch___TF24__TF24_Env__state_tolerance_factors', PACKAGE = 'plant', obj_, time)
 }
 
 Patch___TF24__TF24_Env__introduce_new_node <- function(obj_, species_index, time) {
@@ -2441,6 +2449,10 @@ Patch___TF24f__TF24_Env__ode_state_valid <- function(obj_, y) {
     .Call('_plant_Patch___TF24f__TF24_Env__ode_state_valid', PACKAGE = 'plant', obj_, y)
 }
 
+Patch___TF24f__TF24_Env__state_tolerance_factors <- function(obj_, time) {
+    .Call('_plant_Patch___TF24f__TF24_Env__state_tolerance_factors', PACKAGE = 'plant', obj_, time)
+}
+
 Patch___TF24f__TF24_Env__introduce_new_node <- function(obj_, species_index, time) {
     invisible(.Call('_plant_Patch___TF24f__TF24_Env__introduce_new_node', PACKAGE = 'plant', obj_, species_index, time))
 }
@@ -2563,6 +2575,10 @@ Patch___K93__K93_Env__ctor <- function(parameters, environment, control) {
 
 Patch___K93__K93_Env__ode_state_valid <- function(obj_, y) {
     .Call('_plant_Patch___K93__K93_Env__ode_state_valid', PACKAGE = 'plant', obj_, y)
+}
+
+Patch___K93__K93_Env__state_tolerance_factors <- function(obj_, time) {
+    .Call('_plant_Patch___K93__K93_Env__state_tolerance_factors', PACKAGE = 'plant', obj_, time)
 }
 
 Patch___K93__K93_Env__introduce_new_node <- function(obj_, species_index, time) {

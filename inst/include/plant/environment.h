@@ -62,6 +62,11 @@ public:
 
   template <typename It> It ode_rates(It it) const { return it; }
 
+  // Each state's tolerance factor, in the order ode_state writes them.
+  template <typename It> It state_tolerance_factors(const Control&, It it) const {
+    return it;
+  }
+
   template <typename It> It ode_aux(It it) const { return it; }
 
   template <typename It> It set_ode_aux(It it) { return it; }

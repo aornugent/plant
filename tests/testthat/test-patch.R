@@ -380,3 +380,38 @@ test_that("TF24 patch aux goes back the way it came", {
   expect_error(patch$set_ode_aux(aux[-1]), "Incorrect length input")
 })
 
+test_that("a patch sets each state's tolerance factor", {
+  ctrl <- Control(ode_tol_factor_soil = 10, ode_tol_factor_accumulator = 100,
+                  ode_tol_factor_times = c(0, 1, 2),
+                  ode_tol_factor_values = c(1, 3, 5))
+
+  s <- get_list_of_strategy_types()$TF24()
+  p <- Parameters("TF24", "TF24_Env")(strategies = list(s),
+                                      patch_type = "meta-population")
+  patch <- Patch("TF24", "TF24_Env")(p, Environment("TF24"), ctrl)
+  patch$introduce_new_node(1, 0)
+  patch$introduce_new_node(1, 0.5)
+
+  # The environment's states close the patch's: its soil layers, then its
+  # accumulators. A node's states take only the schedule's factor.
+  env <- patch$environment
+  n_soil <- env$get_soil_number_of_depths()
+  n_env <- env$ode_size
+  w <- c(rep(1, patch$ode_size - n_env), rep(10, n_soil),
+         rep(100, n_env - n_soil))
+  expect_identical(patch$state_tolerance_factors(0), w)
+  # The factor is the last one at or before the step's start.
+  expect_identical(patch$state_tolerance_factors(0.999), w)
+  expect_identical(patch$state_tolerance_factors(1), 3 * w)
+  expect_identical(patch$state_tolerance_factors(1.5), 3 * w)
+  expect_identical(patch$state_tolerance_factors(40), 5 * w)
+
+  # An environment holding no state leaves the soil and accumulator factors
+  # nothing to scale.
+  ff <- Patch("FF16", "FF16_Env")(
+    Parameters("FF16", "FF16_Env")(strategies = list(FF16_Strategy())),
+    Environment("FF16"), ctrl)
+  ff$introduce_new_node(1, 0)
+  expect_identical(ff$state_tolerance_factors(1.5), rep(3, ff$ode_size))
+})
+

@@ -215,6 +215,16 @@ public:
     return it;
   }
 
+  // The soil layers' factor, then the accumulators'.
+  template <typename It>
+  It state_tolerance_factors(const Control& control, It it) const {
+    for (size_t i = 0; i < vars.state_size(); i++) {
+      *it++ = i < n_resources() ? control.ode_tol_factor_soil
+                                : control.ode_tol_factor_accumulator;
+    }
+    return it;
+  }
+
   template <typename It> It ode_aux(It it) const {
     util::check_length(resource_uptake.size(), aux_size());
     for (size_t i = 0; i < aux_size(); i++) {

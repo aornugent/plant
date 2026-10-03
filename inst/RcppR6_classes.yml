@@ -387,6 +387,10 @@ Control:
     - ode_tol_abs: double
     - ode_a_y: double
     - ode_a_dydt: double
+    - ode_tol_factor_soil: double
+    - ode_tol_factor_accumulator: double
+    - ode_tol_factor_times: "std::vector<double>"
+    - ode_tol_factor_values: "std::vector<double>"
     - fixed_time_step: double
     - schedule_nsteps: size_t
     - schedule_eps: double
@@ -754,6 +758,12 @@ Patch:
     ode_state_valid:
       args: [y: "std::vector<double>"]
       return_type: bool
+    # The tolerance factor on each state that the adaptive stepper reads on
+    # a step starting at `time`. Exposed so a test can pin it directly.
+    state_tolerance_factors:
+      args: [time: double]
+      return_type: "std::vector<double>"
+      name_cpp: r_state_tolerance_factors
     introduce_new_node:
       return_type: void
       args: [species_index: "plant::util::index", time: double]

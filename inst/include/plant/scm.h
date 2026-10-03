@@ -547,6 +547,9 @@ private:
   // `history` once per step, and a log that grew with the run would be copied
   // with it every time.
   std::vector<EventRecord> event_log;
+  // The stepper reads the patch's factors only through this concept, so a
+  // signature that drifted from it would leave every run unscaled, silently.
+  static_assert(odelia::ode::ScalesStateTolerances<patch_type>);
   odelia::ode::Solver<patch_type> solver;
 };
 
