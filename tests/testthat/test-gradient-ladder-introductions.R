@@ -32,18 +32,18 @@ test_that("the fixture actually widens, in both stride directions", {
 })
 
 test_that("a reloaded state carries the boundary node the run carries", {
-  # A stage evaluates the inflow condition twice, in two different fields, and
-  # they are the same function at different arguments: the first is taken with
-  # every species' boundary node left out, the field is then rebuilt including
-  # it, and the second is taken in that rebuilt field. The newest interval's
-  # establishment rate and the water aggregation read the second.
+  # On the birth-date coordinate a stage computes the boundary node's rates once,
+  # in the whole field; the field build sets only its size and density. So a
+  # state load alone leaves the recruit carbon of the rates the patch computed
+  # last, and only a rate evaluation carries the run's. The newest interval's
+  # establishment rate and the water aggregation read that one.
   #
   # Every rebuild the sweep does -- the census seed, the census's direct term, the
   # replay of an introduction, and the introduction's own transpose -- starts from
-  # a recorded state, and a state load alone stops at the first evaluation. A sweep
-  # that stops there linearises a boundary node the trajectory never carried, and
-  # the only thing standing between that and a plausible wrong gradient is this
-  # check: nothing about either number says which one a caller is holding.
+  # a recorded state, and a state load alone does not compute the boundary node's
+  # rates. A sweep that stops there linearises a boundary node the trajectory
+  # never carried, and nothing about the number says which one a caller is
+  # holding.
   p <- ladder_parameters(c("fast", "slow"))
   p$node_schedule_times <- list(c(0, 0.29, 0.94), c(0, 0.57))
   stand <- ladder_run(p)
@@ -51,16 +51,25 @@ test_that("a reloaded state carries the boundary node the run carries", {
   # What the run left behind is what the run's last rates read.
   left <- ladder_boundary_carbon(stand)
   patch <- ladder_as_patch(stand)
-  both <- ladder_boundary_evaluations(patch, patch$ode_state, patch$ode_time)
+  state <- patch$ode_state
+  time <- patch$ode_time
 
-  # Non-vacuity, and it is what the check rests on: if the two evaluations agreed
-  # there would be no convention to get wrong and this check would pass on a
-  # model that does not have the hazard.
-  gap <- max(abs(both$in_uptake - both$in_field) / abs(both$in_field))
-  message(sprintf("\n  the two evaluations differ by %.3e relative", gap))
+  # Rates at an earlier state of the same width first, so the patch holds another
+  # stage's recruit carbon when the last state is loaded.
+  rows <- Filter(function(r) length(r$state) == length(state) && r$time < time,
+                 stand$store_trajectory())
+  earlier <- rows[[length(rows)]]
+  patch$set_ode_state(earlier$state, earlier$time)
+  invisible(patch$ode_rates)
+  both <- ladder_boundary_evaluations(patch, state, time)
+
+  # Non-vacuity, and it is what the check rests on: if the load left the last
+  # state's carbon behind there would be no convention to get wrong.
+  gap <- max(abs(both$in_uptake - both$in_field) / abs(both$in_uptake))
+  message(sprintf("\n  the load and the rates differ by %.3e relative", gap))
   expect_gt(gap, 1e-6)
 
-  # And the run carries the second, exactly. Tolerance is zero: this is a property
+  # And the rates carry the run's, exactly. Tolerance is zero: this is a property
   # the implementation either has or does not.
   expect_identical(both$in_uptake, left)
   expect_false(isTRUE(all.equal(both$in_field, left, tolerance = 1e-12)))

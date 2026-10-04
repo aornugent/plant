@@ -687,15 +687,14 @@ ladder_boundary_carbon <- function(x) {
   }, numeric(1))
 }
 
-# The inflow condition at each of its two evaluations, from one recorded state.
+# The inflow condition as a state load leaves it and as a rate evaluation leaves
+# it, from one recorded state.
 #
-# A stage evaluates it twice. `in_field` is the one a state load produces, taken
-# in the field with every species' boundary node left out -- the field is then
-# rebuilt including it. `in_uptake` is the one a rate evaluation produces, taken
-# in that rebuilt field; it is the value the newest interval's establishment rate
-# and the water aggregation read.
-#
-# They are the same function at different arguments, so nothing about either number
+# On the birth-date coordinate the field build sets the boundary node's size and
+# density without computing its rates, so `in_field` is the recruit carbon of the
+# rates the patch computed last. `in_uptake` is the one a rate evaluation
+# produces, taken in the whole field; it is the value the newest interval's
+# establishment rate and the water aggregation read. Nothing about either number
 # says which one a caller is holding.
 ladder_boundary_evaluations <- function(patch, state, time) {
   patch$set_ode_state(state, time)
