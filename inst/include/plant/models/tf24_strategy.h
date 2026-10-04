@@ -753,7 +753,10 @@ public:
   // relaxation time, and zero is v11. Offspring production moves +2.0% on the
   // 40-year long-drought stand, -3% to -5% on the five-year birth-date stands and
   // -24% on the height ones.
-  static constexpr int scientific_version = 12;
+  // v13: the leaf's root-finds and the newborn's height stop at roundoff, so a
+  // replay at a nearby trait moves smoothly. Offspring production moves by
+  // -1.5e-6 relative on the 40-year long-drought stand.
+  static constexpr int scientific_version = 13;
 
   S compute_average_light_environment(const S& z, const S& height,
                                       const TF24_Environment<S> &environment);
@@ -2748,7 +2751,6 @@ double TF24_Strategy<S>::height_seed(void) const {
     h0 = height_given_mass_leaf(std::numeric_limits<double>::min()),
     h1 = height_given_mass_leaf(pars.omega);
 
-  const double tol = this->control.offspring_production_tol;
   const size_t max_iterations = this->control.offspring_production_iterations;
 
   auto target = [&] (double x) mutable -> S {
@@ -2756,7 +2758,9 @@ double TF24_Strategy<S>::height_seed(void) const {
   };
 
   if constexpr (std::is_same_v<S, double>) {
-    return util::uniroot(target, h0, h1, tol, max_iterations);
+    // To roundoff, as the leaf's root-finds are: every node starts at this
+    // height, so a tolerance would step offspring production as a trait moves.
+    return phylloptim::util::uniroot(target, h0, h1, max_iterations);
   } else {
     // Bisection is affine in its bracket and blind to the residual's values, so
     // recording the search would return d(h1)/d(trait) rather than the height at
