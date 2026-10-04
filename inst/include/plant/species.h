@@ -114,12 +114,15 @@ public:
   close_competition_and_slope(const competition_split& c,
                               const value_type& height) const;
 
-  // Evaluate the inflow boundary condition in the environment passed. Split out
-  // of compute_rates() so the field build owns it and the field stops reading a
-  // density carried from the previous evaluation.
+  // The inflow boundary condition the field build reads; on the birth-date
+  // coordinate, only the newborn's initial state and density.
   void compute_boundary_node(const environment_type& environment,
                              double pr_patch_survival, double birth_rate) {
-    new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+    if (density_in_birth_date()) {
+      new_node.set_initial_state_and_density(environment, birth_rate);
+    } else {
+      new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+    }
   }
 
   // The metric integrated over this species' size distribution: n_k psi(state_k)
@@ -810,11 +813,8 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   for (auto& c : nodes) {
     c.compute_rates(environment, pr_patch_survival);
   }
-  // The boundary condition, evaluated in the field the nodes above were just
-  // rated in. This is not the evaluation the field itself reads -- that one is in
-  // a field excluding the boundary interval, and Patch::compute_environment owns
-  // it -- so the two are the same function at different arguments rather than one
-  // computed twice. This value is the one an introduced node inherits.
+  // The boundary condition in the whole field, which an introduced node inherits;
+  // on the height coordinate the field build takes another, without its interval.
   new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
   if (density_in_birth_date() && size() > 0) {
     nodes.back().set_interval_establishment_rate(
