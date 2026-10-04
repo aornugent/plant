@@ -106,6 +106,14 @@ public:
     return offspring_produced_survival_weighted * patch_density_at_birth * S_D;
   }
 
+  // The boundary node as the field reads it on the birth-date coordinate: its
+  // initial state, which sets its leaf area, and its density, the birth rate now
+  // before any mortality. It is not rated.
+  void seat_birth_state(const environment_type& environment, double birth_rate) {
+    individual.set_initial_states(environment);
+    set_birth_density(birth_rate);
+  }
+
   // Unfortunate, but need a get_ here because of name shadowing...
   value_type get_log_density() const {return log_density;}
   // exp(log_density); can overflow to +Inf when the SCM density equation runs
@@ -186,6 +194,11 @@ private:
   // node's birth date times its survival.
   void set_birth_date_density() {
     set_log_density(log_birth_rate - individual.state(MORTALITY_INDEX));
+  }
+  void set_birth_density(double birth_rate) {
+    log_birth_rate = log(birth_rate);
+    individual.set_state("mortality", value_type(0.0));
+    set_birth_date_density();
   }
 
   value_type log_density;
@@ -277,7 +290,6 @@ template <typename T, typename E>
 void Node<T,E>::compute_initial_conditions(const environment_type& environment,
                                              double pr_patch_survival, double birth_rate) {
   pr_patch_survival_at_birth = pr_patch_survival;
-  log_birth_rate = log(birth_rate);
   // Seed strategy-specific initial states (e.g. TF24f's tracked psi at its
   // optimum) before the first rates evaluation, so the birth growth rate uses
   // the initialised operating point rather than a default.
@@ -304,8 +316,7 @@ void Node<T,E>::compute_initial_conditions(const environment_type& environment,
   // A double diagnostic read back over the R boundary, so it takes the value.
   birth_growth_rate = odelia::util::to_passive(g);
   if (individual.control().node_density_in_birth_date) {
-    individual.set_state("mortality", value_type(0.0));
-    set_birth_date_density();
+    set_birth_density(birth_rate);
   } else {
     const value_type pr_estab =
       individual.establishment_probability_of_newborn(environment);

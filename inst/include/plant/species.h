@@ -116,10 +116,16 @@ public:
 
   // Evaluate the inflow boundary condition in the environment passed. Split out
   // of compute_rates() so the field build owns it and the field stops reading a
-  // density carried from the previous evaluation.
+  // density carried from the previous evaluation. On the birth-date coordinate
+  // the field reads the newborn's size and the birth rate, so it is not rated
+  // here; compute_rates() rates it in the whole field.
   void compute_boundary_node(const environment_type& environment,
                              double pr_patch_survival, double birth_rate) {
-    new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+    if (density_in_birth_date()) {
+      new_node.seat_birth_state(environment, birth_rate);
+    } else {
+      new_node.compute_initial_conditions(environment, pr_patch_survival, birth_rate);
+    }
   }
 
   // The metric integrated over this species' size distribution: n_k psi(state_k)
