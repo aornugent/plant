@@ -35,4 +35,8 @@ the flux accumulators, and on every state, for a step starting at time
 sorted. \code{ode_weight_max} bounds each state's weight once the factor
 multiplies it. The weights default to 1, the schedule to empty and the bound
 to \code{Inf}, which leaves every step as it was.
+
+\code{ode_split_sign_changes} integrates each TF24 node in pieces between the
+sign changes of its net production inside a step, in the field the step's
+dense output builds. It is off by default, which leaves every run as it was.
 }

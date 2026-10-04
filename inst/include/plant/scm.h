@@ -219,6 +219,18 @@ public:
     }
   }
 
+  // The sweep and the tangent walks take each recorded step unsplit, so they
+  // differentiate a map a run that split a node did not take.
+  void require_unsplit(const char* entry) const {
+    if (solver.parts_split() > 0) {
+      util::stop(std::string(entry) + ": this run split " +
+                 util::to_string(static_cast<int>(solver.parts_split())) +
+                 " node steps at sign changes of net production, which no "
+                 "gradient here differentiates yet. Set "
+                 "control$ode_split_sign_changes = FALSE and re-run.");
+    }
+  }
+
   // d(census)/d(ODE state) and d(census)/d(trait) at the current time, one row
   // per metric each, from one recording. The state half is what the reverse pass
   // is seeded with; the trait half is what no sweep produces, because a metric
@@ -485,6 +497,8 @@ public:
   // accepted + accepted_at_minimum is the number of steps r_ode_times() holds;
   // the three rejections are the attempts that were thrown away.
   Rcpp::IntegerVector r_ode_step_attempts() const;
+  // Node steps the last run split at a sign change of net production.
+  size_t r_ode_splits() const { return solver.parts_split(); }
 
   // The trajectory as a list of records, each a time, the step size that reached it,
   // and the state there.
@@ -1215,6 +1229,7 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_stops,
   // record_trajectory kept them the first time, and either way it may run, so the
   // seeds below are taken after it.
   store_trajectory();
+  require_unsplit("census_trait_gradient");
 
   patch_type& live = solver.get_system_ref();
 
@@ -1331,6 +1346,7 @@ SCM<T, E>::census_trait_tangent(const std::vector<double>& direction,
   require_birth_date_coordinate("census_trait_tangent");
 
   const trajectory rec = store_trajectory();
+  require_unsplit("census_trait_tangent");
   patch_type& live = solver.get_system_ref();
   odelia::ode::be_at_step(live, rec, 0);
   auto active = live.template rebind_from<tangent>();
@@ -1430,6 +1446,8 @@ SCM<T, E>::census_initial_state_tangent(const std::vector<double>& direction,
                                         std::vector<double>& value,
                                         size_t range) {
   require_birth_date_coordinate("census_initial_state_tangent");
+  store_trajectory();
+  require_unsplit("census_initial_state_tangent");
 
   const std::vector<tangent> reached =
     replay_initial_state<tangent>(range,

@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <concepts>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -56,6 +57,12 @@ struct recorded_field {
   // what a competitor competes for.
   std::vector<double> state;
   double time = 0.0;
+};
+
+// A strategy whose rates change form where one of its auxiliaries changes sign.
+template <typename T>
+concept NamesSignValue = requires(const T& s) {
+  { s.sign_value_aux() } -> std::same_as<int>;
 };
 
 // One rate evaluation's record: what each species solved for, the field it was
@@ -273,6 +280,14 @@ public:
     return w;
   }
 
+  // Each node is a part the stepper splits where its sign value changes sign
+  // (Control's ode_split_sign_changes), in the order ode_state writes them.
+  void sign_values(std::vector<double>& out) const requires NamesSignValue<T>;
+  size_t part_width() const requires NamesSignValue<T>;
+  // One node's rates and sign value in the field the state `y` builds.
+  double part_rates(size_t part, const std::vector<double>& y, double time,
+                    std::vector<double>& rates) requires NamesSignValue<T>;
+
   // Returns state in structure format as opposed to single 
   // vector as given by ode_state
   Rcpp::List r_get_state() const;
@@ -403,6 +418,9 @@ private:
 
   // Set where a run begins, read by compute_environment().
   bool keep_field = false;
+  // Whether the last evaluation read a recorded field. Its nodes are not split:
+  // a part's stages fall where no field was recorded.
+  bool field_recorded = false;
   // The slot the rate evaluation now running stores into or loads from.
   solved_values* storing = nullptr;
   const solved_values* loading = nullptr;
@@ -983,6 +1001,7 @@ void Patch<T,E>::compute_environment() {
   const recorded_field* field =
       storing != nullptr ? storing->field.get()
       : loading != nullptr ? loading->field.get() : nullptr;
+  field_recorded = field != nullptr;
   if (field != nullptr) {
     if (!util::identical(field->time, environment.time)) {
       std::ostringstream m;
@@ -1643,6 +1662,52 @@ bool Patch<T,E>::ode_state_valid(const std::vector<double>& y) const {
     }
   }
   return true;
+}
+
+template <typename T, typename E>
+void Patch<T,E>::sign_values(std::vector<double>& out) const
+  requires NamesSignValue<T> {
+  out.clear();
+  if (!control.ode_split_sign_changes || field_recorded) {
+    return;
+  }
+  for (const species_type& s : species) {
+    const int at = s.strategy_ptr()->sign_value_aux();
+    for (auto n = s.node_begin(); n != s.node_end(); ++n) {
+      out.push_back(n->individual.aux(at));
+    }
+  }
+}
+
+template <typename T, typename E>
+size_t Patch<T,E>::part_width() const requires NamesSignValue<T> {
+  for (const species_type& s : species) {
+    if (s.size() > 0) {
+      return s.node_begin()->ode_size();
+    }
+  }
+  return 0;
+}
+
+template <typename T, typename E>
+double Patch<T,E>::part_rates(size_t part, const std::vector<double>& y,
+                              double time, std::vector<double>& rates)
+  requires NamesSignValue<T> {
+  util::check_length(y.size(), ode_size());
+  set_ode_state(y.begin(), time);
+  for (species_type& s : species) {
+    if (part >= s.size()) {
+      part -= s.size();
+      continue;
+    }
+    s.compute_node_rates(part, environment, survival_weighting->pr_survival(time),
+                         s.extrinsic_drivers().evaluate("birth_rate", time));
+    const auto node = s.node_begin() + static_cast<std::ptrdiff_t>(part);
+    util::check_length(rates.size(), node->ode_size());
+    node->ode_rates(rates.begin());
+    return node->individual.aux(s.strategy_ptr()->sign_value_aux());
+  }
+  util::stop("part_rates: the patch holds fewer nodes than the part named");
 }
 
 template <typename T, typename E>

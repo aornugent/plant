@@ -14,6 +14,10 @@
 ##' multiplies it. The weights default to 1, the schedule to empty and the bound
 ##' to \code{Inf}, which leaves every step as it was.
 ##'
+##' \code{ode_split_sign_changes} integrates each TF24 node in pieces between the
+##' sign changes of its net production inside a step, in the field the step's
+##' dense output builds. It is off by default, which leaves every run as it was.
+##'
 ##' @title Control presets
 ##' @param ... Named control fields, passed to \code{Control()}.
 ##' @param base An optional \code{Control} object to tighten; defaults are used

@@ -161,6 +161,10 @@ public:
     return base_type::set_ode_state(it);
   }
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
+  // Node j's rates as compute_rates() leaves them, the others unrated. The newest
+  // node's interval rate reads the boundary node, so that is rated with it.
+  void compute_node_rates(size_t j, const environment_type& environment,
+                          double pr_patch_survival, double birth_rate);
 
   std::vector<double> net_reproduction_ratio_by_node() const;
   // Per-node lifetime offspring, weighted by patch-age density and S_D.
@@ -280,6 +284,11 @@ public:
   strategy_type_ptr strategy_ptr() const {return this->strategy;}
 
 private:
+  // The boundary node in the field the nodes were rated in, and the newest
+  // node's interval rate it sets.
+  void compute_boundary_rates(const environment_type& environment,
+                              double pr_patch_survival, double birth_rate);
+
   // Visit each node with its establishment weight: its shares of the intervals
   // either side of its birth date. The boundary node's is boundary_weight().
   template <typename F>
@@ -810,6 +819,22 @@ void Species<T,E>::compute_rates(const E& environment, double pr_patch_survival,
   for (auto& c : nodes) {
     c.compute_rates(environment, pr_patch_survival);
   }
+  compute_boundary_rates(environment, pr_patch_survival, birth_rate);
+}
+
+template <typename T, typename E>
+void Species<T,E>::compute_node_rates(size_t j, const E& environment,
+                                      double pr_patch_survival, double birth_rate) {
+  nodes.at(j).compute_rates(environment, pr_patch_survival);
+  if (j + 1 == size()) {
+    compute_boundary_rates(environment, pr_patch_survival, birth_rate);
+  }
+}
+
+template <typename T, typename E>
+void Species<T,E>::compute_boundary_rates(const E& environment,
+                                          double pr_patch_survival,
+                                          double birth_rate) {
   // The boundary condition, evaluated in the field the nodes above were just
   // rated in. This is not the evaluation the field itself reads -- that one is in
   // a field excluding the boundary interval, and Patch::compute_environment owns
