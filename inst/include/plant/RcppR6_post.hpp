@@ -440,6 +440,7 @@ template <> inline SEXP wrap(const plant::Control& x) {
   ret["ode_weight_times"] = Rcpp::wrap(x.ode_weight_times);
   ret["ode_weight_factors"] = Rcpp::wrap(x.ode_weight_factors);
   ret["ode_weight_max"] = Rcpp::wrap(x.ode_weight_max);
+  ret["ode_split_sign_changes"] = Rcpp::wrap(x.ode_split_sign_changes);
   ret["fixed_time_step"] = Rcpp::wrap(x.fixed_time_step);
   ret["schedule_nsteps"] = Rcpp::wrap(x.schedule_nsteps);
   ret["schedule_eps"] = Rcpp::wrap(x.schedule_eps);
@@ -507,6 +508,8 @@ template <> inline plant::Control as(SEXP x) {
   ret.ode_weight_factors = Rcpp::as<std::vector<double> >(xl["ode_weight_factors"]);
   // ret.ode_weight_max = Rcpp::as<decltype(retode_weight_max) >(xl["ode_weight_max"]);
   ret.ode_weight_max = Rcpp::as<double >(xl["ode_weight_max"]);
+  // ret.ode_split_sign_changes = Rcpp::as<decltype(retode_split_sign_changes) >(xl["ode_split_sign_changes"]);
+  ret.ode_split_sign_changes = Rcpp::as<bool >(xl["ode_split_sign_changes"]);
   // ret.fixed_time_step = Rcpp::as<decltype(retfixed_time_step) >(xl["fixed_time_step"]);
   ret.fixed_time_step = Rcpp::as<double >(xl["fixed_time_step"]);
   // ret.schedule_nsteps = Rcpp::as<decltype(retschedule_nsteps) >(xl["schedule_nsteps"]);

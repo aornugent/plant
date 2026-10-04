@@ -825,6 +825,10 @@ public:
   // and the solver rejects it and retries smaller.
   static std::vector<std::string> non_negative_states() { return {"storage"}; }
 
+  // The auxiliary at whose sign change the rates change form: net production,
+  // which the storage pool reads through its smooth positive part.
+  int sign_value_aux() const { return aux_idx_net_mass_production_dt; }
+
   std::vector<std::string> aux_names() {
     std::vector<std::string> ret({
       "competition_effect",

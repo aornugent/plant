@@ -21,6 +21,7 @@ test_that("Defaults", {
     ode_weight_times = numeric(0),
     ode_weight_factors = numeric(0),
     ode_weight_max = Inf,
+    ode_split_sign_changes = FALSE,
     fixed_time_step = 0.0,
 
     function_integration_rule = 21, # size_t so not int
