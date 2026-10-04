@@ -222,9 +222,9 @@ public:
   // The sweep and the tangent walks take each recorded step unsplit, so they
   // differentiate a map a run that split a node did not take.
   void require_unsplit(const char* entry) const {
-    if (solver.parts_split() > 0) {
+    if (solver.splits().total() > 0) {
       util::stop(std::string(entry) + ": this run split " +
-                 util::to_string(static_cast<int>(solver.parts_split())) +
+                 util::to_string(static_cast<int>(solver.splits().total())) +
                  " node steps at sign changes of net production, which no "
                  "gradient here differentiates yet. Set "
                  "control$ode_split_sign_changes = FALSE and re-run.");
@@ -498,7 +498,20 @@ public:
   // the three rejections are the attempts that were thrown away.
   Rcpp::IntegerVector r_ode_step_attempts() const;
   // Node steps the last run split at a sign change of net production.
-  size_t r_ode_splits() const { return solver.parts_split(); }
+  size_t r_ode_splits() const { return solver.splits().total(); }
+  // By node in ode_state's order: the steps the last run split and the steps
+  // searched beside a reading near zero; then the slowest crossing at a cut.
+  Rcpp::List r_ode_split_record() const {
+    const odelia::ode::split_record& r = solver.splits();
+    return Rcpp::List::create(
+      Rcpp::_["split"] = Rcpp::IntegerVector(r.split.begin(), r.split.end()),
+      Rcpp::_["searched"] = Rcpp::IntegerVector(r.searched.begin(), r.searched.end()),
+      Rcpp::_["least_rate"] = r.least_rate,
+      Rcpp::_["least_rate_time"] = r.least_rate_time,
+      Rcpp::_["least_rate_node"] = std::isfinite(r.least_rate)
+                                       ? static_cast<int>(r.least_rate_part) + 1
+                                       : NA_INTEGER);
+  }
 
   // The trajectory as a list of records, each a time, the step size that reached it,
   // and the state there.

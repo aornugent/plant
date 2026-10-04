@@ -920,6 +920,11 @@ SCM:
       type: size_t
       access: member
       name_cpp: r_ode_splits
+    # The same by node, the steps searched near zero, and the slowest crossing.
+    ode_split_record:
+      type: "Rcpp::List"
+      access: member
+      name_cpp: r_ode_split_record
     # Collection toggles (bound directly to the public members)
     collect: {type: bool, access: field}
     collect_refinement_errors: {type: bool, access: field}

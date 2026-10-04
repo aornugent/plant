@@ -3175,6 +3175,11 @@ size_t SCM___FF16__FF16_Env__ode_splits__get(plant::RcppR6::RcppR6<plant::SCM<pl
 }
 
 // [[Rcpp::export]]
+Rcpp::List SCM___FF16__FF16_Env__ode_split_record__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->r_ode_split_record();
+}
+
+// [[Rcpp::export]]
 bool SCM___FF16__FF16_Env__collect__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   return obj_->collect;
 }
@@ -3320,6 +3325,11 @@ Rcpp::IntegerVector SCM___TF24__TF24_Env__ode_step_attempts__get(plant::RcppR6::
 // [[Rcpp::export]]
 size_t SCM___TF24__TF24_Env__ode_splits__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   return obj_->r_ode_splits();
+}
+
+// [[Rcpp::export]]
+Rcpp::List SCM___TF24__TF24_Env__ode_split_record__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->r_ode_split_record();
 }
 
 // [[Rcpp::export]]
@@ -3471,6 +3481,11 @@ size_t SCM___TF24f__TF24_Env__ode_splits__get(plant::RcppR6::RcppR6<plant::SCM<p
 }
 
 // [[Rcpp::export]]
+Rcpp::List SCM___TF24f__TF24_Env__ode_split_record__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->r_ode_split_record();
+}
+
+// [[Rcpp::export]]
 bool SCM___TF24f__TF24_Env__collect__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   return obj_->collect;
 }
@@ -3616,6 +3631,11 @@ Rcpp::IntegerVector SCM___K93__K93_Env__ode_step_attempts__get(plant::RcppR6::Rc
 // [[Rcpp::export]]
 size_t SCM___K93__K93_Env__ode_splits__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
   return obj_->r_ode_splits();
+}
+
+// [[Rcpp::export]]
+Rcpp::List SCM___K93__K93_Env__ode_split_record__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->r_ode_split_record();
 }
 
 // [[Rcpp::export]]

@@ -495,6 +495,18 @@ test_that("A run splits its nodes at sign changes of net production only when as
   expect_gt(split$ode_splits, 0)
   expect_false(identical(split$patch$ode_state, base$patch$ode_state))
 
+  ## The record says which nodes were split and searched, one count per node,
+  ## and where net production crossed zero most slowly.
+  record <- split$ode_split_record
+  expect_length(record$split, length(split$patch$species[[1]]$node_times))
+  expect_equal(sum(record$split), split$ode_splits)
+  expect_true(all(record$searched >= 0))
+  expect_true(is.finite(record$least_rate) && record$least_rate > 0)
+  expect_true(record$least_rate_time > 0 && record$least_rate_time <= 1)
+  expect_gt(record$split[record$least_rate_node], 0)
+  expect_length(base$ode_split_record$split, 0)
+  expect_true(is.na(base$ode_split_record$least_rate_node))
+
   ## A pinned replay of the split run's own steps splits them again, bit for bit.
   scm <- SCM("TF24", "TF24_Env")(p, env(), empty_events(),
                                  ctrl(ode_split_sign_changes = TRUE))
@@ -504,7 +516,7 @@ test_that("A run splits its nodes at sign changes of net production only when as
   scm$node_schedule <- sched
   scm$run()
   expect_identical(scm$patch$ode_state, split$patch$ode_state)
-  expect_identical(scm$ode_splits, split$ode_splits)
+  expect_identical(scm$ode_split_record, split$ode_split_record)
 
   ## The sweep takes each recorded step unsplit, so it refuses a run that split.
   expect_error(census_trait_gradient_tf24(split, character(0)),
