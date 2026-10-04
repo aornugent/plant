@@ -437,7 +437,7 @@ test_that("A run's steps answer to the tolerance factors, and at their defaults 
   ## The default is the run as it was before the factors: these are its steps.
   base <- run()
   expect_equal(length(base$ode_times), 122)
-  expect_equal(base$ode_times[c(10, 100)], c(7e-05, 0.60634553781117784),
+  expect_equal(base$ode_times[c(10, 100)], c(7e-05, 0.60634554382398187),
                tolerance = 1e-12)
   ## Factors of one, and a schedule of one factor of one, are the default
   ## exactly.

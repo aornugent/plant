@@ -13,6 +13,16 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **TF24's leaf solve and its newborn's height stop at roundoff.** Migration:
+  none for the interface; TF24 results change. phylloptim's root-finds stop once
+  a bracket's ends agree to a few units in the last place, and TF24's newborn
+  height is found the same way rather than to `offspring_production_tol`, which
+  FF16 still reads. A replay at a trait 1e-12 away then moves offspring
+  production smoothly: on the 40-year long-drought stand (108 nodes, birth date,
+  `ode_tol` = 1e-4, a pinned program) the noise in its log falls from 2.7e-8 to
+  about 1e-14 rms, and offspring production moves 12.66916221 -> 12.66914306.
+  TF24 is v13 and TF24f v13.1.
+
 * **A TF24 stage below an empty storage pool no longer refuses the step.**
   Migration: none for the interface; TF24 results change wherever a stage went
   below empty. The stage check and `storage_domain_tol` are gone, and a step whose
