@@ -284,9 +284,11 @@ public:
   // (Control's ode_split_sign_changes), in the order ode_state writes them.
   void sign_values(std::vector<double>& out) const requires NamesSignValue<T>;
   size_t part_width() const requires NamesSignValue<T>;
-  // One node's rates and sign value in the field the state `y` builds.
-  double part_rates(size_t part, const std::vector<double>& y, double time,
-                    std::vector<double>& rates) requires NamesSignValue<T>;
+  // One node's rates and sign value in the field the state `y` builds, at the
+  // patch's own scalar: the sweep tapes a split's pieces with it.
+  value_type part_rates(size_t part, const std::vector<value_type>& y,
+                        double time, std::vector<value_type>& rates)
+    requires NamesSignValue<T>;
 
   // Returns state in structure format as opposed to single 
   // vector as given by ode_state
@@ -1690,10 +1692,19 @@ size_t Patch<T,E>::part_width() const requires NamesSignValue<T> {
 }
 
 template <typename T, typename E>
-double Patch<T,E>::part_rates(size_t part, const std::vector<double>& y,
-                              double time, std::vector<double>& rates)
+typename Patch<T,E>::value_type
+Patch<T,E>::part_rates(size_t part, const std::vector<value_type>& y,
+                       double time, std::vector<value_type>& rates)
   requires NamesSignValue<T> {
   util::check_length(y.size(), ode_size());
+  // An invasion walks the steps' fields, never a piece's, so none is kept here,
+  // and the setting comes back however the rating leaves.
+  struct restore {
+    bool& flag;
+    bool was;
+    ~restore() { flag = was; }
+  } const held{keep_field, keep_field};
+  keep_field = false;
   set_ode_state(y.begin(), time);
   for (species_type& s : species) {
     if (part >= s.size()) {

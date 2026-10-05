@@ -219,14 +219,14 @@ public:
     }
   }
 
-  // The sweep and the tangent walks take each recorded step unsplit, so they
-  // differentiate a map a run that split a node did not take.
+  // The tangent walks take each recorded step unsplit, so they differentiate a
+  // map a run that split a node did not take.
   void require_unsplit(const char* entry) const {
     if (solver.splits().total() > 0) {
       util::stop(std::string(entry) + ": this run split " +
                  util::to_string(static_cast<int>(solver.splits().total())) +
-                 " node steps at sign changes of net production, which no "
-                 "gradient here differentiates yet. Set "
+                 " node steps at sign changes of net production, which the "
+                 "tangent walks do not differentiate yet. Set "
                  "control$ode_split_sign_changes = FALSE and re-run.");
     }
   }
@@ -1242,7 +1242,6 @@ SCM<T, E>::census_trait_gradient(const std::vector<size_t>& extra_stops,
   // record_trajectory kept them the first time, and either way it may run, so the
   // seeds below are taken after it.
   store_trajectory();
-  require_unsplit("census_trait_gradient");
 
   patch_type& live = solver.get_system_ref();
 

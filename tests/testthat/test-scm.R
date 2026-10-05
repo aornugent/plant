@@ -518,9 +518,10 @@ test_that("A run splits its nodes at sign changes of net production only when as
   expect_identical(scm$patch$ode_state, split$patch$ode_state)
   expect_identical(scm$ode_split_record, split$ode_split_record)
 
-  ## The sweep takes each recorded step unsplit, so it refuses a run that split.
-  expect_error(census_trait_gradient_tf24(split, character(0)),
-               "sign changes of net production")
+  ## The tangent walks take each recorded step unsplit, and refuse.
+  traits <- census_trait_names_tf24(split)
+  expect_error(ladder_trajectory_tangent_tf24(split, replace(numeric(length(traits)), 1, 1)),
+               "tangent walks do not differentiate")
 
   ## An invader is evaluated in the fields the resident recorded, and a split's
   ## stages fall where none was recorded, so its walk stays unsplit. The
@@ -529,6 +530,55 @@ test_that("A run splits its nodes at sign changes of net production only when as
   split$run_mutant(p)
   expect_equal(split$ode_splits, 0)
   expect_equal(split$net_reproduction_ratios, resident, tolerance = 1e-3)
+})
+
+test_that("The sweep through a split run is the derivative of its map", {
+  ## Rain in season takes the nodes' net production below zero and back through
+  ## the soil within three years. The sweep tapes each split node's pieces at the
+  ## run's own ratings, each cut moving as the root of net production on the dense
+  ## output moves. It holds the pieces' stage times, which costs nothing here: the
+  ## light is constant and patch survival off. Central differences of the pinned
+  ## replay in lma alone agree.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 3
+  p0$patch_type <- "fixed"
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  env <- function() {
+    e <- Environment("TF24")
+    t <- seq(0, 3, length.out = 601)
+    e$extrinsic_drivers_set_variable("rainfall", t,
+                                     0.25 * (1 + 0.95 * sin(2 * pi * t)))
+    e
+  }
+  ctrl <- function() {
+    Control(node_density_in_birth_date = TRUE, ode_split_sign_changes = TRUE)
+  }
+  split <- run_scm(p, env(), ctrl(), record_trajectory = TRUE)
+  expect_gt(split$ode_splits, 0)
+
+  replay <- function(lma) {
+    q <- p
+    s <- q$strategies[[1]]
+    pars <- s$pars
+    pars$lma <- lma
+    s$pars <- pars
+    q$strategies[[1]] <- s
+    scm <- SCM("TF24", "TF24_Env")(q, env(), empty_events(), ctrl())
+    sched <- scm$node_schedule
+    sched$all_times <- split$node_schedule$all_times
+    sched$set_ode_steps(split$ode_times, split$ode_step_sizes)
+    scm$node_schedule <- sched
+    scm$run()
+    sum(scm$offspring_production)
+  }
+  lma <- p$strategies[[1]]$pars$lma
+  d <- 1e-6 * lma
+  differenced <- (replay(lma + d) - replay(lma - d)) / (2 * d)
+  traits <- census_trait_names_tf24(split)
+  swept <- census_trait_gradient_tf24(split, "offspring_production")
+  ## A ratio, since both are near 1e-10, where a tolerance is read absolutely.
+  expect_equal(swept$gradient[[1]][match("1.lma", traits)] / differenced, 1,
+               tolerance = 1e-6)
 })
 
 test_that("store_trajectory records one state per instruction", {
