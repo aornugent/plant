@@ -284,10 +284,15 @@ public:
   // (Control's ode_split_sign_changes), in the order ode_state writes them.
   void sign_values(std::vector<double>& out) const requires NamesSignValue<T>;
   size_t part_width() const requires NamesSignValue<T>;
-  // One node's rates and sign value in the field the state `y` builds, at the
-  // patch's own scalar: the sweep tapes a split's pieces with it.
-  value_type part_rates(size_t part, const std::vector<value_type>& y,
-                        double time, std::vector<value_type>& rates)
+  // What a node's rates read of the rest of the patch at the state `y`: the
+  // light field's knot data, then the environment's own state.
+  void part_reads(const std::vector<value_type>& y, double time,
+                  std::vector<value_type>& out) requires NamesSignValue<T>;
+  // One node's rates and sign value from its own components and what part_reads
+  // wrote, at the patch's own scalar: the sweep tapes a split's pieces with it.
+  value_type part_rates(size_t part, const std::vector<value_type>& own,
+                        const std::vector<value_type>& reads, double time,
+                        std::vector<value_type>& rates)
     requires NamesSignValue<T>;
 
   // Returns state in structure format as opposed to single 
@@ -1692,13 +1697,12 @@ size_t Patch<T,E>::part_width() const requires NamesSignValue<T> {
 }
 
 template <typename T, typename E>
-typename Patch<T,E>::value_type
-Patch<T,E>::part_rates(size_t part, const std::vector<value_type>& y,
-                       double time, std::vector<value_type>& rates)
+void Patch<T,E>::part_reads(const std::vector<value_type>& y, double time,
+                            std::vector<value_type>& out)
   requires NamesSignValue<T> {
   util::check_length(y.size(), ode_size());
-  // An invasion walks the steps' fields, never a piece's, so none is kept here,
-  // and the setting comes back however the rating leaves.
+  // An invasion walks the steps' fields, never one built here, so none is kept,
+  // and the setting comes back however the build leaves.
   struct restore {
     bool& flag;
     bool was;
@@ -1706,14 +1710,36 @@ Patch<T,E>::part_rates(size_t part, const std::vector<value_type>& y,
   } const held{keep_field, keep_field};
   keep_field = false;
   set_ode_state(y.begin(), time);
+  out.resize(environment.light_availability.knot_data_size() +
+             environment.ode_size());
+  environment.ode_state(environment.light_availability.knot_data(out.begin()));
+}
+
+template <typename T, typename E>
+typename Patch<T,E>::value_type
+Patch<T,E>::part_rates(size_t part, const std::vector<value_type>& own,
+                       const std::vector<value_type>& reads, double time,
+                       std::vector<value_type>& rates)
+  requires NamesSignValue<T> {
+  util::check_length(reads.size(),
+                     environment.light_availability.knot_data_size() +
+                       environment.ode_size());
+  environment.time = time;
+  environment.set_ode_state(
+    environment.light_availability.set_knot_data(reads.begin()));
+  for (species_type& s : species) {
+    s.set_new_node_birth_date(time);
+  }
   for (species_type& s : species) {
     if (part >= s.size()) {
       part -= s.size();
       continue;
     }
+    const auto node = s.node_begin() + static_cast<std::ptrdiff_t>(part);
+    util::check_length(own.size(), node->ode_size());
+    s.set_node_ode_state(part, own.begin());
     s.compute_node_rates(part, environment, survival_weighting->pr_survival(time),
                          s.extrinsic_drivers().evaluate("birth_rate", time));
-    const auto node = s.node_begin() + static_cast<std::ptrdiff_t>(part);
     util::check_length(rates.size(), node->ode_size());
     node->ode_rates(rates.begin());
     return node->individual.aux(s.strategy_ptr()->sign_value_aux());

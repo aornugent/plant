@@ -166,6 +166,11 @@ public:
     invalidate_height_scan();
     return base_type::set_ode_state(it);
   }
+  // Node j's components alone, in the order set_ode_state writes them.
+  template <typename It> It set_node_ode_state(size_t j, It it) {
+    invalidate_height_scan();
+    return nodes.at(j).set_ode_state(it);
+  }
   void compute_rates(const environment_type& environment, double pr_patch_survival, double birth_rate);
   // Node j's rates as compute_rates() leaves them, the others unrated. The newest
   // node's interval rate reads the boundary node, so that is rated with it.
