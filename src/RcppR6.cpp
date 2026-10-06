@@ -3170,6 +3170,11 @@ Rcpp::IntegerVector SCM___FF16__FF16_Env__ode_step_attempts__get(plant::RcppR6::
 }
 
 // [[Rcpp::export]]
+Rcpp::IntegerVector SCM___FF16__FF16_Env__ode_splits__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->r_ode_splits();
+}
+
+// [[Rcpp::export]]
 bool SCM___FF16__FF16_Env__collect__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   return obj_->collect;
 }
@@ -3310,6 +3315,11 @@ std::vector<double> SCM___TF24__TF24_Env__ode_step_sizes__get(plant::RcppR6::Rcp
 // [[Rcpp::export]]
 Rcpp::IntegerVector SCM___TF24__TF24_Env__ode_step_attempts__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   return obj_->r_ode_step_attempts();
+}
+
+// [[Rcpp::export]]
+Rcpp::IntegerVector SCM___TF24__TF24_Env__ode_splits__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->r_ode_splits();
 }
 
 // [[Rcpp::export]]
@@ -3456,6 +3466,11 @@ Rcpp::IntegerVector SCM___TF24f__TF24_Env__ode_step_attempts__get(plant::RcppR6:
 }
 
 // [[Rcpp::export]]
+Rcpp::IntegerVector SCM___TF24f__TF24_Env__ode_splits__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->r_ode_splits();
+}
+
+// [[Rcpp::export]]
 bool SCM___TF24f__TF24_Env__collect__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   return obj_->collect;
 }
@@ -3596,6 +3611,11 @@ std::vector<double> SCM___K93__K93_Env__ode_step_sizes__get(plant::RcppR6::RcppR
 // [[Rcpp::export]]
 Rcpp::IntegerVector SCM___K93__K93_Env__ode_step_attempts__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
   return obj_->r_ode_step_attempts();
+}
+
+// [[Rcpp::export]]
+Rcpp::IntegerVector SCM___K93__K93_Env__ode_splits__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->r_ode_splits();
 }
 
 // [[Rcpp::export]]

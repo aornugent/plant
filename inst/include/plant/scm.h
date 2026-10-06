@@ -485,6 +485,9 @@ public:
   // accepted + accepted_at_minimum is the number of steps r_ode_times() holds;
   // the three rejections are the attempts that were thrown away.
   Rcpp::IntegerVector r_ode_step_attempts() const;
+  // By node, the steps the last run split at a sign change of net production; a
+  // walk splits none, and several species are counted by position at each step.
+  Rcpp::IntegerVector r_ode_splits() const;
 
   // The trajectory as a list of records, each a time, the step size that reached it,
   // and the state there.
@@ -774,6 +777,11 @@ void SCM<T, E>::run_mutant(parameters_type p) {
         slot.field = std::move(slot.built);
       }
       row.solved.at_state.field = std::move(row.solved.at_state.built);
+      // Only a run of one species maps its nodes onto an invader's; a run of
+      // several drops its splits.
+      if (parameters.size() != 1) {
+        row.solved.split_blocks.clear();
+      }
     }
   }
 
@@ -1013,6 +1021,18 @@ Rcpp::IntegerVector SCM<T, E>::r_ode_step_attempts() const {
       Rcpp::_["rejected_inaccurate"] = static_cast<int>(o.rejected_inaccurate),
       Rcpp::_["rejected_thrown"] = static_cast<int>(o.rejected_thrown),
       Rcpp::_["rejected_refused"] = static_cast<int>(o.rejected_refused));
+}
+
+template <typename T, typename E>
+Rcpp::IntegerVector SCM<T, E>::r_ode_splits() const {
+  size_t nodes = 0;
+  for (size_t i = 0; i < patch.size(); ++i) {
+    nodes += patch.at_species(i).size();
+  }
+  const std::vector<size_t>& by_node = solver.splits_by_block();
+  Rcpp::IntegerVector out(std::max(nodes, by_node.size()));
+  std::copy(by_node.begin(), by_node.end(), out.begin());
+  return out;
 }
 
 template <typename T, typename E>

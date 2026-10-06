@@ -36,4 +36,8 @@ state, for a step starting at time \code{t}, the entry of
 are sorted. \code{ode_tol_factor_max} bounds each state's factor once the
 schedule's multiplies it. The factors default to 1, the schedule to empty
 and the bound to \code{Inf}, which leaves every step as it was.
+
+\code{ode_split_sign_changes} integrates each TF24 node in substeps between the
+sign changes of its net production inside a step, in the field sampled at five
+fractions of the step. It is off by default, which leaves every run as it was.
 }

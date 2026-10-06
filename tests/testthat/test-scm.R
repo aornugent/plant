@@ -473,6 +473,80 @@ test_that("A run's steps answer to the tolerance factors, and at their defaults 
 
 
 
+test_that("A run splits its nodes at sign changes of net production only when asked", {
+  ## Each split node is integrated in substeps between its sign changes inside a
+  ## step. A dim season takes the nodes' net production below zero and back
+  ## within the year; off, the run is the run it was.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 1
+  lma <- 0.1978791
+  p <- add_strategies(p0, trait_matrix(lma, "lma"))
+  env <- function() {
+    e <- Environment("TF24")
+    t <- seq(0, 1, length.out = 200)
+    e$extrinsic_drivers_set_variable(
+      "PPFD", t, e$extrinsic_drivers_evaluate("PPFD", 0) * (1 + 0.9 * sin(2 * pi * t)))
+    e
+  }
+  ctrl <- function(...) Control(node_density_in_birth_date = TRUE, ...)
+  run <- function(...) {
+    run_scm(p, env(), ctrl(...), record_trajectory = TRUE)
+  }
+
+  base <- run()
+  split <- run(ode_split_sign_changes = TRUE)
+  expect_equal(sum(base$ode_splits), 0)
+  expect_gt(sum(split$ode_splits), 0)
+  expect_length(split$ode_splits, length(split$patch$species[[1]]$node_times))
+  expect_false(identical(split$patch$ode_state, base$patch$ode_state))
+
+  ## A pinned replay of the split run's own steps splits them again, bit for bit.
+  scm <- SCM("TF24", "TF24_Env")(p, env(), empty_events(),
+                                 ctrl(ode_split_sign_changes = TRUE))
+  sched <- scm$node_schedule
+  sched$all_times <- split$node_schedule$all_times
+  sched$set_ode_steps(split$ode_times, split$ode_step_sizes)
+  scm$node_schedule <- sched
+  scm$run()
+  expect_identical(scm$patch$ode_state, split$patch$ode_state)
+  expect_identical(scm$ode_splits, split$ode_splits)
+
+  ## A tangent walk takes the recorded steps at another scalar, where no split
+  ## can be taken, and refuses.
+  traits <- census_trait_names_tf24(split)
+  expect_error(ladder_trajectory_tangent_tf24(split, replace(numeric(length(traits)), 1, 1)),
+               "cannot take a recorded step that split")
+  ## The sweep does not differentiate a split step yet, and refuses.
+  expect_error(census_trait_gradient_tf24(split, "offspring_production"),
+               "does not differentiate yet")
+
+  ## An invader walks the run's steps and takes each node's split from the run's,
+  ## so the run's own strategy comes back with its fitness to the bit, walked alone
+  ## or beside another invader.
+  ratios <- split$net_reproduction_ratios
+  split$run_mutant(p)
+  expect_identical(split$net_reproduction_ratios, ratios)
+  expect_equal(sum(split$ode_splits), 0)
+  split$run_mutant(add_strategies(p0, trait_matrix(lma * c(1, 1.1), "lma"),
+                                  birth_rate = c(1, 1)))
+  expect_identical(split$net_reproduction_ratios[[1]], ratios)
+})
+
+test_that("TF24f runs unsplit whatever is asked", {
+  ## Sampling the field for a split sets the newborn's initial state, which TF24f
+  ## finds with an optimiser no recording holds, so it names no sign value.
+  p0 <- scm_base_parameters("TF24f", "TF24_Env")
+  p0$max_patch_lifetime <- 0.5
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  run <- function(...) {
+    run_scm(p, Environment("TF24"), Control(...))
+  }
+  base <- run()
+  asked <- run(ode_split_sign_changes = TRUE)
+  expect_identical(asked$patch$ode_state, base$patch$ode_state)
+  expect_equal(sum(asked$ode_splits), 0)
+})
+
 test_that("store_trajectory records one state per instruction", {
   for (x in names(strategy_types)) {
     e <- environment_types[[x]]

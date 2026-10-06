@@ -86,6 +86,10 @@ struct Control {
   // bounds nothing.
   double ode_tol_factor_max;
 
+  // Integrate each TF24 node in substeps between the sign changes of its net
+  // production inside a step, in the field sampled at five fractions of the step.
+  bool ode_split_sign_changes;
+
   // Fixed-step ODE integration (forward Euler).  Units: years.  When 0 (the
   // default) the SCM integrates residents with the adaptive, error-controlled
   // Cash-Karp RKCK solver.  When > 0 it instead uses plain forward Euler on a

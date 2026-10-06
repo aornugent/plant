@@ -52,6 +52,8 @@ Control::Control() {
   ode_tol_factor_values      = {};
   ode_tol_factor_max         = std::numeric_limits<double>::infinity();
 
+  ode_split_sign_changes = false;
+
   // 0 = adaptive RKCK (default); > 0 selects fixed-step forward Euler with this
   // spacing in years (see control.h).
   fixed_time_step   = 0.0;
