@@ -6,6 +6,7 @@
 #include <plant/species.h>
 #include <plant/util.h>
 #include <plant/clamp_sites.h>
+#include <odelia/implicit_node.hpp>
 #include <odelia/ode_interface.hpp>
 #include <odelia/ode_util.hpp> // odelia::util::stop_domain
 
@@ -347,6 +348,11 @@ public:
   template <class Step>
   bool split_sign_changes(const Step& step, split_samples& samples,
                           split_blocks& record) requires NamesSignValue<T>;
+  // The sweep's split: each recorded sign change moves as the zero of its node's net
+  // production, and the node is integrated again loading what the run solved for.
+  template <class Step>
+  void split_as_recorded(const Step& step, const split_samples& samples,
+                         const split_blocks& recorded) requires NamesSignValue<T>;
   // A walk integrates that node of every species with as many nodes as the run's
   // one in substeps at the run's sign changes, held, in the field the run sampled.
   template <class Step, class Row>
@@ -433,11 +439,20 @@ private:
   using field_samples = std::array<std::vector<value_type>, 5>;
   template <class Step, class Samples>
   void sample_field(const Step& step, field_samples& field, Samples& samples);
+  // How many components node `node` holds, counting nodes as ode_state() does.
+  size_t node_width(size_t node) const;
+  // A node's net production at fraction u of the step, its own components read
+  // from the dense output and its field from the samples, evaluated at `time`.
+  template <class Step, class U>
+  value_type node_value_at(const Step& step, const field_samples& field,
+                           size_t node, size_t first, size_t width, const U& u,
+                           double time)
+    requires NamesSignValue<T>;
   // A node integrated again over the step in substeps meeting at `split_at`, each
   // evaluation inside the extent `solved()` opens; its end goes into the step's.
-  template <class Step, class Solved>
+  template <class Step, class U, class Solved>
   void split_node(const Step& step, const field_samples& field, size_t node,
-                  size_t first, size_t width, const std::vector<double>& split_at,
+                  size_t first, size_t width, const std::vector<U>& split_at,
                   Solved&& solved)
     requires NamesSignValue<T>;
   // One node's rates and net production, with its state `own` and the patch's field
@@ -1713,32 +1728,25 @@ bool Patch<T,E>::split_sign_changes(const Step& step, split_samples& samples,
   }
   field_samples field;
   bool sampled = false;
-  std::vector<double> own_at, field_at, rates;
   size_t node = 0, first = 0;
   for (species_type& s : species) {
     for (size_t j = 0; j < s.size(); ++j, ++node) {
       const size_t width =
         (s.node_begin() + static_cast<std::ptrdiff_t>(j))->ode_size();
-      // The node's net production at fraction u, from its own dense output in the
-      // field sampled there; what the evaluation solved for goes `into`.
-      auto value_at = [&](double u, solved_values* into) -> double {
-        if (!sampled) {
-          sample_field(step, field, samples);
-          sampled = true;
-        }
-        own_at.resize(width);
-        rates.resize(width);
-        step.dense_state(u, first, own_at);
-        step.sample_at(u, field, field_at);
-        const double time = step.time + u * step.h;
-        if (into == nullptr) {
-          return node_rates_in_field(node, own_at, field_at, time, rates);
-        }
-        const odelia::ode::solved_scope<Patch, solved_values> extent{*this, *into};
-        return node_rates_in_field(node, own_at, field_at, time, rates);
-      };
-      auto changes =
-        step.template sign_changes<solved_values>(node, value_at);
+      auto changes = step.template sign_changes<solved_values>(
+        node, [&](double u, solved_values* into) -> double {
+          if (!sampled) {
+            sample_field(step, field, samples);
+            sampled = true;
+          }
+          const double time = step.time + u * step.h;
+          if (into == nullptr) {
+            return node_value_at(step, field, node, first, width, u, time);
+          }
+          const odelia::ode::solved_scope<Patch, solved_values> extent{*this,
+                                                                       *into};
+          return node_value_at(step, field, node, first, width, u, time);
+        });
       if (!changes.empty()) {
         odelia::ode::split_block<solved_values>& block = record.emplace_back();
         block.block = node;
@@ -1757,6 +1765,40 @@ bool Patch<T,E>::split_sign_changes(const Step& step, split_samples& samples,
     }
   }
   return sampled;
+}
+
+template <typename T, typename E>
+template <class Step>
+void Patch<T,E>::split_as_recorded(const Step& step,
+                                   const split_samples& samples,
+                                   const split_blocks& recorded)
+  requires NamesSignValue<T> {
+  field_samples field;
+  sample_field(step, field, samples);
+  for (const auto& block : recorded) {
+    const size_t width = node_width(block.block);
+    std::vector<value_type> split_at;
+    for (const auto& change : block.sign_changes) {
+      // A zero slope gives no derivative: the sign change stays where the run found it.
+      if (change.slope == 0.0) {
+        split_at.emplace_back(change.u);
+        continue;
+      }
+      split_at.push_back(odelia::implicit_value<value_type>(
+        change.u, change.slope, [&](const value_type& u) -> value_type {
+          const odelia::ode::solved_scope<Patch, const solved_values> extent{
+            *this, change.solved};
+          return node_value_at(step, field, block.block, block.first, width, u,
+                               step.time + change.u * step.h);
+        }));
+    }
+    size_t next = 0;
+    split_node(step, field, block.block, block.first, width, split_at, [&] {
+      return odelia::ode::solved_scope<Patch, const solved_values>{
+        *this, block.solved.at(next++)};
+    });
+    util::check_length(next, block.solved.size());
+  }
 }
 
 template <typename T, typename E>
@@ -1823,18 +1865,46 @@ void Patch<T,E>::sample_field(const Step& step, field_samples& field,
 }
 
 template <typename T, typename E>
-template <class Step, class Solved>
+size_t Patch<T,E>::node_width(size_t node) const {
+  for (const species_type& s : species) {
+    if (node < s.size()) {
+      return (s.node_begin() + static_cast<std::ptrdiff_t>(node))->ode_size();
+    }
+    node -= s.size();
+  }
+  util::stop("node_width: the patch holds fewer nodes than the one named");
+}
+
+template <typename T, typename E>
+template <class Step, class U>
+typename Patch<T,E>::value_type
+Patch<T,E>::node_value_at(const Step& step, const field_samples& field,
+                          size_t node, size_t first, size_t width, const U& u,
+                          double time)
+  requires NamesSignValue<T> {
+  std::vector<value_type> own(width), field_at, rates(width);
+  step.dense_state(u, first, own);
+  step.sample_at(u, field, field_at);
+  return node_rates_in_field(node, own, field_at, time, rates);
+}
+
+template <typename T, typename E>
+template <class Step, class U, class Solved>
 void Patch<T,E>::split_node(const Step& step, const field_samples& field,
                             size_t node, size_t first, size_t width,
-                            const std::vector<double>& split_at, Solved&& solved)
+                            const std::vector<U>& split_at, Solved&& solved)
   requires NamesSignValue<T> {
   std::vector<value_type> field_at, own(width);
   step.integrate_substeps(
     first, split_at,
-    [&](double u, const std::vector<value_type>& at, std::vector<value_type>& out) {
+    [&](const U& u, const std::vector<value_type>& at,
+        std::vector<value_type>& out) {
       step.sample_at(u, field, field_at);
       const auto extent = solved();
-      node_rates_in_field(node, at, field_at, step.time + u * step.h, out);
+      // ⚠️ THE TIME IS HELD WHERE THE RUN EVALUATED: rates reading the time itself
+      // miss their derivative in time times each sign change's move.
+      node_rates_in_field(node, at, field_at,
+                          step.time + odelia::util::to_passive(u) * step.h, out);
     },
     own);
   std::copy(own.begin(), own.end(),
