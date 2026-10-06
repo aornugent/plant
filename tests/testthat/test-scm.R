@@ -517,16 +517,48 @@ test_that("A run splits its nodes at sign changes of net production only when as
   expect_error(census_trait_gradient_tf24(split, "offspring_production"),
                "does not differentiate yet")
 
-  ## An invader walks the run's steps and takes each node's split from the run's,
-  ## so the run's own strategy comes back with its fitness to the bit, walked alone
-  ## or beside another invader.
+  ## An invader walks the run's steps and splits its own nodes where the run split
+  ## its, so the run's own strategy comes back with its fitness to the bit, walked
+  ## alone or beside another invader.
   ratios <- split$net_reproduction_ratios
+  splits <- split$ode_splits
   split$run_mutant(p)
   expect_identical(split$net_reproduction_ratios, ratios)
-  expect_equal(sum(split$ode_splits), 0)
+  expect_identical(split$ode_splits, splits)
   split$run_mutant(add_strategies(p0, trait_matrix(lma * c(1, 1.1), "lma"),
                                   birth_rate = c(1, 1)))
   expect_identical(split$net_reproduction_ratios[[1]], ratios)
+})
+
+test_that("An invader far from a split run walks it in its own pieces", {
+  ## Rain in season takes the nodes' net production below zero and back within
+  ## three years. An invader at twice the run's lma holds a thousandth of the run's
+  ## storage; its nodes are integrated in pieces where the run split, with its own
+  ## rates, so its fitness is the one it has beside the unsplit run.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 3
+  p0$patch_type <- "fixed"
+  lma <- 0.1978791
+  p <- add_strategies(p0, trait_matrix(lma, "lma"))
+  env <- function() {
+    e <- Environment("TF24")
+    t <- seq(0, 3, length.out = 601)
+    e$extrinsic_drivers_set_variable("rainfall", t,
+                                     0.25 * (1 + 0.95 * sin(2 * pi * t)))
+    e
+  }
+  walked <- function(split) {
+    ctrl <- Control(node_density_in_birth_date = TRUE,
+                    ode_split_sign_changes = split)
+    scm <- run_scm(p, env(), ctrl, record_trajectory = TRUE)
+    scm$run_mutant(add_strategies(p0, trait_matrix(2 * lma, "lma")))
+    sum(scm$offspring_production)
+  }
+  far <- walked(TRUE)
+  expect_gt(far, 0)
+  ## A ratio, since both are near 4e-18, where a tolerance is read absolutely; the
+  ## split moves the run's own fitness by 4e-4 here.
+  expect_equal(far / walked(FALSE), 1, tolerance = 1e-3)
 })
 
 test_that("TF24f runs unsplit whatever is asked", {
