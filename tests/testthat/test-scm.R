@@ -513,9 +513,6 @@ test_that("A run splits its nodes at sign changes of net production only when as
   traits <- census_trait_names_tf24(split)
   expect_error(ladder_trajectory_tangent_tf24(split, replace(numeric(length(traits)), 1, 1)),
                "cannot take a recorded step that split")
-  ## The sweep does not differentiate a split step yet, and refuses.
-  expect_error(census_trait_gradient_tf24(split, "offspring_production"),
-               "does not differentiate yet")
 
   ## An invader walks the run's steps and splits its own nodes where the run split
   ## its, so the run's own strategy comes back with its fitness to the bit, walked
@@ -559,6 +556,79 @@ test_that("An invader far from a split run walks it in its own pieces", {
   ## A ratio, since both are near 4e-18, where a tolerance is read absolutely; the
   ## split moves the run's own fitness by 4e-4 here.
   expect_equal(far / walked(FALSE), 1, tolerance = 1e-3)
+})
+
+test_that("The sweep through a split run is the derivative of its map", {
+  ## Rain in season takes the nodes' net production below zero and back through
+  ## the soil within three years. The sweep integrates each split node's pieces
+  ## again, loading what the run solved for, each sign change moving as the zero
+  ## of net production on the dense output moves. It holds the pieces' times,
+  ## which costs nothing here: the light is constant and patch survival off.
+  ## Central differences of the pinned replay in lma alone agree.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 3
+  p0$patch_type <- "fixed"
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  env <- function() {
+    e <- Environment("TF24")
+    t <- seq(0, 3, length.out = 601)
+    e$extrinsic_drivers_set_variable("rainfall", t,
+                                     0.25 * (1 + 0.95 * sin(2 * pi * t)))
+    e
+  }
+  ctrl <- function() {
+    Control(node_density_in_birth_date = TRUE, ode_split_sign_changes = TRUE)
+  }
+  split <- run_scm(p, env(), ctrl(), record_trajectory = TRUE)
+  expect_gt(sum(split$ode_splits), 0)
+
+  replay <- function(lma) {
+    q <- p
+    s <- q$strategies[[1]]
+    pars <- s$pars
+    pars$lma <- lma
+    s$pars <- pars
+    q$strategies[[1]] <- s
+    scm <- SCM("TF24", "TF24_Env")(q, env(), empty_events(), ctrl())
+    sched <- scm$node_schedule
+    sched$all_times <- split$node_schedule$all_times
+    sched$set_ode_steps(split$ode_times, split$ode_step_sizes)
+    scm$node_schedule <- sched
+    scm$run()
+    sum(scm$offspring_production)
+  }
+  lma <- p$strategies[[1]]$pars$lma
+  d <- 1e-6 * lma
+  differenced <- (replay(lma + d) - replay(lma - d)) / (2 * d)
+  traits <- census_trait_names_tf24(split)
+  swept <- census_trait_gradient_tf24(split, "offspring_production")
+  ## A ratio, since both are near 1e-10, where a tolerance is read absolutely.
+  expect_equal(swept$gradient[[1]][match("1.lma", traits)] / differenced, 1,
+               tolerance = 1e-6)
+
+  ## An invader at another lma walks the run's field, its nodes split in pieces
+  ## where the run split, held there; its sweep is the derivative of that walk.
+  invader <- function(lma) {
+    q <- p
+    s <- q$strategies[[1]]
+    pars <- s$pars
+    pars$lma <- lma
+    s$pars <- pars
+    q$strategies[[1]] <- s
+    q
+  }
+  walked <- function(lma) {
+    split$run_mutant(invader(lma))
+    sum(split$offspring_production)
+  }
+  lma_i <- 1.5 * lma
+  d <- 1e-6 * lma_i
+  differenced <- (walked(lma_i + d) - walked(lma_i - d)) / (2 * d)
+  split$run_mutant(invader(lma_i))
+  expect_gt(sum(split$ode_splits), 0)
+  swept <- census_trait_gradient_tf24(split, "offspring_production")
+  expect_equal(swept$gradient[[1]][match("1.lma", traits)] / differenced, 1,
+               tolerance = 1e-6)
 })
 
 test_that("TF24f runs unsplit whatever is asked", {
