@@ -485,8 +485,8 @@ public:
   // accepted + accepted_at_minimum is the number of steps r_ode_times() holds;
   // the three rejections are the attempts that were thrown away.
   Rcpp::IntegerVector r_ode_step_attempts() const;
-  // By node, the steps the last run split at a sign change of net production; a
-  // walk splits none, and several species are counted by position at each step.
+  // By node, the steps the last run or walk split at a sign change of net
+  // production; several species are counted by position at each step.
   Rcpp::IntegerVector r_ode_splits() const;
 
   // The trajectory as a list of records, each a time, the step size that reached it,
@@ -772,15 +772,19 @@ void SCM<T, E>::run_mutant(parameters_type p) {
     }
     const trajectory rec = solver.recording();
     invaded_run.assign(rec.begin(), rec.end());
+    auto take_field = [](typename patch_type::solved_values& slot) {
+      slot.field = std::move(slot.built);
+    };
     for (odelia::ode::step_record<patch_type>& row : invaded_run) {
-      for (typename patch_type::solved_values& slot : row.solved.stages) {
-        slot.field = std::move(slot.built);
-      }
-      row.solved.at_state.field = std::move(row.solved.at_state.built);
+      std::for_each(row.solved.stages.begin(), row.solved.stages.end(), take_field);
+      std::for_each(row.solved.samples.begin(), row.solved.samples.end(), take_field);
+      take_field(row.solved.at_state);
+      take_field(row.solved.at_state_before_split);
       // Only a run of one species maps its nodes onto an invader's; a run of
       // several drops its splits.
       if (parameters.size() != 1) {
         row.solved.split_blocks.clear();
+        row.solved.samples.clear();
       }
     }
   }
