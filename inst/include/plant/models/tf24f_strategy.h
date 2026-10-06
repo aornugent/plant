@@ -69,6 +69,10 @@ public:
   // optimiser once via the initializing_ flag below.
   void set_initial_states(const TF24_Environment<S>& environment, Internals<S>& vars);
 
+  // Not split: sampling the field for a split sets the newborn's initial state,
+  // which runs this strategy's leaf optimiser outside any recording.
+  int sign_value_aux() const = delete;
+
   // Acclimation gain k in  dpsi/dt = k * d(profit)/d(psi). Exposed to R so the
   // stiffness / accuracy-vs-speed k-sweep (#525) can be driven without a rebuild;
   // large k recovers the quasi-steady-state (TF24) optimum.

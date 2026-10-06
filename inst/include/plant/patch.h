@@ -13,7 +13,9 @@
 #include <plant/with_slope.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <concepts>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -56,6 +58,12 @@ struct recorded_field {
   // what a competitor competes for.
   std::vector<double> state;
   double time = 0.0;
+};
+
+// A strategy whose rates change form where one of its auxiliaries changes sign.
+template <typename T>
+concept NamesSignValue = requires(const T& s) {
+  { s.sign_value_aux() } -> std::same_as<int>;
 };
 
 // One rate evaluation's record: what each species solved for, the field it was
@@ -327,6 +335,23 @@ public:
   void set_keep_field(bool keep) { keep_field = keep; }
   bool keeps_field() const { return keep_field; }
 
+  // What a step records of each node it split.
+  using split_blocks = std::vector<odelia::ode::split_block<solved_values>>;
+  // Each node's net production after an evaluation, in the order ode_state writes
+  // the nodes.
+  void sign_values(std::vector<double>& out) const requires NamesSignValue<T>;
+  // Integrates each node whose net production changed sign in the step in pieces
+  // between its sign changes; true if it evaluated anything, split or not.
+  template <class Step>
+  bool split_sign_changes(const Step& step, split_blocks& record)
+    requires NamesSignValue<T>;
+  // A walk adds each split node's run end, less its run state before the split, to
+  // that node of every species with as many nodes as the run's one.
+  void take_recorded_splits(const split_blocks& recorded,
+                            const std::vector<double>& run_end,
+                            std::vector<double>& y) const
+    requires NamesSignValue<T>;
+
   // The entries this patch is run on, which a walk applies and works out the
   // shape at a step from. Set where a run begins, since the schedule can change
   // between runs.
@@ -400,6 +425,18 @@ private:
 
   void compute_environment();
   void compute_rates();
+
+  // The field a node reads at each of the step's five sample fractions: the light
+  // field's knot data, then the environment's own state.
+  template <class Step>
+  void sample_field(const Step& step,
+                    std::array<std::vector<value_type>, 5>& field);
+  // One node's rates and net production, with its state `own` and the patch's field
+  // `field` installed; the patch is left off its state.
+  value_type node_rates_in_field(size_t node, const std::vector<value_type>& own,
+                                 const std::vector<value_type>& field,
+                                 double time, std::vector<value_type>& rates)
+    requires NamesSignValue<T>;
 
   // Set where a run begins, read by compute_environment().
   bool keep_field = false;
@@ -1643,6 +1680,152 @@ bool Patch<T,E>::ode_state_valid(const std::vector<double>& y) const {
     }
   }
   return true;
+}
+
+template <typename T, typename E>
+void Patch<T,E>::sign_values(std::vector<double>& out) const
+  requires NamesSignValue<T> {
+  out.clear();
+  for (const species_type& s : species) {
+    const int at = s.strategy_ptr()->sign_value_aux();
+    for (auto n = s.node_begin(); n != s.node_end(); ++n) {
+      out.push_back(n->individual.aux(at));
+    }
+  }
+}
+
+template <typename T, typename E>
+template <class Step>
+bool Patch<T,E>::split_sign_changes(const Step& step, split_blocks& record)
+  requires NamesSignValue<T> {
+  if (!control.ode_split_sign_changes) {
+    return false;
+  }
+  std::array<std::vector<double>, 5> field;
+  bool sampled = false;
+  std::vector<double> own_at, field_at, rates;
+  size_t node = 0, first = 0;
+  for (species_type& s : species) {
+    for (size_t j = 0; j < s.size(); ++j, ++node) {
+      const size_t width =
+        (s.node_begin() + static_cast<std::ptrdiff_t>(j))->ode_size();
+      // The node's net production at fraction u, from its own dense output in the
+      // field sampled there; what the evaluation solved for goes `into`.
+      auto value_at = [&](double u, solved_values* into) -> double {
+        if (!sampled) {
+          sample_field(step, field);
+          sampled = true;
+        }
+        own_at.resize(width);
+        rates.resize(width);
+        step.dense_state(u, first, own_at);
+        step.sample_at(u, field, field_at);
+        const double time = step.time + u * step.h;
+        if (into == nullptr) {
+          return node_rates_in_field(node, own_at, field_at, time, rates);
+        }
+        const odelia::ode::solved_scope<Patch, solved_values> extent{*this, *into};
+        return node_rates_in_field(node, own_at, field_at, time, rates);
+      };
+      auto changes =
+        step.template sign_changes<solved_values>(node, value_at);
+      if (!changes.empty()) {
+        odelia::ode::split_block<solved_values>& block = record.emplace_back();
+        block.block = node;
+        block.first = first;
+        const auto end = step.y_end.begin() + static_cast<std::ptrdiff_t>(first);
+        block.state_before_split.assign(end, end + static_cast<std::ptrdiff_t>(width));
+        std::vector<double> split_at;
+        for (const auto& change : changes) {
+          split_at.push_back(change.u);
+        }
+        block.sign_changes = std::move(changes);
+        std::vector<double> own(width);
+        step.integrate_pieces(
+          first, split_at,
+          [&](double u, const std::vector<double>& at, std::vector<double>& out) {
+            step.sample_at(u, field, field_at);
+            const odelia::ode::solved_scope<Patch, solved_values> extent{
+              *this, block.solved.emplace_back()};
+            node_rates_in_field(node, at, field_at, step.time + u * step.h, out);
+          },
+          own);
+        std::copy(own.begin(), own.end(), step.y_end.begin() +
+                                            static_cast<std::ptrdiff_t>(first));
+      }
+      first += width;
+    }
+  }
+  return sampled;
+}
+
+template <typename T, typename E>
+void Patch<T,E>::take_recorded_splits(const split_blocks& recorded,
+                                      const std::vector<double>& run_end,
+                                      std::vector<double>& y) const
+  requires NamesSignValue<T> {
+  const size_t run_nodes = run_end.size() - environment.ode_size();
+  size_t at = 0;
+  for (const species_type& s : species) {
+    const size_t width = s.size() > 0 ? s.node_begin()->ode_size() : 0;
+    if (s.size() * width == run_nodes) {
+      for (const auto& block : recorded) {
+        for (size_t q = 0; q < block.state_before_split.size(); ++q) {
+          double& v = y[at + block.first + q];
+          v = (v - block.state_before_split[q]) + run_end[block.first + q];
+        }
+      }
+    }
+    at += s.size() * width;
+  }
+}
+
+template <typename T, typename E>
+template <class Step>
+void Patch<T,E>::sample_field(const Step& step,
+                              std::array<std::vector<value_type>, 5>& field) {
+  std::vector<value_type> state(ode_size());
+  for (size_t m = 0; m < field.size(); ++m) {
+    const double u = step.sample_fractions[m];
+    step.dense_state(u, 0, state);
+    set_ode_state(state.begin(), step.time + u * step.h);
+    field[m].resize(environment.light_availability.knot_data_size() +
+                    environment.ode_size());
+    environment.ode_state(
+      environment.light_availability.knot_data(field[m].begin()));
+  }
+}
+
+template <typename T, typename E>
+typename Patch<T,E>::value_type
+Patch<T,E>::node_rates_in_field(size_t node, const std::vector<value_type>& own,
+                                const std::vector<value_type>& field,
+                                double time, std::vector<value_type>& rates)
+  requires NamesSignValue<T> {
+  util::check_length(field.size(),
+                     environment.light_availability.knot_data_size() +
+                       environment.ode_size());
+  environment.time = time;
+  environment.set_ode_state(
+    environment.light_availability.set_knot_data(field.begin()));
+  for (species_type& s : species) {
+    s.set_new_node_birth_date(time);
+  }
+  for (species_type& s : species) {
+    if (node >= s.size()) {
+      node -= s.size();
+      continue;
+    }
+    const auto it = s.node_begin() + static_cast<std::ptrdiff_t>(node);
+    util::check_length(own.size(), it->ode_size());
+    util::check_length(rates.size(), it->ode_size());
+    s.set_node_ode_state(node, own.begin());
+    s.compute_node_rates(node, environment, survival_weighting->pr_survival(time),
+                         s.extrinsic_drivers().evaluate("birth_rate", time));
+    it->ode_rates(rates.begin());
+    return it->individual.aux(s.strategy_ptr()->sign_value_aux());
+  }
+  util::stop("node_rates_in_field: the patch holds fewer nodes than the one named");
 }
 
 template <typename T, typename E>
