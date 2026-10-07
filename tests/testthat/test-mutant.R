@@ -257,9 +257,9 @@ test_that("an invader a little costlier in leaf runs on the run's steps, TF24", 
 })
 
 test_that("an invader introduced where the run introduced nothing is refused", {
-  # A walk applies an entry wherever the recording inserts, so the invaders'
-  # introductions have to be the run's; one elsewhere would be skipped with every
-  # number finite.
+  # A walk takes each invader's node as a copy of the run's node born on its date,
+  # so an invader's introductions have to be among the run's; one elsewhere would
+  # have no node of the run's to copy.
   p <- add_strategies(scm_base_parameters("FF16"), trait_matrix(0.0825, "lma"))
   p$max_patch_lifetime <- 10
   times <- p$node_schedule_times[[1]]
@@ -268,10 +268,47 @@ test_that("an invader introduced where the run introduced nothing is refused", {
   run_times <- p$node_schedule_times[[1]]
   invader <- p
   invader$node_schedule_times <- list(sort(c(run_times, 0.25)))
-  expect_error(scm$run_mutant(invader), "where the schedule's next is at t=0.25")
-  # Past the run's last introduction, where no insertion comes to refuse it.
+  expect_error(scm$run_mutant(invader), "introduced at t=0.25, where the run")
+  # Past the run's last introduction, where no insertion follows.
   invader$node_schedule_times <- list(c(run_times, (max(run_times) + 10) / 2))
-  expect_error(scm$run_mutant(invader), "past the rows' last insertion")
+  expect_error(scm$run_mutant(invader), "where the run introduced no node")
+})
+
+test_that("an invader introduced at some of the run's introductions takes the run's splits of its nodes, TF24", {
+  # Three years of seasonal rain split the nodes through the soil's drought. A
+  # walk finds each invader's copy of the run's node by its birth date, so a node
+  # a thinned invader keeps is split where the run split it and produces what it
+  # produces on the run's whole schedule.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 3
+  p0$patch_type <- "fixed"
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  env <- Environment("TF24")
+  t <- seq(0, 3, length.out = 601)
+  env$extrinsic_drivers_set_variable("rainfall", t,
+                                     0.25 * (1 + 0.95 * sin(2 * pi * t)))
+  ctrl <- Control(node_density_in_birth_date = TRUE, ode_split_sign_changes = TRUE)
+  scm <- run_scm(p, env, ctrl, record_trajectory = TRUE)
+
+  scm$run_mutant(p)
+  full <- scm$patch$species[[1]]$net_reproduction_ratio_by_node
+  splits <- scm$ode_splits
+  times <- p$node_schedule_times[[1]]
+  keep <- seq(1, length(times), by = 2)
+  # Guards that the thinning drops split nodes and keeps some.
+  expect_gt(sum(splits[keep]), 0)
+  expect_gt(sum(splits[-keep]), 0)
+
+  q <- p
+  q$node_schedule_times <- list(times[keep])
+  scm$run_mutant(q)
+  expect_identical(scm$patch$species[[1]]$node_times, times[keep])
+  expect_identical(scm$ode_splits, splits[keep])
+  expect_identical(scm$patch$species[[1]]$net_reproduction_ratio_by_node,
+                   full[keep])
+
+  q$node_schedule_times <- list(sort(c(times[keep], mean(times[2:3]))))
+  expect_error(scm$run_mutant(q), "where the run introduced no node")
 })
 
 test_that("two invaders together each have the fitness they have alone, TF24", {

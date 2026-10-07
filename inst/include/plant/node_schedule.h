@@ -143,6 +143,9 @@ public:
   // does not go through the per-species times interface.
   std::vector<Event> get_events() const;
   void set_all_events(const std::vector<Event>& events_);
+  // An entry at `time` that introduces nothing and acts on nothing, unless one is
+  // there already.
+  void add_instant(double time);
   void reset();
 
   // The entries in time order, which a patch applies.
