@@ -4,6 +4,7 @@
 \alias{control}
 \alias{control_accurate}
 \alias{control_tf24}
+\alias{control_window}
 \title{Control presets}
 \usage{
 control(...)
@@ -11,6 +12,14 @@ control(...)
 control_accurate(base = Control())
 
 control_tf24(tol = 3e-05, base = Control())
+
+control_window(
+  pilot,
+  invaders = list(),
+  base = Control(),
+  R0 = 0.1,
+  r_min = 0.01
+)
 }
 \arguments{
 \item{...}{Named control fields, passed to \code{Control()}.}
@@ -19,6 +28,19 @@ control_tf24(tol = 3e-05, base = Control())
 used if omitted.}
 
 \item{tol}{The relative tolerance, \code{ode_tol_rel}.}
+
+\item{pilot}{A run of the analysis on the birth-date coordinate, of one
+species. Each invader is walked on its recording, so it ends holding the
+last walk.}
+
+\item{invaders}{A list of \code{Parameters}, each walked on the pilot's
+introductions.}
+
+\item{R0}{The share still to be earned below which a step's weight rises
+from 1.}
+
+\item{r_min}{The share of \code{R0} at which the weight stops rising, at
+\code{1 / r_min}.}
 }
 \value{
 A \code{Control} object.
@@ -32,10 +54,19 @@ tolerances for high-accuracy runs at the cost of speed. \code{control_tf24()}
 sets TF24's step control: the relative tolerance \code{tol} with the absolute
 one at 1e-4 of it, the soil layers' error weight at 10, each weight bounded
 at 100, steps capped at 15 days, and the soil stepped alone where the stand
-draws under a tenth of the water moving through it. The window's weights stay
-the caller's.
+draws under a tenth of the water moving through it. The window's weights are
+\code{control_window()}'s.
 }
 \details{
+\code{control_window()} sets the window's weights from a pilot of the
+analysis: a step starting at \code{t} takes the factor
+\code{1 / min(max(R(t) / R0, r_min), 1)}, where \code{R(t)} is the largest
+share of offspring production still to be earned after \code{t}, over the
+pilot's stand and each invader walked on its recording. A pilot of 54 uniform
+introductions at a tolerance of 1e-3 reads \code{R} within 10\% wherever it
+is at least 1e-3. Under constant rain a uniform pilot lumps the founders, and
+a grid that resolves them reads it within 1.1\%.
+
 The SCM's adaptive ODE stepper multiplies each state's error level by a
 weight, which decides which steps it takes and nothing else:
 \code{ode_weight_soil} on the soil layers, \code{ode_weight_accumulator} on

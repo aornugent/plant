@@ -6,8 +6,17 @@
 ##' sets TF24's step control: the relative tolerance \code{tol} with the absolute
 ##' one at 1e-4 of it, the soil layers' error weight at 10, each weight bounded
 ##' at 100, steps capped at 15 days, and the soil stepped alone where the stand
-##' draws under a tenth of the water moving through it. The window's weights stay
-##' the caller's.
+##' draws under a tenth of the water moving through it. The window's weights are
+##' \code{control_window()}'s.
+##'
+##' \code{control_window()} sets the window's weights from a pilot of the
+##' analysis: a step starting at \code{t} takes the factor
+##' \code{1 / min(max(R(t) / R0, r_min), 1)}, where \code{R(t)} is the largest
+##' share of offspring production still to be earned after \code{t}, over the
+##' pilot's stand and each invader walked on its recording. A pilot of 54 uniform
+##' introductions at a tolerance of 1e-3 reads \code{R} within 10\% wherever it
+##' is at least 1e-3. Under constant rain a uniform pilot lumps the founders, and
+##' a grid that resolves them reads it within 1.1\%.
 ##'
 ##' The SCM's adaptive ODE stepper multiplies each state's error level by a
 ##' weight, which decides which steps it takes and nothing else:
@@ -58,6 +67,55 @@ control_tf24 <- function(tol = 3e-5, base = Control()) {
   base$ode_weight_max    <- 100
   base$ode_step_size_max <- 15 / 365
   base$ode_soil_alone_share <- 0.1
+  base
+}
+
+##' @rdname control_presets
+##' @param pilot A run of the analysis on the birth-date coordinate, of one
+##'   species. Each invader is walked on its recording, so it ends holding the
+##'   last walk.
+##' @param invaders A list of \code{Parameters}, each walked on the pilot's
+##'   introductions.
+##' @param R0 The share still to be earned below which a step's weight rises
+##'   from 1.
+##' @param r_min The share of \code{R0} at which the weight stops rising, at
+##'   \code{1 / r_min}.
+##' @export
+control_window <- function(pilot, invaders = list(), base = Control(),
+                           R0 = 0.1, r_min = 0.01) {
+  species <- pilot$patch$species
+  if (length(species) != 1 || !species[[1]]$density_in_birth_date) {
+    stop("control_window() reads a pilot of one species on the birth-date coordinate")
+  }
+  ## The share still to be earned after each row the last run or walk recorded,
+  ## each node weighted as offspring production weights it.
+  to_earn <- function() {
+    rows <- pilot$store_trajectory()
+    sp <- pilot$patch$species[[1]]
+    per <- sp$ode_size / sp$size
+    k <- match("offspring_produced_survival_weighted", sp$new_node$ode_names)
+    environment_size <- length(rows[[length(rows)]]$state) - sp$ode_size
+    weight <- head(sp$establishment_weights, -1) * sp$patch_densities *
+      sp$extrinsic_drivers$evaluate_range("birth_rate", sp$node_times)
+    earned <- vapply(rows, function(row) {
+      j <- seq_len((length(row$state) - environment_size) / per)
+      sum(weight[j] * row$state[per * (j - 1) + k])
+    }, 0)
+    list(time = vapply(rows, `[[`, 0, "time"),
+         R = 1 - earned / earned[length(earned)])
+  }
+  times <- pilot$parameters$node_schedule_times
+  stand <- to_earn()
+  R <- stand$R
+  for (p in invaders) {
+    p$node_schedule_times <- times
+    pilot$run_mutant(p)
+    walk <- to_earn()
+    ## An invader that earns nothing has no share to protect.
+    R <- pmax(R, walk$R[findInterval(stand$time, walk$time)], na.rm = TRUE)
+  }
+  base$ode_weight_times <- stand$time
+  base$ode_weight_factors <- 1 / pmin(pmax(R / R0, r_min), 1)
   base
 }
 

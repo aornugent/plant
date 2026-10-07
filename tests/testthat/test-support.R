@@ -40,3 +40,58 @@ test_that("control_tf24() sets TF24's step control and keeps the rest", {
   expect_identical(unclass(control_tf24(base = base))[rest],
                    unclass(base)[rest])
 })
+
+test_that("control_window() weighs each step by the offspring still to be earned", {
+  ## A stand that matures at 2 m, so that eight years hold its whole window.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 8
+  stand <- function(hmat) {
+    p <- add_strategies(p0, trait_matrix(c(0.1978791, hmat), c("lma", "hmat")))
+    p$node_schedule_times <- list(seq(0, 6.4, length.out = 12))
+    p
+  }
+  env <- function() {
+    e <- Environment("TF24")
+    e$extrinsic_drivers_set_constant("rainfall", 2)
+    e
+  }
+  ctrl <- control_tf24(1e-3, Control(node_density_in_birth_date = TRUE))
+  pilot <- SCM("TF24", "TF24_Env")(stand(2), env(), empty_events(), ctrl)
+  pilot$collect <- TRUE
+  pilot$record_trajectory <- TRUE
+  pilot$run()
+
+  ## The share still to be earned at the end of each interval, read off the
+  ## nodes the run kept there, each weighted as offspring production weights it.
+  sp <- pilot$patch$species[[1]]
+  weight <- head(sp$establishment_weights, -1) * sp$patch_densities
+  expect_equal(sum(weight * sp$net_reproduction_ratio_by_node) *
+                 stand(2)$strategies[[1]]$pars$S_D,
+               sum(pilot$offspring_production))
+  earned <- vapply(pilot$history, function(h) {
+    o <- h$species[[1]]$net_reproduction_ratio_by_node
+    sum(weight[seq_along(o)] * o)
+  }, 0)
+  R <- 1 - earned / earned[length(earned)]
+  at <- vapply(pilot$history, function(h) h$time, 0)
+  factor_at <- function(w, t) w$ode_weight_factors[findInterval(t, w$ode_weight_times)]
+
+  win <- control_window(pilot, base = ctrl)
+  expect_equal(win$ode_weight_times[1], 0)
+  expect_false(is.unsorted(win$ode_weight_times))
+  expect_equal(factor_at(win, at), 1 / pmin(pmax(R / 0.1, 0.01), 1))
+  expect_true(any(factor_at(win, at) > 1 & factor_at(win, at) < 100))
+  expect_equal(range(win$ode_weight_factors), c(1, 100))
+  expect_equal(max(control_window(pilot, base = ctrl, r_min = 0.1)$ode_weight_factors), 10)
+  rest <- setdiff(names(ctrl), c("ode_weight_times", "ode_weight_factors"))
+  expect_identical(unclass(win)[rest], unclass(ctrl)[rest])
+
+  ## An invader that matures later earns later, so the window that protects it
+  ## weighs no step more and some less.
+  guarded <- control_window(pilot, list(stand(3)), base = ctrl)
+  expect_true(all(guarded$ode_weight_factors <= win$ode_weight_factors))
+  expect_true(any(guarded$ode_weight_factors < win$ode_weight_factors))
+
+  height <- run_scm(stand(2), env(), control_tf24(1e-3))
+  expect_error(control_window(height), "birth-date coordinate")
+})
