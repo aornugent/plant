@@ -3,27 +3,35 @@
 \name{control}
 \alias{control}
 \alias{control_accurate}
+\alias{control_tf24}
 \title{Control presets}
 \usage{
 control(...)
 
 control_accurate(base = Control())
+
+control_tf24(tol = 3e-05, base = Control())
 }
 \arguments{
 \item{...}{Named control fields, passed to \code{Control()}.}
 
-\item{base}{An optional \code{Control} object to tighten; defaults are used
-if omitted.}
+\item{base}{An optional \code{Control} object to start from; defaults are
+used if omitted.}
+
+\item{tol}{The relative tolerance, \code{ode_tol_rel}.}
 }
 \value{
 A \code{Control} object.
 }
 \description{
 Construct a \code{Control} object. \code{control()} is a lowercase alias for
-the \code{Control()} constructor, whose defaults are the pragmatic,
-fast-ish settings used for essentially all of plant's runs (see
-\code{control.cpp}). \code{control_accurate()} tightens the ODE and schedule
-tolerances for high-accuracy runs at the cost of speed.
+the \code{Control()} constructor, whose defaults are the pragmatic, fast-ish
+settings used for essentially all of plant's runs (see \code{control.cpp}).
+\code{control_accurate()} tightens the ODE and schedule tolerances for
+high-accuracy runs at the cost of speed. \code{control_tf24()} sets TF24's
+step control: the relative tolerance \code{tol} with the absolute one at
+1e-4 of it, the soil layers' tolerance factor at 10, each factor bounded at
+100, and steps capped at 15 days. The window's factors stay the caller's.
 }
 \details{
 The SCM's adaptive ODE stepper multiplies each state's error level by a
@@ -40,4 +48,10 @@ and the bound to \code{Inf}, which leaves every step as it was.
 \code{ode_split_sign_changes} integrates each TF24 node in substeps between the
 sign changes of its net production inside a step, in the field sampled at five
 fractions of the step. It is off by default, which leaves every run as it was.
+
+Under \code{control_tf24()} the bound keeps the soil's own error test in force:
+unbounded, the soil's factor times a window factor of 100 reaches 1000, an
+accepted step can carry a soil stage to the potential ceiling, and TF24's
+gradient is refused there. The cap keeps an invader's storage pools stable,
+which Cash-Karp loses on steps past 26 days.
 }
