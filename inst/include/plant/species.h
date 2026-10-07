@@ -548,9 +548,9 @@ Species<T,E>::compute_competition_and_slope(const value_type& height) const {
 }
 
 // One pass over the nodes for the whole height set. Where the prefix form does not
-// hold -- a broken ordering, or a profile that is not a polynomial in w -- every
-// height takes the walk, which is the same branch the walk's own early exit rests
-// on.
+// hold -- a broken ordering on the height coordinate, or a profile that is not a
+// polynomial in w -- every height takes the walk, which is the same branch the
+// walk's own early exit rests on.
 template <typename T, typename E>
 void Species<T,E>::field_splits(const std::vector<value_type>& heights,
                                 std::vector<competition_split>& out) const {
@@ -560,7 +560,8 @@ void Species<T,E>::field_splits(const std::vector<value_type>& heights,
   }
   const HeightScan& scan = scan_heights();
   const std::size_t n_moments = strategy->canopy_shape.n_moments();
-  if (!scan.decreasing || n_moments == 0) {
+  const bool birth_date = control().node_density_in_birth_date;
+  if ((!scan.decreasing && !birth_date) || n_moments == 0) {
     for (std::size_t k = 0; k < heights.size(); ++k) {
       out[k] = compute_competition_and_slope_split(heights[k]);
     }
@@ -588,30 +589,45 @@ void Species<T,E>::field_splits(const std::vector<value_type>& heights,
   }
   moments weight, weight_slope;
 
-  if (control().node_density_in_birth_date) {
+  if (birth_date) {
     // Each node weighted once, and a height reads the prefix of the nodes that
-    // reach it: below its own height a node contributes an exact zero, and the
-    // heights decrease along the list. prefix[i] sums the first i nodes.
+    // reach it: below its own height a node contributes an exact zero. The prefix
+    // runs tallest first, which the node list is until two cohorts cross.
+    std::vector<std::size_t> order(n);
+    for (std::size_t i = 0; i < n; ++i) {
+      order[i] = i;
+    }
+    if (!scan.decreasing) {
+      std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+        return odelia::util::to_passive(nodes[a].height()) >
+               odelia::util::to_passive(nodes[b].height());
+      });
+    }
+    std::vector<value_type> w;
+    w.reserve(n);
+    for_each_establishment_weight([&](const node_type&, const value_type& wi) {
+      w.push_back(wi);
+    });
+    // prefix[i] sums the i tallest nodes.
     std::vector<moments> prefix(n + 1);
     for (std::size_t j = 0; j < n_moments; ++j) {
       prefix[0][j] = value_type(0.0);
     }
-    std::size_t i = 0;
-    for_each_establishment_weight([&](const node_type&, const value_type& w) {
+    for (std::size_t i = 0; i < n; ++i) {
+      const std::size_t o = order[i];
       for (std::size_t j = 0; j < n_moments; ++j) {
-        prefix[i + 1][j] = prefix[i][j] + w * scale[i] * mom[i][j];
+        prefix[i + 1][j] = prefix[i][j] + w[o] * scale[o] * mom[o][j];
       }
-      ++i;
-    });
-    // The heights ascend and the nodes descend, so the count reaching a height
-    // only falls: one merge over both.
+    }
+    // The heights ascend and the nodes in `order` descend, so the count reaching
+    // a height only falls: one merge over both.
     std::size_t reach = n;
     for (std::size_t k = 0; k < heights.size(); ++k) {
       const value_type& height = heights[k];
       if (scan.h_max < height) {
         continue;  // no node reaches it; the empty split stands
       }
-      while (reach > 0 && nodes[reach - 1].height() < height) {
+      while (reach > 0 && nodes[order[reach - 1]].height() < height) {
         --reach;
       }
       strategy->canopy_shape.height_weights(height, weight);
