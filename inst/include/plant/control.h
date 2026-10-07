@@ -90,6 +90,10 @@ struct Control {
   // production inside a step, in the field sampled at five fractions of the step.
   bool ode_split_sign_changes;
 
+  // Step TF24's soil alone, by inner steps of its own, on each step that starts
+  // with the plants' uptake under this share of the water moving through it.
+  double ode_soil_alone_share;
+
   // Fixed-step ODE integration (forward Euler).  Units: years.  When 0 (the
   // default) the SCM integrates residents with the adaptive, error-controlled
   // Cash-Karp RKCK solver.  When > 0 it instead uses plain forward Euler on a

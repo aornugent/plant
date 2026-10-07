@@ -68,6 +68,15 @@ concept NamesSignValue = requires(const T& s) {
   { s.sign_value_aux() } -> std::same_as<int>;
 };
 
+// An environment whose soil a step can take alone: its first n_resources()
+// states, which read the plants only through the uptake from each.
+template <typename E>
+concept SoilStepsAlone =
+  requires(const E& e, std::vector<typename E::value_type>& u) {
+  e.alone_inputs(u);
+  { e.uptake_share() } -> std::convertible_to<double>;
+};
+
 // One rate evaluation's record: what each species solved for, the field it was
 // taken in, and the field it built. Templated on the strategy's own recorded type
 // rather than nested in Patch, so that a patch and the same patch lifted to an
@@ -281,6 +290,25 @@ public:
     std::vector<double> w;
     error_weights(time, w);
     return w;
+  }
+
+  // The environment's soil, which a step takes alone where the plants' uptake is
+  // under ode_soil_alone_share of the water moving through it. Its layers open
+  // the environment's states, which close the patch's.
+  std::pair<size_t, size_t> alone_block() const requires SoilStepsAlone<E> {
+    return {ode_size() - environment.ode_size(), environment.n_resources()};
+  }
+  bool steps_alone() const requires SoilStepsAlone<E> {
+    return environment.uptake_share() < control.ode_soil_alone_share;
+  }
+  void alone_inputs(std::vector<value_type>& u) const
+    requires SoilStepsAlone<E> {
+    environment.alone_inputs(u);
+  }
+  template <class U>
+  void alone_rates(double t, const std::vector<U>& y, const std::vector<U>& u,
+                   std::vector<U>& out) const requires SoilStepsAlone<E> {
+    environment.alone_rates(t, y, u, out);
   }
 
   // Returns state in structure format as opposed to single 

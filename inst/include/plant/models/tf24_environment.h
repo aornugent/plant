@@ -313,7 +313,7 @@ public:
       vars.states[i] = S(odelia::util::to_passive(src.vars.states[i]));
     }
     water_flux.assign(src.water_flux.size(), S(0.0));
-    resource_uptake.assign(src.resource_uptake.size(), 0.0);
+    resource_uptake.assign(src.resource_uptake.size(), S(0.0));
     z = src.z;
     z_mid = src.z_mid;
     dz = src.dz;
@@ -355,10 +355,9 @@ public:
 
   // The state the solver integrates, and the uptake compute_rates received.
   Internals<S> vars;
-  // Double: this is the uptake read back out through the R-facing aux interface,
-  // never an input to a rate, so holding it at the working scalar was a slot per
-  // layer per stage for a reading.
-  std::vector<double> resource_uptake;
+  // At the working scalar: a step that takes the soil alone reads it as the
+  // layers' inputs, and the sweep differentiates through them.
+  std::vector<S> resource_uptake;
 
   // TODO: should we use auxilliary in internals
   std::vector<S> water_flux;
@@ -431,11 +430,11 @@ public:
   ResourceSpline<S> light_availability;
 
   // Every active value this environment holds: the integrated state and its
-  // rates, the per-layer flux, the potentials derived from the state, and the
-  // light field's knot values and slopes.
+  // rates, the per-layer flux and uptake, the potentials derived from the state,
+  // and the light field's knot values and slopes.
   template <class F>
   void for_each_active(F&& f) {
-    odelia::ode::visit_active(f, vars, water_flux, psi_soil_,
+    odelia::ode::visit_active(f, vars, water_flux, resource_uptake, psi_soil_,
                               light_availability);
   }
 
@@ -630,7 +629,7 @@ public:
         rate = 0.0;
       }
       vars.set_rate(i, rate);
-      resource_uptake[i] = odelia::util::to_passive(resource_depletion[i]);
+      resource_uptake[i] = resource_depletion[i];
       total_resource_depletion += resource_depletion[i];
     }
       vars.set_rate(soil_number_of_depths, rainfall);
@@ -683,6 +682,25 @@ public:
     const double soil_moist_sat_0 =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
     return U(1) - a_infil * pow(theta / soil_moist_sat_0, b_infil);
+  }
+
+  // The uptake from each layer at the last evaluation, which the layers read the
+  // plants through.
+  void alone_inputs(std::vector<S>& u) const { u = resource_uptake; }
+
+  // The uptake's share of the water moving through the layers at the last
+  // evaluation: what each layer takes in, drains and loses to the plants.
+  double uptake_share() const {
+    using odelia::util::to_passive;
+    double taken = 0.0, moving = 0.0;
+    for (size_t i = 0; i < n_resources(); ++i) {
+      const double in = to_passive(i == 0 ? vars.rate(soil_number_of_depths + 1)
+                                          : water_flux[i - 1]);
+      const double u = std::abs(to_passive(resource_uptake[i]));
+      taken += u;
+      moving += std::abs(in) + std::abs(to_passive(water_flux[i])) + u;
+    }
+    return taken / moving;
   }
 
   // The layers' rates under infiltration and drainage, less the uptake u from

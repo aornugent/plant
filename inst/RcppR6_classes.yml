@@ -393,6 +393,7 @@ Control:
     - ode_weight_factors: "std::vector<double>"
     - ode_weight_max: double
     - ode_split_sign_changes: bool
+    - ode_soil_alone_share: double
     - fixed_time_step: double
     - schedule_nsteps: size_t
     - schedule_eps: double
