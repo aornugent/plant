@@ -736,6 +736,16 @@ test_that("A run that took the soil alone replays, sweeps and is walked as it ra
   expect_identical(again$patch$ode_state, alone$patch$ode_state)
   expect_identical(again$ode_alone_steps, alone$ode_alone_steps)
   expect_identical(again$ode_splits, alone$ode_splits)
+  ## So does the program carried in the parameters, with the introductions given
+  ## as events.
+  q <- p
+  q$ode_times <- alone$ode_times
+  q$ode_step_sizes <- alone$ode_step_sizes
+  q$ode_alone_slopes <- alone$ode_alone_slopes
+  q$ode_alone_steps <- alone$ode_alone_steps
+  carried <- run_scm(q, env(), ctrl, events = events(events_default(q)))
+  expect_identical(carried$patch$ode_state, alone$patch$ode_state)
+  expect_identical(carried$ode_alone_steps, alone$ode_alone_steps)
 
   ## The sweep holds each step's inner steps and slope, as a replay at another lma
   ## does: central differences of the replayed program agree.
