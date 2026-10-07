@@ -178,13 +178,18 @@ std::vector<odelia::ode::instruction> NodeSchedule::program() const {
     const double start = schedule[k].time;
     const double end = k + 1 < schedule.size() ? schedule[k + 1].time : max_time;
     ret.push_back({start, nan, true});
-    // A step at a boundary is excluded, because the step to the end reaches it.
     for (; step != ode_steps.end() && step->time < end; ++step) {
       if (step->time > start) {
         ret.push_back(*step);
       }
     }
-    ret.push_back({end, nan});
+    // As recorded where the run recorded it: a step to the end never takes the
+    // soil alone, so it would step the soil past its stability limit.
+    if (step != ode_steps.end() && util::identical(step->time, end)) {
+      ret.push_back(*step);
+    } else {
+      ret.push_back({end, nan});
+    }
   }
   return ret;
 }
@@ -246,6 +251,24 @@ std::vector<double> NodeSchedule::r_ode_step_sizes() const {
   return ret;
 }
 
+std::vector<std::vector<double> > NodeSchedule::r_ode_alone_slopes() const {
+  std::vector<std::vector<double> > ret;
+  ret.reserve(ode_steps.size());
+  for (const odelia::ode::instruction& r : ode_steps) {
+    ret.push_back(r.alone.slope);
+  }
+  return ret;
+}
+
+std::vector<std::vector<double> > NodeSchedule::r_ode_alone_steps() const {
+  std::vector<std::vector<double> > ret;
+  ret.reserve(ode_steps.size());
+  for (const odelia::ode::instruction& r : ode_steps) {
+    ret.push_back(r.alone.ends);
+  }
+  return ret;
+}
+
 // The ODE schedule this run takes: times to stop at, and the sizes that reached
 // them where a recorded run is being replayed. Both at once, because a size
 // belongs to the time it was recorded with and there is no version of this that
@@ -255,8 +278,22 @@ std::vector<double> NodeSchedule::r_ode_step_sizes() const {
 // caller recorded: the solver steps TO each time instead of by a recorded size.
 // A schedule holding either replays it -- there is no flag to turn that on, so to
 // integrate freely instead, hand over no schedule.
-void NodeSchedule::r_set_ode_steps(std::vector<double> times,
-                                   std::vector<double> sizes) {
+void NodeSchedule::r_set_ode_steps(
+    std::vector<double> times, std::vector<double> sizes,
+    std::vector<std::vector<double> > alone_slopes,
+    std::vector<std::vector<double> > alone_steps) {
+  if (alone_slopes.size() != sizes.size() ||
+      alone_steps.size() != sizes.size()) {
+    Rcpp::stop("ode_alone_slopes and ode_alone_steps must be as long as "
+               "ode_step_sizes");
+  }
+  for (size_t i = 0; i < alone_slopes.size(); ++i) {
+    if (alone_slopes[i].empty() != alone_steps[i].empty()) {
+      Rcpp::stop("A step that took the soil alone needs both its slope and "
+                 "its inner steps; step " + std::to_string(i + 1) +
+                 " has one");
+    }
+  }
   if (times.empty()) {
     r_clear_ode_steps();
     return;
@@ -288,6 +325,9 @@ void NodeSchedule::r_set_ode_steps(std::vector<double> times,
   ode_steps.reserve(times.size());
   for (size_t i = 0; i < times.size(); ++i) {
     ode_steps.push_back({times[i], sizes[i]});
+    if (!alone_slopes.empty()) {
+      ode_steps.back().alone = {alone_slopes[i], alone_steps[i]};
+    }
   }
   if (!util::is_finite(max_time)) {
     max_time = ode_steps.back().time;

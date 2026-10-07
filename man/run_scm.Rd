@@ -24,8 +24,9 @@ run_scm(
 \item{refine_schedule}{Should the node-introduction schedule be adaptively
 refined before/while running (using \code{schedule_eps} and
 \code{schedule_nsteps} from \code{ctrl})? Refinement records the ODE
-schedule its final run took into \code{p$ode_times} and
-\code{p$ode_step_sizes}, so a later run of those parameters replays it
+schedule its final run took into \code{p$ode_times},
+\code{p$ode_step_sizes}, \code{p$ode_alone_slopes} and
+\code{p$ode_alone_steps}, so a later run of those parameters replays it
 exactly rather than choosing its own steps again.}
 
 \item{collect}{Should tidied results be collected at every step and

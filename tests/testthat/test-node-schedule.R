@@ -250,19 +250,19 @@ test_that("ode_times", {
   sched$max_time <- max_t
 
   none <- numeric(0)
-  sched$set_ode_steps(none, none)
+  sched$set_ode_steps(none, none, list(), list())
   expect_identical(sched$ode_times, none)
 
   ## Too few values:
-  expect_error(sched$set_ode_steps(c(0.0), none), "Need at least two times")
+  expect_error(sched$set_ode_steps(c(0.0), none, list(), list()), "Need at least two times")
   ## Does not start at 0
-  expect_error(sched$set_ode_steps(c(1, 2, 3), none),
+  expect_error(sched$set_ode_steps(c(1, 2, 3), none, list(), list()),
                "First time must be exactly zero")
   ## Does not finish at time_max
-  expect_error(sched$set_ode_steps(c(0.0, 2, 3), none),
+  expect_error(sched$set_ode_steps(c(0.0, 2, 3), none, list(), list()),
                "Last time must be exactly max_time")
   ## Is not sorted:
-  expect_error(sched$set_ode_steps(sched$max_time * c(0, .5, .3, 1), none),
+  expect_error(sched$set_ode_steps(sched$max_time * c(0, .5, .3, 1), none, list(), list()),
                "ode_times must be sorted")
   ## ...and check that none of these caused the times to be set
   expect_false(sched$using_ode_steps)
@@ -288,7 +288,7 @@ test_that("ode_times", {
   sched$max_time <- max_t
   # A grid: times with no sizes, so the solver steps to each of them. A schedule
   # holding one uses it -- there is nothing to switch on.
-  sched$set_ode_steps(t_ode, numeric(0))
+  sched$set_ode_steps(t_ode, numeric(0), list(), list())
   expect_true(sched$using_ode_steps)
   expect_identical(sched$ode_times, t_ode)
   expect_true(all(is.na(sched$ode_step_sizes)))
@@ -311,7 +311,7 @@ test_that("ode_times", {
   expect_equal(sched$ode_times, numeric(0))
 
   sched$max_time <- Inf
-  sched$set_ode_steps(t_ode, numeric(0))
+  sched$set_ode_steps(t_ode, numeric(0), list(), list())
   expect_true(sched$using_ode_steps)
   expect_identical(sched$ode_times, t_ode)
   expect_identical(sched$max_time, max(t_ode))

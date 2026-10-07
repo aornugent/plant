@@ -717,14 +717,15 @@ test_that("a program replayed at other parameters holds by its sizes and by its 
   p0 <- scm_base_parameters("TF24")
   p0$max_patch_lifetime <- 2
 
-  run_at <- function(lma, times = NULL, sizes = NULL) {
+  run_at <- function(lma, times = NULL, sizes = NULL, slopes = list(),
+                     steps = list()) {
     p <- add_strategies(p0, trait_matrix(lma, "lma"))
     env <- Environment("TF24")
     env$extrinsic_drivers_set_constant("rainfall", 3.0)
     scm <- SCM("TF24", "TF24_Env")(p, env, empty_events(), Control())
     if (!is.null(times)) {
       sched <- scm$node_schedule
-      sched$set_ode_steps(times, sizes)
+      sched$set_ode_steps(times, sizes, slopes, steps)
       scm$node_schedule <- sched
     }
     scm$run()
@@ -735,8 +736,10 @@ test_that("a program replayed at other parameters holds by its sizes and by its 
   times <- free$ode_times
   sizes <- free$ode_step_sizes
 
-  for (pinned_sizes in list(sizes, numeric(0))) {
-    replayed <- run_at(0.0825 * 6, times, pinned_sizes)
+  replays <- list(list(sizes, free$ode_alone_slopes, free$ode_alone_steps),
+                  list(numeric(0), list(), list()))
+  for (pinned in replays) {
+    replayed <- run_at(0.0825 * 6, times, pinned[[1]], pinned[[2]], pinned[[3]])
     expect_identical(replayed$ode_times, times)
     expect_true(all(is.finite(replayed$offspring_production)))
   }
