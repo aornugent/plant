@@ -450,6 +450,31 @@ test_that("on the birth-date coordinate the field takes crossed crowns tallest f
                tolerance = 1e-14)
 })
 
+test_that("the birth-date field spreads each interval's leaf area between its nodes", {
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 2
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(),
+                                 Control(node_density_in_birth_date = TRUE))
+  scm$run()
+  patch <- scm$patch
+  sp <- patch$species[[1]]
+
+  # At the ground every crown is whole, so the field is each node's leaf area
+  # times its establishment weight, the boundary node's last.
+  at_ground <- c(vapply(sp$nodes, function(n) n$compute_competition(0), 0),
+                 sp$new_node$compute_competition(0))
+  expect_equal(patch$compute_competition(0),
+               sum(sp$establishment_weights * at_ground), tolerance = 1e-14)
+
+  # The oldest node's share is spread toward its younger neighbour, the tallest
+  # of its crowns a sixteenth of the way, so above that the field is empty.
+  h <- sp$heights
+  expect_gt(h[1], h[2])
+  expect_identical(patch$compute_competition(h[1] - (h[1] - h[2]) / 32), 0)
+  expect_gt(patch$compute_competition(h[1] - (h[1] - h[2]) / 8), 0)
+})
+
 # A multi-cohort FF16 patch at a given eta, with the cohort heights pushed apart
 # so the trapezium grid the competition reduction walks is non-degenerate.
 slope_patch <- function(eta, n = 6) {
