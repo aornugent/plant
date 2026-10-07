@@ -441,6 +441,7 @@ template <> inline SEXP wrap(const plant::Control& x) {
   ret["ode_tol_factor_values"] = Rcpp::wrap(x.ode_tol_factor_values);
   ret["ode_tol_factor_max"] = Rcpp::wrap(x.ode_tol_factor_max);
   ret["ode_split_sign_changes"] = Rcpp::wrap(x.ode_split_sign_changes);
+  ret["ode_soil_alone_share"] = Rcpp::wrap(x.ode_soil_alone_share);
   ret["fixed_time_step"] = Rcpp::wrap(x.fixed_time_step);
   ret["schedule_nsteps"] = Rcpp::wrap(x.schedule_nsteps);
   ret["schedule_eps"] = Rcpp::wrap(x.schedule_eps);
@@ -510,6 +511,8 @@ template <> inline plant::Control as(SEXP x) {
   ret.ode_tol_factor_max = Rcpp::as<double >(xl["ode_tol_factor_max"]);
   // ret.ode_split_sign_changes = Rcpp::as<decltype(retode_split_sign_changes) >(xl["ode_split_sign_changes"]);
   ret.ode_split_sign_changes = Rcpp::as<bool >(xl["ode_split_sign_changes"]);
+  // ret.ode_soil_alone_share = Rcpp::as<decltype(retode_soil_alone_share) >(xl["ode_soil_alone_share"]);
+  ret.ode_soil_alone_share = Rcpp::as<double >(xl["ode_soil_alone_share"]);
   // ret.fixed_time_step = Rcpp::as<decltype(retfixed_time_step) >(xl["fixed_time_step"]);
   ret.fixed_time_step = Rcpp::as<double >(xl["fixed_time_step"]);
   // ret.schedule_nsteps = Rcpp::as<decltype(retschedule_nsteps) >(xl["schedule_nsteps"]);
