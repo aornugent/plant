@@ -324,6 +324,48 @@ private:
     return last.interval_shares(new_node.introduction_time() -
                                 last.introduction_time()).second;
   }
+  // The birth-date field's crowns. The interval from `node` to `end`, the next
+  // node, holds `point_crowns` crowns at heights between the two nodes', carrying
+  // both nodes' shares of it, each weighted toward its own node.
+  static constexpr int point_crowns = 8;
+  static double point_crown_at(int s) { return (s + 0.5) / point_crowns; }
+  template <typename F>
+  void for_each_interval_crown(const node_type& node, const node_type& end,
+                               F visit) const {
+    const auto share =
+      node.interval_shares(end.introduction_time() - node.introduction_time());
+    const value_type at_node = share.first * node.compute_competition(0.0);
+    const value_type at_end = share.second * end.compute_competition(0.0);
+    if (!util::is_finite(at_node) || !util::is_finite(at_end)) {
+      util::stop("Detected non-finite contribution");
+    }
+    const value_type& h = node.height();
+    for (int s = 0; s < point_crowns; ++s) {
+      const double lambda = point_crown_at(s);
+      visit(h + lambda * (end.height() - h),
+            at_node * (2.0 * (1.0 - lambda) / point_crowns) +
+              at_end * (2.0 * lambda / point_crowns));
+    }
+  }
+  // The crowns of the intervals between nodes, which the ODE state alone sets. The
+  // boundary interval, from the newest node to the boundary node, is the close's.
+  template <typename F>
+  void for_each_point_crown(F visit) const {
+    for (size_t i = 0; i + 1 < size(); ++i) {
+      for_each_interval_crown(nodes[i], nodes[i + 1], visit);
+    }
+  }
+  // A crown of leaf area `w` whose top is `h`, read at `height`.
+  void add_crown(with_slope<value_type>& sum, const value_type& h,
+                 const value_type& w, const value_type& height) const {
+    if (height <= h) {
+      const value_type h_inv = 1.0 / h;
+      const std::pair<value_type, value_type> Qq =
+        strategy->canopy_shape.Q_and_q(height * h_inv, height, h_inv);
+      sum.value += w * Qq.first;
+      sum.slope -= w * Qq.second;
+    }
+  }
   // ⚠️ `f` MUST DECLARE ITS RETURN TYPE: an active product returned through a
   // deduced one is an expression template referencing operands that die in `f`.
   template <typename F>
@@ -573,8 +615,66 @@ void Species<T,E>::field_splits(const std::vector<value_type>& heights,
   }
 
   using moments = std::array<value_type, CanopyShape<value_type>::max_moments>;
-  const std::size_t n = size();
+  moments weight, weight_slope;
 
+  if (birth_date) {
+    // Each point crown weighted once, and a height reads the prefix of the crowns
+    // that reach it: below its own top a crown contributes an exact zero. The
+    // prefix runs tallest first, which the crowns are in until two cohorts cross.
+    std::vector<value_type> top, w;
+    std::vector<moments> mom;
+    for_each_point_crown([&](const value_type& h, const value_type& wi) {
+      top.push_back(h);
+      w.push_back(wi);
+      mom.emplace_back();
+      strategy->canopy_shape.crown_moments(1.0 / h, mom.back());
+    });
+    const std::size_t n = top.size();
+    std::vector<std::size_t> order(n);
+    for (std::size_t i = 0; i < n; ++i) {
+      order[i] = i;
+    }
+    const auto taller = [&](std::size_t a, std::size_t b) {
+      return odelia::util::to_passive(top[a]) > odelia::util::to_passive(top[b]);
+    };
+    if (!std::is_sorted(order.begin(), order.end(), taller)) {
+      std::stable_sort(order.begin(), order.end(), taller);
+    }
+    // prefix[i] sums the i tallest crowns.
+    std::vector<moments> prefix(n + 1);
+    for (std::size_t j = 0; j < n_moments; ++j) {
+      prefix[0][j] = value_type(0.0);
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+      const std::size_t o = order[i];
+      for (std::size_t j = 0; j < n_moments; ++j) {
+        prefix[i + 1][j] = prefix[i][j] + w[o] * mom[o][j];
+      }
+    }
+    // The heights ascend and the crowns in `order` descend, so the count reaching
+    // a height only falls: one merge over both.
+    std::size_t reach = n;
+    for (std::size_t k = 0; k < heights.size(); ++k) {
+      const value_type& height = heights[k];
+      if (scan.h_max < height) {
+        continue;  // no node reaches it; the empty split stands
+      }
+      while (reach > 0 && top[order[reach - 1]] < height) {
+        --reach;
+      }
+      strategy->canopy_shape.height_weights(height, weight);
+      strategy->canopy_shape.height_weight_slopes(height, weight_slope);
+      competition_split& c = out[k];
+      for (std::size_t j = 0; j < n_moments; ++j) {
+        c.without_boundary.value += weight[j] * prefix[reach][j];
+        c.without_boundary.slope += weight_slope[j] * prefix[reach][j];
+      }
+      c.closes = true;
+    }
+    return;
+  }
+
+  const std::size_t n = size();
   // Per node, read once for the whole height set rather than once per height: the
   // factor multiplying Q -- which is the node's contribution at height zero,
   // because Q(0) is exactly one for every profile that has this form -- and the
@@ -590,60 +690,6 @@ void Species<T,E>::field_splits(const std::vector<value_type>& heights,
       }
       strategy->canopy_shape.crown_moments(1.0 / it->height(), mom[i]);
     }
-  }
-  moments weight, weight_slope;
-
-  if (birth_date) {
-    // Each node weighted once, and a height reads the prefix of the nodes that
-    // reach it: below its own height a node contributes an exact zero. The prefix
-    // runs tallest first, which the node list is until two cohorts cross.
-    std::vector<std::size_t> order(n);
-    for (std::size_t i = 0; i < n; ++i) {
-      order[i] = i;
-    }
-    if (!scan.decreasing) {
-      std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
-        return odelia::util::to_passive(nodes[a].height()) >
-               odelia::util::to_passive(nodes[b].height());
-      });
-    }
-    std::vector<value_type> w;
-    w.reserve(n);
-    for_each_establishment_weight([&](const node_type&, const value_type& wi) {
-      w.push_back(wi);
-    });
-    // prefix[i] sums the i tallest nodes.
-    std::vector<moments> prefix(n + 1);
-    for (std::size_t j = 0; j < n_moments; ++j) {
-      prefix[0][j] = value_type(0.0);
-    }
-    for (std::size_t i = 0; i < n; ++i) {
-      const std::size_t o = order[i];
-      for (std::size_t j = 0; j < n_moments; ++j) {
-        prefix[i + 1][j] = prefix[i][j] + w[o] * scale[o] * mom[o][j];
-      }
-    }
-    // The heights ascend and the nodes in `order` descend, so the count reaching
-    // a height only falls: one merge over both.
-    std::size_t reach = n;
-    for (std::size_t k = 0; k < heights.size(); ++k) {
-      const value_type& height = heights[k];
-      if (scan.h_max < height) {
-        continue;  // no node reaches it; the empty split stands
-      }
-      while (reach > 0 && nodes[order[reach - 1]].height() < height) {
-        --reach;
-      }
-      strategy->canopy_shape.height_weights(height, weight);
-      strategy->canopy_shape.height_weight_slopes(height, weight_slope);
-      competition_split& c = out[k];
-      for (std::size_t j = 0; j < n_moments; ++j) {
-        c.without_boundary.value += weight[j] * prefix[reach][j];
-        c.without_boundary.slope += weight_slope[j] * prefix[reach][j];
-      }
-      c.closes = true;
-    }
-    return;
   }
 
   std::vector<double> abscissa(n);
@@ -801,16 +847,11 @@ Species<T,E>::compute_competition_and_slope_split(const value_type& height) cons
     return competition_split();
   }
   if (control().node_density_in_birth_date) {
-    // A weighted sum, so a node below `height` adds an exact zero and the order
-    // of the nodes does not matter.
+    // A weighted sum, so a crown below `height` adds an exact zero and the order
+    // of the crowns does not matter.
     competition_split c;
-    for_each_establishment_weight([&](const node_type& n, const value_type& w) {
-      const with_slope<value_type> fs = n.compute_competition_and_slope(height);
-      if (!util::is_finite(fs.value) || !util::is_finite(fs.slope)) {
-        util::stop("Detected non-finite contribution");
-      }
-      c.without_boundary.value += w * fs.value;
-      c.without_boundary.slope += w * fs.slope;
+    for_each_point_crown([&](const value_type& h, const value_type& w) {
+      add_crown(c.without_boundary, h, w, height);
     });
     c.closes = true;
     return c;
@@ -830,13 +871,18 @@ Species<T,E>::close_competition_and_slope(const competition_split& c,
   if (!c.closes) {
     return c.without_boundary;
   }
+  if (control().node_density_in_birth_date) {
+    with_slope<value_type> sum = c.without_boundary;
+    if (!nodes.empty()) {
+      for_each_interval_crown(nodes.back(), new_node,
+                              [&](const value_type& h, const value_type& w) {
+                                add_crown(sum, h, w, height);
+                              });
+    }
+    return sum;
+  }
   const with_slope<value_type> fs0 =
     new_node.compute_competition_and_slope(height);
-  if (control().node_density_in_birth_date) {
-    const value_type w = boundary_weight();
-    return {c.without_boundary.value + w * fs0.value,
-            c.without_boundary.slope + w * fs0.slope};
-  }
   const double x0 = abscissa_of(new_node, false);
   return {c.without_boundary.value + (x0 - c.x1) * (c.at_x1.value + fs0.value) / 2,
           c.without_boundary.slope + (x0 - c.x1) * (c.at_x1.slope + fs0.slope) / 2};
