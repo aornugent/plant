@@ -127,6 +127,11 @@ void NodeSchedule::set_all_events(const std::vector<Event>& events_) {
   reset();
 }
 
+void NodeSchedule::add_instant(double time) {
+  entry_at(time);
+  reset();
+}
+
 // Find the instant, or make it. Every entry seeds `times` with its own time, so
 // time_introduction() and time_end() are answerable the moment it exists.
 std::vector<schedule_entry>::iterator NodeSchedule::entry_at(double time) {

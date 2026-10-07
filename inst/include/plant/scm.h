@@ -753,9 +753,9 @@ void SCM<T, E>::end_interval(const std::vector<size_t>& added) {
 // identical to a strategy of the recorded run must come back with its fitness.
 //
 // run() walks the run's recording with `p`'s strategies, on the recorded run's
-// events and `p`'s introductions, each evaluation in the field the run built
-// there. A run that kept its states kept those fields beside them; one that did
-// not is repeated first, keeping both.
+// events and `p`'s introductions, some or all of the run's, each evaluation in
+// the field the run built there. A run that kept its states kept those fields
+// beside them; one that did not is repeated first, keeping both.
 //
 // The recording outlives the call, so a second invasion repeats nothing, and it
 // is still the first community's field, because this call overwrites
@@ -798,11 +798,30 @@ void SCM<T, E>::run_mutant(parameters_type p) {
         row.solved.samples.clear();
       }
     }
+    std::vector<double> born;
+    for (size_t i = 0; i < patch.size(); ++i) {
+      const std::vector<double> times = patch.at_species(i).node_times();
+      born.insert(born.end(), times.begin(), times.end());
+    }
+    patch.set_run_birth_dates(born);
   }
 
   // Destructive, as it has always been: the invaders become this SCM's
   // community, and its outputs are theirs.
   std::vector<NodeScheduleEvent> events = make_node_schedule(p).get_events();
+  // An invader's node is walked as a copy of the run's node born on its date.
+  const std::vector<double>& born = patch.get_run_birth_dates();
+  for (const NodeScheduleEvent& e : events) {
+    const double time = e.time_introduction();
+    if (std::none_of(born.begin(), born.end(),
+                     [&](double b) { return util::identical(b, time); })) {
+      std::ostringstream m;
+      m.precision(17);
+      m << "An invader is introduced at t=" << time
+        << ", where the run introduced no node";
+      util::stop(m.str());
+    }
+  }
   for (const NodeScheduleEvent& e : node_schedule.get_events()) {
     if (!e.is_node_introduction()) {
       events.push_back(e);
@@ -813,6 +832,13 @@ void SCM<T, E>::run_mutant(parameters_type p) {
   node_schedule = NodeSchedule(parameters.size());
   node_schedule.r_set_max_time(parameters.max_patch_lifetime);
   node_schedule.set_all_events(events);
+  // A walk applies an entry at every recorded insertion, so an invader introduced
+  // at some of the run's introductions takes an empty entry at the others.
+  for (const odelia::ode::step_record<patch_type>& row : invaded_run) {
+    if (row.insertion) {
+      node_schedule.add_instant(row.time);
+    }
+  }
   run();
 }
 
