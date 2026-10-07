@@ -328,6 +328,8 @@ NodeSchedule:
     max_time: {type: double, access: member, name_cpp: get_max_time, name_cpp_set: r_set_max_time}
     ode_times: {type: "std::vector<double>", access: member, name_cpp: r_ode_times}
     ode_step_sizes: {type: "std::vector<double>", access: member, name_cpp: r_ode_step_sizes}
+    ode_alone_slopes: {type: "std::vector<std::vector<double> >", access: member, name_cpp: r_ode_alone_slopes}
+    ode_alone_steps: {type: "std::vector<std::vector<double> >", access: member, name_cpp: r_ode_alone_steps}
     using_ode_steps: {type: bool, access: member, name_cpp: using_ode_steps}
     all_times: {type: SEXP, access: member, name_cpp: r_all_times, name_cpp_set: r_set_all_times}
   methods:
@@ -340,7 +342,7 @@ NodeSchedule:
     set_ode_steps:
       return_type: void
       name_cpp: r_set_ode_steps
-      args: [times: "std::vector<double>", sizes: "std::vector<double>"]
+      args: [times: "std::vector<double>", sizes: "std::vector<double>", alone_slopes: "std::vector<std::vector<double> >", alone_steps: "std::vector<std::vector<double> >"]
     clear_ode_steps:
       return_type: void
       name_cpp: r_clear_ode_steps
@@ -611,6 +613,8 @@ Parameters:
     - node_schedule_times: "std::vector<std::vector<double> >"
     - ode_times: "std::vector<double>"
     - ode_step_sizes: "std::vector<double>"
+    - ode_alone_slopes: "std::vector<std::vector<double> >"
+    - ode_alone_steps: "std::vector<std::vector<double> >"
     - initial_state: "std::vector<double>"
     - n_initial_cohorts: "std::vector<size_t>"
     - initial_node_times: "std::vector<double>"
@@ -910,6 +914,15 @@ SCM:
       type: "std::vector<double>"
       access: member
       name_cpp: r_ode_step_sizes
+    # Each step's record of taking the soil alone: its slope and inner steps.
+    ode_alone_slopes:
+      type: "std::vector<std::vector<double> >"
+      access: member
+      name_cpp: r_ode_alone_slopes
+    ode_alone_steps:
+      type: "std::vector<std::vector<double> >"
+      access: member
+      name_cpp: r_ode_alone_steps
     # How each attempt at a step ended, counted over the run: accepted,
     # accepted_at_minimum, rejected_inaccurate, rejected_thrown, rejected_refused.
     ode_step_attempts:

@@ -480,6 +480,10 @@ public:
   // alone it steps TO each of them and chooses its own sub-steps, which is what
   // a difference of two runs wants -- one grid, each side free to reach it.
   std::vector<double> r_ode_step_sizes() const;
+  // Each step's record of taking the soil alone, beside its size; both empty
+  // for a step that took the soil with the rest.
+  std::vector<std::vector<double> > r_ode_alone_slopes() const;
+  std::vector<std::vector<double> > r_ode_alone_steps() const;
 
   // How each attempt at an error-controlled step ended over the last run, named.
   // accepted + accepted_at_minimum is the number of steps r_ode_times() holds;
@@ -892,11 +896,13 @@ void SCM<T, E>::refine_schedule() {
   const std::vector<odelia::ode::instruction> taken = solver.schedule();
   parameters.ode_times.clear();
   parameters.ode_step_sizes.clear();
-  parameters.ode_times.reserve(taken.size());
-  parameters.ode_step_sizes.reserve(taken.size());
+  parameters.ode_alone_slopes.clear();
+  parameters.ode_alone_steps.clear();
   for (const odelia::ode::instruction& step : taken) {
     parameters.ode_times.push_back(step.time);
     parameters.ode_step_sizes.push_back(step.step_size);
+    parameters.ode_alone_slopes.push_back(step.alone.slope);
+    parameters.ode_alone_steps.push_back(step.alone.ends);
   }
 }
 
@@ -1014,6 +1020,24 @@ std::vector<double> SCM<T, E>::r_ode_times() const {
 template <typename T, typename E>
 std::vector<double> SCM<T, E>::r_ode_step_sizes() const {
   return solver.step_sizes();
+}
+
+template <typename T, typename E>
+std::vector<std::vector<double> > SCM<T, E>::r_ode_alone_slopes() const {
+  std::vector<std::vector<double> > ret;
+  for (const odelia::ode::instruction& step : solver.schedule()) {
+    ret.push_back(step.alone.slope);
+  }
+  return ret;
+}
+
+template <typename T, typename E>
+std::vector<std::vector<double> > SCM<T, E>::r_ode_alone_steps() const {
+  std::vector<std::vector<double> > ret;
+  for (const odelia::ode::instruction& step : solver.schedule()) {
+    ret.push_back(step.alone.ends);
+  }
+  return ret;
 }
 
 template <typename T, typename E>

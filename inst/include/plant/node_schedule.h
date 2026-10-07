@@ -156,8 +156,9 @@ public:
   size_t remaining() const;
 
   // The pinned run as rows: its start, then for each entry the insertion it
-  // makes, the ODE steps strictly inside its interval, and a step to the
-  // interval's end, which is the clamped step a run stops there with.
+  // makes and the ODE steps across its interval. The last reaches the
+  // interval's end by its recorded size where the run recorded one, and is a
+  // step to the end otherwise.
   std::vector<odelia::ode::instruction> program() const;
 
   double get_max_time() const;
@@ -171,9 +172,14 @@ public:
   void r_set_max_time(double x);
   std::vector<double> r_ode_times() const;
   std::vector<double> r_ode_step_sizes() const;
-  // The two halves of one recording, installed together: apart, they can be
-  // paired across different runs and nothing says so.
-  void r_set_ode_steps(std::vector<double> times, std::vector<double> sizes);
+  std::vector<std::vector<double> > r_ode_alone_slopes() const;
+  std::vector<std::vector<double> > r_ode_alone_steps() const;
+  // The parts of one recording, installed together: apart, they can be paired
+  // across different runs and nothing says so. Each step's soil record goes
+  // with its size, so a grid of times alone carries none.
+  void r_set_ode_steps(std::vector<double> times, std::vector<double> sizes,
+                       std::vector<std::vector<double> > alone_slopes,
+                       std::vector<std::vector<double> > alone_steps);
   void r_clear_ode_steps();
   // Where the walk is, as a list: the time, the species from one, and the time
   // its interval ends. The species are one number each, counted the way R counts
