@@ -424,6 +424,32 @@ test_that("the light field carries Beer's law and its derivative at every knot",
   expect_equal(unname(state[, "slope"]), -as[2, ] * exp(-as[1, ]),
                tolerance = 1e-14)
 })
+test_that("on the birth-date coordinate the field takes crossed crowns tallest first", {
+  # Two cohorts whose heights cross, which TF24's reserve-gated growth allows: the
+  # field at each knot is the walk's there, which sums the nodes in any order.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 2
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  scm <- SCM("TF24", "TF24_Env")(p, Environment("TF24"), empty_events(),
+                                 Control(node_density_in_birth_date = TRUE))
+  scm$run()
+  patch <- scm$patch
+  node <- patch$species[[1]]$nodes[[1]]
+  at <- match("height", node$ode_names) + node$ode_size * c(1, 2)
+  y <- patch$ode_state
+  y[at] <- y[rev(at)]
+  patch$set_ode_state(y, patch$ode_time)
+  expect_true(is.unsorted(rev(patch$species[[1]]$heights)))
+
+  patch$compute_environment()
+  state <- patch$environment$light_availability$state
+  as <- vapply(state[, "height"], patch$compute_competition_and_slope, c(0, 0))
+  expect_equal(unname(state[, "light_availability"]), exp(-as[1, ]),
+               tolerance = 1e-14)
+  expect_equal(unname(state[, "slope"]), -as[2, ] * exp(-as[1, ]),
+               tolerance = 1e-14)
+})
+
 # A multi-cohort FF16 patch at a given eta, with the cohort heights pushed apart
 # so the trapezium grid the competition reduction walks is non-degenerate.
 slope_patch <- function(eta, n = 6) {
