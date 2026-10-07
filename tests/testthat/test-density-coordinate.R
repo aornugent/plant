@@ -126,12 +126,44 @@ expect_integrates_over <- function(s, grid, z) {
                trapezium_by_hand(grid, competition_integrand(s, z)),
                tolerance = 1e-10)
 }
-## On the birth-date path: each node's competition, boundary node last,
-## weighted by its establishment weight.
+## On the birth-date path at the ground: each node's competition, boundary node
+## last, weighted by its establishment weight.
 expect_weighted_sum <- function(s, z) {
   expect_equal(s$compute_competition(z),
                sum(s$establishment_weights * competition_integrand(s, z)),
                tolerance = 1e-10)
+}
+## On the birth-date path at any height: each interval between neighbouring
+## nodes, the boundary node last, as eight crowns at heights between its ends',
+## each carrying both ends' shares of the interval weighted toward its own end.
+spread_by_hand <- function(s, z) {
+  nodes <- c(s$nodes, s$new_node)
+  t <- c(s$node_times, s$new_node$introduction_time)
+  h <- c(s$heights, s$new_node$height)
+  whole <- vapply(nodes, function(nd) nd$compute_competition(0), numeric(1))
+  ## The profile depends on z / h alone, so any node's crown gives it.
+  Q <- function(u) {
+    if (u > 1) 0 else nodes[[1]]$compute_competition(u * h[[1]]) / whole[[1]]
+  }
+  k <- match(c("interval_establishment", "interval_establishment_moment"),
+             s$new_node$ode_names)
+  lambda <- (seq_len(8) - 0.5) / 8
+  total <- 0
+  for (i in seq_len(length(nodes) - 1)) {
+    y <- nodes[[i]]$ode_state[k]
+    width <- t[[i + 1]] - t[[i]]
+    upper <- if (width > 0) y[[2]] / width else 0
+    at_node <- (y[[1]] - upper) * whole[[i]]
+    at_end <- upper * whole[[i + 1]]
+    for (l in lambda) {
+      total <- total + (at_node * 2 * (1 - l) + at_end * 2 * l) / 8 *
+        Q(z / (h[[i]] + l * (h[[i + 1]] - h[[i]])))
+    }
+  }
+  total
+}
+expect_spread_sum <- function(s, z) {
+  expect_equal(s$compute_competition(z), spread_by_hand(s, z), tolerance = 1e-10)
 }
 
 ## Defect: the competition integral taken by the other coordinate's rule. Caught
@@ -146,7 +178,7 @@ test_that("each coordinate's competition integral is taken by its own rule", {
         expect_identical(s$density_in_birth_date, birth_date)
         for (z in c(0, s$height_max * 0.3, s$height_max * 0.7)) {
           if (birth_date) {
-            expect_weighted_sum(s, z)
+            expect_spread_sum(s, z)
           } else {
             expect_integrates_over(s, quadrature_grid(s), z)
           }
@@ -165,6 +197,9 @@ test_that("each coordinate's competition integral is taken by its own rule", {
   expect_failure(expect_integrates_over(s, quadrature_grid(s), 0))
   s <- short_run("K93", TRUE)$patch$species[[1]]
   expect_integrates_over(s, quadrature_grid(s), 0)
+  ## Above the ground the spread is not each node's crown at its own height.
+  s <- short_run("FF16", TRUE)$patch$species[[1]]
+  expect_failure(expect_weighted_sum(s, s$height_max * 0.3))
 })
 
 ## Defect: a weight that is not the establishment probability integrated
@@ -656,16 +691,14 @@ coordinate_gap <- function(case, refine) {
 ## halving cost 15 s on K93 and 41 s on FF16 against 1.0 s and 4.1 s for the
 ## first two levels together.
 test_that("size-only strategies converge across density coordinates", {
-  ## FF16: measured gaps 1.02e-2 -> 4.18e-3, ratio 2.44.
+  ## FF16: measured gaps 1.48e-2 -> 5.26e-3, ratio 2.81.
   ff16 <- lapply(0:1, function(r) coordinate_gap("FF16", r))
   expect_lt(ff16[[2]], ff16[[1]])
   expect_gt(ff16[[1]] / ff16[[2]], 2)
-  expect_lt(ff16[[2]], 5e-3)
+  expect_lt(ff16[[2]], 6e-3)
 
-  ## K93: measured gaps 2.64e-3 -> 5.90e-4, ratio 4.48 -- the second order of
-  ## the trapezium rule. (The next halving gives 1.43e-4, ratio 4.12, so the
-  ## rate holds; it is not asserted because it costs 15 s to observe.) Loose
-  ## bounds: the point is convergence, not the exact rate.
+  ## K93: measured gaps 5.03e-3 -> 1.22e-3, ratio 4.13 -- the second order of
+  ## both rules. Loose bounds: the point is convergence, not the exact rate.
   k93 <- lapply(0:1, function(r) coordinate_gap("K93", r))
   expect_lt(k93[[2]], k93[[1]])
   expect_gt(k93[[1]] / k93[[2]], 3)
@@ -673,25 +706,18 @@ test_that("size-only strategies converge across density coordinates", {
   expect_lt(k93[[2]], 2e-3)
 })
 
-## The birth-date answer is the accurate one: it is what both coordinates
-## converge to, and it gets there on a far coarser schedule. This is the
-## substantive claim of the change, so pin it rather than leaving it in prose.
-##
-## Stated locally -- how far each coordinate moves when the schedule is halved --
-## rather than against a converged reference, which needed an 8x schedule and
-## 170 s for one run. The local form reuses the runs the test above already did.
-## It is also specific to FF16: K93's two coordinates straddle the limit and its
-## height answer happens to start marginally closer, so the claim is not a
-## general one and is not asserted there.
-test_that("the birth-date coordinate converges on a coarser schedule", {
-  coarse <- offspring_pair("FF16", 0)
-  finer <- offspring_pair("FF16", 1)
-
-  move <- function(f) abs(coarse[[f]] - finer[[f]]) / abs(finer[[f]])
-  ## Measured: the birth-date answer moves 1.8e-4 under a halving, the height
-  ## answer 6.1e-3 -- 35x further, and still climbing.
-  expect_lt(move("birth"), 1e-3)
-  expect_gt(move("height") / move("birth"), 10)
+## The birth-date answer's error falls at the square law: each halving of the
+## schedule moves it a quarter as far as the halving before, so a run and its
+## coarser companion estimate its error. Stated locally, by its moves, rather
+## than against a converged reference, which needs an 8x schedule.
+test_that("the birth-date coordinate's error falls at the square law", {
+  birth <- c(offspring_pair("FF16", 0)$birth, offspring_pair("FF16", 1)$birth,
+             offspring_in_coordinate(
+               interleave_schedule(size_only_parameters("FF16"), 2), "FF16", TRUE))
+  ## Measured: moves 7.08e-2 then 1.84e-2, ratio 3.86.
+  ratio <- (birth[[1]] - birth[[2]]) / (birth[[2]] - birth[[3]])
+  expect_gt(ratio, 3.5)
+  expect_lt(ratio, 4.5)
 })
 
 ## Multiple species share one competition profile: Patch::compute_competition()
@@ -705,14 +731,14 @@ test_that("the birth-date coordinate converges on a coarser schedule", {
 ## per halving a working pair of coordinates gives; and the axis itself is
 ## already pinned exactly, per species, by the invariants at the top of the file.
 test_that("multi-species runs converge across density coordinates", {
-  ## Measured per-halving ratios: FF16 3.9 and 4.1, K93 4.1, 4.1 and 4.1.
+  ## Measured per-halving ratios: FF16 3.86 and 3.77, K93 3.93, 3.95 and 4.00.
+  ## FF16's second species is still 5.0e-2 apart after one halving.
   for (case in c("FF16_two_species", "K93_three_species")) {
     coarse <- coordinate_gap(case, 0)
     finer <- coordinate_gap(case, 1)
     ## Every species converges, not just the aggregate.
     expect_true(all(finer < coarse))
-    expect_true(all(coarse / finer > 2))
-    expect_true(all(finer < 1e-2))
+    expect_true(all(coarse / finer > 3))
   }
   ## And K93's, at its full lifetime, converge to within the same bound the
   ## single-species cases meet.
