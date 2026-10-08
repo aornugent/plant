@@ -125,7 +125,7 @@ test_that("diagnose_scm() estimates a run's node error from coarser runs", {
   ## throws.
   d <- diagnose_scm(stand(2), env, ctrl, list(late = stand(3), broken = stand(2, 1e6)),
                     events = pulse(stand(2)))
-  expect_equal(d$nodes, c(9, 5, 3))
+  expect_equal(d$introductions, c(9, 5, 3))
 
   ## The coarser run is the run at every other introduction, its pulse kept.
   ln_J <- function(at) {
@@ -148,13 +148,13 @@ test_that("diagnose_scm() estimates a run's node error from coarser runs", {
   ## A walk that throws is recorded at each run, and the rest still answer.
   expect_false("broken" %in% q$run)
   expect_equal(d$failures$run, rep("broken", 3))
-  expect_equal(d$failures$nodes, c(9, 5, 3))
+  expect_equal(d$failures$introductions, c(9, 5, 3))
   expect_equal(unique(d$failures$stage), "walk")
   expect_match(d$failures$message[1], "L_tip")
 
-  alone <- diagnose_scm(stand(2), env, ctrl, gradient = FALSE)
-  expect_equal(alone$quantities$quantity, "ln J")
-  expect_equal(nrow(alone$failures), 0)
+  no_invaders <- diagnose_scm(stand(2), env, ctrl, gradient = FALSE)
+  expect_equal(no_invaders$quantities$quantity, "ln J")
+  expect_equal(nrow(no_invaders$failures), 0)
 
   expect_error(diagnose_scm(stand(2), env, ctrl, list(stand(3))), "names each invader")
   expect_error(diagnose_scm(stand(2, at = times[1:3]), env, ctrl), "four introductions")
