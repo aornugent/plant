@@ -4,6 +4,7 @@
 
 #include <vector>
 #include <algorithm>
+#include <numeric>
 #include <limits>
 #include <tuple>
 #include <utility>
@@ -324,11 +325,9 @@ private:
     return last.interval_shares(new_node.introduction_time() -
                                 last.introduction_time()).second;
   }
-  // The birth-date field's crowns: the interval from `node` to `end`, the next
-  // node, holds those of `crowns_per_interval` cohorts born across it, each with
-  // its top and leaf area interpolated between the two nodes'.
+  // The interval from `node` to the next node `end`, as crowns_per_interval
+  // crowns, each with its top and leaf area interpolated between the two nodes'.
   static constexpr int crowns_per_interval = 8;
-  static double crown_fraction(int s) { return (s + 0.5) / crowns_per_interval; }
   template <typename F>
   void for_each_interval_crown(const node_type& node, const node_type& end,
                                F visit) const {
@@ -341,7 +340,7 @@ private:
     }
     const value_type& h = node.height();
     for (int s = 0; s < crowns_per_interval; ++s) {
-      const double lambda = crown_fraction(s);
+      const double lambda = (s + 0.5) / crowns_per_interval;
       visit(h + lambda * (end.height() - h),
             at_node * (2.0 * (1.0 - lambda) / crowns_per_interval) +
               at_end * (2.0 * lambda / crowns_per_interval));
@@ -355,14 +354,14 @@ private:
       for_each_interval_crown(nodes[i], nodes[i + 1], visit);
     }
   }
-  // A crown of leaf area `w` whose top is `h`, read at `height`.
-  void add_crown(with_slope<value_type>& sum, const value_type& h,
-                 const value_type& w, const value_type& height) const {
-    if (height <= h) {
-      const value_type h_inv = 1.0 / h;
+  // A crown with top `top` and leaf area `leaf_area`, read at `height`.
+  void add_crown(with_slope<value_type>& sum, const value_type& top,
+                 const value_type& leaf_area, const value_type& height) const {
+    if (height <= top) {
+      const value_type top_inv = 1.0 / top;
       const std::pair<value_type, value_type> Qq =
-        strategy->canopy_shape.Q_and_q(height * h_inv, height, h_inv);
-      const value_type value = w * Qq.first, slope = w * Qq.second;
+        strategy->canopy_shape.Q_and_q(height * top_inv, height, top_inv);
+      const value_type value = leaf_area * Qq.first, slope = leaf_area * Qq.second;
       if (!util::is_finite(value) || !util::is_finite(slope)) {
         util::stop("Detected non-finite contribution");
       }
@@ -625,21 +624,22 @@ void Species<T,E>::field_splits(const std::vector<value_type>& heights,
     // Each crown weighted once, and a height reads the prefix of the crowns
     // that reach it: below its own top a crown contributes an exact zero. The
     // prefix runs tallest first, which the crowns are in until two cohorts cross.
-    std::vector<value_type> top, w;
-    std::vector<moments> mom;
-    for_each_crown_between_nodes([&](const value_type& h, const value_type& wi) {
-      top.push_back(h);
-      w.push_back(wi);
-      mom.emplace_back();
-      strategy->canopy_shape.crown_moments(1.0 / h, mom.back());
+    struct crown {
+      value_type top, leaf_area;
+      moments mom;
+    };
+    std::vector<crown> crowns;
+    for_each_crown_between_nodes([&](const value_type& top,
+                                     const value_type& leaf_area) {
+      crown& c = crowns.emplace_back(crown{top, leaf_area, {}});
+      strategy->canopy_shape.crown_moments(1.0 / top, c.mom);
     });
-    const std::size_t n = top.size();
+    const std::size_t n = crowns.size();
     std::vector<std::size_t> order(n);
-    for (std::size_t i = 0; i < n; ++i) {
-      order[i] = i;
-    }
+    std::iota(order.begin(), order.end(), std::size_t(0));
     const auto taller = [&](std::size_t a, std::size_t b) {
-      return odelia::util::to_passive(top[a]) > odelia::util::to_passive(top[b]);
+      return odelia::util::to_passive(crowns[a].top) >
+             odelia::util::to_passive(crowns[b].top);
     };
     if (!std::is_sorted(order.begin(), order.end(), taller)) {
       std::stable_sort(order.begin(), order.end(), taller);
@@ -650,9 +650,9 @@ void Species<T,E>::field_splits(const std::vector<value_type>& heights,
       prefix[0][j] = value_type(0.0);
     }
     for (std::size_t i = 0; i < n; ++i) {
-      const std::size_t o = order[i];
+      const crown& c = crowns[order[i]];
       for (std::size_t j = 0; j < n_moments; ++j) {
-        prefix[i + 1][j] = prefix[i][j] + w[o] * mom[o][j];
+        prefix[i + 1][j] = prefix[i][j] + c.leaf_area * c.mom[j];
       }
     }
     // The heights ascend and the crowns in `order` descend, so the count reaching
@@ -663,7 +663,7 @@ void Species<T,E>::field_splits(const std::vector<value_type>& heights,
       if (scan.h_max < height) {
         continue;  // no node reaches it; the empty split stands
       }
-      while (reach > 0 && top[order[reach - 1]] < height) {
+      while (reach > 0 && crowns[order[reach - 1]].top < height) {
         --reach;
       }
       strategy->canopy_shape.height_weights(height, weight);
@@ -854,8 +854,9 @@ Species<T,E>::compute_competition_and_slope_split(const value_type& height) cons
     // A weighted sum, so a crown below `height` adds an exact zero and the order
     // of the crowns does not matter.
     competition_split c;
-    for_each_crown_between_nodes([&](const value_type& h, const value_type& w) {
-      add_crown(c.without_boundary, h, w, height);
+    for_each_crown_between_nodes([&](const value_type& top,
+                                     const value_type& leaf_area) {
+      add_crown(c.without_boundary, top, leaf_area, height);
     });
     c.closes = true;
     return c;
@@ -879,8 +880,9 @@ Species<T,E>::close_competition_and_slope(const competition_split& c,
     with_slope<value_type> sum = c.without_boundary;
     if (!nodes.empty()) {
       for_each_interval_crown(nodes.back(), new_node,
-                              [&](const value_type& h, const value_type& w) {
-                                add_crown(sum, h, w, height);
+                              [&](const value_type& top,
+                                  const value_type& leaf_area) {
+                                add_crown(sum, top, leaf_area, height);
                               });
     }
     return sum;
