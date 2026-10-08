@@ -131,6 +131,8 @@ public:
 
   // Current patch time.
   double time() const;
+  // Whether run() repeats an invasion: run_mutant() has made this SCM one.
+  bool invaded() const { return !invaded_run.empty(); }
 
   // ---- Outputs -----------------------------------------------------------
   // Total (not per-capita) offspring. These delegate to the patch, which owns

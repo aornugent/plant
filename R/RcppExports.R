@@ -2745,6 +2745,10 @@ SCM___FF16__FF16_Env__time__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__time__get', PACKAGE = 'plant', obj_)
 }
 
+SCM___FF16__FF16_Env__invaded__get <- function(obj_) {
+    .Call('_plant_SCM___FF16__FF16_Env__invaded__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___FF16__FF16_Env__net_reproduction_ratios__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__net_reproduction_ratios__get', PACKAGE = 'plant', obj_)
 }
@@ -2879,6 +2883,10 @@ SCM___TF24__TF24_Env__set_node_schedule_times <- function(obj_, times) {
 
 SCM___TF24__TF24_Env__time__get <- function(obj_) {
     .Call('_plant_SCM___TF24__TF24_Env__time__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___TF24__TF24_Env__invaded__get <- function(obj_) {
+    .Call('_plant_SCM___TF24__TF24_Env__invaded__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___TF24__TF24_Env__net_reproduction_ratios__get <- function(obj_) {
@@ -3017,6 +3025,10 @@ SCM___TF24f__TF24_Env__time__get <- function(obj_) {
     .Call('_plant_SCM___TF24f__TF24_Env__time__get', PACKAGE = 'plant', obj_)
 }
 
+SCM___TF24f__TF24_Env__invaded__get <- function(obj_) {
+    .Call('_plant_SCM___TF24f__TF24_Env__invaded__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___TF24f__TF24_Env__net_reproduction_ratios__get <- function(obj_) {
     .Call('_plant_SCM___TF24f__TF24_Env__net_reproduction_ratios__get', PACKAGE = 'plant', obj_)
 }
@@ -3151,6 +3163,10 @@ SCM___K93__K93_Env__set_node_schedule_times <- function(obj_, times) {
 
 SCM___K93__K93_Env__time__get <- function(obj_) {
     .Call('_plant_SCM___K93__K93_Env__time__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___K93__K93_Env__invaded__get <- function(obj_) {
+    .Call('_plant_SCM___K93__K93_Env__invaded__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___K93__K93_Env__net_reproduction_ratios__get <- function(obj_) {

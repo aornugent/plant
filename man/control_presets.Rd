@@ -62,10 +62,10 @@ plants' factor. The window's factors are \code{control_window()}'s.
 analysis: a step starting at \code{t} takes the factor
 \code{1 / min(max(R(t) / R0, r_min), 1)}, where \code{R(t)} is the largest
 share of offspring production still to be earned after \code{t}, over the
-pilot's stand and each invader walked on its recording. A pilot of 54 uniform
-introductions at a tolerance of 1e-3 reads \code{R} within 10\% wherever it
-is at least 1e-3. Under constant rain a uniform pilot lumps the founders, and
-a grid that resolves them reads it within 1.1\%.
+pilot's stand and each invader walked on its recording. The pilot needs only
+\code{R}, so a coarse stand at a loose tolerance serves; under constant rain its
+introductions must resolve the founders. A pilot already walked holds an
+invader's run, and is refused.
 
 The SCM's adaptive ODE stepper multiplies each state's error level by a
 tolerance factor, which decides which steps it takes and nothing else:

@@ -866,6 +866,7 @@ SCM:
   active:
     # Lifecycle / state
     time: {type: double, access: member}
+    invaded: {type: bool, access: member}
     # Outputs (totals)
     net_reproduction_ratios: {type: "std::vector<double>", access: member}
     offspring_production: {type: "std::vector<double>", access: member}

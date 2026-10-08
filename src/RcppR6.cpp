@@ -3111,6 +3111,11 @@ double SCM___FF16__FF16_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::F
 }
 
 // [[Rcpp::export]]
+bool SCM___FF16__FF16_Env__invaded__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->invaded();
+}
+
+// [[Rcpp::export]]
 std::vector<double> SCM___FF16__FF16_Env__net_reproduction_ratios__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   return obj_->net_reproduction_ratios();
 }
@@ -3266,6 +3271,11 @@ void SCM___TF24__TF24_Env__set_node_schedule_times(plant::RcppR6::RcppR6<plant::
 // [[Rcpp::export]]
 double SCM___TF24__TF24_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   return obj_->time();
+}
+
+// [[Rcpp::export]]
+bool SCM___TF24__TF24_Env__invaded__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->invaded();
 }
 
 // [[Rcpp::export]]
@@ -3427,6 +3437,11 @@ double SCM___TF24f__TF24_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::
 }
 
 // [[Rcpp::export]]
+bool SCM___TF24f__TF24_Env__invaded__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->invaded();
+}
+
+// [[Rcpp::export]]
 std::vector<double> SCM___TF24f__TF24_Env__net_reproduction_ratios__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   return obj_->net_reproduction_ratios();
 }
@@ -3582,6 +3597,11 @@ void SCM___K93__K93_Env__set_node_schedule_times(plant::RcppR6::RcppR6<plant::SC
 // [[Rcpp::export]]
 double SCM___K93__K93_Env__time__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
   return obj_->time();
+}
+
+// [[Rcpp::export]]
+bool SCM___K93__K93_Env__invaded__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->invaded();
 }
 
 // [[Rcpp::export]]
