@@ -7,16 +7,17 @@
 ##' 1e-4 of it, the soil layers' tolerance factor at 10, each factor bounded at
 ##' 100, steps capped at 15 days, and the soil substepped while the stand takes
 ##' under a tenth of the water flowing through its layers, its error held to the
-##' plants' factor. The window's factors are \code{control_window()}'s.
+##' plants' factor. \code{control_window()} sets the schedule of factors.
 ##'
-##' \code{control_window()} sets the window's factors from a pilot of the
-##' analysis: a step starting at \code{t} takes the factor
-##' \code{1 / min(max(R(t) / R0, r_min), 1)}, where \code{R(t)} is the largest
-##' share of offspring production still to be earned after \code{t}, over the
-##' pilot's stand and each invader walked on its recording. The pilot needs only
-##' \code{R}, so a coarse stand at a loose tolerance serves; under constant rain its
-##' introductions must resolve the founders. A pilot already walked holds an
-##' invader's run, and is refused.
+##' \code{control_window()} loosens the steps in the window late in a run where
+##' little offspring production is left to earn. From a pilot of the analysis, a
+##' step starting at \code{t} takes the factor \code{1 / min(max(R(t) / R0,
+##' r_min), 1)}, where \code{R(t)} is the largest share of offspring production
+##' still to be earned after \code{t}, over the pilot's stand and each invader
+##' walked on its recording. The pilot needs only \code{R}, so a coarse stand at
+##' a loose tolerance serves; under constant rain its introductions must resolve
+##' the first cohorts. A pilot already walked holds an invader's run, and is
+##' refused.
 ##'
 ##' The SCM's adaptive ODE stepper multiplies each state's error level by a
 ##' tolerance factor, which decides which steps it takes and nothing else:
