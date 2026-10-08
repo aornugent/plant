@@ -80,7 +80,7 @@ test_that("control_window() loosens the steps after most offspring is earned", {
 
   win <- control_window(pilot, base = ctrl)
   expect_equal(win$ode_tol_factor_times[1], 0)
-  expect_false(is.unsorted(win$ode_tol_factor_times))
+  expect_false(is.unsorted(win$ode_tol_factor_times, strictly = TRUE))
   expect_equal(factor_at(win, at), 1 / pmin(pmax(R / 0.1, 0.01), 1))
   expect_true(any(factor_at(win, at) > 1 & factor_at(win, at) < 100))
   expect_equal(range(win$ode_tol_factor_values), c(1, 100))
@@ -95,6 +95,9 @@ test_that("control_window() loosens the steps after most offspring is earned", {
   guarded <- control_window(pilot, list(stand(3)), base = ctrl)
   expect_true(all(guarded$ode_tol_factor_values <= win$ode_tol_factor_values))
   expect_true(any(guarded$ode_tol_factor_values < win$ode_tol_factor_values))
+  ## The pilot now holds the invader's walk, so it serves no second window.
+  expect_true(pilot$invaded)
+  expect_error(control_window(pilot, base = ctrl), "no invader has walked")
 
   height <- run_scm(stand(2), env(), control_tf24(1e-3))
   expect_error(control_window(height), "birth-date coordinate")
