@@ -383,18 +383,20 @@ public:
   template <class Step>
   void split_as_recorded(const Step& step, const split_samples& samples,
                          const split_blocks& recorded) requires NamesSignValue<T>;
-  // A walk integrates each invader's node born when a node the run split was born
-  // in substeps at the run's sign changes, held, in the field the run sampled.
+  // A walk splits each invader node born on the date of a node the run split, at
+  // the run's sign changes, in the field the run sampled.
   template <class Step, class Row>
   void take_recorded_splits(const Step& step, const Row& recorded,
                             split_samples& samples, split_blocks& record)
     requires NamesSignValue<T>;
-  // The birth dates of the walked run's nodes, in the order its state holds them at
-  // its end, by which a walk finds an invader's copy of the run's node.
-  void set_run_birth_dates(std::vector<double> dates) {
-    run_birth_dates = std::move(dates);
+  // The birth dates of the recording's nodes, in the order its state holds them
+  // at its end, by which a walk finds an invader's copy of the run's node.
+  void set_recorded_birth_dates(std::vector<double> dates) {
+    recorded_birth_dates = std::move(dates);
   }
-  const std::vector<double>& get_run_birth_dates() const { return run_birth_dates; }
+  const std::vector<double>& get_recorded_birth_dates() const {
+    return recorded_birth_dates;
+  }
 
   // The entries this patch is run on, which a walk applies and works out the
   // shape at a step from. Set where a run begins, since the schedule can change
@@ -506,8 +508,8 @@ private:
   // See set_schedule(). Empty for a patch built by hand, which is given none.
   std::shared_ptr<const std::vector<schedule_entry>> schedule =
       std::make_shared<const std::vector<schedule_entry>>();
-  // See set_run_birth_dates().
-  std::vector<double> run_birth_dates;
+  // See set_recorded_birth_dates().
+  std::vector<double> recorded_birth_dates;
 
   // Seed the patch from parameters.initial_state (nodes + birth bookkeeping)
   // when present; called from reset(). Sets environment.time = initial_time.
@@ -651,8 +653,10 @@ Patch<T2,E2> Patch<T,E>::rebind_from() const {
   out.environment.set_shading_model(control.shading_model,
                                     control.ppa_layer_optical_depth,
                                     control.ppa_layer_smoothing);
-  // The entries the rebound patch applies, which the constructor does not take.
+  // The entries the rebound patch applies and the birth dates a walk reads,
+  // which the constructor does not take.
   out.schedule = schedule;
+  out.recorded_birth_dates = recorded_birth_dates;
   // The field and the boundary node are left to the caller. Every caller
   // evaluates before reading either, which rebuilds the field and re-evaluates
   // the inflow condition, so computing them here would solve the boundary leaf
@@ -1851,9 +1855,9 @@ void Patch<T,E>::take_recorded_splits(const Step& step, const Row& recorded,
   for (species_type& s : species) {
     const size_t width = s.size() > 0 ? s.node_begin()->ode_size() : 0;
     for (const auto& run_block : recorded.solved.split_blocks) {
-      // A block is the run's node, of its one species: only such a run keeps its
+      // The block indexes the run's nodes: only a run of one species keeps its
       // splits for a walk.
-      const double born = run_birth_dates.at(run_block.block);
+      const double born = recorded_birth_dates.at(run_block.block);
       const auto copy =
         std::find_if(s.node_begin(), s.node_end(), [&](const auto& n) {
           return util::identical(n.introduction_time(), born);

@@ -127,7 +127,7 @@ void NodeSchedule::set_all_events(const std::vector<Event>& events_) {
   reset();
 }
 
-void NodeSchedule::add_instant(double time) {
+void NodeSchedule::add_entry(double time) {
   entry_at(time);
   reset();
 }

@@ -803,14 +803,14 @@ void SCM<T, E>::run_mutant(parameters_type p) {
       const std::vector<double> times = patch.at_species(i).node_times();
       born.insert(born.end(), times.begin(), times.end());
     }
-    patch.set_run_birth_dates(born);
+    patch.set_recorded_birth_dates(born);
   }
 
   // Destructive, as it has always been: the invaders become this SCM's
   // community, and its outputs are theirs.
   std::vector<NodeScheduleEvent> events = make_node_schedule(p).get_events();
   // An invader's node is walked as a copy of the run's node born on its date.
-  const std::vector<double>& born = patch.get_run_birth_dates();
+  const std::vector<double>& born = patch.get_recorded_birth_dates();
   for (const NodeScheduleEvent& e : events) {
     const double time = e.time_introduction();
     if (std::none_of(born.begin(), born.end(),
@@ -836,7 +836,7 @@ void SCM<T, E>::run_mutant(parameters_type p) {
   // at some of the run's introductions takes an empty entry at the others.
   for (const odelia::ode::step_record<patch_type>& row : invaded_run) {
     if (row.insertion) {
-      node_schedule.add_instant(row.time);
+      node_schedule.add_entry(row.time);
     }
   }
   run();
