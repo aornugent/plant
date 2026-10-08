@@ -112,6 +112,132 @@ control_window <- function(pilot, invaders = list(), base = Control(),
   base
 }
 
+##' A run's node error, estimated from runs at every other and every fourth of
+##' its introductions, each with its invaders walked on its recording.
+##'
+##' Each coarser run keeps every other introduction of the one above it, both
+##' ends included, and chooses its own steps at \code{ctrl}. Where the error
+##' falls at the square law, as it does on the birth-date coordinate, the
+##' converged answer is near \code{value + (value - half) / 3}: \code{error} is
+##' that correction, and \code{ratio}, \code{(half - quarter) / (value - half)},
+##' is near 4 where the estimate holds. The two coarser runs, with their walks
+##' and sweeps, cost about three quarters of the run again.
+##'
+##' @title Diagnose a run
+##' @param p Parameters of one species, carrying no recorded ODE schedule.
+##' @param env,ctrl,events As for \code{\link{run_scm}}. Each run's
+##'   introductions replace those among \code{events}.
+##' @param invaders A named list of \code{Parameters}, each walked at each run's
+##'   introductions.
+##' @param gradient Should each run and walk give its elasticities too, by a
+##'   sweep? TF24 only.
+##' @return A list of
+##'   \item{quantities}{one row per run and quantity: \code{"ln J"}, and with
+##'     \code{gradient} each parameter's elasticity \eqn{d \ln J / d \ln
+##'     \theta}{d ln J / d ln theta}, or \eqn{d \ln J / d\theta}{d ln J / d
+##'     theta} where \eqn{\theta}{theta} is 0, with \code{value},
+##'     \code{half}, \code{quarter}, \code{error} and \code{ratio}.}
+##'   \item{distance}{one row per invader and parameter it moves:
+##'     \eqn{\ln(\theta' / \theta)}{ln(theta' / theta)} from the resident
+##'     whose recording it walks.}
+##'   \item{failures}{one row per run, walk or sweep that threw or was
+##'     refused, with its run's introductions and the message. Its quantities
+##'     are \code{NA}.}
+##'   \item{nodes}{the introductions of each run.}
+##' @export
+diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
+                         events = NULL, gradient = TRUE) {
+  if (length(p$strategies) != 1 || length(p$ode_times) > 0) {
+    stop("diagnose_scm() takes one species with no recorded ODE schedule")
+  }
+  if (length(invaders) > 0 &&
+      (is.null(names(invaders)) || any(names(invaders) %in% c("", "resident")))) {
+    stop("diagnose_scm() names each invader, none of them \"resident\"")
+  }
+  every_other <- function(t) t[unique(c(seq(1, length(t), 2), length(t)))]
+  times <- list(p$node_schedule_times[[1]])
+  times[[2]] <- every_other(times[[1]])
+  times[[3]] <- every_other(times[[2]])
+  if (length(times[[3]]) == length(times[[2]])) {
+    stop("diagnose_scm() needs four introductions or more")
+  }
+
+  failures <- data.frame(run = character(), nodes = integer(),
+                         stage = character(), message = character())
+  fail <- function(run, n, stage, message) {
+    failures[nrow(failures) + 1, ] <<- list(run, n, stage, message)
+  }
+  measure <- function(scm, q, run, n) {
+    J <- sum(scm$offspring_production)
+    out <- c("ln J" = log(J))
+    if (!gradient) return(out)
+    g <- tryCatch(stand_gradient(scm, metrics = "offspring_production"),
+                  error = function(e) conditionMessage(e))
+    refusal <- if (is.character(g)) g else g$refusal[["offspring_production"]]
+    if (!is.null(refusal)) {
+      fail(run, n, "sweep", paste(unlist(refusal), collapse = " "))
+      return(out)
+    }
+    grad <- g$gradient["offspring_production", ]
+    pars <- q$strategies[[1]]$pars
+    names(grad) <- trait_without_species(names(grad))
+    theta <- unlist(pars[names(grad)])
+    c(out, ifelse(theta == 0, 1, theta) * grad / J)
+  }
+  ## The run at each set of introductions, then each invader walked on it.
+  measured <- lapply(times, function(t) {
+    n <- length(t)
+    pt <- p
+    pt$node_schedule_times <- list(t)
+    ev <- events
+    if (!is.null(ev)) {
+      other <- ev$type != "node_introduction"
+      ev <- events(lapply(unclass(ev), `[`, other), node_introductions(pt))
+    }
+    scm <- tryCatch(run_scm(pt, env, ctrl, events = ev,
+                            record_trajectory = gradient),
+                    error = function(e) conditionMessage(e))
+    if (is.character(scm)) {
+      fail("resident", n, "run", scm)
+      return(list())
+    }
+    out <- list(resident = measure(scm, pt, "resident", n))
+    for (k in names(invaders)) {
+      q <- invaders[[k]]
+      q$node_schedule_times <- list(t)
+      walked <- tryCatch({ scm$run_mutant(q); TRUE },
+                         error = function(e) conditionMessage(e))
+      if (isTRUE(walked)) {
+        out[[k]] <- measure(scm, q, k, n)
+      } else {
+        fail(k, n, "walk", walked)
+      }
+    }
+    out
+  })
+
+  quantities <- do.call(rbind, lapply(c("resident", names(invaders)), function(k) {
+    v <- lapply(measured, `[[`, k)
+    quantity <- unique(unlist(lapply(v, names)))
+    at <- function(i) {
+      if (is.null(v[[i]])) NA_real_ else unname(v[[i]][quantity])
+    }
+    if (length(quantity) == 0) return(NULL)
+    data.frame(run = k, quantity = quantity, value = at(1), half = at(2),
+               quarter = at(3), error = (at(1) - at(2)) / 3,
+               ratio = (at(2) - at(3)) / (at(1) - at(2)))
+  }))
+  theta <- unlist(p$strategies[[1]]$pars)
+  distance <- do.call(rbind, lapply(names(invaders), function(k) {
+    moved <- unlist(invaders[[k]]$strategies[[1]]$pars)[names(theta)]
+    keep <- moved != theta
+    data.frame(run = k, parameter = names(theta)[keep],
+               distance = unname(log(moved / theta)[keep]))
+  }))
+  list(quantities = quantities, distance = distance, failures = failures,
+       nodes = lengths(times))
+}
+
 
 ##' Basic default settings for a given strategy, environment only really
 ##' used for templating initially and will be overloaded later by passing
