@@ -324,11 +324,11 @@ private:
     return last.interval_shares(new_node.introduction_time() -
                                 last.introduction_time()).second;
   }
-  // The birth-date field's crowns. The interval from `node` to `end`, the next
-  // node, holds `point_crowns` crowns at heights between the two nodes', carrying
-  // both nodes' shares of it, each weighted toward its own node.
-  static constexpr int point_crowns = 8;
-  static double point_crown_at(int s) { return (s + 0.5) / point_crowns; }
+  // The birth-date field's crowns: the interval from `node` to `end`, the next
+  // node, holds those of `crowns_per_interval` cohorts born across it, each with
+  // its top and leaf area interpolated between the two nodes'.
+  static constexpr int crowns_per_interval = 8;
+  static double crown_fraction(int s) { return (s + 0.5) / crowns_per_interval; }
   template <typename F>
   void for_each_interval_crown(const node_type& node, const node_type& end,
                                F visit) const {
@@ -340,17 +340,17 @@ private:
       util::stop("Detected non-finite contribution");
     }
     const value_type& h = node.height();
-    for (int s = 0; s < point_crowns; ++s) {
-      const double lambda = point_crown_at(s);
+    for (int s = 0; s < crowns_per_interval; ++s) {
+      const double lambda = crown_fraction(s);
       visit(h + lambda * (end.height() - h),
-            at_node * (2.0 * (1.0 - lambda) / point_crowns) +
-              at_end * (2.0 * lambda / point_crowns));
+            at_node * (2.0 * (1.0 - lambda) / crowns_per_interval) +
+              at_end * (2.0 * lambda / crowns_per_interval));
     }
   }
-  // The crowns of the intervals between nodes, which the ODE state alone sets. The
-  // boundary interval, from the newest node to the boundary node, is the close's.
+  // The crowns of every interval between two nodes. The interval from the newest
+  // node to the boundary node is added once the boundary node is known.
   template <typename F>
-  void for_each_point_crown(F visit) const {
+  void for_each_crown_between_nodes(F visit) const {
     for (size_t i = 0; i + 1 < size(); ++i) {
       for_each_interval_crown(nodes[i], nodes[i + 1], visit);
     }
@@ -362,8 +362,12 @@ private:
       const value_type h_inv = 1.0 / h;
       const std::pair<value_type, value_type> Qq =
         strategy->canopy_shape.Q_and_q(height * h_inv, height, h_inv);
-      sum.value += w * Qq.first;
-      sum.slope -= w * Qq.second;
+      const value_type value = w * Qq.first, slope = w * Qq.second;
+      if (!util::is_finite(value) || !util::is_finite(slope)) {
+        util::stop("Detected non-finite contribution");
+      }
+      sum.value += value;
+      sum.slope -= slope;
     }
   }
   // ⚠️ `f` MUST DECLARE ITS RETURN TYPE: an active product returned through a
@@ -618,12 +622,12 @@ void Species<T,E>::field_splits(const std::vector<value_type>& heights,
   moments weight, weight_slope;
 
   if (birth_date) {
-    // Each point crown weighted once, and a height reads the prefix of the crowns
+    // Each crown weighted once, and a height reads the prefix of the crowns
     // that reach it: below its own top a crown contributes an exact zero. The
     // prefix runs tallest first, which the crowns are in until two cohorts cross.
     std::vector<value_type> top, w;
     std::vector<moments> mom;
-    for_each_point_crown([&](const value_type& h, const value_type& wi) {
+    for_each_crown_between_nodes([&](const value_type& h, const value_type& wi) {
       top.push_back(h);
       w.push_back(wi);
       mom.emplace_back();
@@ -850,7 +854,7 @@ Species<T,E>::compute_competition_and_slope_split(const value_type& height) cons
     // A weighted sum, so a crown below `height` adds an exact zero and the order
     // of the crowns does not matter.
     competition_split c;
-    for_each_point_crown([&](const value_type& h, const value_type& w) {
+    for_each_crown_between_nodes([&](const value_type& h, const value_type& w) {
       add_crown(c.without_boundary, h, w, height);
     });
     c.closes = true;
