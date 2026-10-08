@@ -39,7 +39,7 @@ A list of
   \item{failures}{one row per run, walk or sweep that threw or was
     refused, with its run's introductions and the message. Its quantities
     are \code{NA}.}
-  \item{nodes}{the number of introductions of each run.}
+  \item{introductions}{the number of introductions of each run.}
 }
 \description{
 A run's node error, estimated from runs at every other and every fourth of
@@ -48,10 +48,10 @@ its introductions, each with its invaders walked on its recording.
 \details{
 Each coarser run keeps every other introduction of the one above it, both
 ends included, so an odd count halves the spacing exactly and an even one
-leaves a single spacing last. Each chooses its own steps at \code{ctrl}. Where the error
-falls at the square law, as it does on the birth-date coordinate, the
-converged answer is near \code{value + (value - half) / 3}: \code{error} is
-that correction, and \code{ratio}, \code{(half - quarter) / (value - half)},
-is near 4 where the estimate holds. The two coarser runs, with their walks
-and sweeps, cost about three quarters of the run again.
+leaves a single spacing last. Each chooses its own steps at \code{ctrl}.
+Where the error falls at the square law, as it does on the birth-date
+coordinate, the converged answer is near \code{value + (value - half) / 3}:
+\code{error} is that correction, and \code{ratio}, \code{(half - quarter) /
+(value - half)}, is near 4 where the estimate holds. The two coarser runs,
+with their walks and sweeps, cost about three quarters of the run again.
 }
