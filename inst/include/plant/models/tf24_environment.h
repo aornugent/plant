@@ -580,56 +580,11 @@ public:
       note_clamp(CLAMP_RAINFALL);
     }
     double rainfall = std::max(0.0, rainfall_raw);
-    const S excess = infiltration_excess(vars.state(0));
-    // Counted: where the top layer is wet enough that this goes negative, the
-    // infiltrated fraction stops reading that layer's state at all.
-    if (excess < S(0.0)) {
-      note_clamp(CLAMP_INFILTRATION);
-    }
-    S infiltration = rainfall * max(S(0.0), excess);
+    const S infiltration =
+      layer_rates(rainfall, vars.states, resource_depletion, vars.rates,
+                  &water_flux, [this](int site) { note_clamp(site); });
     S total_resource_depletion = 0.0;
-
-
-    // treat each soil layer as a separate resource pool
-    for (size_t i = 0; i < soil_number_of_depths; i++)
-    {
-
-      // initial representation of drainage; to be improved
-      if (i == 0)
-      {
-        water_input = infiltration;
-      }
-      else
-      {
-        // m3 m^-2
-        water_input = water_flux[i-1];
-      }
-        // TODO: m3 m^-2
-      water_flux[i] = soil_K_from_soil_theta(vars.state(i), i);
-      // this function does runoff
-
-      // Positivity guard (issue #485): a layer at or below the residual
-      // moisture theta_r is not dried further (only rewetting is allowed). This
-      // keeps the explicit fixed-step solver from driving a drought-stressed
-      // layer to theta <= 0, where the retention curve psi_from_soil_moist and
-      // the conductivity curve soil_K_from_soil_theta go non-finite. Wetter
-      // layers are unaffected, so non-drought runs are unchanged.
-      const S theta = vars.state(i);
-      S rate = (water_input - water_flux[i] - resource_depletion[i]) / dz[i];
-      // Positivity guard (issue #485), hardened for #549: at/below the residual
-      // moisture a layer must not be dried further. The original `rate < 0.0`
-      // test let a *non-finite* rate through, because `NaN < 0.0` is false in
-      // IEEE 754 -- a NaN soil_consumption_ (from the retention curve's enormous
-      // psi_soil near theta_r) then wrote straight into the soil state. `!(rate
-      // > 0.0)` is true for NaN and for rate <= 0, so only genuine rewetting is
-      // allowed and NaN/negative rates are clamped to 0.
-      if (theta <= soil_moist_residual && !(rate > 0.0)) {
-        // Counted: a layer held here reads no uptake and no flux, so every route
-        // from a trait to this layer's state is cut for as long as it holds.
-        note_clamp(CLAMP_SOIL_POSITIVITY);
-        rate = 0.0;
-      }
-      vars.set_rate(i, rate);
+    for (size_t i = 0; i < soil_number_of_depths; i++) {
       resource_uptake[i] = resource_depletion[i];
       total_resource_depletion += resource_depletion[i];
     }
@@ -642,25 +597,6 @@ public:
       // error norm -- see the note on aux_num.
       vars.set_rate(soil_number_of_depths + 4, 0.0);
 
-  }
-
-  // calculate K from K_sat based on theta
-  S soil_K_from_soil_theta(S theta, size_t layer) const {
-    //Eq. 5 Zeng and Decker (2009), ref Clapp and Hornberger (1978)
-    // Clamp theta to [0, soil_moist_sat] (issue #485/#549): an intermediate
-    // explicit-RK stage can probe theta < 0 (std::pow(negative, non-integer) is
-    // NaN -> a non-positive layer drains nothing, K = 0) or, once the soil
-    // feedback is perturbed, a theta far above saturation, whose large positive
-    // exponent would otherwise make the inter-layer water_flux astronomically
-    // large and cascade the blow-up across layers. Physically K saturates at
-    // K_sat, so clamp there. Per-layer parameters (#558) fall back to the
-    // scalar default when no layered vector is set.
-    const double soil_moist_sat_layer =
-      soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, layer);
-    if (theta < S(0.0) || theta > S(soil_moist_sat_layer)) {
-      note_clamp(CLAMP_SOIL_CONDUCTIVITY);
-    }
-    return conductivity(theta, layer);
   }
 
   // The conductivity at theta held to [0, saturation], counting no clamp.
@@ -704,28 +640,54 @@ public:
     return taken / moving;
   }
 
-  // The layers' rates under infiltration and drainage, less the uptake u from
-  // each, held at the residual moisture where compute_rates holds them.
+  // The layers' rates under infiltration of `rainfall` and drainage, less the
+  // uptake u from each, held at the residual moisture; returns the infiltration.
+  // `note` counts each clamp, and `drainage`, where given, takes each layer's.
+  template <class U, class Note>
+  U layer_rates(double rainfall, const std::vector<U>& theta,
+                const std::vector<U>& u, std::vector<U>& rate,
+                std::vector<U>* drainage, Note note) const {
+    using std::max;
+    const U excess = infiltration_excess(theta[0]);
+    // Where the top layer is wet enough that this goes negative, the infiltrated
+    // fraction stops reading that layer's state at all.
+    if (excess < U(0.0)) {
+      note(CLAMP_INFILTRATION);
+    }
+    const U infiltration = rainfall * max(U(0.0), excess);
+    U water_input = infiltration;
+    for (size_t i = 0; i < soil_number_of_depths; ++i) {
+      const U& t = theta[i];
+      // An explicit stage can probe theta outside [0, saturation], where the
+      // conductivity curve is held.
+      if (t < U(0.0) ||
+          t > U(soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, i))) {
+        note(CLAMP_SOIL_CONDUCTIVITY);
+      }
+      const U k = conductivity(t, i);
+      if (drainage != nullptr) {
+        (*drainage)[i] = k;
+      }
+      rate[i] = (water_input - k - u[i]) / dz[i];
+      // At or below the residual moisture a layer is not dried further, and a
+      // NaN rate (from the retention curve near residual) is held too.
+      if (t <= soil_moist_residual && !(rate[i] > 0.0)) {
+        note(CLAMP_SOIL_POSITIVITY);
+        rate[i] = U(0.0);
+      }
+      water_input = k;
+    }
+    return infiltration;
+  }
+
+  // The layers' rates under a given uptake u from each, as compute_rates finds
+  // them, counting no clamp.
   template <class U>
   void alone_rates(double time_, const std::vector<U>& theta,
                    const std::vector<U>& u, std::vector<U>& rate) const {
-    using std::max;
-    const double rainfall =
-      std::max(0.0, extrinsic_drivers.evaluate("rainfall", time_));
     rate.resize(theta.size());
-    U water_input = rainfall * max(U(0.0), infiltration_excess(theta[0]));
-    for (size_t i = 0; i < theta.size(); ++i) {
-      const U drainage = conductivity(theta[i], i);
-      rate[i] = (water_input - drainage - u[i]) / dz[i];
-      if (theta[i] <= soil_moist_residual && !(rate[i] > 0.0)) {
-        rate[i] = U(0.0);
-      }
-      water_input = drainage;
-    }
-  }
-
-  S soil_K_from_soil_theta(S theta) {
-    return soil_K_from_soil_theta(theta, 0);
+    layer_rates<U>(std::max(0.0, extrinsic_drivers.evaluate("rainfall", time_)),
+                   theta, u, rate, nullptr, [](int) {});
   }
 
 
