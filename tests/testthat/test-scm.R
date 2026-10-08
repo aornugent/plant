@@ -713,7 +713,6 @@ test_that("A run that took the soil alone replays, sweeps and is walked as it ra
   }
   ctrl <- control_tf24(1e-4, Control(node_density_in_birth_date = TRUE,
                                      ode_split_sign_changes = TRUE))
-  ctrl$ode_soil_alone_share <- 0.1
   alone <- run_scm(p, env(), ctrl, record_trajectory = TRUE)
   expect_gt(mean(lengths(alone$ode_alone_steps) > 0), 0.5)
   expect_gt(sum(alone$ode_splits), 0)

@@ -5,7 +5,9 @@
 ##' tolerances for high-accuracy runs at the cost of speed. \code{control_tf24()}
 ##' sets TF24's step control: the relative tolerance \code{tol} with the absolute
 ##' one at 1e-4 of it, the soil layers' error weight at 10, each weight bounded
-##' at 100, and steps capped at 15 days. The window's weights stay the caller's.
+##' at 100, steps capped at 15 days, and the soil stepped alone where the stand
+##' draws under a tenth of the water moving through it. The window's weights stay
+##' the caller's.
 ##'
 ##' The SCM's adaptive ODE stepper multiplies each state's error level by a
 ##' weight, which decides which steps it takes and nothing else:
@@ -55,6 +57,7 @@ control_tf24 <- function(tol = 3e-5, base = Control()) {
   base$ode_weight_soil   <- 10
   base$ode_weight_max    <- 100
   base$ode_step_size_max <- 15 / 365
+  base$ode_soil_alone_share <- 0.1
   base
 }
 
