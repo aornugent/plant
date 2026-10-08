@@ -22,11 +22,8 @@
 ##' sign changes of its net production inside a step, in the field sampled at five
 ##' fractions of the step. It is off by default, which leaves every run as it was.
 ##'
-##' Under \code{control_tf24()} the bound keeps the soil's own error test in force:
-##' unbounded, the soil's factor times a window factor of 100 reaches 1000, an
-##' accepted step can carry a soil stage to the potential ceiling, and TF24's
-##' gradient is refused there. The cap keeps an invader's storage pools stable,
-##' which Cash-Karp loses on steps past 26 days.
+##' Under \code{control_tf24()} the bound keeps the soil's own error test in
+##' force, and the cap keeps an invader's storage pools stable.
 ##'
 ##' @title Control presets
 ##' @param ... Named control fields, passed to \code{Control()}.
