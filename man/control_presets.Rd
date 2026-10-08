@@ -31,7 +31,9 @@ settings used for essentially all of plant's runs (see \code{control.cpp}).
 high-accuracy runs at the cost of speed. \code{control_tf24()} sets TF24's
 step control: the relative tolerance \code{tol} with the absolute one at
 1e-4 of it, the soil layers' tolerance factor at 10, each factor bounded at
-100, and steps capped at 15 days. The window's factors stay the caller's.
+100, steps capped at 15 days, and the soil stepped alone where the stand
+draws under a tenth of the water moving through it. The window's factors
+stay the caller's.
 }
 \details{
 The SCM's adaptive ODE stepper multiplies each state's error level by a
