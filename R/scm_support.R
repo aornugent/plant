@@ -6,8 +6,8 @@
 ##' step control: the relative tolerance \code{tol} with the absolute one at
 ##' 1e-4 of it, the soil layers' tolerance factor at 10, each factor bounded at
 ##' 100, steps capped at 15 days, and the soil stepped alone where the stand
-##' draws under a tenth of the water moving through it. The window's factors
-##' stay the caller's.
+##' draws under a tenth of the water moving through it, where the soil's error
+##' is held to the plants' factor. The window's factors stay the caller's.
 ##'
 ##' The SCM's adaptive ODE stepper multiplies each state's error level by a
 ##' tolerance factor, which decides which steps it takes and nothing else:

@@ -293,8 +293,8 @@ public:
   }
 
   // The environment's soil, which a step takes alone where the plants' uptake is
-  // under ode_soil_alone_share of the water moving through it. Its layers open
-  // the environment's states, which close the patch's.
+  // under ode_soil_alone_share of the water moving through it. Its layers are the
+  // environment's first states, which come last in the patch's state.
   std::pair<size_t, size_t> alone_block() const requires SoilStepsAlone<E> {
     return {ode_size() - environment.ode_size(), environment.n_resources()};
   }

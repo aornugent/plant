@@ -91,7 +91,8 @@ struct Control {
   bool ode_split_sign_changes;
 
   // Step TF24's soil alone, by inner steps of its own, on each step that starts
-  // with the plants' uptake under this share of the water moving through it.
+  // with the plants' uptake under this share of the water moving through it. On
+  // such a step the soil's error is held to the smallest factor outside it.
   double ode_soil_alone_share;
 
   // Fixed-step ODE integration (forward Euler).  Units: years.  When 0 (the
