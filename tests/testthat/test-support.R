@@ -95,3 +95,57 @@ test_that("control_window() weighs each step by the offspring still to be earned
   height <- run_scm(stand(2), env(), control_tf24(1e-3))
   expect_error(control_window(height), "birth-date coordinate")
 })
+
+test_that("diagnose_scm() estimates a run's node error from coarser runs", {
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 8
+  times <- seq(0, 6.4, length.out = 9)
+  stand <- function(hmat, lma = 0.1978791, at = times) {
+    p <- add_strategies(p0, trait_matrix(c(lma, hmat), c("lma", "hmat")))
+    p$node_schedule_times <- list(at)
+    p
+  }
+  env <- Environment("TF24")
+  env$extrinsic_drivers_set_constant("rainfall", 2)
+  ctrl <- control_tf24(1e-3, Control(node_density_in_birth_date = TRUE))
+  pulse <- function(p) events(events_default(p), rainfall_pulse(time = 1.5, depth = 0))
+  ## lma at a million gives a newborn shorter than one leaf segment, so its walk
+  ## throws.
+  d <- diagnose_scm(stand(2), env, ctrl, list(late = stand(3), broken = stand(2, 1e6)),
+                    events = pulse(stand(2)))
+  expect_equal(d$nodes, c(9, 5, 3))
+
+  ## The coarser run is the run at every other introduction, its pulse kept.
+  ln_J <- function(at) {
+    scm <- run_scm(stand(2, at = at), env, ctrl, events = pulse(stand(2, at = at)))
+    log(sum(scm$offspring_production))
+  }
+  q <- d$quantities
+  resident <- q[q$run == "resident" & q$quantity == "ln J", ]
+  expect_identical(resident$half, ln_J(times[c(1, 3, 5, 7, 9)]))
+  ## Its correction moves the run toward one at twice the introductions.
+  finer <- ln_J(seq(0, 6.4, length.out = 17))
+  expect_lt(abs(resident$value + resident$error - finer), abs(resident$value - finer))
+  expect_true(all(c("lma", "hmat") %in% q$quantity[q$run == "late"]))
+  expect_true(all(is.finite(q$value[q$run %in% c("resident", "late")])))
+
+  late <- d$distance[d$distance$run == "late", ]
+  expect_equal(late$parameter, "hmat")
+  expect_equal(late$distance, log(1.5))
+
+  ## A walk that throws is recorded at each run, and the rest still answer.
+  expect_false("broken" %in% q$run)
+  expect_equal(d$failures$run, rep("broken", 3))
+  expect_equal(d$failures$nodes, c(9, 5, 3))
+  expect_equal(unique(d$failures$stage), "walk")
+  expect_match(d$failures$message[1], "L_tip")
+
+  alone <- diagnose_scm(stand(2), env, ctrl, gradient = FALSE)
+  expect_equal(alone$quantities$quantity, "ln J")
+  expect_equal(nrow(alone$failures), 0)
+
+  expect_error(diagnose_scm(stand(2), env, ctrl, list(stand(3))), "names each invader")
+  expect_error(diagnose_scm(stand(2, at = times[1:3]), env, ctrl), "four introductions")
+  two <- add_strategies(stand(2), trait_matrix(0.3, "lma"))
+  expect_error(diagnose_scm(two, env, ctrl), "one species")
+})
