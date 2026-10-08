@@ -539,7 +539,7 @@ public:
   //   * water_in_0   = infiltration (rainfall reduced by a saturation-excess
   //                    runoff term controlled by a_infil/b_infil);
   //   * water_in_i>0 = drainage out of the layer above (water_flux[i-1]);
-  //   * water_out_i  = gravitational drainage = soil_K_from_soil_theta(theta_i),
+  //   * water_out_i  = gravitational drainage = conductivity(theta_i, i),
   //                    a Clapp & Hornberger (1978) / Zeng & Decker (2009)
   //                    unsaturated hydraulic conductivity;
   //   * root_uptake_i= resource_depletion[i], supplied by the plants via the
@@ -555,7 +555,6 @@ public:
   {
     using std::max;
 
-    S water_input;
     // Rainfall is floored at zero. Drivers are interpolated with a cubic
     // spline, which overshoots badly on intermittent forcing: a realistic daily
     // series with a ~10% wet-day fraction evaluates negative at ~45% of points,
@@ -614,7 +613,7 @@ public:
 
   // The share of the rain the top layer takes at moisture theta, before it is
   // floored at zero: one less the saturation-excess runoff.
-  template <class U> U infiltration_excess(const U& theta) const {
+  template <class U> U infiltrated_share(const U& theta) const {
     using std::pow;
     const double soil_moist_sat_0 =
       soil_parameter_value(soil_moist_sat_layers, soil_moist_sat, 0);
@@ -625,8 +624,8 @@ public:
   // plants through.
   void alone_inputs(std::vector<S>& u) const { u = resource_uptake; }
 
-  // The uptake's share of the water moving through the layers at the last
-  // evaluation: what each layer takes in, drains and loses to the plants.
+  // The uptake's share, at the last evaluation, of what the layers take in,
+  // drain and lose to the plants, summed over the layers.
   double uptake_share() const {
     using odelia::util::to_passive;
     double taken = 0.0, moving = 0.0;
@@ -640,21 +639,21 @@ public:
     return taken / moving;
   }
 
-  // The layers' rates under infiltration of `rainfall` and drainage, less the
-  // uptake u from each, held at the residual moisture; returns the infiltration.
-  // `note` counts each clamp, and `drainage`, where given, takes each layer's.
+  // Each layer's rate under `rainfall`, less the uptake u from it, held at the
+  // residual moisture; returns the infiltration. `note` counts each clamp, and
+  // `drainage`, if given, takes each layer's.
   template <class U, class Note>
   U layer_rates(double rainfall, const std::vector<U>& theta,
                 const std::vector<U>& u, std::vector<U>& rate,
                 std::vector<U>* drainage, Note note) const {
     using std::max;
-    const U excess = infiltration_excess(theta[0]);
+    const U share = infiltrated_share(theta[0]);
     // Where the top layer is wet enough that this goes negative, the infiltrated
     // fraction stops reading that layer's state at all.
-    if (excess < U(0.0)) {
+    if (share < U(0.0)) {
       note(CLAMP_INFILTRATION);
     }
-    const U infiltration = rainfall * max(U(0.0), excess);
+    const U infiltration = rainfall * max(U(0.0), share);
     U water_input = infiltration;
     for (size_t i = 0; i < soil_number_of_depths; ++i) {
       const U& t = theta[i];
@@ -681,13 +680,14 @@ public:
   }
 
   // The layers' rates under a given uptake u from each, as compute_rates finds
-  // them, counting no clamp.
+  // them.
   template <class U>
   void alone_rates(double time_, const std::vector<U>& theta,
                    const std::vector<U>& u, std::vector<U>& rate) const {
     rate.resize(theta.size());
     layer_rates<U>(std::max(0.0, extrinsic_drivers.evaluate("rainfall", time_)),
-                   theta, u, rate, nullptr, [](int) {});
+                   theta, u, rate, nullptr,
+                   [this](int site) { note_clamp(site); });
   }
 
 

@@ -95,7 +95,7 @@ scm_base_parameters <- function(type = NA, env = environment_type(type)) {
 ##'   \code{schedule_nsteps} from \code{ctrl})? Refinement records the ODE
 ##'   schedule its final run took into \code{p$ode_times},
 ##'   \code{p$ode_step_sizes}, \code{p$ode_alone_slopes} and
-##'   \code{p$ode_alone_steps}, so a later run of those parameters replays it
+##'   \code{p$ode_alone_ends}, so a later run of those parameters replays it
 ##'   exactly rather than choosing its own steps again.
 ##' @param record_trajectory Should the run keep the state at every accepted
 ##'   step? A gradient sweeps those states and cannot recover them from a

@@ -173,13 +173,12 @@ public:
   std::vector<double> r_ode_times() const;
   std::vector<double> r_ode_step_sizes() const;
   std::vector<std::vector<double> > r_ode_alone_slopes() const;
-  std::vector<std::vector<double> > r_ode_alone_steps() const;
-  // The parts of one recording, installed together: apart, they can be paired
-  // across different runs and nothing says so. Each step's soil record goes
-  // with its size, so a grid of times alone carries none.
+  std::vector<std::vector<double> > r_ode_alone_ends() const;
+  // One recording's parts, installed together so none is paired with another
+  // run's. A grid passes no sizes and no soil records.
   void r_set_ode_steps(std::vector<double> times, std::vector<double> sizes,
                        std::vector<std::vector<double> > alone_slopes,
-                       std::vector<std::vector<double> > alone_steps);
+                       std::vector<std::vector<double> > alone_ends);
   void r_clear_ode_steps();
   // Where the walk is, as a list: the time, the species from one, and the time
   // its interval ends. The species are one number each, counted the way R counts
@@ -206,6 +205,12 @@ private:
   // them is what makes a schedule a replay, so no flag says so separately.
   std::vector<odelia::ode::instruction> ode_steps;
 };
+
+// One field of each step's record of taking the soil alone, beside its size;
+// empty where the step took the soil with the rest.
+std::vector<std::vector<double> >
+alone_field(const std::vector<odelia::ode::instruction>& steps,
+            std::vector<double> odelia::ode::alone_steps::*field);
 
 }
 

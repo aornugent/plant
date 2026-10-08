@@ -251,22 +251,23 @@ std::vector<double> NodeSchedule::r_ode_step_sizes() const {
   return ret;
 }
 
-std::vector<std::vector<double> > NodeSchedule::r_ode_alone_slopes() const {
+std::vector<std::vector<double> >
+alone_field(const std::vector<odelia::ode::instruction>& steps,
+            std::vector<double> odelia::ode::alone_steps::*field) {
   std::vector<std::vector<double> > ret;
-  ret.reserve(ode_steps.size());
-  for (const odelia::ode::instruction& r : ode_steps) {
-    ret.push_back(r.alone.slope);
+  ret.reserve(steps.size());
+  for (const odelia::ode::instruction& step : steps) {
+    ret.push_back(step.alone ? (*step.alone).*field : std::vector<double>());
   }
   return ret;
 }
 
-std::vector<std::vector<double> > NodeSchedule::r_ode_alone_steps() const {
-  std::vector<std::vector<double> > ret;
-  ret.reserve(ode_steps.size());
-  for (const odelia::ode::instruction& r : ode_steps) {
-    ret.push_back(r.alone.ends);
-  }
-  return ret;
+std::vector<std::vector<double> > NodeSchedule::r_ode_alone_slopes() const {
+  return alone_field(ode_steps, &odelia::ode::alone_steps::slope);
+}
+
+std::vector<std::vector<double> > NodeSchedule::r_ode_alone_ends() const {
+  return alone_field(ode_steps, &odelia::ode::alone_steps::ends);
 }
 
 // The ODE schedule this run takes: times to stop at, and the sizes that reached
@@ -281,14 +282,14 @@ std::vector<std::vector<double> > NodeSchedule::r_ode_alone_steps() const {
 void NodeSchedule::r_set_ode_steps(
     std::vector<double> times, std::vector<double> sizes,
     std::vector<std::vector<double> > alone_slopes,
-    std::vector<std::vector<double> > alone_steps) {
+    std::vector<std::vector<double> > alone_ends) {
   if (alone_slopes.size() != sizes.size() ||
-      alone_steps.size() != sizes.size()) {
-    Rcpp::stop("ode_alone_slopes and ode_alone_steps must be as long as "
+      alone_ends.size() != sizes.size()) {
+    Rcpp::stop("ode_alone_slopes and ode_alone_ends must be as long as "
                "ode_step_sizes");
   }
   for (size_t i = 0; i < alone_slopes.size(); ++i) {
-    if (alone_slopes[i].empty() != alone_steps[i].empty()) {
+    if (alone_slopes[i].empty() != alone_ends[i].empty()) {
       Rcpp::stop("A step that took the soil alone needs both its slope and "
                  "its inner steps; step " + std::to_string(i + 1) +
                  " has one");
@@ -325,8 +326,9 @@ void NodeSchedule::r_set_ode_steps(
   ode_steps.reserve(times.size());
   for (size_t i = 0; i < times.size(); ++i) {
     ode_steps.push_back({times[i], sizes[i]});
-    if (!alone_slopes.empty()) {
-      ode_steps.back().alone = {alone_slopes[i], alone_steps[i]};
+    if (!alone_slopes.empty() && !alone_slopes[i].empty()) {
+      ode_steps.back().alone =
+        odelia::ode::alone_steps{alone_slopes[i], alone_ends[i]};
     }
   }
   if (!util::is_finite(max_time)) {

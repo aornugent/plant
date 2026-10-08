@@ -736,7 +736,7 @@ test_that("a program replayed at other parameters holds by its sizes and by its 
   times <- free$ode_times
   sizes <- free$ode_step_sizes
 
-  replays <- list(list(sizes, free$ode_alone_slopes, free$ode_alone_steps),
+  replays <- list(list(sizes, free$ode_alone_slopes, free$ode_alone_ends),
                   list(numeric(0), list(), list()))
   for (pinned in replays) {
     replayed <- run_at(0.0825 * 6, times, pinned[[1]], pinned[[2]], pinned[[3]])

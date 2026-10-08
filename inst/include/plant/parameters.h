@@ -72,11 +72,10 @@ struct Parameters {
   // steps: a size differenced back out of two recorded times is not the size
   // that was taken. A run carrying both replays itself exactly.
   std::vector<double> ode_step_sizes;
-  // Each step's record of taking the soil alone, beside its size: the slope its
-  // predictor extrapolated the uptake by, and where its inner steps ended as
-  // fractions of it. Both empty for a step that took the soil with the rest.
+  // Each step's record of taking the soil alone, beside its size; both empty
+  // where the step took the soil with the rest.
   std::vector<std::vector<double> > ode_alone_slopes;
-  std::vector<std::vector<double> > ode_alone_steps;
+  std::vector<std::vector<double> > ode_alone_ends;
 
   // Initial patch state. When initial_state is non-empty the patch is seeded
   // with these nodes at reset() instead of starting empty -- used to resume an

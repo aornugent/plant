@@ -15,10 +15,10 @@ products using plant.
 
 * **A pinned ODE schedule carries each step's record of taking the soil
   alone.** Migration: `sched$set_ode_steps(times, sizes)` ->
-  `sched$set_ode_steps(times, sizes, alone_slopes, alone_steps)`, passing a
-  run's `ode_alone_slopes` and `ode_alone_steps` with its `ode_times` and
+  `sched$set_ode_steps(times, sizes, alone_slopes, alone_ends)`, passing a
+  run's `ode_alone_slopes` and `ode_alone_ends` with its `ode_times` and
   `ode_step_sizes`, or `list(), list()` with a grid of times alone; and
-  parameters carry `ode_alone_slopes` and `ode_alone_steps` beside `ode_times`
+  parameters carry `ode_alone_slopes` and `ode_alone_ends` beside `ode_times`
   and `ode_step_sizes`. A step that took TF24's soil alone (Control's
   `ode_soil_alone_share`) replays only from its record, so a recording installed
   without its records is refused rather than replayed with the soil stepped past

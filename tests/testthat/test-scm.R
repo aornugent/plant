@@ -138,7 +138,7 @@ test_that("Run SCM", {
     ## Pull the times out of the SCM and set them in the schedule:
     sched <- scm$node_schedule
     sched$set_ode_steps(scm$ode_times, scm$ode_step_sizes,
-                        scm$ode_alone_slopes, scm$ode_alone_steps)
+                        scm$ode_alone_slopes, scm$ode_alone_ends)
     scm$reset() # must reset
     scm$node_schedule <- sched
 
@@ -180,7 +180,7 @@ test_that("A pinned replay of a run's own steps reproduces it", {
       sched$all_times <- free$node_schedule$all_times
       if (with_sizes) {
         sched$set_ode_steps(free$ode_times, free$ode_step_sizes,
-                            free$ode_alone_slopes, free$ode_alone_steps)
+                            free$ode_alone_slopes, free$ode_alone_ends)
       } else {
         sched$set_ode_steps(free$ode_times, numeric(0), list(), list())
       }
@@ -216,7 +216,7 @@ test_that("an ODE schedule is installed whole or refused", {
   expect_error(sched$ode_times <- scm$ode_times, "read-only")
 
   slopes <- scm$ode_alone_slopes
-  steps <- scm$ode_alone_steps
+  steps <- scm$ode_alone_ends
   expect_error(sched$set_ode_steps(scm$ode_times, scm$ode_step_sizes[-1],
                                    slopes[-1], steps[-1]),
                "same length as ode_times")
@@ -239,7 +239,7 @@ test_that("an ODE schedule is installed whole or refused", {
   expect_identical(sched$ode_times, scm$ode_times)
   expect_identical(sched$ode_step_sizes, scm$ode_step_sizes)
   expect_identical(sched$ode_alone_slopes, slopes)
-  expect_identical(sched$ode_alone_steps, steps)
+  expect_identical(sched$ode_alone_ends, steps)
 
   ## Times with no sizes is a grid to stop at rather than a run to replay, and a
   ## schedule holding either uses it.
@@ -527,7 +527,7 @@ test_that("A run splits its nodes at sign changes of net production only when as
   sched <- scm$node_schedule
   sched$all_times <- split$node_schedule$all_times
   sched$set_ode_steps(split$ode_times, split$ode_step_sizes,
-                      split$ode_alone_slopes, split$ode_alone_steps)
+                      split$ode_alone_slopes, split$ode_alone_ends)
   scm$node_schedule <- sched
   scm$run()
   expect_identical(scm$patch$ode_state, split$patch$ode_state)
@@ -618,7 +618,7 @@ test_that("The sweep through a split run is the derivative of its map", {
     sched <- scm$node_schedule
     sched$all_times <- split$node_schedule$all_times
     sched$set_ode_steps(split$ode_times, split$ode_step_sizes,
-                        split$ode_alone_slopes, split$ode_alone_steps)
+                        split$ode_alone_slopes, split$ode_alone_ends)
     scm$node_schedule <- sched
     scm$run()
     sum(scm$offspring_production)
@@ -680,14 +680,14 @@ test_that("TF24's soil steps alone where the stand draws little of its water", {
 
   coupled <- run(0)
   alone <- run(0.1)
-  taken <- lengths(alone$ode_alone_steps) > 0
-  expect_false(any(lengths(coupled$ode_alone_steps) > 0))
+  taken <- lengths(alone$ode_alone_ends) > 0
+  expect_false(any(lengths(coupled$ode_alone_ends) > 0))
   expect_gt(mean(taken), 0.5)
   expect_lt(length(alone$ode_times), 0.8 * length(coupled$ode_times))
   ## Each record: a slope per layer, and inner steps ending at the step's end.
   n_soil <- Environment("TF24")$get_soil_number_of_depths()
   expect_true(all(lengths(alone$ode_alone_slopes[taken]) == n_soil))
-  expect_true(all(vapply(alone$ode_alone_steps[taken],
+  expect_true(all(vapply(alone$ode_alone_ends[taken],
                          function(e) e[length(e)] == 1, TRUE)))
   ## Its error falls with the tolerance, against a tight run with the soil
   ## coupled.
@@ -717,7 +717,7 @@ test_that("A run that took the soil alone replays, sweeps and is walked as it ra
   ctrl <- control_tf24(1e-4, Control(node_density_in_birth_date = TRUE,
                                      ode_split_sign_changes = TRUE))
   alone <- run_scm(p, env(), ctrl, record_trajectory = TRUE)
-  expect_gt(mean(lengths(alone$ode_alone_steps) > 0), 0.5)
+  expect_gt(mean(lengths(alone$ode_alone_ends) > 0), 0.5)
   expect_gt(sum(alone$ode_splits), 0)
 
   ## A replay of the program, records and all, repeats the run bit for bit.
@@ -726,14 +726,14 @@ test_that("A run that took the soil alone replays, sweeps and is walked as it ra
     sched <- scm$node_schedule
     sched$all_times <- alone$node_schedule$all_times
     sched$set_ode_steps(alone$ode_times, alone$ode_step_sizes,
-                        alone$ode_alone_slopes, alone$ode_alone_steps)
+                        alone$ode_alone_slopes, alone$ode_alone_ends)
     scm$node_schedule <- sched
     scm$run()
     scm
   }
   again <- replay(p)
   expect_identical(again$patch$ode_state, alone$patch$ode_state)
-  expect_identical(again$ode_alone_steps, alone$ode_alone_steps)
+  expect_identical(again$ode_alone_ends, alone$ode_alone_ends)
   expect_identical(again$ode_splits, alone$ode_splits)
   ## So does the program carried in the parameters, with the introductions given
   ## as events.
@@ -741,10 +741,10 @@ test_that("A run that took the soil alone replays, sweeps and is walked as it ra
   q$ode_times <- alone$ode_times
   q$ode_step_sizes <- alone$ode_step_sizes
   q$ode_alone_slopes <- alone$ode_alone_slopes
-  q$ode_alone_steps <- alone$ode_alone_steps
+  q$ode_alone_ends <- alone$ode_alone_ends
   carried <- run_scm(q, env(), ctrl, events = events(events_default(q)))
   expect_identical(carried$patch$ode_state, alone$patch$ode_state)
-  expect_identical(carried$ode_alone_steps, alone$ode_alone_steps)
+  expect_identical(carried$ode_alone_ends, alone$ode_alone_ends)
 
   ## The sweep holds each step's inner steps and slope, as a replay at another lma
   ## does: central differences of the replayed program agree.

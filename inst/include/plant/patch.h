@@ -72,8 +72,9 @@ concept NamesSignValue = requires(const T& s) {
 // states, which read the plants only through the uptake from each.
 template <typename E>
 concept SoilStepsAlone =
-  requires(const E& e, std::vector<typename E::value_type>& u) {
+  requires(const E& e, double time, std::vector<typename E::value_type>& u) {
   e.alone_inputs(u);
+  e.alone_rates(time, u, u, u);
   { e.uptake_share() } -> std::convertible_to<double>;
 };
 
@@ -292,9 +293,7 @@ public:
     return f;
   }
 
-  // The environment's soil, which a step takes alone where the plants' uptake is
-  // under ode_soil_alone_share of the water moving through it. Its layers are the
-  // environment's first states, which come last in the patch's state.
+  // The soil: the environment's first states, which come last in the patch's.
   std::pair<size_t, size_t> alone_block() const requires SoilStepsAlone<E> {
     return {ode_size() - environment.ode_size(), environment.n_resources()};
   }
