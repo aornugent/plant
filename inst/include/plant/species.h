@@ -340,10 +340,11 @@ private:
     }
     const value_type& h = node.height();
     for (int s = 0; s < crowns_per_interval; ++s) {
-      const double lambda = (s + 0.5) / crowns_per_interval;
-      visit(h + lambda * (end.height() - h),
-            at_node * (2.0 * (1.0 - lambda) / crowns_per_interval) +
-              at_end * (2.0 * lambda / crowns_per_interval));
+      // The crown's place in the interval, as a fraction of it.
+      const double u = (s + 0.5) / crowns_per_interval;
+      visit(h + u * (end.height() - h),
+            at_node * (2.0 * (1.0 - u) / crowns_per_interval) +
+              at_end * (2.0 * u / crowns_per_interval));
     }
   }
   // The crowns of every interval between two nodes. The interval from the newest
