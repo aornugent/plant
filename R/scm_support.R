@@ -133,15 +133,15 @@ control_window <- function(pilot, invaders = list(), base = Control(),
 ##' @param gradient Should each run and walk give its elasticities too, by a
 ##'   sweep? TF24 only.
 ##' @return A list of
-##'   \item{quantities}{one row per run and quantity: \code{"ln J"}, and with
-##'     \code{gradient} each parameter's elasticity \eqn{d \ln J / d \ln
-##'     \theta}{d ln J / d ln theta}, or \eqn{d \ln J / d\theta}{d ln J / d
-##'     theta} where \eqn{\theta}{theta} is 0, with \code{value},
-##'     \code{half}, \code{quarter}, \code{error} and \code{ratio}.}
+##'   \item{quantities}{one row per run and quantity:
+##'     \code{"log_offspring_production"}, and with \code{gradient} each
+##'     parameter's elasticity of offspring production, d log(offspring
+##'     production) / d log(theta), or d log(offspring production) / d theta
+##'     where theta is 0, with \code{value}, \code{half}, \code{quarter},
+##'     \code{error} and \code{ratio}.}
 ##'   \item{distance}{one row per invader and parameter it moves:
-##'     \eqn{\ln(\theta' / \theta)}{ln(theta' / theta)} from the resident
-##'     whose recording it walks, or \eqn{\theta' - \theta}{theta' - theta}
-##'     where \eqn{\theta}{theta} is 0.}
+##'     log(theta' / theta) from the stand whose recording it walks, or
+##'     theta' - theta where theta is 0.}
 ##'   \item{failures}{one row per run, walk or sweep that threw or was
 ##'     refused, with its run's introductions and the message. Its quantities
 ##'     are \code{NA}.}
@@ -153,8 +153,8 @@ diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
     stop("diagnose_scm() takes one species with no recorded ODE schedule")
   }
   if (length(invaders) > 0 &&
-      (is.null(names(invaders)) || any(names(invaders) %in% c("", "resident")))) {
-    stop("diagnose_scm() names each invader, none of them \"resident\"")
+      (is.null(names(invaders)) || any(names(invaders) %in% c("", "stand")))) {
+    stop("diagnose_scm() names each invader, none of them \"stand\"")
   }
   every_other <- function(t) t[unique(c(seq(1, length(t), 2), length(t)))]
   times <- list(p$node_schedule_times[[1]])
@@ -170,8 +170,8 @@ diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
     failures[nrow(failures) + 1, ] <<- list(run, n, stage, message)
   }
   measure <- function(scm, q, run, n) {
-    J <- sum(scm$offspring_production)
-    out <- c("ln J" = log(J))
+    offspring <- sum(scm$offspring_production)
+    out <- c(log_offspring_production = log(offspring))
     if (!gradient) return(out)
     g <- tryCatch(stand_gradient(scm, metrics = "offspring_production"),
                   error = function(e) conditionMessage(e))
@@ -184,7 +184,7 @@ diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
     pars <- q$strategies[[1]]$pars
     names(grad) <- trait_without_species(names(grad))
     theta <- vapply(names(grad), function(n) pars[[n]], 0)
-    c(out, ifelse(theta == 0, 1, theta) * grad / J)
+    c(out, ifelse(theta == 0, 1, theta) * grad / offspring)
   }
   ## The run at each set of introductions, then each invader walked on it.
   measured <- lapply(times, function(t) {
@@ -200,10 +200,10 @@ diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
                             record_trajectory = gradient),
                     error = function(e) conditionMessage(e))
     if (is.character(scm)) {
-      fail("resident", n, "run", scm)
+      fail("stand", n, "run", scm)
       return(list())
     }
-    out <- list(resident = measure(scm, pt, "resident", n))
+    out <- list(stand = measure(scm, pt, "stand", n))
     for (k in names(invaders)) {
       q <- invaders[[k]]
       q$node_schedule_times <- list(t)
@@ -218,7 +218,7 @@ diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
     out
   })
 
-  quantities <- do.call(rbind, lapply(c("resident", names(invaders)), function(k) {
+  quantities <- do.call(rbind, lapply(c("stand", names(invaders)), function(k) {
     v <- lapply(measured, `[[`, k)
     quantity <- unique(unlist(lapply(v, names)))
     at <- function(i) {
