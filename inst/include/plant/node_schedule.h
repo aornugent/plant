@@ -143,8 +143,7 @@ public:
   // does not go through the per-species times interface.
   std::vector<Event> get_events() const;
   void set_all_events(const std::vector<Event>& events_);
-  // An entry at `time` that introduces nothing and acts on nothing, unless one is
-  // there already.
+  // Makes the schedule stop at `time`, with an empty entry where it has none.
   void add_entry(double time);
   void reset();
 
