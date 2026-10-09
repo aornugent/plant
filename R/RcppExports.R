@@ -2809,6 +2809,10 @@ SCM___FF16__FF16_Env__ode_soil_substep_ends__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__ode_soil_substep_ends__get', PACKAGE = 'plant', obj_)
 }
 
+SCM___FF16__FF16_Env__offspring_production_by_step__get <- function(obj_) {
+    .Call('_plant_SCM___FF16__FF16_Env__offspring_production_by_step__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___FF16__FF16_Env__ode_step_attempts__get <- function(obj_) {
     .Call('_plant_SCM___FF16__FF16_Env__ode_step_attempts__get', PACKAGE = 'plant', obj_)
 }
@@ -2947,6 +2951,10 @@ SCM___TF24__TF24_Env__ode_soil_input_slopes__get <- function(obj_) {
 
 SCM___TF24__TF24_Env__ode_soil_substep_ends__get <- function(obj_) {
     .Call('_plant_SCM___TF24__TF24_Env__ode_soil_substep_ends__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___TF24__TF24_Env__offspring_production_by_step__get <- function(obj_) {
+    .Call('_plant_SCM___TF24__TF24_Env__offspring_production_by_step__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___TF24__TF24_Env__ode_step_attempts__get <- function(obj_) {
@@ -3089,6 +3097,10 @@ SCM___TF24f__TF24_Env__ode_soil_substep_ends__get <- function(obj_) {
     .Call('_plant_SCM___TF24f__TF24_Env__ode_soil_substep_ends__get', PACKAGE = 'plant', obj_)
 }
 
+SCM___TF24f__TF24_Env__offspring_production_by_step__get <- function(obj_) {
+    .Call('_plant_SCM___TF24f__TF24_Env__offspring_production_by_step__get', PACKAGE = 'plant', obj_)
+}
+
 SCM___TF24f__TF24_Env__ode_step_attempts__get <- function(obj_) {
     .Call('_plant_SCM___TF24f__TF24_Env__ode_step_attempts__get', PACKAGE = 'plant', obj_)
 }
@@ -3227,6 +3239,10 @@ SCM___K93__K93_Env__ode_soil_input_slopes__get <- function(obj_) {
 
 SCM___K93__K93_Env__ode_soil_substep_ends__get <- function(obj_) {
     .Call('_plant_SCM___K93__K93_Env__ode_soil_substep_ends__get', PACKAGE = 'plant', obj_)
+}
+
+SCM___K93__K93_Env__offspring_production_by_step__get <- function(obj_) {
+    .Call('_plant_SCM___K93__K93_Env__offspring_production_by_step__get', PACKAGE = 'plant', obj_)
 }
 
 SCM___K93__K93_Env__ode_step_attempts__get <- function(obj_) {

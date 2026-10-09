@@ -487,6 +487,10 @@ public:
   // rest.
   std::vector<std::vector<double> > r_ode_soil_input_slopes() const;
   std::vector<std::vector<double> > r_ode_soil_substep_ends() const;
+  // The offspring production each of r_ode_times() had earned, of a run of one
+  // species on the birth-date coordinate: each node's fecundity there, weighted
+  // as offspring production weights it at the end.
+  std::vector<double> r_offspring_production_by_step() const;
 
   // How each attempt at an error-controlled step ended over the last run, named.
   // accepted + accepted_at_minimum is the number of steps r_ode_times() holds;
@@ -1035,6 +1039,40 @@ template <typename T, typename E>
 std::vector<std::vector<double> > SCM<T, E>::r_ode_soil_substep_ends() const {
   return subsystem_field(solver.schedule(),
                          &odelia::ode::subsystem_substeps::ends);
+}
+
+template <typename T, typename E>
+std::vector<double> SCM<T, E>::r_offspring_production_by_step() const {
+  if (patch.size() != 1 || !patch.at_species(0).density_in_birth_date()) {
+    util::stop("offspring_production_by_step reads a run of one species on the "
+               "birth-date coordinate");
+  }
+  const auto& species = patch.at_species(0);
+  const std::vector<double> per_fecundity =
+    species.offspring_production_per_fecundity();
+  const std::vector<std::string> names = species.r_new_node().ode_names();
+  const size_t width = names.size();
+  const size_t fecundity = static_cast<size_t>(
+    std::find(names.begin(), names.end(),
+              "offspring_produced_survival_weighted") - names.begin());
+  const size_t environment_size = patch.ode_size() - patch.node_ode_size();
+  std::vector<double> ret;
+  for (const auto& row : solver.recording()) {
+    if (row.insertion) {
+      continue;
+    }
+    if (row.state.empty()) {
+      util::stop("offspring_production_by_step reads the states a run records "
+                 "with record_trajectory");
+    }
+    const size_t nodes = (row.state.size() - environment_size) / width;
+    double earned = 0.0;
+    for (size_t j = 0; j < nodes; ++j) {
+      earned += per_fecundity.at(j) * row.state[j * width + fecundity];
+    }
+    ret.push_back(earned);
+  }
+  return ret;
 }
 
 template <typename T, typename E>

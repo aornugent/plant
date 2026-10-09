@@ -68,11 +68,16 @@ test_that("control_window() loosens the steps after most offspring is earned", {
   expect_equal(sum(weight * sp$net_reproduction_ratio_by_node) *
                  stand(2)$strategies[[1]]$pars$S_D,
                sum(pilot$offspring_production))
+  ## The offspring production each step had earned ends at the run's.
+  by_step <- pilot$offspring_production_by_step
+  expect_length(by_step, length(pilot$ode_times))
+  expect_false(is.unsorted(by_step))
+  expect_equal(by_step[length(by_step)], sum(pilot$offspring_production))
   earned <- vapply(pilot$history, function(h) {
     o <- h$species[[1]]$net_reproduction_ratio_by_node
     sum(weight[seq_along(o)] * o)
   }, 0)
-  R <- 1 - earned / earned[length(earned)]
+  left <- 1 - earned / earned[length(earned)]
   at <- vapply(pilot$history, function(h) h$time, 0)
   factor_at <- function(w, t) {
     w$ode_tol_factor_values[findInterval(t, w$ode_tol_factor_times)]
@@ -81,10 +86,10 @@ test_that("control_window() loosens the steps after most offspring is earned", {
   win <- control_window(pilot, base = ctrl)
   expect_equal(win$ode_tol_factor_times[1], 0)
   expect_false(is.unsorted(win$ode_tol_factor_times, strictly = TRUE))
-  expect_equal(factor_at(win, at), 1 / pmin(pmax(R / 0.1, 0.01), 1))
+  expect_equal(factor_at(win, at), pmin(pmax(0.1 / left, 1), 100))
   expect_true(any(factor_at(win, at) > 1 & factor_at(win, at) < 100))
   expect_equal(range(win$ode_tol_factor_values), c(1, 100))
-  coarse <- control_window(pilot, base = ctrl, r_min = 0.1)
+  coarse <- control_window(pilot, base = ctrl, factor_limit = 10)
   expect_equal(max(coarse$ode_tol_factor_values), 10)
   rest <- setdiff(names(ctrl),
                   c("ode_tol_factor_times", "ode_tol_factor_values"))

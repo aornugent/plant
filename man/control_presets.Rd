@@ -17,8 +17,8 @@ control_window(
   pilot,
   invaders = list(),
   base = Control(),
-  R0 = 0.1,
-  r_min = 0.01
+  share_left = 0.1,
+  factor_limit = 100
 )
 }
 \arguments{
@@ -36,11 +36,11 @@ last walk.}
 \item{invaders}{A list of \code{Parameters}, each walked on the pilot's
 introductions.}
 
-\item{R0}{The share still to be earned below which a step's factor rises
-from 1.}
+\item{share_left}{The share of offspring production left to earn below which
+a step's factor rises from 1.}
 
-\item{r_min}{The share of \code{R0} at which the factor stops rising, at
-\code{1 / r_min}.}
+\item{factor_limit}{The largest factor a step takes, where the share left
+falls to \code{share_left / factor_limit}.}
 }
 \value{
 A \code{Control} object.
@@ -60,13 +60,13 @@ plants' factor. \code{control_window()} sets the schedule of factors.
 \details{
 \code{control_window()} loosens the steps in the window late in a run where
 little offspring production is left to earn. From a pilot of the analysis, a
-step starting at \code{t} takes the factor \code{1 / min(max(R(t) / R0,
-r_min), 1)}, where \code{R(t)} is the largest share of offspring production
-still to be earned after \code{t}, over the pilot's stand and each invader
-walked on its recording. The pilot needs only \code{R}, so a coarse stand at
-a loose tolerance serves; under constant rain its introductions must resolve
-the first cohorts. A pilot already walked holds an invader's run, and is
-refused.
+step starting at \code{t} takes the factor \code{share_left / left(t)}, held
+between 1 and \code{factor_limit}, where \code{left(t)} is the largest share
+of offspring production left to earn after \code{t}, over the pilot's stand
+and each invader walked on its recording. The pilot needs only \code{left},
+so a coarse stand at a loose tolerance serves; under constant rain its
+introductions must resolve the first cohorts. A pilot already walked holds
+an invader's run, and is refused.
 
 The SCM's adaptive ODE stepper multiplies each state's error level by a
 tolerance factor, which decides which steps it takes and nothing else:
