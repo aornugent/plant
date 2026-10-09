@@ -925,10 +925,10 @@ SCM:
       type: "std::vector<std::vector<double> >"
       access: member
       name_cpp: r_ode_soil_substep_ends
-    offspring_production_by_step:
+    offspring_produced_at_ode_times:
       type: "std::vector<double>"
       access: member
-      name_cpp: r_offspring_production_by_step
+      name_cpp: r_offspring_produced_at_ode_times
     # How each attempt at a step ended, counted over the run: accepted,
     # accepted_at_minimum, rejected_inaccurate, rejected_thrown, rejected_refused.
     ode_step_attempts:

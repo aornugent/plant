@@ -487,10 +487,10 @@ public:
   // rest.
   std::vector<std::vector<double> > r_ode_soil_input_slopes() const;
   std::vector<std::vector<double> > r_ode_soil_substep_ends() const;
-  // The offspring production each of r_ode_times() had earned, of a run of one
-  // species on the birth-date coordinate: each node's fecundity there, weighted
-  // as offspring production weights it at the end.
-  std::vector<double> r_offspring_production_by_step() const;
+  // The offspring produced by each of r_ode_times(), of a run of one species on
+  // the birth-date coordinate: each node's fecundity there, weighted as
+  // offspring production weights it at the end.
+  std::vector<double> r_offspring_produced_at_ode_times() const;
 
   // How each attempt at an error-controlled step ended over the last run, named.
   // accepted + accepted_at_minimum is the number of steps r_ode_times() holds;
@@ -1042,10 +1042,10 @@ std::vector<std::vector<double> > SCM<T, E>::r_ode_soil_substep_ends() const {
 }
 
 template <typename T, typename E>
-std::vector<double> SCM<T, E>::r_offspring_production_by_step() const {
+std::vector<double> SCM<T, E>::r_offspring_produced_at_ode_times() const {
   if (patch.size() != 1 || !patch.at_species(0).density_in_birth_date()) {
-    util::stop("offspring_production_by_step reads a run of one species on the "
-               "birth-date coordinate");
+    util::stop("offspring_produced_at_ode_times reads a run of one species on "
+               "the birth-date coordinate");
   }
   const auto& species = patch.at_species(0);
   const std::vector<double> per_fecundity =
@@ -1062,8 +1062,8 @@ std::vector<double> SCM<T, E>::r_offspring_production_by_step() const {
       continue;
     }
     if (row.state.empty()) {
-      util::stop("offspring_production_by_step reads the states a run records "
-                 "with record_trajectory");
+      util::stop("offspring_produced_at_ode_times reads the states a run "
+                 "records with record_trajectory");
     }
     const size_t nodes = (row.state.size() - environment_size) / width;
     double earned = 0.0;

@@ -92,7 +92,7 @@ control_window <- function(pilot, invaders = list(), base = Control(),
   ## The share of offspring production left to earn after each step of the
   ## last run or walk.
   left_after <- function() {
-    earned <- pilot$offspring_production_by_step
+    earned <- pilot$offspring_produced_at_ode_times
     list(time = pilot$ode_times, left = 1 - earned / earned[length(earned)])
   }
   times <- pilot$parameters$node_schedule_times
