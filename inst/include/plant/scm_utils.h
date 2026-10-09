@@ -26,8 +26,8 @@ NodeSchedule make_node_schedule(const Parameters& p) {
   NodeSchedule ret(p.size());
   ret.r_set_max_time(p.max_patch_lifetime);
   ret.set_times(p.node_schedule_times);
-  ret.r_set_ode_steps(p.ode_times, p.ode_step_sizes, p.ode_alone_slopes,
-                      p.ode_alone_ends);
+  ret.r_set_ode_steps(p.ode_times, p.ode_step_sizes, p.ode_soil_input_slopes,
+                      p.ode_soil_substep_ends);
   return ret;
 }
 
@@ -44,8 +44,8 @@ NodeSchedule make_node_schedule(const Parameters& p, const Events& events) {
   NodeSchedule ret(p.size());
   ret.r_set_max_time(p.max_patch_lifetime);
   ret.set_all_events(to_schedule_events(events, p.size()));
-  ret.r_set_ode_steps(p.ode_times, p.ode_step_sizes, p.ode_alone_slopes,
-                      p.ode_alone_ends);
+  ret.r_set_ode_steps(p.ode_times, p.ode_step_sizes, p.ode_soil_input_slopes,
+                      p.ode_soil_substep_ends);
   return ret;
 }
 

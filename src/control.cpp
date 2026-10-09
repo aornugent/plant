@@ -53,8 +53,8 @@ Control::Control() {
   ode_tol_factor_max         = std::numeric_limits<double>::infinity();
 
   ode_split_sign_changes = false;
-  // No step takes the soil alone.
-  ode_soil_alone_share = 0.0;
+  // No step substeps the soil.
+  ode_soil_substep_max_uptake = 0.0;
 
   // 0 = adaptive RKCK (default); > 0 selects fixed-step forward Euler with this
   // spacing in years (see control.h).

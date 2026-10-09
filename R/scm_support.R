@@ -5,9 +5,9 @@
 ##' high-accuracy runs at the cost of speed. \code{control_tf24()} sets TF24's
 ##' step control: the relative tolerance \code{tol} with the absolute one at
 ##' 1e-4 of it, the soil layers' tolerance factor at 10, each factor bounded at
-##' 100, steps capped at 15 days, and the soil stepped alone where the stand
-##' draws under a tenth of the water moving through it, where the soil's error
-##' is held to the plants' factor. The window's factors stay the caller's.
+##' 100, steps capped at 15 days, and the soil substepped while the stand takes
+##' under a tenth of the water flowing through its layers, its error held to the
+##' plants' factor. The window's factors stay the caller's.
 ##'
 ##' The SCM's adaptive ODE stepper multiplies each state's error level by a
 ##' tolerance factor, which decides which steps it takes and nothing else:
@@ -55,7 +55,7 @@ control_tf24 <- function(tol = 3e-5, base = Control()) {
   base$ode_tol_factor_soil  <- 10
   base$ode_tol_factor_max   <- 100
   base$ode_step_size_max    <- 15 / 365
-  base$ode_soil_alone_share <- 0.1
+  base$ode_soil_substep_max_uptake <- 0.1
   base
 }
 
@@ -94,8 +94,8 @@ scm_base_parameters <- function(type = NA, env = environment_type(type)) {
 ##'   refined before/while running (using \code{schedule_eps} and
 ##'   \code{schedule_nsteps} from \code{ctrl})? Refinement records the ODE
 ##'   schedule its final run took into \code{p$ode_times},
-##'   \code{p$ode_step_sizes}, \code{p$ode_alone_slopes} and
-##'   \code{p$ode_alone_ends}, so a later run of those parameters replays it
+##'   \code{p$ode_step_sizes}, \code{p$ode_soil_input_slopes} and
+##'   \code{p$ode_soil_substep_ends}, so a later run of those parameters replays it
 ##'   exactly rather than choosing its own steps again.
 ##' @param record_trajectory Should the run keep the state at every accepted
 ##'   step? A gradient sweeps those states and cannot recover them from a

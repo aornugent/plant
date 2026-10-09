@@ -172,13 +172,13 @@ public:
   void r_set_max_time(double x);
   std::vector<double> r_ode_times() const;
   std::vector<double> r_ode_step_sizes() const;
-  std::vector<std::vector<double> > r_ode_alone_slopes() const;
-  std::vector<std::vector<double> > r_ode_alone_ends() const;
+  std::vector<std::vector<double> > r_ode_soil_input_slopes() const;
+  std::vector<std::vector<double> > r_ode_soil_substep_ends() const;
   // One recording's parts, installed together so none is paired with another
   // run's. A grid passes no sizes and no soil records.
   void r_set_ode_steps(std::vector<double> times, std::vector<double> sizes,
-                       std::vector<std::vector<double> > alone_slopes,
-                       std::vector<std::vector<double> > alone_ends);
+                       std::vector<std::vector<double> > input_slopes,
+                       std::vector<std::vector<double> > substep_ends);
   void r_clear_ode_steps();
   // Where the walk is, as a list: the time, the species from one, and the time
   // its interval ends. The species are one number each, counted the way R counts
@@ -206,11 +206,11 @@ private:
   std::vector<odelia::ode::instruction> ode_steps;
 };
 
-// One field of each step's record of taking the soil alone, beside its size;
-// empty where the step took the soil with the rest.
+// One field of each step's subsystem record, beside its size; empty where the
+// step did not substep the subsystem.
 std::vector<std::vector<double> >
-alone_field(const std::vector<odelia::ode::instruction>& steps,
-            std::vector<double> odelia::ode::alone_steps::*field);
+subsystem_field(const std::vector<odelia::ode::instruction>& steps,
+            std::vector<double> odelia::ode::subsystem_substeps::*field);
 
 }
 

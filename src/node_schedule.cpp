@@ -184,7 +184,7 @@ std::vector<odelia::ode::instruction> NodeSchedule::program() const {
       }
     }
     // As recorded where the run recorded it: a step to the end never takes the
-    // soil alone, so it would step the soil past its stability limit.
+    // soil in substeps, so it would step the soil past its stability limit.
     if (step != ode_steps.end() && util::identical(step->time, end)) {
       ret.push_back(*step);
     } else {
@@ -252,22 +252,24 @@ std::vector<double> NodeSchedule::r_ode_step_sizes() const {
 }
 
 std::vector<std::vector<double> >
-alone_field(const std::vector<odelia::ode::instruction>& steps,
-            std::vector<double> odelia::ode::alone_steps::*field) {
+subsystem_field(const std::vector<odelia::ode::instruction>& steps,
+            std::vector<double> odelia::ode::subsystem_substeps::*field) {
   std::vector<std::vector<double> > ret;
   ret.reserve(steps.size());
   for (const odelia::ode::instruction& step : steps) {
-    ret.push_back(step.alone ? (*step.alone).*field : std::vector<double>());
+    ret.push_back(step.subsystem ? (*step.subsystem).*field
+                                  : std::vector<double>());
   }
   return ret;
 }
 
-std::vector<std::vector<double> > NodeSchedule::r_ode_alone_slopes() const {
-  return alone_field(ode_steps, &odelia::ode::alone_steps::slope);
+std::vector<std::vector<double> > NodeSchedule::r_ode_soil_input_slopes() const {
+  return subsystem_field(ode_steps,
+                         &odelia::ode::subsystem_substeps::input_slope);
 }
 
-std::vector<std::vector<double> > NodeSchedule::r_ode_alone_ends() const {
-  return alone_field(ode_steps, &odelia::ode::alone_steps::ends);
+std::vector<std::vector<double> > NodeSchedule::r_ode_soil_substep_ends() const {
+  return subsystem_field(ode_steps, &odelia::ode::subsystem_substeps::ends);
 }
 
 // The ODE schedule this run takes: times to stop at, and the sizes that reached
@@ -281,17 +283,17 @@ std::vector<std::vector<double> > NodeSchedule::r_ode_alone_ends() const {
 // integrate freely instead, hand over no schedule.
 void NodeSchedule::r_set_ode_steps(
     std::vector<double> times, std::vector<double> sizes,
-    std::vector<std::vector<double> > alone_slopes,
-    std::vector<std::vector<double> > alone_ends) {
-  if (alone_slopes.size() != sizes.size() ||
-      alone_ends.size() != sizes.size()) {
-    Rcpp::stop("ode_alone_slopes and ode_alone_ends must be as long as "
+    std::vector<std::vector<double> > input_slopes,
+    std::vector<std::vector<double> > substep_ends) {
+  if (input_slopes.size() != sizes.size() ||
+      substep_ends.size() != sizes.size()) {
+    Rcpp::stop("ode_soil_input_slopes and ode_soil_substep_ends must be as long as "
                "ode_step_sizes");
   }
-  for (size_t i = 0; i < alone_slopes.size(); ++i) {
-    if (alone_slopes[i].empty() != alone_ends[i].empty()) {
-      Rcpp::stop("A step that took the soil alone needs both its slope and "
-                 "its inner steps; step " + std::to_string(i + 1) +
+  for (size_t i = 0; i < input_slopes.size(); ++i) {
+    if (input_slopes[i].empty() != substep_ends[i].empty()) {
+      Rcpp::stop("A step that substepped the soil needs both its input slope "
+                 "and its substep ends; step " + std::to_string(i + 1) +
                  " has one");
     }
   }
@@ -326,9 +328,9 @@ void NodeSchedule::r_set_ode_steps(
   ode_steps.reserve(times.size());
   for (size_t i = 0; i < times.size(); ++i) {
     ode_steps.push_back({times[i], sizes[i]});
-    if (!alone_slopes.empty() && !alone_slopes[i].empty()) {
-      ode_steps.back().alone =
-        odelia::ode::alone_steps{alone_slopes[i], alone_ends[i]};
+    if (!input_slopes.empty() && !input_slopes[i].empty()) {
+      ode_steps.back().subsystem =
+        odelia::ode::subsystem_substeps{input_slopes[i], substep_ends[i]};
     }
   }
   if (!util::is_finite(max_time)) {

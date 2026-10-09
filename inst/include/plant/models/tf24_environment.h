@@ -356,7 +356,7 @@ public:
 
   // The state the solver integrates, and the uptake compute_rates received.
   Internals<S> vars;
-  // At the working scalar: a step that takes the soil alone reads it as the
+  // At the working scalar: a step that substeps the soil reads it as the
   // layers' inputs, and the sweep differentiates through them.
   std::vector<S> resource_uptake;
 
@@ -620,13 +620,10 @@ public:
     return U(1) - a_infil * pow(theta / soil_moist_sat_0, b_infil);
   }
 
-  // The uptake from each layer at the last evaluation, which the layers read the
-  // plants through.
-  void alone_inputs(std::vector<S>& u) const { u = resource_uptake; }
-
-  // The uptake's share, at the last evaluation, of what the layers take in,
-  // drain and lose to the plants, summed over the layers.
-  double uptake_share() const {
+  // The fraction of the water flowing through the layers that the plants take,
+  // at the last evaluation: uptake against inflow, drainage and uptake, summed
+  // over the layers.
+  double uptake_fraction_of_flows() const {
     using odelia::util::to_passive;
     double taken = 0.0, moving = 0.0;
     for (size_t i = 0; i < n_resources(); ++i) {
@@ -679,10 +676,10 @@ public:
     return infiltration;
   }
 
-  // The layers' rates under a given uptake u from each, as compute_rates finds
-  // them.
+  // The layers' rates at `time_` under a given uptake u from each, as
+  // compute_rates finds them.
   template <class U>
-  void alone_rates(double time_, const std::vector<U>& theta,
+  void layer_rates(double time_, const std::vector<U>& theta,
                    const std::vector<U>& u, std::vector<U>& rate) const {
     rate.resize(theta.size());
     layer_rates<U>(std::max(0.0, extrinsic_drivers.evaluate("rainfall", time_)),

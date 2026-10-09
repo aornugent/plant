@@ -480,10 +480,11 @@ public:
   // alone it steps TO each of them and chooses its own sub-steps, which is what
   // a difference of two runs wants -- one grid, each side free to reach it.
   std::vector<double> r_ode_step_sizes() const;
-  // Each step's record of taking the soil alone, beside its size; both empty
-  // for a step that took the soil with the rest.
-  std::vector<std::vector<double> > r_ode_alone_slopes() const;
-  std::vector<std::vector<double> > r_ode_alone_ends() const;
+  // Each step's record of substepping the soil, beside its size: its input
+  // slope and substep ends, both empty for a step that took the soil with the
+  // rest.
+  std::vector<std::vector<double> > r_ode_soil_input_slopes() const;
+  std::vector<std::vector<double> > r_ode_soil_substep_ends() const;
 
   // How each attempt at an error-controlled step ended over the last run, named.
   // accepted + accepted_at_minimum is the number of steps r_ode_times() holds;
@@ -900,9 +901,10 @@ void SCM<T, E>::refine_schedule() {
     parameters.ode_times.push_back(step.time);
     parameters.ode_step_sizes.push_back(step.step_size);
   }
-  parameters.ode_alone_slopes =
-    alone_field(taken, &odelia::ode::alone_steps::slope);
-  parameters.ode_alone_ends = alone_field(taken, &odelia::ode::alone_steps::ends);
+  parameters.ode_soil_input_slopes =
+    subsystem_field(taken, &odelia::ode::subsystem_substeps::input_slope);
+  parameters.ode_soil_substep_ends =
+    subsystem_field(taken, &odelia::ode::subsystem_substeps::ends);
 }
 
 // NOTE: solver.reset() sets the solver's internal time to zero. There is
@@ -1022,13 +1024,15 @@ std::vector<double> SCM<T, E>::r_ode_step_sizes() const {
 }
 
 template <typename T, typename E>
-std::vector<std::vector<double> > SCM<T, E>::r_ode_alone_slopes() const {
-  return alone_field(solver.schedule(), &odelia::ode::alone_steps::slope);
+std::vector<std::vector<double> > SCM<T, E>::r_ode_soil_input_slopes() const {
+  return subsystem_field(solver.schedule(),
+                         &odelia::ode::subsystem_substeps::input_slope);
 }
 
 template <typename T, typename E>
-std::vector<std::vector<double> > SCM<T, E>::r_ode_alone_ends() const {
-  return alone_field(solver.schedule(), &odelia::ode::alone_steps::ends);
+std::vector<std::vector<double> > SCM<T, E>::r_ode_soil_substep_ends() const {
+  return subsystem_field(solver.schedule(),
+                         &odelia::ode::subsystem_substeps::ends);
 }
 
 template <typename T, typename E>

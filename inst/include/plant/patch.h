@@ -68,14 +68,14 @@ concept NamesSignValue = requires(const T& s) {
   { s.sign_value_aux() } -> std::same_as<int>;
 };
 
-// An environment whose soil a step can take alone: its first n_resources()
-// states, which read the plants only through the uptake from each.
+// An environment with soil layers: its first n_resources() states, which read
+// the plants only through the uptake from each.
 template <typename E>
-concept SoilStepsAlone =
+concept HasSoil =
   requires(const E& e, double time, std::vector<typename E::value_type>& u) {
-  e.alone_inputs(u);
-  e.alone_rates(time, u, u, u);
-  { e.uptake_share() } -> std::convertible_to<double>;
+  { e.resource_uptake } -> std::convertible_to<std::vector<typename E::value_type>>;
+  e.layer_rates(time, u, u, u);
+  { e.uptake_fraction_of_flows() } -> std::convertible_to<double>;
 };
 
 // One rate evaluation's record: what each species solved for, the field it was
@@ -294,20 +294,23 @@ public:
   }
 
   // The soil: the environment's first states, which come last in the patch's.
-  std::pair<size_t, size_t> alone_block() const requires SoilStepsAlone<E> {
+  odelia::ode::state_range subsystem() const requires HasSoil<E> {
     return {ode_size() - environment.ode_size(), environment.n_resources()};
   }
-  bool steps_alone() const requires SoilStepsAlone<E> {
-    return environment.uptake_share() < control.ode_soil_alone_share;
+  // Substep the soil while the plants take less than this fraction of the water
+  // flowing through its layers.
+  bool subsystem_weakly_coupled() const requires HasSoil<E> {
+    return environment.uptake_fraction_of_flows() <
+           control.ode_soil_substep_max_uptake;
   }
-  void alone_inputs(std::vector<value_type>& u) const
-    requires SoilStepsAlone<E> {
-    environment.alone_inputs(u);
+  void subsystem_inputs(std::vector<value_type>& u) const requires HasSoil<E> {
+    u = environment.resource_uptake;
   }
   template <class U>
-  void alone_rates(double t, const std::vector<U>& y, const std::vector<U>& u,
-                   std::vector<U>& out) const requires SoilStepsAlone<E> {
-    environment.alone_rates(t, y, u, out);
+  void subsystem_rates(double t, const std::vector<U>& theta,
+                       const std::vector<U>& uptake,
+                       std::vector<U>& rate) const requires HasSoil<E> {
+    environment.layer_rates(t, theta, uptake, rate);
   }
 
   // Returns state in structure format as opposed to single 

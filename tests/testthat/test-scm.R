@@ -138,7 +138,7 @@ test_that("Run SCM", {
     ## Pull the times out of the SCM and set them in the schedule:
     sched <- scm$node_schedule
     sched$set_ode_steps(scm$ode_times, scm$ode_step_sizes,
-                        scm$ode_alone_slopes, scm$ode_alone_ends)
+                        scm$ode_soil_input_slopes, scm$ode_soil_substep_ends)
     scm$reset() # must reset
     scm$node_schedule <- sched
 
@@ -180,7 +180,7 @@ test_that("A pinned replay of a run's own steps reproduces it", {
       sched$all_times <- free$node_schedule$all_times
       if (with_sizes) {
         sched$set_ode_steps(free$ode_times, free$ode_step_sizes,
-                            free$ode_alone_slopes, free$ode_alone_ends)
+                            free$ode_soil_input_slopes, free$ode_soil_substep_ends)
       } else {
         sched$set_ode_steps(free$ode_times, numeric(0), list(), list())
       }
@@ -215,8 +215,8 @@ test_that("an ODE schedule is installed whole or refused", {
   expect_error(sched$ode_step_sizes <- scm$ode_step_sizes, "read-only")
   expect_error(sched$ode_times <- scm$ode_times, "read-only")
 
-  slopes <- scm$ode_alone_slopes
-  steps <- scm$ode_alone_ends
+  slopes <- scm$ode_soil_input_slopes
+  steps <- scm$ode_soil_substep_ends
   expect_error(sched$set_ode_steps(scm$ode_times, scm$ode_step_sizes[-1],
                                    slopes[-1], steps[-1]),
                "same length as ode_times")
@@ -238,8 +238,8 @@ test_that("an ODE schedule is installed whole or refused", {
   expect_true(sched$using_ode_steps)
   expect_identical(sched$ode_times, scm$ode_times)
   expect_identical(sched$ode_step_sizes, scm$ode_step_sizes)
-  expect_identical(sched$ode_alone_slopes, slopes)
-  expect_identical(sched$ode_alone_ends, steps)
+  expect_identical(sched$ode_soil_input_slopes, slopes)
+  expect_identical(sched$ode_soil_substep_ends, steps)
 
   ## Times with no sizes is a grid to stop at rather than a run to replay, and a
   ## schedule holding either uses it.
@@ -527,7 +527,7 @@ test_that("A run splits its nodes at sign changes of net production only when as
   sched <- scm$node_schedule
   sched$all_times <- split$node_schedule$all_times
   sched$set_ode_steps(split$ode_times, split$ode_step_sizes,
-                      split$ode_alone_slopes, split$ode_alone_ends)
+                      split$ode_soil_input_slopes, split$ode_soil_substep_ends)
   scm$node_schedule <- sched
   scm$run()
   expect_identical(scm$patch$ode_state, split$patch$ode_state)
@@ -618,7 +618,7 @@ test_that("The sweep through a split run is the derivative of its map", {
     sched <- scm$node_schedule
     sched$all_times <- split$node_schedule$all_times
     sched$set_ode_steps(split$ode_times, split$ode_step_sizes,
-                        split$ode_alone_slopes, split$ode_alone_ends)
+                        split$ode_soil_input_slopes, split$ode_soil_substep_ends)
     scm$node_schedule <- sched
     scm$run()
     sum(scm$offspring_production)
@@ -657,8 +657,8 @@ test_that("The sweep through a split run is the derivative of its map", {
                tolerance = 1e-6)
 })
 
-test_that("TF24's soil steps alone where the stand draws little of its water", {
-  ## Taken alone, the soil is integrated by inner steps of its own under the
+test_that("TF24's soil is substepped where the stand draws little of its water", {
+  ## Substepped, the soil is integrated in substeps of its own under the
   ## uptake extrapolated over each step, so it no longer holds the stand to the
   ## soil's stability limit. A wet year, whose rain the soil drains within days
   ## while the young stand takes a small share of it, is where that pays.
@@ -673,31 +673,32 @@ test_that("TF24's soil steps alone where the stand draws little of its water", {
   }
   run <- function(share, tol = 1e-4) {
     ctrl <- control_tf24(tol, Control(node_density_in_birth_date = TRUE))
-    ctrl$ode_soil_alone_share <- share
+    ctrl$ode_soil_substep_max_uptake <- share
     run_scm(p, wet(), ctrl)
   }
   fitness <- function(scm) sum(scm$offspring_production)
 
   coupled <- run(0)
-  alone <- run(0.1)
-  taken <- lengths(alone$ode_alone_ends) > 0
-  expect_false(any(lengths(coupled$ode_alone_ends) > 0))
+  substepped <- run(0.1)
+  taken <- lengths(substepped$ode_soil_substep_ends) > 0
+  expect_false(any(lengths(coupled$ode_soil_substep_ends) > 0))
   expect_gt(mean(taken), 0.5)
-  expect_lt(length(alone$ode_times), 0.8 * length(coupled$ode_times))
-  ## Each record: a slope per layer, and inner steps ending at the step's end.
+  expect_lt(length(substepped$ode_times), 0.8 * length(coupled$ode_times))
+  ## Each record: an input slope per layer, and substeps ending at the step's
+  ## end.
   n_soil <- Environment("TF24")$get_soil_number_of_depths()
-  expect_true(all(lengths(alone$ode_alone_slopes[taken]) == n_soil))
-  expect_true(all(vapply(alone$ode_alone_ends[taken],
+  expect_true(all(lengths(substepped$ode_soil_input_slopes[taken]) == n_soil))
+  expect_true(all(vapply(substepped$ode_soil_substep_ends[taken],
                          function(e) e[length(e)] == 1, TRUE)))
   ## Its error falls with the tolerance, against a tight run with the soil
   ## coupled.
   tight <- fitness(run(0, 1e-7))
   error <- function(scm) abs(fitness(scm) / tight - 1)
-  expect_lt(error(alone), 1e-5)
-  expect_lt(error(run(0.1, 3e-5)), error(alone))
+  expect_lt(error(substepped), 1e-5)
+  expect_lt(error(run(0.1, 3e-5)), error(substepped))
 })
 
-test_that("A run that took the soil alone replays, sweeps and is walked as it ran", {
+test_that("A run that substepped the soil replays, sweeps and is walked as it ran", {
   ## Three years of seasonal rain split the nodes through the soil's drought, and
   ## on most steps the young stand takes a small share of the water moving through
   ## the soil. Each step keeps its record, so a replay, the sweep and an invader's
@@ -716,37 +717,38 @@ test_that("A run that took the soil alone replays, sweeps and is walked as it ra
   }
   ctrl <- control_tf24(1e-4, Control(node_density_in_birth_date = TRUE,
                                      ode_split_sign_changes = TRUE))
-  alone <- run_scm(p, env(), ctrl, record_trajectory = TRUE)
-  expect_gt(mean(lengths(alone$ode_alone_ends) > 0), 0.5)
-  expect_gt(sum(alone$ode_splits), 0)
+  substepped <- run_scm(p, env(), ctrl, record_trajectory = TRUE)
+  expect_gt(mean(lengths(substepped$ode_soil_substep_ends) > 0), 0.5)
+  expect_gt(sum(substepped$ode_splits), 0)
 
   ## A replay of the program, records and all, repeats the run bit for bit.
   replay <- function(q) {
     scm <- SCM("TF24", "TF24_Env")(q, env(), empty_events(), ctrl)
     sched <- scm$node_schedule
-    sched$all_times <- alone$node_schedule$all_times
-    sched$set_ode_steps(alone$ode_times, alone$ode_step_sizes,
-                        alone$ode_alone_slopes, alone$ode_alone_ends)
+    sched$all_times <- substepped$node_schedule$all_times
+    sched$set_ode_steps(substepped$ode_times, substepped$ode_step_sizes,
+                        substepped$ode_soil_input_slopes,
+                        substepped$ode_soil_substep_ends)
     scm$node_schedule <- sched
     scm$run()
     scm
   }
   again <- replay(p)
-  expect_identical(again$patch$ode_state, alone$patch$ode_state)
-  expect_identical(again$ode_alone_ends, alone$ode_alone_ends)
-  expect_identical(again$ode_splits, alone$ode_splits)
+  expect_identical(again$patch$ode_state, substepped$patch$ode_state)
+  expect_identical(again$ode_soil_substep_ends, substepped$ode_soil_substep_ends)
+  expect_identical(again$ode_splits, substepped$ode_splits)
   ## So does the program carried in the parameters, with the introductions given
   ## as events.
   q <- p
-  q$ode_times <- alone$ode_times
-  q$ode_step_sizes <- alone$ode_step_sizes
-  q$ode_alone_slopes <- alone$ode_alone_slopes
-  q$ode_alone_ends <- alone$ode_alone_ends
+  q$ode_times <- substepped$ode_times
+  q$ode_step_sizes <- substepped$ode_step_sizes
+  q$ode_soil_input_slopes <- substepped$ode_soil_input_slopes
+  q$ode_soil_substep_ends <- substepped$ode_soil_substep_ends
   carried <- run_scm(q, env(), ctrl, events = events(events_default(q)))
-  expect_identical(carried$patch$ode_state, alone$patch$ode_state)
-  expect_identical(carried$ode_alone_ends, alone$ode_alone_ends)
+  expect_identical(carried$patch$ode_state, substepped$patch$ode_state)
+  expect_identical(carried$ode_soil_substep_ends, substepped$ode_soil_substep_ends)
 
-  ## The sweep holds each step's inner steps and slope, as a replay at another lma
+  ## The sweep holds each step's substeps and input slope, as a replay at another lma
   ## does: central differences of the replayed program agree.
   at_lma <- function(x) {
     q <- p
@@ -759,16 +761,16 @@ test_that("A run that took the soil alone replays, sweeps and is walked as it ra
   }
   d <- 1e-6 * lma
   differenced <- (at_lma(lma + d) - at_lma(lma - d)) / (2 * d)
-  swept <- census_trait_gradient_tf24(alone, "offspring_production")
-  traits <- census_trait_names_tf24(alone)
+  swept <- census_trait_gradient_tf24(substepped, "offspring_production")
+  traits <- census_trait_names_tf24(substepped)
   expect_equal(swept$gradient[[1]][match("1.lma", traits)] / differenced, 1,
                tolerance = 1e-6)
 
   ## An invader with the stand's traits walks the run, the soil stepped with the
   ## rest and read from the run, to the stand's fitness to the bit.
-  ratios <- alone$net_reproduction_ratios
-  alone$run_mutant(p)
-  expect_identical(alone$net_reproduction_ratios, ratios)
+  ratios <- substepped$net_reproduction_ratios
+  substepped$run_mutant(p)
+  expect_identical(substepped$net_reproduction_ratios, ratios)
 })
 
 test_that("TF24f runs unsplit whatever is asked", {

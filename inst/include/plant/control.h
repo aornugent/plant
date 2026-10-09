@@ -90,9 +90,9 @@ struct Control {
   // production inside a step, in the field sampled at five fractions of the step.
   bool ode_split_sign_changes;
 
-  // Step TF24's soil alone, by inner steps of its own, on each step that starts
-  // with the plants' uptake under this share of the water moving through it.
-  double ode_soil_alone_share;
+  // Substep TF24's soil on each step that starts with the plants taking less
+  // than this fraction of the water flowing through its layers; 0 never does.
+  double ode_soil_substep_max_uptake;
 
   // Fixed-step ODE integration (forward Euler).  Units: years.  When 0 (the
   // default) the SCM integrates residents with the adaptive, error-controlled
