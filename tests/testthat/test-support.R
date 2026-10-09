@@ -128,18 +128,18 @@ test_that("diagnose_scm() estimates a run's node error from coarser runs", {
   expect_equal(d$introductions, c(9, 5, 3))
 
   ## The coarser run is the run at every other introduction, its pulse kept.
-  ln_J <- function(at) {
+  log_offspring <- function(at) {
     scm <- run_scm(stand(2, at = at), env, ctrl, events = pulse(stand(2, at = at)))
     log(sum(scm$offspring_production))
   }
   q <- d$quantities
-  resident <- q[q$run == "resident" & q$quantity == "ln J", ]
-  expect_identical(resident$half, ln_J(times[c(1, 3, 5, 7, 9)]))
+  log_row <- q[q$run == "stand" & q$quantity == "log_offspring_production", ]
+  expect_identical(log_row$half, log_offspring(times[c(1, 3, 5, 7, 9)]))
   ## Its correction moves the run toward one at twice the introductions.
-  finer <- ln_J(seq(0, 6.4, length.out = 17))
-  expect_lt(abs(resident$value + resident$error - finer), abs(resident$value - finer))
+  finer <- log_offspring(seq(0, 6.4, length.out = 17))
+  expect_lt(abs(log_row$value + log_row$error - finer), abs(log_row$value - finer))
   expect_true(all(c("lma", "hmat") %in% q$quantity[q$run == "late"]))
-  expect_true(all(is.finite(q$value[q$run %in% c("resident", "late")])))
+  expect_true(all(is.finite(q$value[q$run %in% c("stand", "late")])))
 
   late <- d$distance[d$distance$run == "late", ]
   expect_equal(late$parameter, "hmat")
@@ -153,7 +153,7 @@ test_that("diagnose_scm() estimates a run's node error from coarser runs", {
   expect_match(d$failures$message[1], "L_tip")
 
   no_invaders <- diagnose_scm(stand(2), env, ctrl, gradient = FALSE)
-  expect_equal(no_invaders$quantities$quantity, "ln J")
+  expect_equal(no_invaders$quantities$quantity, "log_offspring_production")
   expect_equal(nrow(no_invaders$failures), 0)
 
   expect_error(diagnose_scm(stand(2), env, ctrl, list(stand(3))), "names each invader")

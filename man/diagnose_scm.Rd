@@ -27,15 +27,15 @@ sweep? TF24 only.}
 }
 \value{
 A list of
-  \item{quantities}{one row per run and quantity: \code{"ln J"}, and with
-    \code{gradient} each parameter's elasticity \eqn{d \ln J / d \ln
-    \theta}{d ln J / d ln theta}, or \eqn{d \ln J / d\theta}{d ln J / d
-    theta} where \eqn{\theta}{theta} is 0, with \code{value},
-    \code{half}, \code{quarter}, \code{error} and \code{ratio}.}
+  \item{quantities}{one row per run and quantity:
+    \code{"log_offspring_production"}, and with \code{gradient} each
+    parameter's elasticity of offspring production, d log(offspring
+    production) / d log(theta), or d log(offspring production) / d theta
+    where theta is 0, with \code{value}, \code{half}, \code{quarter},
+    \code{error} and \code{ratio}.}
   \item{distance}{one row per invader and parameter it moves:
-    \eqn{\ln(\theta' / \theta)}{ln(theta' / theta)} from the resident
-    whose recording it walks, or \eqn{\theta' - \theta}{theta' - theta}
-    where \eqn{\theta}{theta} is 0.}
+    log(theta' / theta) from the stand whose recording it walks, or
+    theta' - theta where theta is 0.}
   \item{failures}{one row per run, walk or sweep that threw or was
     refused, with its run's introductions and the message. Its quantities
     are \code{NA}.}
