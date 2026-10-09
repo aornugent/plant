@@ -68,11 +68,11 @@ test_that("control_window() loosens the steps after most offspring is earned", {
   expect_equal(sum(weight * sp$net_reproduction_ratio_by_node) *
                  stand(2)$strategies[[1]]$pars$S_D,
                sum(pilot$offspring_production))
-  ## The offspring production each step had earned ends at the run's.
-  by_step <- pilot$offspring_production_by_step
-  expect_length(by_step, length(pilot$ode_times))
-  expect_false(is.unsorted(by_step))
-  expect_equal(by_step[length(by_step)], sum(pilot$offspring_production))
+  ## The offspring produced by each step's end ends at the run's.
+  produced <- pilot$offspring_produced_at_ode_times
+  expect_length(produced, length(pilot$ode_times))
+  expect_false(is.unsorted(produced))
+  expect_equal(produced[length(produced)], sum(pilot$offspring_production))
   earned <- vapply(pilot$history, function(h) {
     o <- h$species[[1]]$net_reproduction_ratio_by_node
     sum(weight[seq_along(o)] * o)
