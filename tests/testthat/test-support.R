@@ -134,15 +134,22 @@ test_that("diagnose_scm() estimates a run's node error from coarser runs", {
   }
   q <- d$quantities
   log_row <- q[q$run == "stand" & q$quantity == "log_offspring_production", ]
-  expect_identical(log_row$half, log_offspring(times[c(1, 3, 5, 7, 9)]))
+  expect_identical(log_row$every_other, log_offspring(times[c(1, 3, 5, 7, 9)]))
   ## Its correction moves the run toward one at twice the introductions.
   finer <- log_offspring(seq(0, 6.4, length.out = 17))
   expect_lt(abs(log_row$value + log_row$error - finer), abs(log_row$value - finer))
-  expect_true(all(c("lma", "hmat") %in% q$quantity[q$run == "late"]))
+  expect_true(all(c("lma", "hmat") %in% q$parameter[q$run == "late"]))
   expect_true(all(is.finite(q$value[q$run %in% c("stand", "late")])))
+  ## Each row says what its number is: an elasticity, or where the trait is 0,
+  ## a derivative in the trait's own units.
+  traits <- unlist(stand(2)$strategies[[1]]$pars)
+  rows <- q[q$run == "stand" & q$quantity != "log_offspring_production", ]
+  expect_true(all(rows$quantity == ifelse(traits[rows$parameter] == 0,
+                                          "derivative", "elasticity")))
 
   late <- d$distance[d$distance$run == "late", ]
   expect_equal(late$parameter, "hmat")
+  expect_equal(late$scale, "log_ratio")
   expect_equal(late$distance, log(1.5))
 
   ## A walk that throws is recorded at each run, and the rest still answer.
