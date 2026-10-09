@@ -177,6 +177,10 @@ public:
   std::vector<double> net_reproduction_ratio_by_node() const;
   // Per-node lifetime offspring, weighted by patch-age density and S_D.
   std::vector<double> net_reproduction_ratio_by_node_weighted() const;
+  // Each node's offspring production per unit of its fecundity, on the
+  // birth-date coordinate: its establishment weight, the birth rate at its
+  // introduction, its patch density at birth and S_D.
+  std::vector<double> offspring_production_per_fecundity() const;
   // Introduction times of each node (the integration x-axis for fitness).
   std::vector<double> node_times() const;
   // Each node's weighted lifetime offspring times its entry in `scalars`,
@@ -891,6 +895,19 @@ std::vector<double> Species<T,E>::net_reproduction_ratio_by_node_weighted() cons
     ret.push_back(
       odelia::util::to_passive(c.weighted_fecundity(strategy->pars.S_D)));
   }
+  return ret;
+}
+
+template <typename T, typename E>
+std::vector<double> Species<T,E>::offspring_production_per_fecundity() const {
+  std::vector<double> ret;
+  ret.reserve(size());
+  for_each_establishment_weight([&](const node_type& n, const value_type& w) {
+    const double birth_rate =
+      extrinsic_drivers().evaluate("birth_rate", n.introduction_time());
+    ret.push_back(odelia::util::to_passive(w * n.patch_density() *
+                                           strategy->pars.S_D) * birth_rate);
+  });
   return ret;
 }
 

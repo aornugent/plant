@@ -11,13 +11,13 @@
 ##'
 ##' \code{control_window()} loosens the steps in the window late in a run where
 ##' little offspring production is left to earn. From a pilot of the analysis, a
-##' step starting at \code{t} takes the factor \code{1 / min(max(R(t) / R0,
-##' r_min), 1)}, where \code{R(t)} is the largest share of offspring production
-##' still to be earned after \code{t}, over the pilot's stand and each invader
-##' walked on its recording. The pilot needs only \code{R}, so a coarse stand at
-##' a loose tolerance serves; under constant rain its introductions must resolve
-##' the first cohorts. A pilot already walked holds an invader's run, and is
-##' refused.
+##' step starting at \code{t} takes the factor \code{share_left / left(t)}, held
+##' between 1 and \code{factor_limit}, where \code{left(t)} is the largest share
+##' of offspring production left to earn after \code{t}, over the pilot's stand
+##' and each invader walked on its recording. The pilot needs only \code{left},
+##' so a coarse stand at a loose tolerance serves; under constant rain its
+##' introductions must resolve the first cohorts. A pilot already walked holds
+##' an invader's run, and is refused.
 ##'
 ##' The SCM's adaptive ODE stepper multiplies each state's error level by a
 ##' tolerance factor, which decides which steps it takes and nothing else:
@@ -75,13 +75,13 @@ control_tf24 <- function(tol = 3e-5, base = Control()) {
 ##'   last walk.
 ##' @param invaders A list of \code{Parameters}, each walked on the pilot's
 ##'   introductions.
-##' @param R0 The share still to be earned below which a step's factor rises
-##'   from 1.
-##' @param r_min The share of \code{R0} at which the factor stops rising, at
-##'   \code{1 / r_min}.
+##' @param share_left The share of offspring production left to earn below which
+##'   a step's factor rises from 1.
+##' @param factor_limit The largest factor a step takes, where the share left
+##'   falls to \code{share_left / factor_limit}.
 ##' @export
 control_window <- function(pilot, invaders = list(), base = Control(),
-                           R0 = 0.1, r_min = 0.01) {
+                           share_left = 0.1, factor_limit = 100) {
   species <- pilot$patch$species
   if (length(species) != 1 || !species[[1]]$density_in_birth_date) {
     stop("control_window() reads a pilot of one species on the birth-date coordinate")
@@ -89,37 +89,26 @@ control_window <- function(pilot, invaders = list(), base = Control(),
   if (pilot$invaded) {
     stop("control_window() reads a pilot no invader has walked")
   }
-  ## The share still to be earned after each row the last run or walk recorded,
-  ## each node weighted as offspring production weights it.
-  to_earn <- function() {
-    rows <- pilot$store_trajectory()
-    sp <- pilot$patch$species[[1]]
-    per <- sp$ode_size / sp$size
-    k <- match("offspring_produced_survival_weighted", sp$new_node$ode_names)
-    environment_size <- length(rows[[length(rows)]]$state) - sp$ode_size
-    weight <- head(sp$establishment_weights, -1) * sp$patch_densities *
-      sp$extrinsic_drivers$evaluate_range("birth_rate", sp$node_times)
-    earned <- vapply(rows, function(row) {
-      j <- seq_len((length(row$state) - environment_size) / per)
-      sum(weight[j] * row$state[per * (j - 1) + k])
-    }, 0)
-    ## An insertion's row shares the time of the step before it.
-    time <- vapply(rows, `[[`, 0, "time")
-    keep <- !duplicated(time, fromLast = TRUE)
-    list(time = time[keep], R = (1 - earned / earned[length(earned)])[keep])
+  ## The share of offspring production left to earn after each step of the
+  ## last run or walk.
+  left_after <- function() {
+    earned <- pilot$offspring_production_by_step
+    list(time = pilot$ode_times, left = 1 - earned / earned[length(earned)])
   }
   times <- pilot$parameters$node_schedule_times
-  stand <- to_earn()
-  R <- stand$R
+  stand <- left_after()
+  left <- stand$left
   for (p in invaders) {
     p$node_schedule_times <- times
     pilot$run_mutant(p)
-    walk <- to_earn()
+    walk <- left_after()
     ## An invader that earns nothing has no share to protect.
-    R <- pmax(R, walk$R[findInterval(stand$time, walk$time)], na.rm = TRUE)
+    left <- pmax(left, walk$left[findInterval(stand$time, walk$time)],
+                 na.rm = TRUE)
   }
   base$ode_tol_factor_times <- stand$time
-  base$ode_tol_factor_values <- 1 / pmin(pmax(R / R0, r_min), 1)
+  base$ode_tol_factor_values <-
+    1 / pmin(pmax(left / share_left, 1 / factor_limit), 1)
   base
 }
 

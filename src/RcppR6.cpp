@@ -3190,6 +3190,11 @@ std::vector<std::vector<double> > SCM___FF16__FF16_Env__ode_soil_substep_ends__g
 }
 
 // [[Rcpp::export]]
+std::vector<double> SCM___FF16__FF16_Env__offspring_production_by_step__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
+  return obj_->r_offspring_production_by_step();
+}
+
+// [[Rcpp::export]]
 Rcpp::IntegerVector SCM___FF16__FF16_Env__ode_step_attempts__get(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy,plant::FF16_Environment> > obj_) {
   return obj_->r_ode_step_attempts();
 }
@@ -3350,6 +3355,11 @@ std::vector<std::vector<double> > SCM___TF24__TF24_Env__ode_soil_input_slopes__g
 // [[Rcpp::export]]
 std::vector<std::vector<double> > SCM___TF24__TF24_Env__ode_soil_substep_ends__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   return obj_->r_ode_soil_substep_ends();
+}
+
+// [[Rcpp::export]]
+std::vector<double> SCM___TF24__TF24_Env__offspring_production_by_step__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->r_offspring_production_by_step();
 }
 
 // [[Rcpp::export]]
@@ -3516,6 +3526,11 @@ std::vector<std::vector<double> > SCM___TF24f__TF24_Env__ode_soil_substep_ends__
 }
 
 // [[Rcpp::export]]
+std::vector<double> SCM___TF24f__TF24_Env__offspring_production_by_step__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
+  return obj_->r_offspring_production_by_step();
+}
+
+// [[Rcpp::export]]
 Rcpp::IntegerVector SCM___TF24f__TF24_Env__ode_step_attempts__get(plant::RcppR6::RcppR6<plant::SCM<plant::TF24f_Strategy<double> ,plant::TF24_Environment<double> > > obj_) {
   return obj_->r_ode_step_attempts();
 }
@@ -3676,6 +3691,11 @@ std::vector<std::vector<double> > SCM___K93__K93_Env__ode_soil_input_slopes__get
 // [[Rcpp::export]]
 std::vector<std::vector<double> > SCM___K93__K93_Env__ode_soil_substep_ends__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
   return obj_->r_ode_soil_substep_ends();
+}
+
+// [[Rcpp::export]]
+std::vector<double> SCM___K93__K93_Env__offspring_production_by_step__get(plant::RcppR6::RcppR6<plant::SCM<plant::K93_Strategy,plant::K93_Environment> > obj_) {
+  return obj_->r_offspring_production_by_step();
 }
 
 // [[Rcpp::export]]
