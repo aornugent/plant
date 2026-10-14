@@ -698,6 +698,59 @@ test_that("TF24's soil is substepped where the stand draws little of its water",
   expect_lt(error(run(0.1, 3e-5)), error(substepped))
 })
 
+test_that("TF24 takes a daily rain record without being stopped at its knots", {
+  ## Daily rain through a monotone cubic changes form at every day beside a wet
+  ## one. A step across such a knot reads the rain only at its stages and misses
+  ## what falls between, so a step that spans one substeps the soil, whatever the
+  ## stand draws, and lands a substep on each. A run given no stops then matches
+  ## one stopped at every knot, with the soil substepped where the stand draws
+  ## little and with the share at zero.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 2
+  p0$patch_type <- "fixed"
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  set.seed(4)
+  days <- seq(0, 2 * 365 + 5)
+  rain <- ifelse(runif(length(days)) < 0.15, rgamma(length(days), 0.8, 0.2), 0)
+  knots <- local({
+    wet <- rain != 0
+    n <- length(wet)
+    x <- (days / 365)[wet | c(FALSE, wet[-n]) | c(wet[-1], FALSE)]
+    x[x > 0 & x < 2]
+  })
+  env <- function() {
+    e <- Environment("TF24")
+    e$extrinsic_drivers_set_variable("rainfall", days / 365, rain)
+    e
+  }
+  for (setting in list(c(share = 0.1, tol = 1e-5), c(share = 0, tol = 1e-4))) {
+    ctrl <- control_tf24(setting[["tol"]],
+                         Control(node_density_in_birth_date = TRUE))
+    ctrl$ode_soil_substep_max_uptake <- setting[["share"]]
+    stops <- events(events_default(p),
+                    rainfall_pulse(time = knots, depth = rep(0, length(knots))))
+    stopped <- run_scm(p, env(), ctrl, events = stops)
+    free <- run_scm(p, env(), ctrl)
+    expect_lt(abs(sum(free$offspring_production) /
+                  sum(stopped$offspring_production) - 1), 2e-5)
+    t <- free$ode_times
+    substepped <- lengths(free$ode_soil_substep_ends[-1]) > 0
+    spans <- vapply(seq_along(substepped), function(k)
+      any(knots > t[k] & knots < t[k + 1]), TRUE)
+    expect_true(any(spans))
+    expect_true(all(substepped[spans]))
+    ends <- unlist(Map(function(t0, h, e) t0 + e * h, t[-length(t)],
+                       free$ode_step_sizes[-1], free$ode_soil_substep_ends[-1]))
+    landed <- vapply(knots, function(k) any(abs(c(t, ends) - k) < 1e-12), TRUE)
+    expect_true(all(landed))
+    if (setting[["share"]] == 0) {
+      ## Stopped at every knot, no step spans one, and the share at zero
+      ## substeps none.
+      expect_true(all(lengths(stopped$ode_soil_substep_ends) == 0))
+    }
+  }
+})
+
 test_that("A run that substepped the soil replays, sweeps and is walked as it ran", {
   ## Three years of seasonal rain split the nodes through the soil's drought, and
   ## on most steps the young stand takes a small share of the water moving through
