@@ -1663,8 +1663,15 @@ ladder_run_difference_pair <- function(name, species = 2L,
   # replay a step the other's state cannot take, which refuses outright on the
   # shaded and clamped stands; the grid is what the census accumulates on and is
   # all that has to agree.
+  #
+  # ⚠️ EXCEPT WHERE THE BASE SUBSTEPPED THE SOIL, which every step across a knot
+  # of a variable rainfall does. Across such a step a grid of times alone takes
+  # the soil with the rest at the base's long step, past its stability, and the
+  # census collapses without a refusal. So that run replays its whole program,
+  # sizes and substeps with the times, as the sweep differentiates it.
   base <- ladder_run(build(), env = env_of())
   ode_times <- base$ode_times
+  substepped <- any(lengths(base$ode_soil_substep_ends) > 0)
   census_at <- function(value) {
     p <- build()
     strategies <- p$strategies
@@ -1675,6 +1682,11 @@ ladder_run_difference_pair <- function(name, species = 2L,
     p$strategies <- strategies
     ladder_assert_one_parameter(before, unlist(p$strategies[[species]]$pars), name)
     p$ode_times <- ode_times
+    if (substepped) {
+      p$ode_step_sizes <- base$ode_step_sizes
+      p$ode_soil_input_slopes <- base$ode_soil_input_slopes
+      p$ode_soil_substep_ends <- base$ode_soil_substep_ends
+    }
     stand_census(ladder_run(p, env = env_of()))
   }
   value <- unlist(build()$strategies[[species]]$pars)[[name]]
