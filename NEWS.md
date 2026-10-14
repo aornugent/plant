@@ -1083,6 +1083,17 @@ were not previously recorded here:
 
 ### Added
 
+* **A use's distance from its grid.** `diagnose_scm()` returns the run with
+  the steps it took as `parameters`, a grid. Given that diagnosis as `grid`, a
+  run at other traits replays its introductions and steps once, with no coarser
+  runs, and `grid_distance` reports |log offspring production - the grid's|,
+  `within` = distance <= `distance_limit` (0.5 by default), and the grid's log
+  offspring production and error, which the use takes while within. Additions
+  only:
+  * `diagnose_scm(p, ..., grid = NULL, distance_limit = 0.5)`
+  * `$grid_distance` -> one row: `distance`, `within`, `value`, `error`
+  * `$parameters`    -> `p` with the run's ODE schedule; `NULL` for a use
+
 * **The gradient's incidence counters.** The leaf classifies its operating point
   by the branch taken and the next plant overwrites it, and a clamp that severs a
   row leaves a number indistinguishable from a true zero -- so neither was

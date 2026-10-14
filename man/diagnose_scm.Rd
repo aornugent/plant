@@ -10,7 +10,9 @@ diagnose_scm(
   ctrl = control(),
   invaders = list(),
   events = NULL,
-  gradient = TRUE
+  gradient = TRUE,
+  grid = NULL,
+  distance_limit = 0.5
 )
 }
 \arguments{
@@ -24,6 +26,13 @@ introductions.}
 
 \item{gradient}{Should each run and walk give its elasticities too, by a
 sweep? TF24 only.}
+
+\item{grid}{A diagnosis that built a grid, whose introductions and steps
+this run replays at \code{p}'s traits; or \code{NULL} to build one. Its
+\code{env}, \code{ctrl} and \code{events} are this run's.}
+
+\item{distance_limit}{The largest distance from its grid at which a use
+takes the grid's error.}
 }
 \value{
 A list of
@@ -32,15 +41,24 @@ A list of
     \code{ratio}: \code{"log_offspring_production"}, and with
     \code{gradient} for each \code{parameter} its \code{"elasticity"},
     d log(offspring production) / d log(theta), or where theta is 0 its
-    \code{"derivative"}, d log(offspring production) / d theta.}
+    \code{"derivative"}, d log(offspring production) / d theta. A use has
+    no coarser runs, so only its \code{value}.}
   \item{distance}{one row per invader and parameter it moves, from the
     stand whose recording it walks: on \code{scale} \code{"log_ratio"},
     log(theta' / theta), or where theta is 0 \code{"difference"},
     theta' - theta.}
+  \item{grid_distance}{one row: the \code{distance} in log offspring
+    production of the stand from the run that built its grid, whether it is
+    \code{within} \code{distance_limit}, and that run's \code{value} and
+    \code{error} of log offspring production. A run that builds its grid is
+    at 0.}
   \item{failures}{one row per run, walk or sweep that threw or was
     refused, with its run's introductions and the message. Its quantities
     are \code{NA}.}
   \item{introductions}{the number of introductions of each run.}
+  \item{parameters}{\code{p} with the run's introductions and the steps it
+    took, which a later run of them replays; \code{NULL} for a use, or where
+    the run threw.}
 }
 \description{
 A run's node error, estimated from runs at every other and every fourth of
@@ -57,4 +75,10 @@ and \code{ratio}, \code{(every_other - every_fourth) /
 (value - every_other)}, is near 4 where the estimate holds. The two coarser
 runs, with their walks and sweeps, cost about three quarters of the run
 again.
+
+The run, with the steps it took, is a grid that later runs at nearby traits
+replay. Such a run, a use, takes the grid's introductions and steps and runs
+once, with no coarser runs: its error is the grid's, which holds while its
+log offspring production lies within \code{distance_limit} of the grid's.
+Beyond it the caller builds a grid at the use's traits.
 }

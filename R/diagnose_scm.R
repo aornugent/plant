@@ -12,6 +12,12 @@
 ##' runs, with their walks and sweeps, cost about three quarters of the run
 ##' again.
 ##'
+##' The run, with the steps it took, is a grid that later runs at nearby traits
+##' replay. Such a run, a use, takes the grid's introductions and steps and runs
+##' once, with no coarser runs: its error is the grid's, which holds while its
+##' log offspring production lies within \code{distance_limit} of the grid's.
+##' Beyond it the caller builds a grid at the use's traits.
+##'
 ##' @title Diagnose a run
 ##' @param p Parameters of one species, carrying no recorded ODE schedule.
 ##' @param env,ctrl,events As for \code{\link{run_scm}}. Each run's
@@ -20,24 +26,39 @@
 ##'   introductions.
 ##' @param gradient Should each run and walk give its elasticities too, by a
 ##'   sweep? TF24 only.
+##' @param grid A diagnosis that built a grid, whose introductions and steps
+##'   this run replays at \code{p}'s traits; or \code{NULL} to build one. Its
+##'   \code{env}, \code{ctrl} and \code{events} are this run's.
+##' @param distance_limit The largest distance from its grid at which a use
+##'   takes the grid's error.
 ##' @return A list of
 ##'   \item{quantities}{one row per run and quantity, with \code{value},
 ##'     \code{every_other}, \code{every_fourth}, \code{error} and
 ##'     \code{ratio}: \code{"log_offspring_production"}, and with
 ##'     \code{gradient} for each \code{parameter} its \code{"elasticity"},
 ##'     d log(offspring production) / d log(theta), or where theta is 0 its
-##'     \code{"derivative"}, d log(offspring production) / d theta.}
+##'     \code{"derivative"}, d log(offspring production) / d theta. A use has
+##'     no coarser runs, so only its \code{value}.}
 ##'   \item{distance}{one row per invader and parameter it moves, from the
 ##'     stand whose recording it walks: on \code{scale} \code{"log_ratio"},
 ##'     log(theta' / theta), or where theta is 0 \code{"difference"},
 ##'     theta' - theta.}
+##'   \item{grid_distance}{one row: the \code{distance} in log offspring
+##'     production of the stand from the run that built its grid, whether it is
+##'     \code{within} \code{distance_limit}, and that run's \code{value} and
+##'     \code{error} of log offspring production. A run that builds its grid is
+##'     at 0.}
 ##'   \item{failures}{one row per run, walk or sweep that threw or was
 ##'     refused, with its run's introductions and the message. Its quantities
 ##'     are \code{NA}.}
 ##'   \item{introductions}{the number of introductions of each run.}
+##'   \item{parameters}{\code{p} with the run's introductions and the steps it
+##'     took, which a later run of them replays; \code{NULL} for a use, or where
+##'     the run threw.}
 ##' @export
 diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
-                         events = NULL, gradient = TRUE) {
+                         events = NULL, gradient = TRUE, grid = NULL,
+                         distance_limit = 0.5) {
   if (length(p$strategies) != 1 || length(p$ode_times) > 0) {
     stop("diagnose_scm() takes one species with no recorded ODE schedule")
   }
@@ -45,12 +66,22 @@ diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
       (is.null(names(invaders)) || any(names(invaders) %in% c("", "stand")))) {
     stop("diagnose_scm() names each invader, none of them \"stand\"")
   }
+  steps <- c("ode_times", "ode_step_sizes", "ode_soil_input_slopes",
+             "ode_soil_substep_ends")
+  if (!is.null(grid)) {
+    if (is.null(grid$parameters)) {
+      stop("diagnose_scm() replays the grid a run built")
+    }
+    for (f in c("node_schedule_times", steps)) p[[f]] <- grid$parameters[[f]]
+  }
   every_other <- function(t) t[unique(c(seq(1, length(t), 2), length(t)))]
   times <- list(p$node_schedule_times[[1]])
-  times[[2]] <- every_other(times[[1]])
-  times[[3]] <- every_other(times[[2]])
-  if (length(times[[3]]) == length(times[[2]])) {
-    stop("diagnose_scm() needs four introductions or more")
+  if (is.null(grid)) {
+    times[[2]] <- every_other(times[[1]])
+    times[[3]] <- every_other(times[[2]])
+    if (length(times[[3]]) == length(times[[2]])) {
+      stop("diagnose_scm() needs four introductions or more")
+    }
   }
 
   failures <- data.frame(run = character(), introductions = integer(),
@@ -79,8 +110,11 @@ diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
       parameter = names(grad),
       value = unname(ifelse(theta == 0, 1, theta) * grad / offspring)))
   }
-  ## The run at each set of introductions, then each invader walked on it.
-  measured <- lapply(times, function(t) {
+  ## The run at each set of introductions, then each invader walked on it. A
+  ## walk overwrites the run's steps, so the grid is taken before any.
+  built <- NULL
+  measured <- lapply(seq_along(times), function(i) {
+    t <- times[[i]]
     n <- length(t)
     pt <- p
     pt$node_schedule_times <- list(t)
@@ -95,6 +129,10 @@ diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
     if (is.character(scm)) {
       fail("stand", n, "run", scm)
       return(list())
+    }
+    if (i == 1 && is.null(grid)) {
+      for (f in steps) pt[[f]] <- scm[[f]]
+      built <<- pt
     }
     out <- list(stand = measure(scm, pt, "stand", n))
     for (k in names(invaders)) {
@@ -114,6 +152,7 @@ diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
   key <- function(m) paste(m$quantity, m$parameter)
   quantities <- do.call(rbind, lapply(c("stand", names(invaders)), function(k) {
     v <- lapply(measured, `[[`, k)
+    length(v) <- 3
     rows <- unique(do.call(rbind, lapply(v, `[`, c("quantity", "parameter"))))
     if (is.null(rows)) return(NULL)
     at <- function(i) {
@@ -134,6 +173,17 @@ diagnose_scm <- function(p, env = NULL, ctrl = control(), invaders = list(),
                                         log(moved / theta))[keep]),
                row.names = NULL)
   }))
-  list(quantities = quantities, distance = distance, failures = failures,
-       introductions = lengths(times))
+  stand_log <- function(q) {
+    row <- q[q$run == "stand" & q$quantity == "log_offspring_production", ]
+    if (NROW(row) == 0) return(list(value = NA_real_, error = NA_real_))
+    list(value = row$value, error = row$error)
+  }
+  here <- stand_log(quantities)
+  origin <- if (is.null(grid)) here else stand_log(grid$quantities)
+  away <- abs(here$value - origin$value)
+  grid_distance <- data.frame(distance = away, within = away <= distance_limit,
+                              value = origin$value, error = origin$error)
+  list(quantities = quantities, distance = distance,
+       grid_distance = grid_distance, failures = failures,
+       introductions = lengths(times), parameters = built)
 }

@@ -168,3 +168,79 @@ test_that("diagnose_scm() estimates a run's node error from coarser runs", {
   two <- add_strategies(stand(2), trait_matrix(0.3, "lma"))
   expect_error(diagnose_scm(two, env, ctrl), "one species")
 })
+
+test_that("diagnose_scm() reports a use's distance from the run that built its grid", {
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 8
+  stand <- function(lma, hmat = 2) {
+    p <- add_strategies(p0, trait_matrix(c(lma, hmat), c("lma", "hmat")))
+    p$node_schedule_times <- list(seq(0, 6.4, length.out = 9))
+    p
+  }
+  env <- Environment("TF24")
+  env$extrinsic_drivers_set_constant("rainfall", 2)
+  ctrl <- control_tf24(1e-3, Control(node_density_in_birth_date = TRUE))
+  lma <- 0.1978791
+
+  ## The grid is the run's introductions and the steps it took.
+  built <- diagnose_scm(stand(lma), env, ctrl, gradient = FALSE)
+  free <- run_scm(stand(lma), env, ctrl)
+  grid <- built$parameters
+  expect_identical(grid$node_schedule_times, stand(lma)$node_schedule_times)
+  expect_identical(grid$ode_times, free$ode_times)
+  expect_identical(grid$ode_step_sizes, free$ode_step_sizes)
+  expect_identical(grid$ode_soil_substep_ends, free$ode_soil_substep_ends)
+  q0 <- built$quantities
+  expect_equal(built$grid_distance,
+               data.frame(distance = 0, within = TRUE, value = q0$value,
+                          error = q0$error))
+
+  ## A use replays the grid's steps at its own traits.
+  replayed <- function(x) {
+    q <- stand(x)
+    q$ode_times <- grid$ode_times
+    q$ode_step_sizes <- grid$ode_step_sizes
+    q$ode_soil_input_slopes <- grid$ode_soil_input_slopes
+    q$ode_soil_substep_ends <- grid$ode_soil_substep_ends
+    log(sum(run_scm(q, env, ctrl)$offspring_production))
+  }
+  use <- function(x, ...) diagnose_scm(stand(x), env, ctrl, grid = built, ...)
+  expect_identical(use(lma, gradient = FALSE)$grid_distance$distance, 0)
+
+  ## Nearby, its invaders walk and its sweep runs on the replay, and it carries
+  ## the grid's log offspring production and error beside its distance.
+  near <- use(1.02 * lma, invaders = list(late = stand(1.02 * lma, 3)))
+  log_row <- near$quantities[near$quantities$run == "stand" &
+                               near$quantities$quantity == "log_offspring_production", ]
+  expect_identical(log_row$value, replayed(1.02 * lma))
+  expect_true(all(is.na(near$quantities[c("every_other", "every_fourth",
+                                           "error", "ratio")])))
+  expect_true(all(is.finite(near$quantities$value)))
+  expect_true("late" %in% near$quantities$run)
+  expect_equal(near$distance$distance, log(1.5))
+  expect_equal(near$introductions, 9)
+  expect_equal(near$grid_distance$distance, abs(log_row$value - q0$value))
+  expect_true(near$grid_distance$within)
+  expect_identical(near$grid_distance[c("value", "error")],
+                   built$grid_distance[c("value", "error")])
+  expect_false(diagnose_scm(stand(1.02 * lma), env, ctrl, gradient = FALSE,
+                            grid = built,
+                            distance_limit = near$grid_distance$distance / 2)$
+                 grid_distance$within)
+
+  ## Far off, past the limit.
+  far <- use(1.5 * lma, gradient = FALSE)
+  expect_gt(far$grid_distance$distance, 0.5)
+  expect_false(far$grid_distance$within)
+
+  ## A use whose run throws is a failure, its distance NA.
+  broken <- use(1e6, gradient = FALSE)
+  expect_equal(broken$failures$stage, "run")
+  expect_true(is.na(broken$grid_distance$distance))
+  expect_true(is.na(broken$grid_distance$within))
+
+  ## A use builds no grid, so it serves as none.
+  expect_null(near$parameters)
+  expect_error(diagnose_scm(stand(lma), env, ctrl, grid = near),
+               "grid a run built")
+})
