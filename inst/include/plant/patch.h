@@ -76,6 +76,7 @@ concept HasSoil =
   { e.resource_uptake } -> std::convertible_to<std::vector<typename E::value_type>>;
   e.layer_rates(time, u, u, u);
   { e.uptake_fraction_of_flows() } -> std::convertible_to<double>;
+  { e.rainfall_knots(time, time) } -> std::same_as<std::vector<double>>;
 };
 
 // One rate evaluation's record: what each species solved for, the field it was
@@ -302,6 +303,11 @@ public:
   bool subsystem_weakly_coupled() const requires HasSoil<E> {
     return environment.uptake_fraction_of_flows() <
            control.ode_soil_substep_max_uptake;
+  }
+  // Where the rain changes form; a step that spans one substeps the soil.
+  std::vector<double> subsystem_knots(double from, double to) const
+    requires HasSoil<E> {
+    return environment.rainfall_knots(from, to);
   }
   void subsystem_inputs(std::vector<value_type>& u) const requires HasSoil<E> {
     u = environment.resource_uptake;

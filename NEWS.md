@@ -13,6 +13,16 @@ entry gives the `old -> new` migration; the `plant-update-interface` skill
 (`.claude/skills/plant-update-interface/`) reads this section to migrate
 products using plant.
 
+* **TF24 takes its rain's knots itself.** Migration: drop the zero-depth
+  `rainfall_pulse()` events that stopped a run at each knot of a variable
+  rainfall series; they are no longer needed, and kept they change nothing. A
+  step that spans a knot substeps the soil and lands a substep on each, whatever
+  `ode_soil_substep_max_uptake` says, so a run on a variable rainfall record
+  given no such stops changes: it no longer misses the rain between a step's
+  stages. The water-balance sums (`sum_rainfall`, `sum_infiltration`,
+  `sum_drainage`, `sum_resource_depletion`) are still the main step's, so a run
+  whose budget must close to the bit keeps the stops.
+
 * **A pinned ODE schedule carries each step's record of substepping the soil.**
   Migration: `sched$set_ode_steps(times, sizes)` ->
   `sched$set_ode_steps(times, sizes, input_slopes, substep_ends)`, passing a

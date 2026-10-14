@@ -676,6 +676,11 @@ public:
     return infiltration;
   }
 
+  // The times in (from, to) where the rain changes form: the soil's knots.
+  std::vector<double> rainfall_knots(double from, double to) const {
+    return extrinsic_drivers.knots("rainfall", from, to);
+  }
+
   // The layers' rates at `time_` under a given uptake u from each, as
   // compute_rates finds them.
   template <class U>
