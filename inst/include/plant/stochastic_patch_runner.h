@@ -68,6 +68,11 @@ StochasticPatchRunner<T, E>::StochasticPatchRunner(parameters_type p,
       solver(patch, make_ode_control(c)) {
   parameters.validate();
   solver.set_collect(false);
+  // Its patch declares no tolerance scales, so the solver never reads them.
+  if (c.ode_tol_scale_soil != 1.0 || !c.ode_tol_scale_times.empty()) {
+    util::warning("The stochastic runner ignores ode_tol_scale_soil and "
+                  "ode_tol_scale_times");
+  }
 }
 
 template <typename T, typename E> void StochasticPatchRunner<T, E>::run() {

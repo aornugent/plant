@@ -90,12 +90,11 @@ struct Control {
   // it whatever this is.
   bool ode_soil_substep;
 
-  // Multipliers on each state's error level, so a factor above 1 loosens it
-  // (see Patch::state_tolerance_factors).
-  double ode_tol_factor_soil;
-  std::vector<double> ode_tol_factor_times;
-  std::vector<double> ode_tol_factor_values;
-  double ode_tol_factor_max;
+  // Multipliers on a state's tolerance, so a scale above 1 loosens it: the
+  // soil layers', and every state's by time (see Patch::tolerance_scales).
+  double ode_tol_scale_soil;
+  std::vector<double> ode_tol_scale_times;
+  std::vector<double> ode_tol_scale_values;
 
   // Fixed-step ODE integration (forward Euler).  Units: years.  When 0 (the
   // default) the SCM integrates residents with the adaptive, error-controlled
@@ -141,9 +140,9 @@ inline bool freezes_retired(const Control& c) {
   return c.absorb_epsilon > 0.0;
 }
 
-// Refuses tolerance factors the stepper cannot use: one that is not positive,
-// or a schedule that does not start at 0 and ascend with one factor per time.
-void validate_ode_tol_factors(const Control& control);
+// Refuses tolerance scales the stepper cannot use: one that is not positive,
+// or a schedule that does not start at 0 and ascend with one scale per time.
+void validate_ode_tol_scales(const Control& control);
 
 inline odelia::ode::OdeControl make_ode_control(const Control& control) {
   odelia::ode::OdeControl ret(control.ode_tol_abs,

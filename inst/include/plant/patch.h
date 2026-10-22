@@ -378,14 +378,9 @@ public:
   // the order ode_state writes it.
   bool ode_state_valid(const std::vector<double>& y) const;
 
-  // Each state's error-level factor on a step starting at `time`: the
-  // schedule's, times the soil's on its layers, bounded by ode_tol_factor_max.
-  void state_tolerance_factors(double time, std::vector<double>& f) const;
-  std::vector<double> r_state_tolerance_factors(double time) const {
-    std::vector<double> f;
-    state_tolerance_factors(time, f);
-    return f;
-  }
+  // Each state's tolerance multiplier on a step starting at `time`: the
+  // loosest that applies, the schedule's or, on a soil layer, the soil's.
+  void tolerance_scales(double time, std::vector<double>& scales) const;
 
   // Returns state in structure format as opposed to single 
   // vector as given by ode_state
@@ -736,7 +731,7 @@ Patch<T,E>::Patch(parameters_type p, environment_type e, Control c)
     control(c) {
 
   parameters.validate();
-  validate_ode_tol_factors(control);
+  validate_ode_tol_scales(control);
 
   // The validated member, not the argument: validate() derives the regime from
   // patch_type and max_patch_lifetime, so an argument whose lifetime was
@@ -766,7 +761,7 @@ Patch<T,E>::Patch(parameters_type p, environment_type e, Control c,
     control(c) {
 
   parameters.validate();
-  validate_ode_tol_factors(control);
+  validate_ode_tol_scales(control);
 
   survival_weighting = parameters.disturbance;
   check_retirement_coordinate();
@@ -2176,22 +2171,21 @@ Patch<T,E>::introduction_jacobian(const std::vector<size_t>& species_index,
   return ret;
 }
 
+// The loosest reason wins rather than the reasons multiplying, so a soil layer
+// late in a run is never loosened past the larger of the two.
 template <typename T, typename E>
-void Patch<T,E>::state_tolerance_factors(double time,
-                                         std::vector<double>& f) const {
-  const std::vector<double>& times = control.ode_tol_factor_times;
+void Patch<T,E>::tolerance_scales(double time,
+                                  std::vector<double>& scales) const {
+  const std::vector<double>& times = control.ode_tol_scale_times;
   const double scheduled = times.empty() ? 1.0 :
-    control.ode_tol_factor_values[static_cast<size_t>(
-      std::upper_bound(times.begin(), times.end(), time) - times.begin()) - 1];
-  f.assign(ode_size(), scheduled);
+    control.ode_tol_scale_values.at(static_cast<size_t>(
+      std::upper_bound(times.begin(), times.end(), time) - times.begin()) - 1);
+  scales.assign(ode_size(), scheduled);
   if constexpr (HasSoil<E>) {
     const auto [first, n] = subsystem();
     for (size_t i = first; i < first + n; ++i) {
-      f[i] *= control.ode_tol_factor_soil;
+      scales[i] = std::max(scheduled, control.ode_tol_scale_soil);
     }
-  }
-  for (double& x : f) {
-    x = std::min(x, control.ode_tol_factor_max);
   }
 }
 

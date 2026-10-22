@@ -31,19 +31,19 @@ fast-ish settings used for essentially all of plant's runs (see
 tolerances for high-accuracy runs at the cost of speed. \code{control_tf24()}
 sets TF24's step control: the relative tolerance \code{tol} with the
 absolute one at 1e-4 of it, the soil substepped, the soil layers' tolerance
-factor at 10, each factor bounded at 10, and steps capped at 15 days.
+at 10 times that, and steps capped at 15 days.
 }
 \details{
-The SCM's adaptive ODE stepper multiplies each state's error level by a
-tolerance factor, which decides which steps it takes and nothing else, so a
-factor above 1 loosens that state. \code{ode_tol_factor_soil} is the soil
-layers' factor. On a step starting at time \code{t}, every state's factor is
-also multiplied by the entry of \code{ode_tol_factor_values} paired with the
-last of \code{ode_tol_factor_times} at or before \code{t}; the times start at
-0 and are sorted. \code{ode_tol_factor_max} bounds each state's factor once
-the schedule's multiplies it. The factors default to 1, the schedule to empty
-and the bound to \code{Inf}, which leaves every step as it was.
+The SCM's adaptive ODE stepper can loosen some states' tolerances, which
+decides which steps it takes and nothing else. On a step starting at time
+\code{t}, every state's tolerance is multiplied by the entry of
+\code{ode_tol_scale_values} paired with the last of
+\code{ode_tol_scale_times} at or before \code{t} (the times start at 0 and
+are sorted), and a soil layer's by the larger of that and
+\code{ode_tol_scale_soil}. The scales default to 1 and the schedule to
+empty, which leaves every step as it was. Under Hairer's step-size rule a
+scale above 10 lets TF24's stages leave the hydraulics' domain, and the
+gradient is refused. The stochastic runner ignores the scales, and warns.
 
-Under \code{control_tf24()} the bound keeps a factored step's stages inside
-the hydraulics' domain, and the cap keeps an invader's storage pools stable.
+Under \code{control_tf24()} the cap keeps an invader's storage pools stable.
 }
