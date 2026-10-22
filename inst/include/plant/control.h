@@ -5,6 +5,7 @@
 #include <plant/qag.h>
 #include <odelia/ode_control.hpp>
 #include <string>
+#include <vector>
 
 // The `Control` object holds all the non-biological control
 // parameters.  These might get templated against different ways of
@@ -89,6 +90,13 @@ struct Control {
   // it whatever this is.
   bool ode_soil_substep;
 
+  // Multipliers on each state's error level, so a factor above 1 loosens it
+  // (see Patch::state_tolerance_factors).
+  double ode_tol_factor_soil;
+  std::vector<double> ode_tol_factor_times;
+  std::vector<double> ode_tol_factor_values;
+  double ode_tol_factor_max;
+
   // Fixed-step ODE integration (forward Euler).  Units: years.  When 0 (the
   // default) the SCM integrates residents with the adaptive, error-controlled
   // Cash-Karp RKCK solver.  When > 0 it instead uses plain forward Euler on a
@@ -132,6 +140,10 @@ struct Control {
 inline bool freezes_retired(const Control& c) {
   return c.absorb_epsilon > 0.0;
 }
+
+// Refuses tolerance factors the stepper cannot use: one that is not positive,
+// or a schedule that does not start at 0 and ascend with one factor per time.
+void validate_ode_tol_factors(const Control& control);
 
 inline odelia::ode::OdeControl make_ode_control(const Control& control) {
   odelia::ode::OdeControl ret(control.ode_tol_abs,

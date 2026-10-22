@@ -17,6 +17,12 @@ test_that("Defaults", {
     ode_tol_rel = 1e-4,
     # Only a step across a knot of the rain substeps the soil.
     ode_soil_substep = FALSE,
+    # Factors of one, no schedule and no bound leave every error level as it
+    # was.
+    ode_tol_factor_soil = 1,
+    ode_tol_factor_times = numeric(0),
+    ode_tol_factor_values = numeric(0),
+    ode_tol_factor_max = Inf,
     fixed_time_step = 0.0,
 
     function_integration_rule = 21, # size_t so not int
@@ -77,4 +83,30 @@ test_that("a Control or Parameters saved before a field existed still loads", {
   b <- run_scm(p, ctrl = Control(node_density_in_birth_date = TRUE))
   expect_identical(a$net_reproduction_ratios, b$net_reproduction_ratios)
   expect_equal(a$parameters$fitness_window_start, 0)
+})
+
+test_that("tolerance factors the stepper cannot use are refused", {
+  ## Refused where a patch takes its control, so a run fails before its first
+  ## step rather than at the step that reads the factor.
+  patch <- function(...) {
+    Patch("FF16", "FF16_Env")(Parameters("FF16", "FF16_Env")(),
+                              Environment("FF16"), Control(...))
+  }
+  expect_error(patch(ode_tol_factor_soil = 0), "must be positive")
+  expect_error(patch(ode_tol_factor_soil = NaN), "must be positive")
+  expect_error(patch(ode_tol_factor_max = 0), "must be positive")
+  expect_error(patch(ode_tol_factor_times = c(0, 1), ode_tol_factor_values = 1),
+               "one factor per")
+  expect_error(patch(ode_tol_factor_times = 1, ode_tol_factor_values = 2),
+               "must start at 0")
+  expect_error(patch(ode_tol_factor_times = c(0, 2, 1),
+                     ode_tol_factor_values = c(1, 2, 3)), "must be sorted")
+  expect_error(patch(ode_tol_factor_times = c(0, NaN),
+                     ode_tol_factor_values = c(1, 2)), "must be sorted")
+  expect_error(patch(ode_tol_factor_times = c(0, 1),
+                     ode_tol_factor_values = c(1, -2)), "must be positive")
+  expect_no_error(patch(ode_tol_factor_soil = 100,
+                        ode_tol_factor_times = c(0, 1),
+                        ode_tol_factor_values = c(1, 10),
+                        ode_tol_factor_max = 300))
 })

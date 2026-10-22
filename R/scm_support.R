@@ -2,12 +2,28 @@
 ##' the \code{Control()} constructor, whose defaults are the pragmatic,
 ##' fast-ish settings used for essentially all of plant's runs (see
 ##' \code{control.cpp}). \code{control_accurate()} tightens the ODE and schedule
-##' tolerances for high-accuracy runs at the cost of speed.
+##' tolerances for high-accuracy runs at the cost of speed. \code{control_tf24()}
+##' sets TF24's step control: the relative tolerance \code{tol} with the
+##' absolute one at 1e-4 of it, the soil substepped, the soil layers' tolerance
+##' factor at 10, each factor bounded at 10, and steps capped at 15 days.
+##'
+##' The SCM's adaptive ODE stepper multiplies each state's error level by a
+##' tolerance factor, which decides which steps it takes and nothing else, so a
+##' factor above 1 loosens that state. \code{ode_tol_factor_soil} is the soil
+##' layers' factor. On a step starting at time \code{t}, every state's factor is
+##' also multiplied by the entry of \code{ode_tol_factor_values} paired with the
+##' last of \code{ode_tol_factor_times} at or before \code{t}; the times start at
+##' 0 and are sorted. \code{ode_tol_factor_max} bounds each state's factor once
+##' the schedule's multiplies it. The factors default to 1, the schedule to empty
+##' and the bound to \code{Inf}, which leaves every step as it was.
+##'
+##' Under \code{control_tf24()} the bound keeps a factored step's stages inside
+##' the hydraulics' domain, and the cap keeps an invader's storage pools stable.
 ##'
 ##' @title Control presets
 ##' @param ... Named control fields, passed to \code{Control()}.
-##' @param base An optional \code{Control} object to tighten; defaults are used
-##'   if omitted.
+##' @param base An optional \code{Control} object to start from; defaults are
+##'   used if omitted.
 ##' @return A \code{Control} object.
 ##' @rdname control_presets
 ##' @export
@@ -20,6 +36,19 @@ control_accurate <- function(base = Control()) {
   base$ode_tol_abs       <- 1e-6
   base$ode_step_size_max <- 1e-1
   base$schedule_eps      <- 1e-3
+  base
+}
+
+##' @rdname control_presets
+##' @param tol The relative tolerance, \code{ode_tol_rel}.
+##' @export
+control_tf24 <- function(tol = 1e-4, base = Control()) {
+  base$ode_tol_rel         <- tol
+  base$ode_tol_abs         <- 1e-4 * tol
+  base$ode_soil_substep    <- TRUE
+  base$ode_tol_factor_soil <- 10
+  base$ode_tol_factor_max  <- 10
+  base$ode_step_size_max   <- 15 / 365
   base
 }
 

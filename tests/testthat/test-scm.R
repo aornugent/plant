@@ -293,6 +293,47 @@ test_that("TF24's soil is substepped where that lets a step grow", {
   expect_lt(error(run(TRUE, 3e-5)), error(substepped))
 })
 
+test_that("A run's steps answer to the tolerance factors, and at their defaults to nothing", {
+  ## TF24's environment holds the soil, so it is the model the soil's factor
+  ## reaches. One year is enough: what is checked is each step's decision.
+  p0 <- scm_base_parameters("TF24", "TF24_Env")
+  p0$max_patch_lifetime <- 1
+  p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
+  run <- function(...) run_scm(p, Environment("TF24"), Control(...))
+  same_run <- function(a, b) {
+    expect_identical(a$ode_times, b$ode_times)
+    expect_identical(a$ode_step_sizes, b$ode_step_sizes)
+    expect_identical(a$patch$ode_state, b$patch$ode_state)
+  }
+
+  ## Factors of one, a schedule of one factor of one, and a bound of one on
+  ## any factors are each the default exactly.
+  base <- run()
+  same_run(run(ode_tol_factor_soil = 1, ode_tol_factor_times = 0,
+               ode_tol_factor_values = 1), base)
+  same_run(run(ode_tol_factor_soil = 1e6, ode_tol_factor_times = c(0, 0.5),
+               ode_tol_factor_values = c(10, 100), ode_tol_factor_max = 1),
+           base)
+
+  ## The soil binds steps, so loosening it lengthens them.
+  loose <- run(ode_tol_factor_soil = 100)
+  expect_lt(length(loose$ode_times), length(base$ode_times))
+
+  ## The schedule's factor is read at each step's start, so every step that
+  ## starts before its second time is the default's.
+  late <- run(ode_tol_factor_times = c(0, 0.5),
+              ode_tol_factor_values = c(1, 100))
+  n <- sum(base$ode_times < 0.5) + 1
+  expect_identical(head(late$ode_times, n), head(base$ode_times, n))
+  expect_identical(head(late$ode_step_sizes, n), head(base$ode_step_sizes, n))
+  expect_lt(length(late$ode_times), length(base$ode_times))
+
+  ## A model with no soil gives the soil's factor nothing to scale.
+  ff <- add_strategies(scm_base_parameters("FF16"), trait_matrix(0.0825, "lma"))
+  same_run(run_scm(ff, ctrl = Control(ode_tol_factor_soil = 100)),
+           run_scm(ff, ctrl = Control()))
+})
+
 test_that("TF24 takes a daily rain record without being stopped at its knots", {
   ## Daily rain through a monotone cubic changes form at every day beside a wet
   ## one. A step across such a knot reads the rain only at its stages and misses
