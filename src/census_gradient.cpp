@@ -196,3 +196,10 @@ census_trait_gradient_ff16(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy
 Rcpp::NumericVector gradient_control_ff16(plant::RcppR6::RcppR6<plant::SCM<plant::FF16_Strategy<double>, plant::FF16_Environment<double> > > obj_) {
   return control_of(*obj_);
 }
+
+// Hold the field fixed in the last seed of every sweep that follows: that row is
+// then the derivative an invader standing in this run's field would have.
+// [[Rcpp::export]]
+void field_cut_hold(bool held) {
+  odelia::ode::recorded_field().held = held;
+}

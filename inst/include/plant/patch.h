@@ -563,6 +563,16 @@ private:
     competition_capture;
   void compute_environment_excl_capturing();
   void compute_environment_closing();
+  // With the field held (odelia's recorded_field), mark it between its build and
+  // its first read.
+  void mark_field() {
+    using active = odelia::ode::active_scalar<double>;
+    if constexpr (std::is_same_v<value_type, active> &&
+                  requires(E& e) { e.for_each_field_value([](const active&) {}); }) {
+      odelia::ode::mark_field(
+          [&](auto&& add) { environment.for_each_field_value(add); });
+    }
+  }
 
   void compute_environment();
   void compute_rates();
@@ -1422,8 +1432,10 @@ void Patch<T,E>::compute_environment() {
   }
 
   compute_environment_excl_capturing();
+  mark_field();
   compute_boundary_nodes();
   compute_environment_closing();
+  mark_field();
 
   // Kept here and nowhere else, because this is where the field comes to exist.
   if (field_slot != nullptr) {

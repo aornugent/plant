@@ -4661,6 +4661,10 @@ gradient_control_ff16 <- function(obj_) {
     .Call('_plant_gradient_control_ff16', PACKAGE = 'plant', obj_)
 }
 
+field_cut_hold <- function(held) {
+    invisible(.Call('_plant_field_cut_hold', PACKAGE = 'plant', held))
+}
+
 node_schedule_default__Parameters___FF16__FF16_Env <- function(p) {
     .Call('_plant_node_schedule_default__Parameters___FF16__FF16_Env', PACKAGE = 'plant', p)
 }

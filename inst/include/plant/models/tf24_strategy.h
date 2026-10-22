@@ -776,6 +776,10 @@ public:
       });
   }
 
+  // Each species' net reproduction ratio and offspring production as stand
+  // metrics beside the census.
+  static constexpr bool differentiable_fitness = true;
+
   // The metrics a census of this model sums, in the order it reports them. Beside
   // the state and aux names because all three say what this model calls its own
   // quantities -- and every slot is read by its cached index, which is how every
