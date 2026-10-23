@@ -446,6 +446,14 @@ public:
                               light_availability);
   }
 
+  // What a node's rates read: the light field and the soil water potentials,
+  // derived here so that a reader finds them already built.
+  template <class F>
+  void for_each_field_value(F&& f) {
+    get_soil_water_potential_state();
+    odelia::ode::visit_active(f, light_availability, psi_soil_);
+  }
+
   // Light interface
   //distance between layers
   int soil_number_of_depths;

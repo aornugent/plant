@@ -199,6 +199,12 @@ public:
     odelia::ode::visit_active(f, light_availability);
   }
 
+  // What a node's rates read: the light field.
+  template <class F>
+  void for_each_field_value(F&& f) {
+    odelia::ode::visit_active(f, light_availability);
+  }
+
   // Another environment's values, written into this one. The light spline is
   // not among them, for the reason a TF24 rebind leaves it: it is derived from
   // the state, and whoever sets a state rebuilds it.

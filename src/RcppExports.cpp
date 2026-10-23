@@ -13196,6 +13196,16 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// fix_field_in_last_sweep
+void fix_field_in_last_sweep(bool fixed);
+RcppExport SEXP _plant_fix_field_in_last_sweep(SEXP fixedSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< bool >::type fixed(fixedSEXP);
+    fix_field_in_last_sweep(fixed);
+    return R_NilValue;
+END_RCPP
+}
 // node_schedule_default__Parameters___FF16__FF16_Env
 plant::NodeSchedule node_schedule_default__Parameters___FF16__FF16_Env(const plant::Parameters<plant::FF16_Strategy<double>,plant::FF16_Environment<double>>& p);
 RcppExport SEXP _plant_node_schedule_default__Parameters___FF16__FF16_Env(SEXP pSEXP) {
@@ -14999,6 +15009,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_plant_census_undifferentiable_ff16", (DL_FUNC) &_plant_census_undifferentiable_ff16, 0},
     {"_plant_census_trait_gradient_ff16", (DL_FUNC) &_plant_census_trait_gradient_ff16, 2},
     {"_plant_gradient_control_ff16", (DL_FUNC) &_plant_gradient_control_ff16, 1},
+    {"_plant_fix_field_in_last_sweep", (DL_FUNC) &_plant_fix_field_in_last_sweep, 1},
     {"_plant_node_schedule_default__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_node_schedule_default__Parameters___FF16__FF16_Env, 1},
     {"_plant_make_node_schedule__Parameters___FF16__FF16_Env", (DL_FUNC) &_plant_make_node_schedule__Parameters___FF16__FF16_Env, 1},
     {"_plant_test_gradient_fd1", (DL_FUNC) &_plant_test_gradient_fd1, 5},
