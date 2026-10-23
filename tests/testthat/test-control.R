@@ -17,10 +17,8 @@ test_that("Defaults", {
     ode_tol_rel = 1e-4,
     # Only a step across a knot of the rain substeps the soil.
     ode_soil_substep = FALSE,
-    # Scales of one and no schedule leave every tolerance as it was.
+    # A scale of one leaves the soil's tolerance as it was.
     ode_tol_scale_soil = 1,
-    ode_tol_scale_times = numeric(0),
-    ode_tol_scale_values = numeric(0),
     fixed_time_step = 0.0,
 
     function_integration_rule = 21, # size_t so not int
@@ -83,7 +81,7 @@ test_that("a Control or Parameters saved before a field existed still loads", {
   expect_equal(a$parameters$fitness_window_start, 0)
 })
 
-test_that("tolerance scales the stepper cannot use are refused", {
+test_that("a tolerance scale the stepper cannot use is refused", {
   ## Refused where a patch takes its control, so a run fails before its first
   ## step rather than at the step that reads the scale.
   patch <- function(...) {
@@ -92,17 +90,5 @@ test_that("tolerance scales the stepper cannot use are refused", {
   }
   expect_error(patch(ode_tol_scale_soil = 0), "must be positive")
   expect_error(patch(ode_tol_scale_soil = NaN), "must be positive")
-  expect_error(patch(ode_tol_scale_times = c(0, 1), ode_tol_scale_values = 1),
-               "one scale per")
-  expect_error(patch(ode_tol_scale_times = 1, ode_tol_scale_values = 2),
-               "must start at 0")
-  expect_error(patch(ode_tol_scale_times = c(0, 2, 1),
-                     ode_tol_scale_values = c(1, 2, 3)), "must be sorted")
-  expect_error(patch(ode_tol_scale_times = c(0, NaN),
-                     ode_tol_scale_values = c(1, 2)), "must be sorted")
-  expect_error(patch(ode_tol_scale_times = c(0, 1),
-                     ode_tol_scale_values = c(1, -2)), "must be positive")
-  expect_no_error(patch(ode_tol_scale_soil = 100,
-                        ode_tol_scale_times = c(0, 1),
-                        ode_tol_scale_values = c(1, 10)))
+  expect_no_error(patch(ode_tol_scale_soil = 100))
 })

@@ -5,7 +5,6 @@
 #include <plant/qag.h>
 #include <odelia/ode_control.hpp>
 #include <string>
-#include <vector>
 
 // The `Control` object holds all the non-biological control
 // parameters.  These might get templated against different ways of
@@ -90,11 +89,8 @@ struct Control {
   // it whatever this is.
   bool ode_soil_substep;
 
-  // Multipliers on a state's tolerance, so a scale above 1 loosens it: the
-  // soil layers', and every state's by time (see Patch::tolerance_scales).
+  // Multiplies the tolerance on TF24's soil layers, so above 1 loosens it.
   double ode_tol_scale_soil;
-  std::vector<double> ode_tol_scale_times;
-  std::vector<double> ode_tol_scale_values;
 
   // Fixed-step ODE integration (forward Euler).  Units: years.  When 0 (the
   // default) the SCM integrates residents with the adaptive, error-controlled
@@ -140,8 +136,7 @@ inline bool freezes_retired(const Control& c) {
   return c.absorb_epsilon > 0.0;
 }
 
-// Refuses tolerance scales the stepper cannot use: one that is not positive,
-// or a schedule that does not start at 0 and ascend with one scale per time.
+// Refuses a tolerance scale the stepper cannot use: one that is not positive.
 void validate_ode_tol_scales(const Control& control);
 
 inline odelia::ode::OdeControl make_ode_control(const Control& control) {

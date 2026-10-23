@@ -438,8 +438,6 @@ template <> inline SEXP wrap(const plant::Control& x) {
   ret["ode_a_dydt"] = Rcpp::wrap(x.ode_a_dydt);
   ret["ode_soil_substep"] = Rcpp::wrap(x.ode_soil_substep);
   ret["ode_tol_scale_soil"] = Rcpp::wrap(x.ode_tol_scale_soil);
-  ret["ode_tol_scale_times"] = Rcpp::wrap(x.ode_tol_scale_times);
-  ret["ode_tol_scale_values"] = Rcpp::wrap(x.ode_tol_scale_values);
   ret["fixed_time_step"] = Rcpp::wrap(x.fixed_time_step);
   ret["schedule_nsteps"] = Rcpp::wrap(x.schedule_nsteps);
   ret["schedule_eps"] = Rcpp::wrap(x.schedule_eps);
@@ -503,10 +501,6 @@ template <> inline plant::Control as(SEXP x) {
   if (xl.containsElementNamed("ode_soil_substep")) ret.ode_soil_substep = Rcpp::as<bool >(xl["ode_soil_substep"]);
   // ret.ode_tol_scale_soil = Rcpp::as<decltype(retode_tol_scale_soil) >(xl["ode_tol_scale_soil"]);
   if (xl.containsElementNamed("ode_tol_scale_soil")) ret.ode_tol_scale_soil = Rcpp::as<double >(xl["ode_tol_scale_soil"]);
-  // ret.ode_tol_scale_times = Rcpp::as<decltype(retode_tol_scale_times) >(xl["ode_tol_scale_times"]);
-  if (xl.containsElementNamed("ode_tol_scale_times")) ret.ode_tol_scale_times = Rcpp::as<std::vector<double> >(xl["ode_tol_scale_times"]);
-  // ret.ode_tol_scale_values = Rcpp::as<decltype(retode_tol_scale_values) >(xl["ode_tol_scale_values"]);
-  if (xl.containsElementNamed("ode_tol_scale_values")) ret.ode_tol_scale_values = Rcpp::as<std::vector<double> >(xl["ode_tol_scale_values"]);
   // ret.fixed_time_step = Rcpp::as<decltype(retfixed_time_step) >(xl["fixed_time_step"]);
   if (xl.containsElementNamed("fixed_time_step")) ret.fixed_time_step = Rcpp::as<double >(xl["fixed_time_step"]);
   // ret.schedule_nsteps = Rcpp::as<decltype(retschedule_nsteps) >(xl["schedule_nsteps"]);

@@ -44,10 +44,7 @@ Control::Control() {
   ode_a_y           = 1.0;
   ode_a_dydt        = 0.0;
   ode_soil_substep  = false;
-  // Every state at the tolerances above.
-  ode_tol_scale_soil   = 1.0;
-  ode_tol_scale_times  = {};
-  ode_tol_scale_values = {};
+  ode_tol_scale_soil = 1.0;
 
   // 0 = adaptive RKCK (default); > 0 selects fixed-step forward Euler with this
   // spacing in years (see control.h).
@@ -86,27 +83,10 @@ Control::Control() {
   ci_niter = 1e3;
 }
 
-// Each comparison is written so that a NaN fails it.
+// Written so that a NaN fails it.
 void validate_ode_tol_scales(const Control& control) {
   if (!(control.ode_tol_scale_soil > 0.0)) {
     util::stop("ode_tol_scale_soil must be positive");
-  }
-  const std::vector<double>& times = control.ode_tol_scale_times;
-  const std::vector<double>& scales = control.ode_tol_scale_values;
-  if (scales.size() != times.size()) {
-    util::stop("ode_tol_scale_values must hold one scale per "
-               "ode_tol_scale_times entry");
-  }
-  if (!times.empty() && !(times[0] == 0.0)) {
-    util::stop("ode_tol_scale_times must start at 0");
-  }
-  for (size_t i = 0; i < times.size(); ++i) {
-    if (i > 0 && !(times[i] >= times[i - 1])) {
-      util::stop("ode_tol_scale_times must be sorted");
-    }
-    if (!(scales[i] > 0.0)) {
-      util::stop("ode_tol_scale_values must be positive");
-    }
   }
 }
 

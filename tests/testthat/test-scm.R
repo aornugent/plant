@@ -293,9 +293,9 @@ test_that("TF24's soil is substepped where that lets a step grow", {
   expect_lt(error(run(TRUE, 3e-5)), error(substepped))
 })
 
-test_that("A run's steps answer to the tolerance scales, and at their defaults to nothing", {
-  ## TF24's environment holds the soil, so it is the model the soil's scale
-  ## reaches. One year is enough: what is checked is each step's decision.
+test_that("A run's steps answer to the soil's tolerance scale, and at one to nothing", {
+  ## TF24's environment holds the soil, so it is the model the scale reaches.
+  ## One year is enough: what is checked is each step's decision.
   p0 <- scm_base_parameters("TF24", "TF24_Env")
   p0$max_patch_lifetime <- 1
   p <- add_strategies(p0, trait_matrix(0.1978791, "lma"))
@@ -306,44 +306,26 @@ test_that("A run's steps answer to the tolerance scales, and at their defaults t
     expect_identical(a$patch$ode_state, b$patch$ode_state)
   }
 
-  ## Scales of one, and a schedule of one scale of one, are the default exactly.
+  ## A scale of one is the default exactly.
   base <- run()
-  same_run(run(ode_tol_scale_soil = 1, ode_tol_scale_times = 0,
-               ode_tol_scale_values = 1), base)
+  same_run(run(ode_tol_scale_soil = 1), base)
 
   ## The soil binds steps, so loosening it lengthens them.
   soil <- run(ode_tol_scale_soil = 10)
   expect_lt(length(soil$ode_times), length(base$ode_times))
 
-  ## The loosest reason wins: with every state scheduled at 10, a soil scale of
-  ## 10 loosens nothing further, where a product would put the soil at 100.
-  everywhere <- run(ode_tol_scale_times = 0, ode_tol_scale_values = 10)
-  same_run(run(ode_tol_scale_soil = 10, ode_tol_scale_times = 0,
-               ode_tol_scale_values = 10), everywhere)
-
-  ## The schedule's scale is read at each step's start, so every step that
-  ## starts before its second time is the default's.
-  late <- run(ode_tol_scale_times = c(0, 0.5),
-              ode_tol_scale_values = c(1, 100))
-  n <- sum(base$ode_times < 0.5) + 1
-  expect_identical(head(late$ode_times, n), head(base$ode_times, n))
-  expect_identical(head(late$ode_step_sizes, n), head(base$ode_step_sizes, n))
-  expect_lt(length(late$ode_times), length(base$ode_times))
-
-  ## A model with no soil gives the soil's scale nothing to loosen.
+  ## A model with no soil gives the scale nothing to loosen.
   ff <- add_strategies(scm_base_parameters("FF16"), trait_matrix(0.0825, "lma"))
   same_run(run_scm(ff, ctrl = Control(ode_tol_scale_soil = 100)),
            run_scm(ff, ctrl = Control()))
 })
 
-test_that("The stochastic runner warns that it ignores the tolerance scales", {
+test_that("The stochastic runner warns that it ignores the soil's tolerance scale", {
   p <- add_strategies(scm_base_parameters("FF16"), trait_matrix(0.0825, "lma"))
   runner <- function(ctrl) {
     StochasticPatchRunner("FF16", "FF16_Env")(p, Environment("FF16"), ctrl)
   }
   expect_warning(runner(Control(ode_tol_scale_soil = 10)), "ignores")
-  expect_warning(runner(Control(ode_tol_scale_times = 0,
-                                ode_tol_scale_values = 2)), "ignores")
   expect_no_warning(runner(Control()))
 })
 

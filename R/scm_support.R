@@ -7,16 +7,10 @@
 ##' absolute one at 1e-4 of it, the soil substepped, the soil layers' tolerance
 ##' at 10 times that, and steps capped at 15 days.
 ##'
-##' The SCM's adaptive ODE stepper can loosen some states' tolerances, which
-##' decides which steps it takes and nothing else. On a step starting at time
-##' \code{t}, every state's tolerance is multiplied by the entry of
-##' \code{ode_tol_scale_values} paired with the last of
-##' \code{ode_tol_scale_times} at or before \code{t} (the times start at 0 and
-##' are sorted), and a soil layer's by the larger of that and
-##' \code{ode_tol_scale_soil}. The scales default to 1 and the schedule to
-##' empty, which leaves every step as it was. Under Hairer's step-size rule a
-##' scale above 10 lets TF24's stages leave the hydraulics' domain, and the
-##' gradient is refused. The stochastic runner ignores the scales, and warns.
+##' \code{ode_tol_scale_soil} multiplies the tolerance on TF24's soil layers in
+##' the SCM's adaptive steps, which decides which steps it takes and nothing
+##' else. Its default of 1 leaves every step as it was. The stochastic runner
+##' ignores it, and warns.
 ##'
 ##' Under \code{control_tf24()} the cap keeps an invader's storage pools stable.
 ##'
