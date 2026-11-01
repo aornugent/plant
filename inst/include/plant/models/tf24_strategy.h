@@ -898,7 +898,7 @@ public:
   //   0.20), so on the energy-balance path net radiation falls to about half;
   //   and `a` is `phi_J` on an absorbed basis, which reassociates J. TF24f and
   //   TF24t follow to v13.1 and v13.4.
-  // v14: phylloptim 0.16.0 -> 0.26.1, the leaf where it stops moving water or
+  // v14: phylloptim 0.16.0 -> 0.26.2, the leaf where it stops moving water or
   //   gas. A shut leaf is the ordinary evaluator at its wet bound, so in light it
   //   nets zero instead of -R_d and profit no longer jumps at shutdown or at the
   //   light-compensation point; psi_crit is no longer a bound, so the stem
