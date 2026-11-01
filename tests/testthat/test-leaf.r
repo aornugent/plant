@@ -74,7 +74,8 @@ test_that("Basic functions", {
   expect_true(is.na(l$leaf_specific_conductance_max_))
   expect_true(is.na(l$atm_vpd_))
   expect_true(is.na(l$ca_))
-  expect_true(is.na(l$lambda_))
+  # CF77's lambda, which is a trait with a default rather than an output
+  expect_true(is.finite(l$lambda_))
   expect_true(is.na(l$atm_o2_kpa_))
   expect_true(is.na(l$leaf_temp_))
   expect_true(is.na(l$ci_))
@@ -82,7 +83,6 @@ test_that("Basic functions", {
   expect_true(is.na(l$assim_colimited_))
   expect_true(is.na(l$transpiration_))
   expect_true(is.na(l$profit_))
-  expect_true(is.na(l$lambda_))
   expect_true(is.na(l$hydraulic_cost_))
   expect_true(is.na(l$electron_transport_))
   expect_true(is.na(l$gamma_))
@@ -184,7 +184,8 @@ expect_error(l$set_physiology(root_network = net(rep((root_carbon_) / area_leaf_
   expect_true(is.na(l$leaf_specific_conductance_max_))
   expect_true(is.na(l$atm_vpd_))
   expect_true(is.na(l$ca_))
-  expect_true(is.na(l$lambda_))
+  # CF77's lambda, which is a trait with a default rather than an output
+  expect_true(is.finite(l$lambda_))
   expect_true(is.na(l$atm_o2_kpa_))
   expect_true(is.na(l$leaf_temp_))
   expect_true(is.na(l$ci_))
@@ -192,7 +193,6 @@ expect_error(l$set_physiology(root_network = net(rep((root_carbon_) / area_leaf_
   expect_true(is.na(l$assim_colimited_))
   expect_true(is.na(l$transpiration_))
   expect_true(is.na(l$profit_))
-  expect_true(is.na(l$lambda_))
   expect_true(is.na(l$hydraulic_cost_))
   expect_true(is.na(l$electron_transport_))
   expect_true(is.na(l$gamma_))
@@ -225,9 +225,9 @@ expect_error(l$set_physiology(root_network = net(rep((root_carbon_) / area_leaf_
   psi_stem <- psi_soil+1 #stem water potential (-MPa)
   expect_true(l$transpiration(psi_stem[1], psi_soil[1]) > 0)
   
-  #for situations where psi_soil is < than psi_crit and psi_stem is less than psi_soil, creates negative value. Ordinarily an undesirable property which is typically banned (stem assumed to have minimum water potential at psi_soil)
+  #for situations where psi_soil is < than psi_crit and psi_stem is less than psi_soil: water would flow from the leaf to the soil, which is refused
   psi_stem <- psi_soil-1 #stem water potential (-MPa)
-  expect_true(l$transpiration(psi_stem[1], psi_soil[1]) < 0)
+  expect_error(l$transpiration(psi_stem[1], psi_soil[1]), "leaf to the soil")
   
   #for situations where psi_soil is < than psi_crit and psi_stem is equal to psi_soil
   psi_stem <- psi_soil #stem water potential (-MPa)
@@ -676,9 +676,9 @@ l$find_root_collar_psi()
 expect_true(l$opt_psi_stem_ > 0)
 # opt_root_psi_ is a positive magnitude, like every other psi (phylloptim #25).
 expect_true(l$opt_root_psi_ > 0)
-# at zero transpiration the stem equilibrates with the collar: same potential, and
-# now literally the same number rather than a magnitude paired with its negation.
-expect_equal(l$opt_psi_stem_, l$opt_root_psi_)
+# at zero transpiration the stem equilibrates with the collar: the same potential
+# to the step the shut state is taken inside its wet bound (1e-6 of its scale).
+expect_equal(l$opt_psi_stem_, l$opt_root_psi_, tolerance = 1e-6)
 })
 
 # Medlyn stomatal-conductance model (ported/adapted from develop #450). The
@@ -761,8 +761,9 @@ test_that("Medlyn stomatal model", {
   expect_equal(l2$stom_cond_CO2_, l$stom_cond_CO2_, tolerance = 1e-6)
 
   # analytical version: stomatal conductance decreases with rising vapour-pressure
-  # deficit (Medlyn 2011 1/sqrt(D) sensitivity)
-  D <- seq(0.5, 5, 0.25)
+  # deficit (Medlyn 2011 1/sqrt(D) sensitivity). Up to 3 kPa: the saturation
+  # vapour pressure at 25 C is 3.17, and a deficit past it is refused.
+  D <- seq(0.5, 3, 0.25)
   gs <- vapply(D, function(d) {
     li <- set_phys(make_leaf(), atm_vpd = d)
     li$g1 <- 3.3

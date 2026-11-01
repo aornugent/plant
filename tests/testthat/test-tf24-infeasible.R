@@ -5,11 +5,12 @@
 # which is what these check, for both solve_leaf bodies.
 
 infeasible_rates <- function(strategy, individual) {
-  # A root curve this shallow leaves no valid root conductance at the soil's
-  # potential, which phylloptim reports as an infeasible uptake.
-  p <- strategy$pars
-  p$root_c <- 0.05
-  strategy$pars <- p
+  # A dry, dark or hot leaf is a value rather than an infeasibility since
+  # phylloptim 0.19, so what is left is a solver that cannot converge: a root-find
+  # held to one iteration, which phylloptim reports as infeasible.
+  ctrl <- strategy$control
+  ctrl$ci_niter <- 1
+  strategy$control <- ctrl
   ind <- individual(strategy)
   ind$set_state("height", 5)
   env <- TF24_Environment()
